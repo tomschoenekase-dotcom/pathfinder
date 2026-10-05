@@ -179,6 +179,7 @@ const EXPECTED_TOOLS = [
   'venues.propose_operational_update_schedule',
   'venues.propose_operational_update_end',
   'appearance.propose_update',
+  'appearance.propose_guest_actions',
   'customers.propose_invite',
   'customers.propose_create',
   'offboarding.propose_execution',
@@ -434,6 +435,34 @@ describe('operator MCP inputs', () => {
     const entry = { title: 'Hours', body: 'Open daily' }
     expect(knowledge.safeParse({ ...base, entries: Array(50).fill(entry) }).success).toBe(true)
     expect(knowledge.safeParse({ ...base, entries: Array(51).fill(entry) }).success).toBe(false)
+  })
+
+  it('validates proposed guest actions like the dashboard does', () => {
+    const schema = OPERATOR_MCP_INPUTS['appearance.propose_guest_actions']
+    const base = {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      expectedUpdatedAt: '2026-10-04T12:00:00.000Z',
+    }
+    const action = {
+      id: 'season-pass',
+      label: 'Buy a season pass',
+      url: 'https://tickets.example.com/pass?promo=FALL',
+      actionType: 'BUY_PASS',
+    }
+    expect(schema.safeParse(base).success).toBe(false)
+    expect(schema.safeParse({ ...base, actionButtons: true }).success).toBe(true)
+    expect(schema.safeParse({ ...base, guestActions: [action] }).success).toBe(true)
+    expect(
+      schema.safeParse({
+        ...base,
+        guestActions: [{ ...action, url: 'http://tickets.example.com' }],
+      }).success,
+    ).toBe(false)
+    expect(getOperatorToolDefinition('appearance.propose_guest_actions')?.proposalKind).toBe(
+      'appearance.guest-actions',
+    )
   })
 
   it('reuses the appearance update rules', () => {

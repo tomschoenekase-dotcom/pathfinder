@@ -13,7 +13,10 @@ import styles from './visitor-chat.module.css'
 import { TypingIndicator } from './TypingIndicator'
 import { getChatLanguagePresentation } from './LanguagePicker'
 import { getVisitorUiCopy } from './visitor-ui-copy'
-import { shouldDismissKeyboardOnSubmit } from '../hooks/useChatViewportHeight'
+import {
+  createComposerTapFocus,
+  shouldDismissKeyboardOnSubmit,
+} from '../hooks/useChatViewportHeight'
 
 type Message = {
   id?: string
@@ -128,6 +131,7 @@ export function ChatWindow({
   >(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const [composerTapFocus] = useState(createComposerTapFocus)
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
   const sendTouchStartRef = useRef<{ id: number; x: number; y: number } | null>(null)
   const lastSendTouchEndAtRef = useRef(0)
@@ -496,6 +500,8 @@ export function ChatWindow({
               aria-placeholder={placeholder}
               rows={1}
               value={draft}
+              onTouchStart={composerTapFocus.onTouchStart}
+              onTouchEnd={composerTapFocus.onTouchEnd}
               onChange={(event) => {
                 const nextDraft = event.target.value
                 setDraft(nextDraft)

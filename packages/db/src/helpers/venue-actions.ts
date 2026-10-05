@@ -11,6 +11,11 @@ import {
   parseChatAppearance,
   type ChatAppearance,
 } from '@pathfinder/contracts/chat-appearance'
+import {
+  GuestActionCatalog,
+  readStoredGuestActions,
+  withStoredGuestActions,
+} from '@pathfinder/contracts/guest-action-links'
 import * as prismaClient from '@prisma/client'
 
 import { db } from '../client'
@@ -83,6 +88,37 @@ function requireChatDesignActor(actor: VenueChatDesignActor): void {
   ) {
     throw new VenueActionError('INVALID_INPUT', 'A human venue design operator is required')
   }
+}
+
+function parseGuestActions(actions: unknown): GuestActionCatalog {
+  const parsed = GuestActionCatalog.safeParse(actions)
+  if (!parsed.success)
+    throw new VenueActionError(
+      'INVALID_INPUT',
+      parsed.error.issues[0]?.message ?? 'Guest actions are invalid.',
+    )
+  return parsed.data
+}
+
+async function assertGuestActionPlaces(
+  tx: typeof db,
+  tenantId: string,
+  venueId: string,
+  actions: GuestActionCatalog,
+): Promise<void> {
+  const placeIds = [
+    ...new Set(actions.flatMap((action) => (action.placeId ? [action.placeId] : []))),
+  ]
+  if (!placeIds.length) return
+  const found = await tx.place.findMany({
+    where: { tenantId, venueId, id: { in: placeIds } },
+    select: { id: true },
+  })
+  if (found.length !== placeIds.length)
+    throw new VenueActionError(
+      'INVALID_INPUT',
+      'A guest action refers to a place outside this venue.',
+    )
 }
 
 function canonicalJson(value: unknown): string {
@@ -412,6 +448,8 @@ export type UpdateVenueChatDesignFields = {
   chatShowLinks?: boolean | undefined
   /** Validated by the caller against the shared ChatAppearance contract. */
   chatAppearance?: ChatAppearance | null | undefined
+  /** Replaces the venue's approved guest actions; stored beside the appearance document. */
+  guestActions?: GuestActionCatalog | undefined
 }
 
 type BrandingDerivativeReceipt = {
@@ -535,7 +573,39 @@ export async function updateVenueChatDesignAction(
         title,
       }
     }
-    const requestedEntries: Array<[string, unknown]> = Object.entries(fields).filter(
+    const { guestActions: requestedActions, ...appearanceFields } = fields
+    if (requestedActions !== undefined || appearanceFields.chatAppearance !== undefined) {
+      // The catalog shares the appearance JSON column: carry whichever half is unchanged.
+      const actions =
+        requestedActions !== undefined
+          ? parseGuestActions(requestedActions)
+          : readStoredGuestActions(before.chatAppearance)
+      if (requestedActions !== undefined) {
+        await assertGuestActionPlaces(
+          tx,
+          input.tenantId,
+          input.venueId,
+          actions as GuestActionCatalog,
+        )
+      }
+      const stored = parseChatAppearance(before.chatAppearance)
+      const appearance =
+        appearanceFields.chatAppearance !== undefined
+          ? appearanceFields.chatAppearance && {
+              ...appearanceFields.chatAppearance,
+              // A client that predates the action switches keeps the stored choice.
+              actionLinks: appearanceFields.chatAppearance.actionLinks ?? stored.actionLinks,
+              actionButtons: appearanceFields.chatAppearance.actionButtons ?? stored.actionButtons,
+            }
+          : before.chatAppearance
+      appearanceFields.chatAppearance = withStoredGuestActions(
+        appearance && typeof appearance === 'object' && !Array.isArray(appearance)
+          ? (appearance as Record<string, unknown>)
+          : null,
+        actions,
+      ) as ChatAppearance | null
+    }
+    const requestedEntries: Array<[string, unknown]> = Object.entries(appearanceFields).filter(
       ([key, value]) => value !== undefined && !key.endsWith('DerivativeReceipt'),
     )
     for (const key of ['chatLogo', 'chatBanner'] as const) {
@@ -639,7 +709,12 @@ export async function updateVenueChatDesignAction(
     }
     const exactReplay = requestedEntries.every(([key, value]) => {
       const current = before[key as keyof typeof before]
-      if (key === 'chatAppearance') return chatAppearanceEquals(current, value)
+      if (key === 'chatAppearance')
+        return (
+          chatAppearanceEquals(current, value) &&
+          canonicalJson(readStoredGuestActions(current)) ===
+            canonicalJson(readStoredGuestActions(value))
+        )
       if (current === value) return true
       return (
         current !== null &&

@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const workflow = (await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'))
-  .replaceAll('\r\n', '\n')
+const workflow = (
+  await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+).replaceAll('\r\n', '\n')
 
 function jobBlock(name) {
   const match = workflow.match(
@@ -21,8 +22,9 @@ test('required job names are unchanged and the aggregate gate exists', () => {
   for (const name of ['plan', 'railway-iac', 'visitor-launch', 'ci', 'ci-required']) jobBlock(name)
 })
 
-test('ci and visitor-launch are never skipped by a failed or missing plan', () => {
-  assert.match(jobBlock('ci'), /^    if: \$\{\{ !cancelled\(\) \}\}$/mu)
+test('ci aggregate and core checks are never skipped by a failed or missing plan', () => {
+  assert.match(jobBlock('ci'), /^    if: \$\{\{ always\(\) \}\}$/mu)
+  assert.match(jobBlock('policy-and-integration'), /^    if: \$\{\{ !cancelled\(\) \}\}$/mu)
   assert.match(
     jobBlock('visitor-launch'),
     /^    if: \$\{\{ !cancelled\(\) && needs\.plan\.outputs\.run_visitor_launch != 'false' \}\}$/mu,
@@ -39,7 +41,7 @@ test('every plan-driven condition skips only on an explicit false', () => {
   }
 })
 
-test('static policy checks and script tests are unconditional in the ci job', () => {
+test('static policy checks and script tests are unconditional in the policy job', () => {
   const unconditional = [
     'pnpm audit:prod',
     'pnpm verify:staging',
@@ -55,7 +57,7 @@ test('static policy checks and script tests are unconditional in the ci job', ()
     'scripts/staging-health-admission.test.mjs',
     'scripts/staging-widget-admission.test.mjs',
   ]
-  const ciSteps = steps(jobBlock('ci'))
+  const ciSteps = steps(jobBlock('policy-and-integration'))
   for (const command of unconditional) {
     const step = ciSteps.find((candidate) => candidate.includes(command))
     assert.ok(step, command)
@@ -105,7 +107,20 @@ test('merge queues and manual runs trigger CI and are never cancelled', () => {
 
 test('the aggregate gate always runs and depends on every required job', () => {
   const gate = jobBlock('ci-required')
-  assert.match(gate, /^    needs: \[plan, ci, railway-iac, visitor-launch\]$/mu)
+  const dependencies = gate
+    .match(/needs:\s*\[([\s\S]*?)\]/u)?.[1]
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  assert.deepEqual(dependencies, [
+    'plan',
+    'ci',
+    'railway-iac',
+    'visitor-launch',
+    'policy-and-integration',
+    'browser-gates',
+    'workspace-checks',
+  ])
   assert.match(gate, /^    if: \$\{\{ always\(\) \}\}$/mu)
   assert.match(gate, /NEEDS_JSON: \$\{\{ toJSON\(needs\) \}\}/u)
   assert.match(gate, /run: node scripts\/ci-required-gate\.mjs/u)

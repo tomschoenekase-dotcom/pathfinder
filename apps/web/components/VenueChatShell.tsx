@@ -32,7 +32,7 @@ import { getVisitorSettingsCopy } from './visitor-settings-copy'
 import { getVisitorStateCopy, getVisitorUiCopy, localizeVisitorShellError } from './visitor-ui-copy'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
-import { useChatViewportHeight } from '../hooks/useChatViewportHeight'
+import { isAppleTouchWebKit, useChatViewportHeight } from '../hooks/useChatViewportHeight'
 import { ViewportDebugOverlay } from './ViewportDebugOverlay'
 import {
   DEFAULT_VISITOR_PREFERENCES,
@@ -276,6 +276,8 @@ export function VenueChatShell(props: {
   const isOnline = connectionState !== 'offline'
   const compactAppHeader = presentation === 'webview' && appHeader === 'compact'
   const viewportHeight = useChatViewportHeight()
+  const [keyboardMotion, setKeyboardMotion] = useState(false)
+  useEffect(() => setKeyboardMotion(isAppleTouchWebKit()), [])
   const appearance = parseChatAppearance(venue.chatAppearance)
   const museumStarfield =
     venue.id === SPACE_MUSEUM_VENUE_ID &&
@@ -333,6 +335,7 @@ export function VenueChatShell(props: {
         data-chat-shell
         data-viewport-pinned={viewportHeight !== undefined ? true : undefined}
         data-keyboard-open={viewportHeight?.keyboardOpen ? true : undefined}
+        data-keyboard-motion={keyboardMotion ? true : undefined}
         data-text-size={preferences.textSize}
         data-contrast={preferences.highContrast ? 'high' : 'standard'}
         data-speaker-labels={tokens.speakerLabels ? true : undefined}

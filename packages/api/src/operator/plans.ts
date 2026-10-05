@@ -5,6 +5,7 @@ import { writeOperatorAudit, type OperatorDatabase } from './audit'
 import { admitAutoApply } from './admission'
 import { OPERATOR_ROUTINE_AUTO_KINDS, readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl } from './config'
+import { OperatorDeploymentDisabledError } from './deployment-prerequisite'
 import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
 import {
   applyApprovedProposal,
@@ -133,7 +134,16 @@ export async function createPlan(
       const target = kind.target(args)
       if (target.tenantId !== undefined)
         await assertTenantInGrant(service.grant, target.tenantId, database)
-      await kind.authorize?.(args, context)
+      try {
+        await kind.authorize?.(args, context)
+      } catch (error) {
+        if (error instanceof OperatorDeploymentDisabledError) {
+          error.operationRecorded = false
+          error.details.stepIndex = index
+          error.details.stepTool = step.tool
+        }
+        throw error
+      }
       targetVersion = await kind.targetVersion(args, context)
       // Steps that reference earlier results cannot be previewed now, so they carry no digest.
       previewDigest = previewDigestOf(kind, args, targetVersion)

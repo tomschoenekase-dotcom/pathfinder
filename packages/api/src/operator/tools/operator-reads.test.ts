@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   OPERATOR_CONTROL_TOOL_NAMES,
@@ -302,5 +302,57 @@ describe('missingCapabilitiesNote', () => {
     expect(missingCapabilitiesNote(['a:read', 'b:read'])).toBe(
       'This connection lacks capabilities: a:read, b:read.',
     )
+  })
+})
+
+describe('customer deployment prerequisites', () => {
+  it('reports the gate independently of implemented, authorized and approval mode', async () => {
+    const { createContextReadTool } = await import('./context')
+    const context = {
+      database: {
+        operatorAutonomyPolicy: { findMany: async () => [] },
+        operatorAuditEvent: { groupBy: async () => [] },
+      },
+      grant: {
+        grantId: 'example',
+        allTenants: true,
+        tenantIds: [],
+        capabilities: ['customers:propose', 'operator:plan'],
+      },
+      now: new Date(),
+    }
+    try {
+      vi.stubEnv('OPERATOR_CUSTOMER_CREATE_ENABLED', 'false')
+      const result = await createContextReadTool(
+        new Set(['customers.propose_create', 'operator.propose_plan']),
+      ).handler({}, context as never)
+      const parsed = OPERATOR_MCP_OUTPUTS['operator.get_context'].parse(result)
+      expect(OPERATOR_MCP_OUTPUTS['operator.get_context'].safeParse(result).success).toBe(true)
+      expect(parsed.tools.find((tool) => tool.name === 'customers.propose_create')).toMatchObject({
+        implemented: true,
+        authorized: true,
+        approvalMode: 'ask',
+        deploymentPrerequisite: {
+          flag: 'OPERATOR_CUSTOMER_CREATE_ENABLED',
+          enabled: false,
+        },
+      })
+      expect(
+        parsed.tools.find((tool) => tool.name === 'operator.propose_plan')?.deploymentPrerequisite,
+      ).toBeNull()
+      vi.stubEnv('OPERATOR_CUSTOMER_CREATE_ENABLED', 'true')
+      const enabled = OPERATOR_MCP_OUTPUTS['operator.get_context'].parse(
+        await createContextReadTool(new Set(['customers.propose_create'])).handler(
+          {},
+          context as never,
+        ),
+      )
+      expect(
+        enabled.tools.find((tool) => tool.name === 'customers.propose_create')
+          ?.deploymentPrerequisite?.enabled,
+      ).toBe(true)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

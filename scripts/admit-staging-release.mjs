@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process'
 import { admitStagingRelease } from './lib/staging-release-admission.mjs'
 import { parseBoundedTopologyJson } from './lib/staging-topology-admission.mjs'
 import { parseStagingHealthArgs } from './lib/staging-health-admission.mjs'
-import { RAILWAY_CLI_PACKAGE } from './lib/railway-cli-contract.mjs'
+import { railwayRuntimeDiagnostic } from './lib/railway-runtime-diagnostic.mjs'
+import { railwayRuntimeCommand } from './lib/railway-runtime-command.mjs'
 
 try {
   const args = process.argv.slice(2)
@@ -17,7 +18,9 @@ try {
     expectedRevision: health.expectedRevision,
     health,
     executeRuntimeQuery: (queryArgs) => {
-      const child = spawnSync(process.execPath, [cli, 'dlx', RAILWAY_CLI_PACKAGE, ...queryArgs], {
+      const command = railwayRuntimeCommand({ platform: process.platform,
+        nodeExecutable: process.execPath, pnpmEntry: cli, queryArgs })
+      const child = spawnSync(command.executable, command.args, {
         encoding: 'utf8',
         shell: false,
         windowsHide: true,
@@ -33,6 +36,7 @@ try {
           status: child.status,
           code: child.error?.code ?? null,
           signal: child.signal,
+          diagnostic: railwayRuntimeDiagnostic(child),
         })}\n`)
       }
       return { status: child.status, stdout: child.stdout }

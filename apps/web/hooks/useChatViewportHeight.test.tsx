@@ -1,7 +1,12 @@
 import React from 'react'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { shouldDismissKeyboardOnSubmit, useChatViewportHeight } from './useChatViewportHeight'
+import {
+  createComposerTapFocus,
+  KEYBOARD_CLOSE_MAX_MS,
+  shouldDismissKeyboardOnSubmit,
+  useChatViewportHeight,
+} from './useChatViewportHeight'
 
 function Probe() {
   const viewportRect = useChatViewportHeight()
@@ -259,6 +264,71 @@ describe('chat shell follows the visual viewport', () => {
     expect(JSON.parse(status()!)).toMatchObject({ height: 730, keyboardOpen: false })
   })
 
+  it('starts growing back when the field blurs, before iOS reports the keyboard gone', async () => {
+    const { viewport } = setup()
+    render(<Probe />)
+    await act(async () => screen.getByRole('textbox').focus())
+    act(() => {
+      viewport.height = 420
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(JSON.parse(status()!)).toMatchObject({ height: 420, keyboardOpen: true })
+
+    // Send / Done: focus leaves while the visual viewport still has the keyboard's height.
+    await act(async () => screen.getByRole('button').focus())
+    expect(JSON.parse(status()!)).toEqual({
+      height: 768,
+      offsetTop: 0,
+      offsetLeft: 0,
+      keyboardOpen: false,
+    })
+
+    act(() => {
+      viewport.height = 768
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(status()).toBe('automatic')
+  })
+
+  it('ignores a late keyboard-open resize that arrives after a quick tap in and out', async () => {
+    const { viewport } = setup()
+    render(<Probe />)
+    await act(async () => screen.getByRole('textbox').focus())
+    await act(async () => screen.getByRole('button').focus())
+    // iOS reports the keyboard it was opening only now, while that keyboard is going away.
+    act(() => {
+      viewport.height = 420
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(JSON.parse(status()!)).toMatchObject({ height: 768, keyboardOpen: false })
+    act(() => {
+      viewport.height = 768
+      viewport.dispatchEvent(new Event('resize'))
+    })
+    expect(status()).toBe('automatic')
+  })
+
+  it('falls back to the measured viewport if iOS never reports the keyboard gone', async () => {
+    vi.useFakeTimers()
+    try {
+      const { viewport } = setup()
+      render(<Probe />)
+      await act(async () => screen.getByRole('textbox').focus())
+      act(() => {
+        viewport.height = 420
+        viewport.dispatchEvent(new Event('resize'))
+      })
+      await act(async () => screen.getByRole('button').focus())
+      expect(JSON.parse(status()!).height).toBe(768)
+      act(() => {
+        vi.advanceTimersByTime(KEYBOARD_CLOSE_MAX_MS + 100)
+      })
+      expect(JSON.parse(status()!)).toMatchObject({ height: 420, keyboardOpen: false })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('removes every listener on unmount', async () => {
     const { viewport } = setup()
     const removed = vi.spyOn(viewport, 'removeEventListener')
@@ -389,5 +459,83 @@ describe('shouldDismissKeyboardOnSubmit', () => {
     expect(shouldDismissKeyboardOnSubmit(document.querySelector('textarea'))).toBe(false)
     media({ '(hover: none) and (pointer: coarse)': true, '(any-pointer: fine)': true })
     expect(shouldDismissKeyboardOnSubmit(document.querySelector('textarea'))).toBe(false)
+  })
+})
+
+describe('composer tap focus (iOS Safari focus pan)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+  })
+
+  function setup(platform: string, maxTouchPoints = 5) {
+    vi.stubGlobal('navigator', { ...navigator, platform, maxTouchPoints })
+    document.body.innerHTML = '<textarea></textarea><button>Other</button>'
+    const field = document.querySelector('textarea')!
+    const focus = vi.spyOn(field, 'focus')
+    const tap = createComposerTapFocus()
+    const end = (x = 10, y = 10, cancelable = true) => {
+      const preventDefault = vi.fn()
+      tap.onTouchEnd({
+        currentTarget: field,
+        changedTouches: [{ clientX: x, clientY: y }],
+        cancelable,
+        preventDefault,
+      })
+      return preventDefault
+    }
+    const start = (x = 10, y = 10) => tap.onTouchStart({ touches: [{ clientX: x, clientY: y }] })
+    return { field, focus, start, end }
+  }
+
+  it('focuses an unfocused composer itself without letting iOS pan the page', () => {
+    const { focus, start, end } = setup('iPhone')
+    start()
+    const preventDefault = end(12, 13)
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+  })
+
+  it('treats an iPad in desktop mode as iOS', () => {
+    const { focus, start, end } = setup('MacIntel', 5)
+    start()
+    end()
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+  })
+
+  it('leaves Android, desktop and a real Mac on native behaviour', () => {
+    for (const [platform, points] of [
+      ['Linux armv81', 5],
+      ['Win32', 0],
+      ['MacIntel', 0],
+    ] as const) {
+      const { focus, start, end } = setup(platform, points)
+      start()
+      expect(end()).not.toHaveBeenCalled()
+      expect(focus).not.toHaveBeenCalled()
+    }
+  })
+
+  it('keeps native taps once focused so the caret and selection still work', () => {
+    const { field, focus, start, end } = setup('iPhone')
+    field.focus()
+    focus.mockClear()
+    start()
+    expect(end()).not.toHaveBeenCalled()
+    expect(focus).not.toHaveBeenCalled()
+  })
+
+  it('ignores drags, multi-touch, uncancelable touches and disabled fields', () => {
+    const { field, focus, start, end } = setup('iPhone')
+    start(10, 10)
+    expect(end(10, 40)).not.toHaveBeenCalled()
+    expect(end()).not.toHaveBeenCalled()
+    start()
+    expect(end(10, 10, false)).not.toHaveBeenCalled()
+    field.disabled = true
+    start()
+    expect(end()).not.toHaveBeenCalled()
+    expect(focus).not.toHaveBeenCalled()
   })
 })

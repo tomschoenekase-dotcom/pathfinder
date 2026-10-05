@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { evaluateGate } from './lib/ci-required-gate.mjs'
+import { evaluateGate, evaluateCoreGate } from './lib/ci-required-gate.mjs'
 
 let needs
 try {
@@ -7,7 +7,13 @@ try {
 } catch {
   needs = null
 }
-const verdict = evaluateGate(needs)
+const args = process.argv.slice(2)
+const validArgs = args.length === 0 || (args.length === 1 && args[0] === '--core')
+const verdict = validArgs
+  ? args[0] === '--core'
+    ? evaluateCoreGate(needs)
+    : evaluateGate(needs)
+  : { ok: false, notes: [], failures: ['invalid gate options'] }
 for (const note of verdict.notes) process.stdout.write(`note: ${note}\n`)
 if (verdict.ok) {
   process.stdout.write('ci-required: all required jobs passed or were legitimately planned out\n')

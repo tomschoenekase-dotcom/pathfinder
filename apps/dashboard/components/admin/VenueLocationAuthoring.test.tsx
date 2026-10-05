@@ -240,7 +240,12 @@ describe('VenueLocationAuthoring', () => {
   })
 
   it('shows agent proposals as review-only and separately applies human approval', async () => {
-    mocks.applyProposal.mockResolvedValue({ replayed: false })
+    let resolveApplication!: (result: { replayed: boolean }) => void
+    mocks.applyProposal.mockReturnValue(
+      new Promise<{ replayed: boolean }>((resolve) => {
+        resolveApplication = resolve
+      }),
+    )
     const decidedAt = new Date('2026-08-23T20:00:00.000Z')
     render(
       <VenueLocationAuthoring
@@ -291,6 +296,8 @@ describe('VenueLocationAuthoring', () => {
         reason: 'Reviewed the exact approved payload.',
       }),
     )
-    expect(screen.getByText(/Activation remains separate/)).toBeTruthy()
+    expect(screen.queryByText(/Activation remains separate/)).toBeNull()
+    resolveApplication({ replayed: false })
+    expect(await screen.findByText(/Activation remains separate/)).toBeTruthy()
   })
 })

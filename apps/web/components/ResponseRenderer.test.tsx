@@ -37,6 +37,89 @@ describe('ResponseRenderer', () => {
     vi.unstubAllGlobals()
   })
 
+  it('renders server-resolved action links inline and one action button without parsing markup', () => {
+    const onVisitorAction = vi.fn()
+    const text = 'Burger Barn is open until 8pm. You can order ahead to skip the line. <b>hi</b>'
+    const start = text.indexOf('order ahead')
+    render(
+      <ResponseRenderer
+        content={text}
+        onVisitorAction={onVisitorAction}
+        blocks={[
+          {
+            type: 'text',
+            text,
+            links: [
+              {
+                start,
+                end: start + 'order ahead'.length,
+                href: 'https://order.example.com/burger?location=12',
+                analyticsKey: 'guest-action.burger-order',
+              },
+            ],
+          },
+          {
+            type: 'actions',
+            actions: [
+              {
+                type: 'BUY_TICKETS',
+                label: 'Buy a season pass',
+                target: { kind: 'URL', url: 'https://tickets.example.com/pass?promo=FALL' },
+                style: 'primary',
+                analyticsKey: 'guest-action.season-pass',
+                permissionRequirement: 'PUBLIC',
+                confirmationRequired: false,
+              },
+            ],
+          },
+        ]}
+      />,
+    )
+
+    const inline = screen.getByRole('link', { name: 'order ahead (opens in a new tab)' })
+    expect(inline.getAttribute('href')).toBe('https://order.example.com/burger?location=12')
+    expect(inline.getAttribute('target')).toBe('_blank')
+    expect(inline.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(inline.closest('p')?.textContent).toContain('Burger Barn is open until 8pm. You can')
+    expect(inline.closest('p')?.textContent).toContain('<b>hi</b>')
+    expect(document.querySelector('b')).toBeNull()
+    const button = screen.getByRole('link', { name: 'Buy a season pass (opens in a new tab)' })
+    expect(button.className).toContain('min-h-10')
+    expect(screen.getAllByRole('link')).toHaveLength(2)
+
+    fireEvent.click(inline)
+    expect(onVisitorAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analyticsKey: 'guest-action.burger-order',
+        target: { kind: 'URL', url: 'https://order.example.com/burger?location=12' },
+      }),
+    )
+  })
+
+  it('renders a link range with an unsafe destination as plain text', () => {
+    render(
+      <ResponseRenderer
+        content="Order ahead here."
+        blocks={[
+          {
+            type: 'text',
+            text: 'Order ahead here.',
+            links: [
+              {
+                start: 0,
+                end: 11,
+                href: 'javascript:alert(1)',
+                analyticsKey: 'guest-action.x',
+              },
+            ],
+          },
+        ]}
+      />,
+    )
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.getByText('Order ahead here.')).toBeTruthy()
+  })
+
   it('keeps answer text while omitting an image-free card without directions', () => {
     render(
       <ResponseRenderer
