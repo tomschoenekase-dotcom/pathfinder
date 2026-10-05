@@ -198,3 +198,61 @@ export function shouldDismissKeyboardOnSubmit(field: HTMLElement | null) {
     !window.matchMedia('(any-pointer: fine)').matches
   )
 }
+
+/** A touch that moves farther than this is a drag, not a tap, and is left to the browser. */
+export const TAP_MAX_TRAVEL = 10
+
+/**
+ * iPhone/iPad WebKit (including Chrome and other browsers on iOS, which all use WebKit). An iPad
+ * in desktop mode reports itself as a Mac, so a Mac with touch points counts too.
+ */
+export function isAppleTouchWebKit() {
+  if (typeof navigator === 'undefined') return false
+  const platform = navigator.platform ?? ''
+  return (
+    /^(iPhone|iPad|iPod)/.test(platform) ||
+    (platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  )
+}
+
+/**
+ * Tap handlers for the composer that stop iOS Safari's focus pan.
+ *
+ * When a field gains focus by a tap, iOS Safari scrolls the whole page so the field sits mid-screen
+ * above the keyboard, even when the field lives inside a `position: fixed` shell. That pan lands a
+ * frame before the visual-viewport events that let the shell re-fit itself, so the visitor sees the
+ * shell shoot up (composer near the top of the screen, blank space below) and then snap back.
+ *
+ * The fix is the one React Aria (`usePreventScroll`) uses: on an unfocused field, cancel the tap's
+ * default handling and focus the field ourselves with `preventScroll: true`. Focus inside a
+ * `touchend` handler is still a user gesture, so the keyboard opens; Safari simply never pans, and
+ * the shell only ever moves once, straight to the visible rectangle above the keyboard. A field
+ * that is already focused keeps native taps so the caret and selection handles still work, and
+ * every other browser keeps its own behaviour.
+ */
+export function createComposerTapFocus() {
+  let start: { x: number; y: number } | null = null
+  return {
+    onTouchStart(event: { touches: ArrayLike<{ clientX: number; clientY: number }> }) {
+      const touch = event.touches[0]
+      start = event.touches.length === 1 && touch ? { x: touch.clientX, y: touch.clientY } : null
+    },
+    onTouchEnd(event: {
+      currentTarget: HTMLTextAreaElement | HTMLInputElement
+      changedTouches: ArrayLike<{ clientX: number; clientY: number }>
+      cancelable: boolean
+      preventDefault(): void
+    }) {
+      const field = event.currentTarget
+      const touch = event.changedTouches[0]
+      const origin = start
+      start = null
+      if (!origin || !touch || !event.cancelable) return
+      if (Math.hypot(touch.clientX - origin.x, touch.clientY - origin.y) > TAP_MAX_TRAVEL) return
+      if (field.disabled || field.readOnly || document.activeElement === field) return
+      if (!isAppleTouchWebKit()) return
+      event.preventDefault()
+      field.focus({ preventScroll: true })
+    },
+  }
+}
