@@ -361,7 +361,10 @@ export async function retrieveGuestKnowledge(params: {
       adoptionAuthority,
       {
         OR: [
-          { contentRevision: { is: null } },
+          // The relation also uses required tenant/venue keys. Prisma's relation-null
+          // predicate tests that composite key and excludes ordinary legacy rows.
+          // Test the nullable revision key itself; connected revisions remain fenced.
+          { contentRevisionId: null },
           { contentRevision: { is: { NOT: { createdBy: { startsWith: 'source-connection:' } } } } },
         ],
       },
