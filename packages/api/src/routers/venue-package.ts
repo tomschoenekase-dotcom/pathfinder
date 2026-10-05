@@ -1363,7 +1363,10 @@ export async function createVenuePackageDraftService(request: {
       // Package authoring must work before a draft venue is visible to guests. The preparation
       // and finalization transactions check its scoped existence and content version; keep the
       // global AI pause and budget gates without requiring visitor availability.
-      admissionGuard: () => assertGlobalAiAvailable(db),
+      admissionGuard: async () => {
+        await assertGlobalAiAvailable(db)
+        await assertVenue(db, tenantId, input.venueId)
+      },
       budgetGate: usage.budgetGate,
       shouldAbort: usage.persistenceFailed,
     })

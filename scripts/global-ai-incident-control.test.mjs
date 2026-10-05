@@ -167,10 +167,9 @@ test('direct provider calls admit before budget reservation or dispatch', async 
   )
 })
 
-test('every venue-scoped AI caller uses combined global and venue admission', async () => {
+test('guest and background venue AI require availability; package authoring admits scoped drafts', async () => {
   const venueScopedCallers = [
     'packages/api/src/routers/chat.ts',
-    'packages/api/src/routers/venue-package.ts',
     'apps/workers/src/processors/analytics-enrichment.ts',
     'apps/workers/src/processors/answer-analysis.ts',
     'apps/workers/src/processors/embed-knowledge-entry.ts',
@@ -183,6 +182,13 @@ test('every venue-scoped AI caller uses combined global and venue admission', as
     const text = await source(file)
     assert.match(text, /assertVenueAiAvailable/u, `${file} must enforce venue availability`)
   }
+
+  const authoring = await source('packages/api/src/routers/venue-package.ts')
+  assert.match(
+    authoring,
+    /admissionGuard:\s*async \(\) => \{\s*await assertGlobalAiAvailable\(db\)\s*await assertVenue\(db, tenantId, input\.venueId\)/u,
+    'Package authoring must check global AI control and scoped venue existence before dispatch',
+  )
 
   const digest = await source('apps/workers/src/processors/weekly-digest.ts')
   assert.match(digest, /assertGlobalAiAvailable/u)
