@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { db, withTenantIsolationBypass, VENUE_PACKAGE_TRANSACTION_OPTIONS } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { standaloneReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
@@ -14,7 +14,7 @@ import {
   VenuePackageValidationReport,
 } from '../../schemas/venue-package'
 import { adminProcedure } from '../../trpc'
-import { withContentVersionActor } from '../../middleware/content-version-actor'
+import { contentVersionActor } from '../../middleware/content-version-actor'
 import {
   applyVenuePackageLifecycle,
   approveVenuePackageLifecycle,
@@ -22,6 +22,7 @@ import {
 } from '../../lib/venue-package-core'
 
 const scope = z.object({ tenantId: z.string().min(1), venueId: z.string().min(1) }).strict()
+const withContentVersionActor = contentVersionActor(VENUE_PACKAGE_TRANSACTION_OPTIONS)
 const lifecycleInput = scope.extend({
   id: z.string().min(1).max(191),
   expectedUpdatedAt: z.coerce.date(),

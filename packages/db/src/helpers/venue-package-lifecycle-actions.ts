@@ -16,6 +16,10 @@ export type VenuePackageLifecycleActor = VenuePackageLifecycleHumanActor | Machi
 export type VenuePackageLifecycleClient = Pick<typeof db, '$transaction'>
 export type VenuePackageLifecycleStatus = 'DRAFT' | 'APPROVED' | 'APPLIED' | 'REVERTED'
 
+// Full packages perform duplicate verification, content history and milestone writes in one
+// transaction. Keep a finite budget without changing Prisma defaults for unrelated operations.
+export const VENUE_PACKAGE_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 } as const
+
 export class VenuePackageLifecycleError extends Error {
   constructor(
     readonly code: 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT',
@@ -237,13 +241,16 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
     return saved
   }
   const candidate = client as VenuePackageLifecycleClient & {
-    $transaction?: (callback: (tx: unknown) => Promise<T>) => Promise<T>
+    $transaction?: (
+      callback: (tx: unknown) => Promise<T>,
+      options: typeof VENUE_PACKAGE_TRANSACTION_OPTIONS,
+    ) => Promise<T>
   }
   if (typeof candidate.$transaction !== 'function') {
     return operation(client as unknown as Transaction)
   }
   try {
-    return await candidate.$transaction(operation)
+    return await candidate.$transaction(operation, VENUE_PACKAGE_TRANSACTION_OPTIONS)
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error
     return candidate.$transaction(async (rawTx) => {
@@ -251,7 +258,7 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
       const current = await input.load(tx, { tenantId: input.tenantId, id: input.id })
       if (current && isExactReplay(current)) return current
       conflict('Venue-package command key was already used')
-    })
+    }, VENUE_PACKAGE_TRANSACTION_OPTIONS)
   }
 }
 

@@ -1171,6 +1171,7 @@ export {
   applyVenuePackageAction,
   revertVenuePackageAction,
   VenuePackageLifecycleError,
+  VENUE_PACKAGE_TRANSACTION_OPTIONS,
 } from './helpers/venue-package-lifecycle-actions'
 export type {
   VenuePackageLifecycleClient,
