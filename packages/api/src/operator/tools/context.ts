@@ -6,6 +6,7 @@ import {
 } from '@pathfinder/contracts/operator-mcp'
 
 import { isAlwaysAskKind, readAutonomyPolicies } from '../autonomy'
+import { customerDeploymentPrerequisite } from '../deployment-prerequisite'
 import type { OperatorReadTool } from '../registry'
 import { OPERATOR_MANUAL_VERSION } from './manual-text'
 
@@ -47,6 +48,7 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
           ? 'Customer, venue and support tools can reach every tenant. Use customers.list for tenantIds.'
           : `Customer, venue and support tools are limited to ${grant.tenantIds.length} tenant(s). Use customers.list for tenantIds.`,
         'A tool being listed here does not prove its provider, worker or release gate is live.',
+        'implemented means registered; authorized means capability granted. Customer creation also requires allTenants and its deploymentPrerequisite. Plans check each step before recording and retain required approvals.',
         ...(missing.length > 0 ? [missingCapabilitiesNote(missing)] : []),
       ]
       return {
@@ -82,6 +84,7 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
             authorized: capabilities.has(tool.capability),
             approvalMode,
             lastSuccessAt: lastSuccess.get(tool.name)?.toISOString() ?? null,
+            deploymentPrerequisite: customerDeploymentPrerequisite(tool.name),
             providerConnected: null,
             workerAvailable: null,
           }
