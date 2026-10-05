@@ -14,6 +14,7 @@ import {
   lockVenueContentMutation,
   recordOrReplayOnboardingMilestoneEvent,
   writeAuditLogStrict,
+  VENUE_PACKAGE_TRANSACTION_OPTIONS,
 } from '@pathfinder/db'
 
 import {
@@ -56,12 +57,13 @@ import {
   approveVenuePackageLifecycle,
   revertVenuePackageLifecycle,
 } from '../lib/venue-package-core'
-import { withContentVersionActor } from '../middleware/content-version-actor'
+import { contentVersionActor } from '../middleware/content-version-actor'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
 
 type DbClient = TRPCContext['db']
+const withVenuePackageContentVersionActor = contentVersionActor(VENUE_PACKAGE_TRANSACTION_OPTIONS)
 type PackagePayload = VenuePackagePayload
 type VenuePackageDraftActor =
   | { type: 'HUMAN'; id: string; role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN' }
@@ -1254,7 +1256,10 @@ export async function createVenuePackageDraftService(request: {
         })
         return { kind: 'claimed' as const, analysisId: analysis.id, preview }
       },
-      { isolationLevel: request.isolationLevel ?? 'ReadCommitted' },
+      {
+        ...VENUE_PACKAGE_TRANSACTION_OPTIONS,
+        isolationLevel: request.isolationLevel ?? 'ReadCommitted',
+      },
     )
   } catch (error) {
     if (error instanceof VenuePackageDraftFinalizerError) throw error.cause
@@ -1563,7 +1568,10 @@ export async function createVenuePackageDraftService(request: {
         })
         return { kind: 'complete' as const, pkg, preview: finalPreview, attachment }
       },
-      { isolationLevel: request.isolationLevel ?? 'ReadCommitted' },
+      {
+        ...VENUE_PACKAGE_TRANSACTION_OPTIONS,
+        isolationLevel: request.isolationLevel ?? 'ReadCommitted',
+      },
     )
     if (finalized.kind === 'stale') {
       throw new TRPCError({
@@ -1638,7 +1646,7 @@ export const venuePackageLifecycleRouter = router({
 
   applyPackage: tenantProcedure
     .use(requireRole('OWNER'))
-    .use(withContentVersionActor)
+    .use(withVenuePackageContentVersionActor)
     .input(VenuePackageLifecycleInput)
     .mutation(({ ctx, input }) =>
       applyVenuePackageLifecycle({
@@ -1651,7 +1659,7 @@ export const venuePackageLifecycleRouter = router({
 
   revertPackage: tenantProcedure
     .use(requireRole('OWNER'))
-    .use(withContentVersionActor)
+    .use(withVenuePackageContentVersionActor)
     .input(VenuePackageLifecycleInput)
     .mutation(({ ctx, input }) =>
       revertVenuePackageLifecycle({

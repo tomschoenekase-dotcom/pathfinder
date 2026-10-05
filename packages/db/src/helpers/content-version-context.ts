@@ -78,7 +78,19 @@ export async function setContentVersionContext(
     venuePackage?: ContentVersionPackageContext
   },
 ): Promise<void> {
-  if (input.venuePackage) validatePackageContext(input.venuePackage)
+  if (input.venuePackage) {
+    validatePackageContext(input.venuePackage)
+    // Package application changes this context for every item. Set the independent markers in
+    // one round trip; validation and transaction-local provenance remain exactly the same.
+    await tx.$executeRaw`SELECT
+      set_config('pathfinder.actor_id', ${input.actorId}, true),
+      set_config('pathfinder.reverted_from_id', ${input.revertedFromId ?? ''}, true),
+      set_config('pathfinder.venue_package_id', ${input.venuePackage.venuePackageId}, true),
+      set_config('pathfinder.venue_package_item_key', ${input.venuePackage.itemKey}, true),
+      set_config('pathfinder.venue_package_action', ${input.venuePackage.action}, true),
+      set_config('pathfinder.source_provenance', ${JSON.stringify(input.venuePackage.sourceProvenance)}, true)`
+    return
+  }
   await tx.$executeRaw`SELECT set_config('pathfinder.actor_id', ${input.actorId}, true)`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.reverted_from_id',
@@ -87,22 +99,22 @@ export async function setContentVersionContext(
   )`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.venue_package_id',
-    ${input.venuePackage?.venuePackageId ?? ''},
+    ${''},
     true
   )`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.venue_package_item_key',
-    ${input.venuePackage?.itemKey ?? ''},
+    ${''},
     true
   )`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.venue_package_action',
-    ${input.venuePackage?.action ?? ''},
+    ${''},
     true
   )`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.source_provenance',
-    ${input.venuePackage ? JSON.stringify(input.venuePackage.sourceProvenance) : ''},
+    ${''},
     true
   )`
 }

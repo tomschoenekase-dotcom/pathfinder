@@ -33,6 +33,9 @@ vi.mock('../../lib/venue-package-semantic-analysis', async (importOriginal) => {
 import { OperatorCapability } from '@pathfinder/contracts/operator-mcp'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
+import type { TRPCContext } from '../../context'
+import { venuePackageRouter } from '../../routers/venue-package'
+
 import { resolveOperatorConfig } from '../config'
 import type { VerifiedOperatorGrant } from '../oauth'
 import { createKindRegistry, createProposal } from '../proposals'
@@ -272,6 +275,238 @@ describe.skipIf(!enabled)(
         }),
       )
       expect(titles.map((row) => row.title)).toEqual(['Accessibility', 'Hours'])
+    })
+
+    function fullPackage() {
+      return {
+        schemaVersion: 3,
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: {
+          create: Array.from({ length: 107 }, (_, index) => ({
+            itemKey: randomUUID(),
+            provenance: {
+              sourceType: 'REGRESSION_FIXTURE',
+              sourceName: `Official fixture ${index}`,
+              sourceUrl: `https://example.com/guide/${index}`,
+              contentOrigin: 'HUMAN_AUTHORED',
+            },
+            value: {
+              title: `Full package record ${index}`,
+              category: 'Visiting',
+              content:
+                `Full, unabridged record ${index}. ` +
+                'Details and provenance retained. '.repeat(32),
+              isEnabled: true,
+            },
+          })),
+          update: [],
+          delete: [],
+        },
+      }
+    }
+
+    async function importFixtureVenue() {
+      return withTenantIsolationBypass(() =>
+        db.venue.create({
+          data: {
+            tenantId,
+            name: 'Full package fixture',
+            slug: `package-${randomUUID()}`,
+            guideMode: 'non_location',
+          },
+        }),
+      )
+    }
+
+    it('imports and replays all 107 records with transaction latency beyond Prisma default', async () => {
+      const venue = await importFixtureVenue()
+      const payload = fullPackage()
+      const operationId = randomUUID()
+      const delayed = db.$extends({
+        query: {
+          onboardingMilestoneEvent: {
+            async findFirst({ args, query }) {
+              if (['REVIEWABLE_PACKAGE', 'RELEASED'].includes(String(args.where?.eventType))) {
+                await new Promise((resolve) => setTimeout(resolve, 5_200))
+              }
+              return query(args)
+            },
+          },
+        },
+      })
+      const request = { operationId, tenantId, venueId: venue.id, payload }
+      const dependencies = {
+        config,
+        database: delayed as typeof db,
+        grant,
+        kinds,
+        now: new Date(),
+        requestId: randomUUID(),
+      }
+      const view = await createProposal('venues.propose_package_import', request, dependencies)
+      expect(view.status).toBe('APPLIED')
+      const replay = await createProposal('venues.propose_package_import', request, dependencies)
+      expect(replay.proposalId).toBe(view.proposalId)
+      expect(replay.status).toBe('APPLIED')
+      const packageId = (view.result as { packageId: string }).packageId
+      await withTenantIsolationBypass(async () => {
+        const pkg = await db.venuePackage.findFirstOrThrow({
+          where: { id: packageId, tenantId, venueId: venue.id },
+        })
+        expect(pkg.payload).toEqual(payload)
+        expect(await db.venuePackage.count({ where: { tenantId, venueId: venue.id } })).toBe(1)
+        const rows = await db.venueKnowledgeEntry.findMany({
+          where: { tenantId, venueId: venue.id },
+        })
+        expect(rows).toHaveLength(107)
+        const versions = await db.contentVersion.findMany({
+          where: {
+            tenantId,
+            venueId: venue.id,
+            venuePackageId: packageId,
+            venuePackageAction: 'APPLY',
+          },
+        })
+        expect(versions).toHaveLength(107)
+        for (const item of payload.knowledgeEntries.create) {
+          const row = rows.find((row) => row.title === item.value.title)!
+          expect(row).toMatchObject({
+            ...item.value,
+            sourceType: item.provenance.sourceType,
+            sourceName: item.provenance.sourceName,
+            sourceUrl: item.provenance.sourceUrl,
+            sourcePackageId: packageId,
+          })
+          const version = versions.find((version) => version.venuePackageItemKey === item.itemKey)!
+          expect(version.sourceProvenance).toMatchObject(item.provenance)
+          expect(version.sourceProvenance).toHaveProperty(
+            'importedAt',
+            row.importedAt!.toISOString(),
+          )
+        }
+      })
+    })
+
+    it('rolls back every full-package content write when the release milestone fails', async () => {
+      const venue = await importFixtureVenue()
+      const originalHistory = await withTenantIsolationBypass(() =>
+        db.contentVersion.findMany({ where: { tenantId, venueId: venue.id } }),
+      )
+      const request = {
+        operationId: randomUUID(),
+        tenantId,
+        venueId: venue.id,
+        payload: fullPackage(),
+      }
+      const releaseFailure = vi.fn(() => {
+        throw new Error('Injected release milestone failure')
+      })
+      const failing = db.$extends({
+        query: {
+          onboardingMilestoneEvent: {
+            async create({ args, query }) {
+              if (args.data.eventType === 'RELEASED') releaseFailure()
+              return query(args)
+            },
+          },
+        },
+      })
+      const dependencies = {
+        config,
+        database: failing as typeof db,
+        grant,
+        kinds,
+        now: new Date(),
+        requestId: randomUUID(),
+      }
+      const view = await createProposal('venues.propose_package_import', request, dependencies)
+      expect(view.status).toBe('FAILED')
+      expect(releaseFailure).toHaveBeenCalledOnce()
+      const replay = await createProposal('venues.propose_package_import', request, dependencies)
+      expect(replay.proposalId).toBe(view.proposalId)
+      expect(replay.status).toBe('FAILED')
+      const approved = await withTenantIsolationBypass(() =>
+        db.venuePackage.findFirstOrThrow({
+          where: { tenantId, venueId: venue.id, status: 'APPROVED' },
+        }),
+      )
+      // Exercise tRPC's returned failure result as well as the MCP's rejected apply promise.
+      const caller = venuePackageRouter.createCaller({
+        db: failing as typeof db,
+        headers: new Headers(),
+        session: {
+          userId: adminId,
+          activeTenantId: tenantId,
+          role: 'OWNER',
+          isPlatformAdmin: false,
+        },
+      } as TRPCContext)
+      await expect(
+        caller.applyPackage({
+          id: approved.id,
+          expectedUpdatedAt: approved.updatedAt,
+          commandKey: randomUUID(),
+        }),
+      ).rejects.toThrow('Injected release milestone failure')
+      expect(releaseFailure).toHaveBeenCalledTimes(2)
+      await withTenantIsolationBypass(async () => {
+        expect(await db.venueKnowledgeEntry.count({ where: { tenantId, venueId: venue.id } })).toBe(
+          0,
+        )
+        expect(
+          await db.contentVersion.findMany({ where: { tenantId, venueId: venue.id } }),
+        ).toEqual(originalHistory)
+        expect(
+          await db.venuePackage.count({
+            where: { tenantId, venueId: venue.id, status: 'APPROVED' },
+          }),
+        ).toBe(1)
+        expect(
+          await db.onboardingMilestoneEvent.count({
+            where: { tenantId, venueId: venue.id, eventType: 'RELEASED' },
+          }),
+        ).toBe(0)
+      })
+    })
+
+    it('imports the full package with 100ms latency on every database round trip', async () => {
+      const venue = await importFixtureVenue()
+      const delayed = db.$extends({
+        query: {
+          async $allOperations({ args, query }) {
+            await new Promise((resolve) => setTimeout(resolve, 100))
+            return query(args)
+          },
+        },
+      })
+      const view = await createProposal(
+        'venues.propose_package_import',
+        {
+          operationId: randomUUID(),
+          tenantId,
+          venueId: venue.id,
+          payload: fullPackage(),
+        },
+        {
+          config,
+          database: delayed as typeof db,
+          grant,
+          kinds,
+          now: new Date(),
+          requestId: randomUUID(),
+        },
+      )
+      expect(view.status).toBe('APPLIED')
+      await withTenantIsolationBypass(async () => {
+        expect(await db.venueKnowledgeEntry.count({ where: { tenantId, venueId: venue.id } })).toBe(
+          107,
+        )
+        expect(
+          await db.contentVersion.count({
+            where: { tenantId, venueId: venue.id, venuePackageAction: 'APPLY' },
+          }),
+        ).toBe(107)
+      })
     })
 
     it('refuses an invalid package before recording anything', async () => {

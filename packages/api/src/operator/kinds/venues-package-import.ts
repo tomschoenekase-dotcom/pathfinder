@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { VENUE_PACKAGE_TRANSACTION_OPTIONS } from '@pathfinder/db'
 
 import {
   applyVenuePackageLifecycle,
@@ -79,10 +80,10 @@ export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
   snapshot: async (args) => ({ venueId: args.venueId, plan: counts(args.payload) }) as JsonValue,
   apply: async (args, context: OperatorApplyContext) => {
     const { tenantId, venueId } = args
-    const database = context.database as never
+    const database = context.database
     const actor = { type: 'HUMAN' as const, id: context.actor.id, role: 'PLATFORM_ADMIN' as const }
     const draft = await createVenuePackageDraftService({
-      db: database,
+      db: database as never,
       tenantId,
       actor,
       input: { venueId, draftKey: stepKey(context.operationId, 'draft'), payload: args.payload },
@@ -104,7 +105,7 @@ export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
     let current = pkg as { id: string; status: string; updatedAt: Date }
     if (current.status === 'DRAFT') {
       current = await approveVenuePackageLifecycle({
-        db: database,
+        db: database as never,
         tenantId,
         venueId,
         actor,
@@ -117,17 +118,23 @@ export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
         },
       })
     }
-    const applied = await applyVenuePackageLifecycle({
-      db: database,
-      tenantId,
-      venueId,
-      actor,
-      command: {
-        id: current.id,
-        expectedUpdatedAt: current.updatedAt,
-        commandKey: stepKey(context.operationId, 'apply'),
-      },
-    })
+    // Content-version markers are transaction-local. Content effects, history, package receipt
+    // and RELEASED milestone must commit together, just as they do through the dashboard router.
+    const applied = await database.$transaction(
+      async (tx) =>
+        applyVenuePackageLifecycle({
+          db: tx as never,
+          tenantId,
+          venueId,
+          actor,
+          command: {
+            id: current.id,
+            expectedUpdatedAt: current.updatedAt,
+            commandKey: stepKey(context.operationId, 'apply'),
+          },
+        }),
+      VENUE_PACKAGE_TRANSACTION_OPTIONS,
+    )
     return {
       result: {
         venueId,
