@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/contracts/venue-package'
 import { UpdateVenueBotConfiguration } from '@pathfinder/contracts/venue-bot-configuration'
 import { TonePresetId } from '@pathfinder/contracts/tone-presets'
+import { GuestActionCatalog } from '@pathfinder/contracts/guest-action-links'
 import { ChatAppearanceSchema } from '@pathfinder/contracts/chat-appearance'
 
 const InitialGuideItemInput = PlaceInput.omit({ itemType: true, lat: true, lng: true }).extend({
@@ -167,6 +168,7 @@ export const UpdateVenueChatDesignInput = z
     chatShowPhotos: z.boolean().optional(),
     chatShowLinks: z.boolean().optional(),
     chatAppearance: ChatAppearanceSchema.nullable().optional(),
+    guestActions: GuestActionCatalog.optional(),
   })
   .strict()
 

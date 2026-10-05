@@ -972,6 +972,107 @@ describe.skipIf(!enabled)(
       }
     })
 
+    it('names a disabled customer prerequisite through HTTP, then records seven draft steps once and awaits approval', async () => {
+      const connection = await connect()
+      const input = {
+        operationId: randomUUID(),
+        title: 'Seven fictional draft customer setups',
+        steps: Array.from({ length: 7 }, (_, index) => ({
+          tool: 'customers.propose_create',
+          arguments: {
+            organizationName: `Example Group ${index}`,
+            venueName: `Example Garden ${index}`,
+          },
+        })),
+      }
+      const tenantCount = await db.tenant.count()
+      const venueCount = await withTenantIsolationBypass(() => db.venue.count())
+      try {
+        await db.operatorGrant.update({
+          where: { id: connection.grantId },
+          data: { allTenants: true },
+        })
+        delete process.env.OPERATOR_CUSTOMER_CREATE_ENABLED
+        const disabled = await callTool(connection.access, 'operator.propose_plan', input)
+        expect(disabled).toMatchObject({
+          isError: true,
+          structuredContent: {
+            error: 'DISABLED',
+            outcome: 'none',
+            operationRecorded: false,
+            retryable: false,
+            details: {
+              stepIndex: 0,
+              stepTool: 'customers.propose_create',
+              prerequisite: {
+                flag: 'OPERATOR_CUSTOMER_CREATE_ENABLED',
+                enabled: false,
+              },
+            },
+          },
+        })
+        expect(disabled.structuredContent!.nextAction).toContain(
+          'OPERATOR_CUSTOMER_CREATE_ENABLED=true',
+        )
+        expect(disabled.structuredContent!.nextAction).toContain('same operationId')
+        expect(await db.operatorPlan.count({ where: { operationId: input.operationId } })).toBe(0)
+        expect(await db.operatorProposal.count({ where: { grantId: connection.grantId } })).toBe(0)
+        const denial = await db.operatorAuditEvent.findFirst({
+          where: {
+            requestId: String(disabled.structuredContent!.requestId),
+            eventType: 'mcp.denied',
+            outcome: 'DISABLED',
+          },
+        })
+        expect(denial).not.toBeNull()
+        process.env.OPERATOR_CUSTOMER_CREATE_ENABLED = 'true'
+        const permitted = await callTool(connection.access, 'operator.propose_plan', input)
+        expect(permitted).toMatchObject({
+          isError: false,
+          structuredContent: { status: 'PENDING' },
+        })
+        const view = permitted.structuredContent!
+        expect(view.approveUrl).toContain('/approve/')
+        const steps = await db.operatorProposal.findMany({
+          where: { planId: view.proposalId },
+          orderBy: { planStepIndex: 'asc' },
+        })
+        expect(steps).toHaveLength(7)
+        expect(await db.tenant.count()).toBe(tenantCount)
+        expect(await withTenantIsolationBypass(() => db.venue.count())).toBe(venueCount)
+        expect(steps.every((step) => step.status === 'PENDING' && step.appliedAt === null)).toBe(
+          true,
+        )
+        expect(new Set(steps.map((step) => step.operationId)).size).toBe(7)
+        const replay = await callTool(connection.access, 'operator.propose_plan', input)
+        expect(replay.structuredContent!.proposalId).toBe(view.proposalId)
+        expect(await db.operatorProposal.count({ where: { planId: view.proposalId } })).toBe(7)
+        await db.operatorGrant.update({
+          where: { id: connection.grantId },
+          data: { capabilities: ['operator:read'] },
+        })
+        const denied = await callTool(connection.access, 'operator.propose_plan', {
+          ...input,
+          operationId: randomUUID(),
+        })
+        expect(denied).toMatchObject({
+          isError: true,
+          structuredContent: { error: 'CAPABILITY_DENIED' },
+        })
+        await db.operatorGrant.update({
+          where: { id: connection.grantId },
+          data: { capabilities: [...OperatorCapability.options], allTenants: false },
+        })
+        const narrow = await callTool(connection.access, 'operator.propose_plan', {
+          ...input,
+          operationId: randomUUID(),
+        })
+        expect(narrow).toMatchObject({ isError: true, structuredContent: { error: 'NOT_FOUND' } })
+      } finally {
+        delete process.env.OPERATOR_CUSTOMER_CREATE_ENABLED
+      }
+    })
+
     it('applies a plan in order after one approval and stops at the first failing step', async () => {
       const connection = await connect()
       const current = (await venueUpdatedAt()).updatedAt.toISOString()

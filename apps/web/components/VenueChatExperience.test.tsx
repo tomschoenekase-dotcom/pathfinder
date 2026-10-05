@@ -148,6 +148,7 @@ vi.mock('./ChatWindow', () => ({
     messages: Array<{
       content: string
       replyKind?: 'ANSWER' | 'TEMPORARY_FALLBACK'
+      blocks?: unknown
       places?: Array<{ id: string }>
     }>
     onSend: (message: string) => void
@@ -170,6 +171,7 @@ vi.mock('./ChatWindow', () => ({
       <span>Messages: {messages.length}</span>
       <span>Latest: {messages.at(-1)?.content ?? 'none'}</span>
       <span>Latest reply kind: {messages.at(-1)?.replyKind ?? 'legacy'}</span>
+      <span>Latest blocks: {JSON.stringify(messages.at(-1)?.blocks ?? null)}</span>
       <span>Cards: {messages.flatMap((message) => message.places ?? []).length}</span>
       {messages
         .flatMap((message) => message.places ?? [])
@@ -643,6 +645,53 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.getByText('Messages: 2')).toBeTruthy()
     expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
     expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('uses server-composed action blocks from a completed turn', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174097'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    let handlers: { onData: (event: unknown) => void } | undefined
+    mocks.client.chat.stream = {
+      subscribe: vi.fn((_input: unknown, nextHandlers: typeof handlers) => {
+        handlers = nextHandlers
+        return { unsubscribe: vi.fn() }
+      }),
+    }
+    const blocks = [
+      {
+        type: 'text',
+        text: 'You can order ahead.',
+        links: [
+          {
+            start: 8,
+            end: 19,
+            href: 'https://order.example.com/burger',
+            analyticsKey: 'guest-action.burger-order',
+          },
+        ],
+      },
+      { type: 'citations', citations: [{ label: 'Dining guide', detail: 'Place: Burger Barn' }] },
+    ]
+
+    render(<VenueChatExperience venueSlug="museum" />)
+    await screen.findByRole('heading', { name: 'Museum' })
+    fireEvent.click(screen.getByText('Send test message'))
+    act(() => {
+      handlers?.onData({
+        type: 'complete',
+        result: {
+          response: 'You can order ahead.',
+          assistantMessageId: 'assistant-actions',
+          sessionId: 'session-1',
+          places: [],
+          citations: [{ label: 'Dining guide', detail: 'Place: Burger Barn' }],
+          blocks,
+          replayed: false,
+        },
+      })
+    })
+
+    await screen.findByText(`Latest blocks: ${JSON.stringify(blocks)}`)
   })
 
   it('maps a streamed temporary fallback and suppresses expansion', async () => {

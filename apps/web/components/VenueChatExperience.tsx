@@ -673,16 +673,20 @@ export function VenueChatExperience({
           content: response,
           replyKind,
           places: resultPlaces as NonNullable<ChatMessage['places']>,
-          ...(resultCitations.length
-            ? {
-                blocks: [
-                  {
-                    type: 'citations' as const,
-                    citations: resultCitations,
-                  },
-                ],
-              }
-            : {}),
+          // Server-composed blocks carry approved action links/buttons already resolved and
+          // permitted by the venue; otherwise keep the plain answer plus its sources.
+          ...(Array.isArray(result.blocks) && result.blocks.length
+            ? { blocks: result.blocks as NonNullable<ChatMessage['blocks']> }
+            : resultCitations.length
+              ? {
+                  blocks: [
+                    {
+                      type: 'citations' as const,
+                      citations: resultCitations,
+                    },
+                  ],
+                }
+              : {}),
         },
       ])
       setSessionId(result.sessionId)

@@ -22,7 +22,11 @@ export function ViewportDebugOverlay() {
       const r = el.getBoundingClientRect()
       return `y${Math.round(r.top)}-${Math.round(r.bottom)} h${Math.round(r.height)}`
     }
-    const read = () => {
+    // Recent events, newest first, so a screenshot taken right after a glitch shows its sequence.
+    const log: string[] = []
+    const started = performance.now()
+    let lastEventAt = 0
+    const read = (event?: Event) => {
       const vv = window.visualViewport
       const shell = document.querySelector('[data-chat-shell]')
       const composer = document.querySelector('[data-chat-shell] textarea')
@@ -46,6 +50,22 @@ export function ViewportDebugOverlay() {
       const residual = vv && shellRect ? Math.round(shellRect.top - visibleTop) : 'n/a'
       const gap =
         vv && composerRect ? Math.round(visibleTop + vv.height - composerRect.bottom) : 'n/a'
+      if (event) {
+        const field = document.activeElement?.tagName === 'TEXTAREA' ? 'F' : '-'
+        const shellStyle = (shell as HTMLElement | null)?.style.height || 'auto'
+        log.unshift(
+          [
+            `${Math.round(performance.now() - started)}`.padStart(6),
+            `${event.target === vv ? 'vv.' : ''}${event.type}`.padEnd(10),
+            field,
+            `vv${vv ? Math.round(vv.height) : '?'}@${vv ? Math.round(vv.offsetTop) : '?'}`,
+            `sh${shellStyle}`,
+            `s${shellRect ? Math.round(shellRect.top) : '?'}-${shellRect ? Math.round(shellRect.bottom) : '?'}`,
+            `c${composerRect ? Math.round(composerRect.bottom) : '?'}`,
+          ].join(' '),
+        )
+        log.length = Math.min(log.length, 14)
+      }
       // Follow the visible area so the readout is never behind the keyboard or off-screen.
       setTop(Math.round((vv?.offsetTop ?? 0) + 4))
       setText(
@@ -63,6 +83,9 @@ export function ViewportDebugOverlay() {
           `rect-frame ${frame}`,
           `residual ${residual}`,
           `gap-above-keyboard ${gap}`,
+          `motion ${shell?.getAttribute('data-keyboard-motion') ?? 'unset'}`,
+          '-- ms event F(ocused) vv@top shellH shellTop-Bottom composerBottom --',
+          ...log,
         ].join('\n'),
       )
     }
@@ -73,10 +96,21 @@ export function ViewportDebugOverlay() {
       [window, 'scroll'],
       [document, 'focusin'],
       [document, 'focusout'],
+      [document, 'touchend'],
     ]
     if (vv) events.push([vv, 'resize'], [vv, 'scroll'])
-    for (const [target, name] of events) target.addEventListener(name, read)
-    const observer = new MutationObserver(read)
+    const noteEvent = () => {
+      lastEventAt = performance.now()
+    }
+    for (const [target, name] of events) {
+      target.addEventListener(name, read)
+      target.addEventListener(name, noteEvent)
+    }
+    const observer = new MutationObserver(() => read(new Event('attr')))
+    // Late samples show where the shell settles after an animation, without a tap to trigger them.
+    const sampler = window.setInterval(() => {
+      if (performance.now() - lastEventAt < 1200) read(new Event('tick'))
+    }, 150)
     const shell = document.querySelector('[data-chat-shell]')
     if (shell)
       observer.observe(shell, {
@@ -84,7 +118,11 @@ export function ViewportDebugOverlay() {
         attributeFilter: ['data-keyboard-open', 'data-viewport-pinned', 'style'],
       })
     return () => {
-      for (const [target, name] of events) target.removeEventListener(name, read)
+      for (const [target, name] of events) {
+        target.removeEventListener(name, read)
+        target.removeEventListener(name, noteEvent)
+      }
+      window.clearInterval(sampler)
       observer.disconnect()
     }
   }, [enabled])

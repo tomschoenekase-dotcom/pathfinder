@@ -80,6 +80,7 @@ import type {
   PathfinderMcpToolName,
 } from '@pathfinder/contracts/mcp-v0'
 import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
+import { readStoredGuestActions } from '@pathfinder/contracts/guest-action-links'
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
@@ -5040,6 +5041,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           chatShowPhotos: venue.chatShowPhotos,
           chatShowLinks: venue.chatShowLinks,
           chatAppearance: parseChatAppearance(venue.chatAppearance),
+          guestActions: readStoredGuestActions(venue.chatAppearance),
           hasLogo: venue.chatLogoUrl !== null || venue.chatLogoDerivativeId !== null,
           hasBanner: venue.chatBannerUrl !== null || venue.chatBannerDerivativeId !== null,
           updatedAt: venue.updatedAt.toISOString(),

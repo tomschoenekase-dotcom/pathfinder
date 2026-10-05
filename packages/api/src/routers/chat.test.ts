@@ -87,7 +87,12 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { SUPPORTED_CHAT_LANGUAGES } from '../schemas/chat'
-import { _setAnthropicClientForTesting, chatRouter, streamChatTurn } from './chat'
+import {
+  _setAnthropicClientForTesting,
+  chatRouter,
+  createGuestStreamingProjection,
+  streamChatTurn,
+} from './chat'
 
 // ---------------------------------------------------------------------------
 // DB mock
@@ -116,6 +121,7 @@ const aiScopedWorkloadConfigurationOverrideFindFirst = vi.fn()
 const aiCostBudgetFindFirst = vi.fn()
 const operationalEventUpsert = vi.fn()
 const venueFindFirst = vi.fn()
+const venueFindMany = vi.fn()
 const tenantFeatureFlagFindMany = vi.fn()
 const tenantFeatureFlagFindUnique = vi.fn()
 const venueKnowledgeEntryFindMany = vi.fn()
@@ -136,7 +142,7 @@ const mockDb = {
   aiScopedWorkloadConfigurationOverride: {
     findFirst: aiScopedWorkloadConfigurationOverrideFindFirst,
   },
-  venue: { findFirst: venueFindFirst },
+  venue: { findFirst: venueFindFirst, findMany: venueFindMany },
   tenantFeatureFlag: {
     findMany: tenantFeatureFlagFindMany,
     findUnique: tenantFeatureFlagFindUnique,
@@ -265,6 +271,7 @@ describe('chat router', () => {
     aiCostBudgetFindFirst.mockResolvedValue(null)
     operationalEventUpsert.mockResolvedValue({ id: 'event_1', state: 'OPEN', occurrenceCount: 1 })
     venueFindFirst.mockResolvedValue({ isActive: true })
+    venueFindMany.mockResolvedValue([])
     resolveSystemCharacterProjection.mockReturnValue(null)
     tenantFeatureFlagFindMany.mockResolvedValue([])
     voiceTranscriptSegmentFindMany.mockResolvedValue([])
@@ -316,6 +323,7 @@ describe('chat router', () => {
         replyKind: guestReplyKindFromFallbackCode(input.fallbackCode),
         places: input.replayMetadata.places,
         citations: input.replayMetadata.citations,
+        actionPlacements: input.replayMetadata.actionPlacements,
         replayed: false,
       }
     })
@@ -4689,6 +4697,293 @@ describe('chat router', () => {
         expect.objectContaining<Partial<TRPCError>>({ code: 'SERVICE_UNAVAILABLE' }),
       )
       expect(messageFindMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('guest action links', () => {
+    const actionInput = {
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      message: 'Can I order ahead at Burger Barn?',
+    }
+    const burgerUrl = 'https://order.example.com/burger-barn?location=12&utm_source=guide'
+    const pizzaUrl = 'https://order.example.com/pizza-pier'
+    const passUrl = 'https://tickets.example.com/season-pass?promo=FALL26'
+    const catalog = [
+      {
+        id: 'burger-order',
+        label: 'Order ahead',
+        url: burgerUrl,
+        actionType: 'ORDER_AHEAD',
+        placeId: 'p-burger',
+        conditions: 'Mobile ordering 11am-8pm',
+      },
+      {
+        id: 'pizza-order',
+        label: 'Order pizza ahead',
+        url: pizzaUrl,
+        actionType: 'ORDER_AHEAD',
+        placeId: 'p-pizza',
+      },
+      { id: 'season-pass', label: 'Buy a season pass', url: passUrl, actionType: 'BUY_PASS' },
+      {
+        id: 'zipline',
+        label: 'Book the zipline',
+        url: 'https://book.example.com/zipline',
+        actionType: 'BOOK_EXPERIENCE',
+        enabled: false,
+      },
+    ]
+    const visiblePlaces = [
+      { id: 'p-burger', name: 'Burger Barn' },
+      { id: 'p-pizza', name: 'Pizza Pier' },
+    ]
+
+    function setupActions(
+      assistantText: string,
+      settings: { links: boolean; buttons: boolean },
+      options: { catalog?: unknown[]; places?: typeof visiblePlaces } = {},
+    ) {
+      dbQueryRaw.mockResolvedValueOnce([venueRow])
+      sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID, experienceScope: 'PUBLIC' })
+      venueFindMany.mockResolvedValue([
+        {
+          chatAppearance: {
+            actionLinks: settings.links,
+            actionButtons: settings.buttons,
+            guestActions: options.catalog ?? catalog,
+          },
+        },
+      ])
+      const places = options.places ?? visiblePlaces
+      placeFindMany.mockImplementation(async (args: { where?: { id?: { in?: string[] } } }) => {
+        const ids = args?.where?.id?.in
+        return ids ? places.filter((place) => ids.includes(place.id)) : []
+      })
+      messageFindMany.mockResolvedValueOnce([])
+      anthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: assistantText }],
+        usage: { input_tokens: 20, output_tokens: 10 },
+      })
+      messageCreate.mockResolvedValue({})
+    }
+
+    function systemPrompt() {
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+      return (callArgs.system as Array<{ text: string }>).map((block) => block.text).join('')
+    }
+
+    function finalizedMetadata() {
+      return guestTurnActions.finalize.mock.calls[0]?.[0]?.input?.replayMetadata as {
+        actionPlacements?: unknown[]
+      }
+    }
+
+    const mixedAnswer =
+      'Burger Barn is by the carousel. You can [[link:burger-order|order ahead]] there. [[button:season-pass]]'
+
+    it('offers an approved inline link and resolves the exact eatery destination server-side', async () => {
+      setupActions(
+        'Burger Barn is open until 8pm. You can [[link:burger-order|order ahead]] to skip the line.',
+        { links: true, buttons: true },
+      )
+      const result = await caller.chat.send(actionInput)
+
+      expect(result.response).toBe(
+        'Burger Barn is open until 8pm. You can order ahead to skip the line.',
+      )
+      expect(result.blocks).toEqual([
+        {
+          type: 'text',
+          text: result.response,
+          links: [
+            {
+              start: result.response.indexOf('order ahead'),
+              end: result.response.indexOf('order ahead') + 'order ahead'.length,
+              href: burgerUrl,
+              analyticsKey: 'guest-action.burger-order',
+            },
+          ],
+        },
+      ])
+      const prompt = systemPrompt()
+      expect(prompt).toContain('OFFICIAL GUEST ACTIONS')
+      expect(prompt).toContain('id: burger-order')
+      expect(prompt).toContain('for: "Burger Barn"')
+      expect(prompt).not.toContain('zipline')
+      expect(prompt).not.toContain('https://order.example.com')
+      const start = result.response.indexOf('order ahead')
+      expect(finalizedMetadata().actionPlacements).toEqual([
+        { presentation: 'INLINE', actionId: 'burger-order', start, end: start + 11 },
+      ])
+    })
+
+    it.each([
+      [
+        'both',
+        { links: true, buttons: true },
+        { links: [burgerUrl], buttons: ['Buy a season pass'] },
+      ],
+      ['links only', { links: true, buttons: false }, { links: [burgerUrl, passUrl], buttons: [] }],
+      ['buttons only', { links: false, buttons: true }, { links: [], buttons: ['Order ahead'] }],
+      ['neither', { links: false, buttons: false }, { links: [], buttons: [] }],
+    ] as const)(
+      'enforces the %s venue setting on the server whatever the model writes',
+      async (_name, settings, expected) => {
+        setupActions(mixedAnswer, settings)
+        const result = await caller.chat.send(actionInput)
+
+        expect(result.response).not.toMatch(/\[\[|\]\]|burger-order|season-pass/u)
+        const blocks = (result.blocks ?? []) as Array<{
+          type: string
+          links?: Array<{ href: string }>
+          actions?: Array<{ label: string }>
+        }>
+        expect(blocks.flatMap((block) => block.links?.map((link) => link.href) ?? [])).toEqual(
+          expected.links,
+        )
+        expect(
+          blocks.flatMap((block) => block.actions?.map((action) => action.label) ?? []),
+        ).toEqual(expected.buttons)
+        if (!settings.links && !settings.buttons) {
+          expect(result.blocks).toBeUndefined()
+          expect(systemPrompt()).not.toContain('OFFICIAL GUEST ACTIONS')
+          expect(finalizedMetadata().actionPlacements).toBeUndefined()
+        }
+        if (!settings.buttons) expect(systemPrompt()).not.toContain('[[button:')
+        if (!settings.links) expect(systemPrompt()).not.toContain('[[link:')
+      },
+    )
+
+    it('never shows one action as both a link and a button', async () => {
+      setupActions('You can [[link:season-pass|buy a pass online]] today. [[button:season-pass]]', {
+        links: true,
+        buttons: true,
+      })
+      const result = await caller.chat.send(actionInput)
+      const blocks = result.blocks as Array<{
+        type: string
+        links?: unknown[]
+        actions?: unknown[]
+      }>
+      expect(blocks[0]).not.toHaveProperty('links')
+      expect(blocks.filter((block) => block.type === 'actions')).toHaveLength(1)
+    })
+
+    it('streams link text without ever exposing action markers or IDs', async () => {
+      const deltas: string[] = []
+      const projection = createGuestStreamingProjection({
+        onTextDelta: (delta) => {
+          deltas.push(delta)
+        },
+      })
+      const text = 'You can [[link:burger-order|order ahead]] now. [[button:season-pass]]'
+      for (const chunk of text.match(/.{1,3}/gsu)!)
+        await projection.push(chunk, { providerFirstTextMs: 1, requestFirstTextMs: 1 })
+      expect(deltas.join('')).toBe('You can order ahead now. ')
+      for (const delta of deltas) expect(delta).not.toMatch(/\[|\]|burger-order|season-pass/u)
+    })
+
+    it('answers an unrelated question with no action', async () => {
+      setupActions('The restrooms are next to the carousel.', { links: true, buttons: true })
+      const result = await caller.chat.send({ ...actionInput, message: 'Where are the restrooms?' })
+      expect(result.response).toBe('The restrooms are next to the carousel.')
+      expect(result.blocks).toBeUndefined()
+      expect(finalizedMetadata().actionPlacements).toBeUndefined()
+    })
+
+    it('omits unknown, disabled and hidden-place actions and never invents a destination', async () => {
+      setupActions(
+        'Try [[link:free-food|free food]], [[link:zipline|the zipline]] or [[link:pizza-order|pizza]].',
+        { links: true, buttons: true },
+        { places: [visiblePlaces[0]!] },
+      )
+      const result = await caller.chat.send(actionInput)
+      expect(result.response).toBe('Try free food, the zipline or pizza.')
+      expect(result.blocks).toBeUndefined()
+      expect(systemPrompt()).not.toContain('pizza-order')
+    })
+
+    it('fails open to a normal answer when the action settings cannot be read', async () => {
+      setupActions('You can [[link:burger-order|order ahead]].', { links: true, buttons: true })
+      venueFindMany.mockRejectedValue(new Error('db offline'))
+      const result = await caller.chat.send(actionInput)
+      expect(result.response).toBe('You can order ahead.')
+      expect(result.blocks).toBeUndefined()
+    })
+
+    describe('saved conversation replay', () => {
+      function historyRow(actionPlacements: unknown[]) {
+        dbQueryRaw.mockResolvedValueOnce([
+          { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+        ])
+        messageFindMany.mockResolvedValueOnce([
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'You can order ahead at Burger Barn.',
+            sessionSequence: 1,
+            createdAt: new Date('2026-10-04T16:00:00.000Z'),
+            guestChatTurn: {
+              fallbackCode: null,
+              replayMetadata: {
+                places: [],
+                citations: [{ label: 'Dining guide', detail: 'Place: Burger Barn' }],
+                actionPlacements,
+              },
+            },
+          },
+        ])
+      }
+      const placement = [{ presentation: 'INLINE', actionId: 'burger-order', start: 8, end: 19 }]
+
+      it('re-resolves the link against the current catalog and keeps sources', async () => {
+        historyRow(placement)
+        venueFindMany.mockResolvedValue([
+          {
+            chatAppearance: {
+              actionLinks: true,
+              guestActions: [{ ...catalog[0], url: 'https://order.example.com/new-burger' }],
+            },
+          },
+        ])
+        const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
+        expect(result.messages[0]).toMatchObject({
+          blocks: [
+            {
+              type: 'text',
+              links: [{ start: 8, end: 19, href: 'https://order.example.com/new-burger' }],
+            },
+            { type: 'citations' },
+          ],
+        })
+      })
+
+      it('shows a since-disabled action as plain text with its sources', async () => {
+        historyRow(placement)
+        venueFindMany.mockResolvedValue([
+          {
+            chatAppearance: {
+              actionLinks: true,
+              guestActions: [{ ...catalog[0], enabled: false }],
+            },
+          },
+        ])
+        const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
+        expect(result.messages[0]).toMatchObject({
+          content: 'You can order ahead at Burger Barn.',
+          blocks: [{ type: 'citations' }],
+        })
+      })
+
+      it('applies a later switch-off to saved conversations', async () => {
+        historyRow(placement)
+        venueFindMany.mockResolvedValue([
+          { chatAppearance: { actionLinks: false, guestActions: catalog } },
+        ])
+        const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
+        expect(JSON.stringify(result.messages)).not.toContain('order.example.com')
+      })
     })
   })
 })

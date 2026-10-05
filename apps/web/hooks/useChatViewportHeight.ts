@@ -8,6 +8,16 @@ export const KEYBOARD_MIN_SHRINK = 80
 export const KEYBOARD_RESTORE_TOLERANCE = 20
 /** The transcript counts as "following the latest message" within this distance of its end. */
 export const FOLLOW_LATEST_SLACK = 80
+/**
+ * Longest wait for iOS to report that a dismissed keyboard is gone. iOS Safari only resizes the
+ * visual viewport after the keyboard has finished sliding away, so the shell starts growing back
+ * the moment the field loses focus instead; this caps that head start if no resize ever arrives.
+ */
+export const KEYBOARD_CLOSE_MAX_MS = 1000
+/** Frames with an unchanged transcript height before an animated re-pin stops following. */
+const PIN_SETTLED_FRAMES = 3
+/** Hard cap on the re-pin loop while the shell height animates. */
+const PIN_MAX_MS = 700
 
 /**
  * Where the chat shell should sit, in layout-viewport CSS pixels. `undefined` means the shell's
@@ -70,6 +80,11 @@ export function useChatViewportHeight() {
     let frame: number | undefined
     let pinTranscript = false
     let applied: ChatViewportRect | undefined
+    // The field lost focus while the keyboard was open: the keyboard is on its way down.
+    let closingSince: number | undefined
+    // Whether a keyboard-sized viewport has been seen since then; only its return ends the close.
+    let closingSawKeyboard = false
+    let closingTimer: ReturnType<typeof setTimeout> | undefined
 
     const conversation = () =>
       document.querySelector<HTMLElement>('[data-chat-shell] [data-chat-conversation]')
@@ -100,10 +115,26 @@ export function useChatViewportHeight() {
       const height = Math.round(viewport.height)
       const matchesStylesheet =
         offsetTop === 0 && offsetLeft === 0 && height >= Math.round(window.innerHeight)
+      if (closingSince !== undefined && viewport.height < baseline - KEYBOARD_MIN_SHRINK) {
+        closingSawKeyboard = true
+      }
+      if (
+        closingSince !== undefined &&
+        (editing ||
+          !unzoomed ||
+          (closingSawKeyboard &&
+            Math.abs(viewport.height - baseline) <= KEYBOARD_RESTORE_TOLERANCE) ||
+          Date.now() - closingSince > KEYBOARD_CLOSE_MAX_MS)
+      ) {
+        closingSince = undefined
+      }
       const next: ChatViewportRect | undefined =
-        !unzoomed || (matchesStylesheet && !keyboardOpen)
-          ? undefined
-          : { height, offsetTop, offsetLeft, keyboardOpen }
+        closingSince !== undefined
+          ? // Grow back now, in step with the keyboard sliding away, rather than after it is gone.
+            { height: Math.round(baseline), offsetTop: 0, offsetLeft: 0, keyboardOpen: false }
+          : !unzoomed || (matchesStylesheet && !keyboardOpen)
+            ? undefined
+            : { height, offsetTop, offsetLeft, keyboardOpen }
 
       if (
         !editing &&
@@ -123,20 +154,53 @@ export function useChatViewportHeight() {
       applied = next
       setViewportRect(next)
       if (pinTranscript && typeof requestAnimationFrame === 'function') {
+        // The shell height may animate, so keep the transcript pinned to its end every frame
+        // until its height has settled.
         if (frame !== undefined) cancelAnimationFrame(frame)
-        frame = requestAnimationFrame(() => {
+        const startedAt = Date.now()
+        let lastHeight = -1
+        let settledFrames = 0
+        const follow = () => {
           frame = undefined
           if (!active || !pinTranscript) return
-          pinTranscript = false
           const node = conversation()
-          if (node) node.scrollTop = node.scrollHeight
-        })
+          if (node) {
+            node.scrollTop = node.scrollHeight
+            settledFrames = node.clientHeight === lastHeight ? settledFrames + 1 : 0
+            lastHeight = node.clientHeight
+          }
+          if (!node || settledFrames >= PIN_SETTLED_FRAMES || Date.now() - startedAt > PIN_MAX_MS) {
+            pinTranscript = false
+            return
+          }
+          frame = requestAnimationFrame(follow)
+        }
+        frame = requestAnimationFrame(follow)
       }
     }
 
     const onChange = () => update()
     // Focus changes are reported before the browser updates the viewport; read after them.
     const afterFocus = () => queueMicrotask(onChange)
+    // Leaving a text field means any keyboard is going away, even one whose size iOS has not
+    // reported yet (a quick tap in and out): a late "keyboard opened" resize must not shrink the
+    // shell while the keyboard is actually closing.
+    const afterFocusOut = (event: FocusEvent) =>
+      queueMicrotask(() => {
+        if (
+          active &&
+          isEditableField(event.target as Element | null) &&
+          !isEditableField(document.activeElement) &&
+          Math.round(viewport.offsetTop) === 0 &&
+          Math.round(viewport.offsetLeft) === 0
+        ) {
+          closingSince = Date.now()
+          closingSawKeyboard = false
+          if (closingTimer !== undefined) clearTimeout(closingTimer)
+          closingTimer = setTimeout(onChange, KEYBOARD_CLOSE_MAX_MS + 50)
+        }
+        onChange()
+      })
     viewport.addEventListener('resize', onChange)
     viewport.addEventListener('scroll', onChange)
     window.addEventListener('resize', onChange)
@@ -144,11 +208,12 @@ export function useChatViewportHeight() {
     window.addEventListener('pageshow', onChange)
     document.addEventListener('visibilitychange', onChange)
     document.addEventListener('focusin', afterFocus)
-    document.addEventListener('focusout', afterFocus)
+    document.addEventListener('focusout', afterFocusOut)
     update()
     return () => {
       active = false
       if (frame !== undefined) cancelAnimationFrame(frame)
+      if (closingTimer !== undefined) clearTimeout(closingTimer)
       viewport.removeEventListener('resize', onChange)
       viewport.removeEventListener('scroll', onChange)
       window.removeEventListener('resize', onChange)
@@ -156,7 +221,7 @@ export function useChatViewportHeight() {
       window.removeEventListener('pageshow', onChange)
       document.removeEventListener('visibilitychange', onChange)
       document.removeEventListener('focusin', afterFocus)
-      document.removeEventListener('focusout', afterFocus)
+      document.removeEventListener('focusout', afterFocusOut)
     }
   }, [])
 
@@ -197,4 +262,62 @@ export function shouldDismissKeyboardOnSubmit(field: HTMLElement | null) {
     window.matchMedia('(hover: none) and (pointer: coarse)').matches &&
     !window.matchMedia('(any-pointer: fine)').matches
   )
+}
+
+/** A touch that moves farther than this is a drag, not a tap, and is left to the browser. */
+export const TAP_MAX_TRAVEL = 10
+
+/**
+ * iPhone/iPad WebKit (including Chrome and other browsers on iOS, which all use WebKit). An iPad
+ * in desktop mode reports itself as a Mac, so a Mac with touch points counts too.
+ */
+export function isAppleTouchWebKit() {
+  if (typeof navigator === 'undefined') return false
+  const platform = navigator.platform ?? ''
+  return (
+    /^(iPhone|iPad|iPod)/.test(platform) ||
+    (platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  )
+}
+
+/**
+ * Tap handlers for the composer that stop iOS Safari's focus pan.
+ *
+ * When a field gains focus by a tap, iOS Safari scrolls the whole page so the field sits mid-screen
+ * above the keyboard, even when the field lives inside a `position: fixed` shell. That pan lands a
+ * frame before the visual-viewport events that let the shell re-fit itself, so the visitor sees the
+ * shell shoot up (composer near the top of the screen, blank space below) and then snap back.
+ *
+ * The fix is the one React Aria (`usePreventScroll`) uses: on an unfocused field, cancel the tap's
+ * default handling and focus the field ourselves with `preventScroll: true`. Focus inside a
+ * `touchend` handler is still a user gesture, so the keyboard opens; Safari simply never pans, and
+ * the shell only ever moves once, straight to the visible rectangle above the keyboard. A field
+ * that is already focused keeps native taps so the caret and selection handles still work, and
+ * every other browser keeps its own behaviour.
+ */
+export function createComposerTapFocus() {
+  let start: { x: number; y: number } | null = null
+  return {
+    onTouchStart(event: { touches: ArrayLike<{ clientX: number; clientY: number }> }) {
+      const touch = event.touches[0]
+      start = event.touches.length === 1 && touch ? { x: touch.clientX, y: touch.clientY } : null
+    },
+    onTouchEnd(event: {
+      currentTarget: HTMLTextAreaElement | HTMLInputElement
+      changedTouches: ArrayLike<{ clientX: number; clientY: number }>
+      cancelable: boolean
+      preventDefault(): void
+    }) {
+      const field = event.currentTarget
+      const touch = event.changedTouches[0]
+      const origin = start
+      start = null
+      if (!origin || !touch || !event.cancelable) return
+      if (Math.hypot(touch.clientX - origin.x, touch.clientY - origin.y) > TAP_MAX_TRAVEL) return
+      if (field.disabled || field.readOnly || document.activeElement === field) return
+      if (!isAppleTouchWebKit()) return
+      event.preventDefault()
+      field.focus({ preventScroll: true })
+    },
+  }
 }

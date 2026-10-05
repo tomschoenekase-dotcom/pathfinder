@@ -39,6 +39,13 @@ export const ChatAppearanceSchema = z
     background: ChatAppearanceBackgroundSchema,
     /** Shows the "Tell me more about that" follow-up action. */
     requestMore: z.boolean(),
+    /**
+     * The guide may offer approved guest actions as inline links inside its answers. Optional so
+     * an older client that omits it keeps the stored value; reads default it to false.
+     */
+    actionLinks: z.boolean().optional(),
+    /** The guide may offer one approved guest action as a button when that is the point. */
+    actionButtons: z.boolean().optional(),
   })
   .strict()
 
@@ -59,6 +66,8 @@ export const DEFAULT_CHAT_APPEARANCE: ChatAppearance = Object.freeze({
   footerColor: null,
   background: Object.freeze({ mode: 'none', focalX: 50, focalY: 50, dim: 45 }),
   requestMore: true,
+  actionLinks: false,
+  actionButtons: false,
 }) as ChatAppearance
 
 function pick<T>(schema: z.ZodType<T>, value: unknown, fallback: T): T {
@@ -101,6 +110,8 @@ export function parseChatAppearance(value: unknown): ChatAppearance {
       dim: pick(backgroundShape.dim, backgroundInput.dim, defaults.background.dim),
     },
     requestMore: pick(shape.requestMore, input.requestMore, defaults.requestMore),
+    actionLinks: pick(z.boolean(), input.actionLinks, defaults.actionLinks),
+    actionButtons: pick(z.boolean(), input.actionButtons, defaults.actionButtons),
   }
 }
 

@@ -642,6 +642,8 @@ const chatAppearanceJsonSchema = {
       },
     },
     requestMore: { type: 'boolean' },
+    actionLinks: { type: 'boolean' },
+    actionButtons: { type: 'boolean' },
   },
 } as const
 

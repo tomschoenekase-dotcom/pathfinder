@@ -31,13 +31,19 @@ export default async function LookAndFeelPage({ searchParams }: LookAndFeelPageP
   const venue = venues.find((candidate) => candidate.id === requested) ?? venues[0]!
   const lifecycle = lifecycles.find((row) => row.venueId === venue.id)?.lifecycle
 
-  const [approved, supportPage] = await Promise.all([
+  const [approved, supportPage, places] = await Promise.all([
     canEdit
       ? caller.venue
           .listApprovedBrandingAssets({ venueId: venue.id })
           .catch(() => ({ items: [], nextCursor: null }))
       : Promise.resolve({ items: [], nextCursor: null }),
     caller.support.listRequests({ venueId: venue.id }).catch(() => ({ items: [] })),
+    canEdit
+      ? caller.place
+          .list({ venueId: venue.id })
+          .then((rows) => rows.map((place) => ({ id: place.id, name: place.name })))
+          .catch(() => [])
+      : Promise.resolve([]),
   ])
 
   // A logo or photo sent from this page stays "in review" until Torchiko closes its request.
@@ -105,6 +111,7 @@ export default async function LookAndFeelPage({ searchParams }: LookAndFeelPageP
       }}
       previewOrigin={previewOrigin}
       mediaOrigin={mediaOrigin}
+      places={places}
     />
   )
 }
