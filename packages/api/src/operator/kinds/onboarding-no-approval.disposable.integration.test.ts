@@ -469,12 +469,12 @@ describe.skipIf(!enabled)(
       })
     })
 
-    it('imports the full package with 100ms latency on every database round trip', async () => {
+    it('imports the full package with 200ms latency on every Prisma operation', async () => {
       const venue = await importFixtureVenue()
       const delayed = db.$extends({
         query: {
           async $allOperations({ args, query }) {
-            await new Promise((resolve) => setTimeout(resolve, 100))
+            await new Promise((resolve) => setTimeout(resolve, 200))
             return query(args)
           },
         },
@@ -506,6 +506,54 @@ describe.skipIf(!enabled)(
             where: { tenantId, venueId: venue.id, venuePackageAction: 'APPLY' },
           }),
         ).toBe(107)
+      })
+    })
+
+    it('rolls back the entire package when batched immutable-history verification is incomplete', async () => {
+      const venue = await importFixtureVenue()
+      const originalHistory = await withTenantIsolationBypass(() =>
+        db.contentVersion.findMany({ where: { tenantId, venueId: venue.id } }),
+      )
+      const missingReceipt = db.$extends({
+        query: {
+          contentVersion: {
+            async findMany({ args, query }) {
+              const rows = await query(args)
+              return args.where?.venuePackageAction === 'APPLY' ? rows.slice(1) : rows
+            },
+          },
+        },
+      })
+      const view = await createProposal(
+        'venues.propose_package_import',
+        { operationId: randomUUID(), tenantId, venueId: venue.id, payload: fullPackage() },
+        {
+          config,
+          database: missingReceipt as typeof db,
+          grant,
+          kinds,
+          now: new Date(),
+          requestId: randomUUID(),
+        },
+      )
+      expect(view.status).toBe('FAILED')
+      await withTenantIsolationBypass(async () => {
+        expect(await db.venueKnowledgeEntry.count({ where: { tenantId, venueId: venue.id } })).toBe(
+          0,
+        )
+        expect(
+          await db.contentVersion.findMany({ where: { tenantId, venueId: venue.id } }),
+        ).toEqual(originalHistory)
+        expect(
+          await db.venuePackage.count({
+            where: { tenantId, venueId: venue.id, status: 'APPROVED' },
+          }),
+        ).toBe(1)
+        expect(
+          await db.onboardingMilestoneEvent.count({
+            where: { tenantId, venueId: venue.id, eventType: 'RELEASED' },
+          }),
+        ).toBe(0)
       })
     })
 
