@@ -74,11 +74,11 @@ const fakeProvider: CustomerProvider = {
     await withTenantIsolationBypass(() =>
       db.tenant.upsert({
         where: { id },
-        create: { id, name: input.name, slug: input.slug },
+        create: { id, name: input.name, slug: 'example-provider-generated' },
         update: { name: input.name },
       }),
     )
-    return { id, name: input.name, slug: input.slug }
+    return { id, name: input.name, slug: 'example-provider-generated' }
   }) as never,
   validateOwner: (async (input: {
     organizationId: string
@@ -87,7 +87,7 @@ const fakeProvider: CustomerProvider = {
   }) => ({
     organizationId: input.organizationId,
     organizationName: 'Example',
-    organizationSlug: 'example',
+    organizationSlug: 'example-provider-generated',
     userId: input.userId,
     emailAddress: input.emailAddress,
   })) as never,

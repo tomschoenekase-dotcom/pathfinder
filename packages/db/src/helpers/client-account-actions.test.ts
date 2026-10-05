@@ -126,7 +126,32 @@ describe('canonical client account actions', () => {
     expect(JSON.stringify(tx.auditLog.create.mock.calls)).toContain('admin.client.created')
   })
 
-  it('never adopts a tenant that already has a venue or a different slug', async () => {
+  it('completes a webhook shell with the validated provider slug while preserving the requested local slug', async () => {
+    const { tx, client } = fixture()
+    tx.tenant.findUnique.mockResolvedValueOnce({ ...tenant, slug: 'northstar-provider-123' })
+    tx.auditLog.findFirst.mockResolvedValueOnce(null)
+    const result = await createClientAccountAction(
+      {
+        tenantId: 'tenant-1',
+        name: 'Northstar',
+        slug: 'northstar',
+        providerSlug: 'northstar-provider-123',
+        owner: { id: 'owner-1', email: 'owner@example.com' },
+        actor,
+        initialVenue: { name: 'Lobby', slug: 'lobby', guideMode: 'non_location', isActive: false },
+      },
+      client as never,
+    )
+    expect(result).toMatchObject({ replayed: false, venue: { id: 'venue-1' } })
+    expect(tx.tenant.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { name: 'Northstar', slug: 'northstar' },
+      }),
+    )
+    expect(tx.tenant.create).not.toHaveBeenCalled()
+  })
+
+  it('never adopts a tenant that already has a venue or an unverified different slug', async () => {
     for (const setup of ['venue', 'slug'] as const) {
       const { tx, client } = fixture()
       const row = setup === 'slug' ? { ...tenant, slug: 'other' } : tenant
