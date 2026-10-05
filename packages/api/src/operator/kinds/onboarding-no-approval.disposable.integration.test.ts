@@ -15,6 +15,8 @@ vi.mock('../../lib/venue-package-semantic-analysis', async (importOriginal) => {
     ...original,
     generateVenuePackageCandidateEmbeddings: vi.fn(
       async (params: Parameters<typeof original.generateVenuePackageCandidateEmbeddings>[0]) => {
+        // Exercise production admission even though provider vectors are deterministic here.
+        await params.admissionGuard()
         const inputs = original.venuePackageSemanticInputs(params.payload)
         return {
           places: inputs.places.map((_, draftIndex) => ({ draftIndex, embedding: vector() })),
