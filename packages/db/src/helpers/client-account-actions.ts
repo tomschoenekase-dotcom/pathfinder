@@ -194,6 +194,26 @@ export async function createClientAccountAction(
   input: CreateClientAccountInput,
   client: ClientAccountActionClient = db,
 ) {
+  try {
+    return await createClientAccountTransaction(input, client)
+  } catch (error) {
+    // The organization webhook can commit between our shell lookup and insert/replay lookup.
+    // Retry only this rolled-back local transaction, never the provider call. A fresh transaction
+    // repeats the verified-shell and exact-replay checks, so unrelated accounts remain protected.
+    if (
+      !input.providerSlug ||
+      !(error instanceof ClientAccountActionError) ||
+      error.code !== 'CONFLICT'
+    )
+      throw error
+    return createClientAccountTransaction(input, client)
+  }
+}
+
+async function createClientAccountTransaction(
+  input: CreateClientAccountInput,
+  client: ClientAccountActionClient,
+) {
   requireActor(input.actor)
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db

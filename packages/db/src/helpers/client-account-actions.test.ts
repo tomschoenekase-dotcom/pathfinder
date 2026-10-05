@@ -175,6 +175,62 @@ describe('canonical client account actions', () => {
     }
   })
 
+  it.each(['replay lookup', 'insert'] as const)(
+    'retries a rolled-back local transaction when the webhook wins during %s',
+    async (race) => {
+      const { tx, client } = fixture()
+      const shell = { ...tenant, slug: 'northstar-provider-123' }
+      tx.tenant.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(race === 'replay lookup' ? shell : null)
+        .mockResolvedValueOnce(shell)
+      if (race === 'insert') tx.tenant.create.mockRejectedValueOnce({ code: 'P2002' })
+      tx.auditLog.findFirst.mockResolvedValue(null)
+      const result = await createClientAccountAction(
+        {
+          tenantId: 'tenant-1',
+          name: 'Northstar',
+          slug: 'northstar',
+          providerSlug: shell.slug,
+          owner: { id: 'owner-1', email: 'owner@example.com' },
+          actor,
+          initialVenue: {
+            name: 'Lobby',
+            slug: 'lobby',
+            guideMode: 'non_location',
+            isActive: false,
+          },
+        },
+        client as never,
+      )
+      expect(result).toMatchObject({ replayed: false, venue: { id: 'venue-1' } })
+      expect(client.$transaction).toHaveBeenCalledTimes(2)
+      expect(tx.venue.create).toHaveBeenCalledOnce()
+      expect(tx.auditLog.create).toHaveBeenCalledOnce()
+    },
+  )
+
+  it('keeps an unverified conflicting account protected after the bounded retry', async () => {
+    const { tx, client } = fixture()
+    tx.tenant.findUnique.mockResolvedValue({ ...tenant, slug: 'unrelated' })
+    await expect(
+      createClientAccountAction(
+        {
+          tenantId: 'tenant-1',
+          name: 'Northstar',
+          slug: 'northstar',
+          providerSlug: 'northstar-provider-123',
+          owner: { id: 'owner-1', email: 'owner@example.com' },
+          actor,
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(client.$transaction).toHaveBeenCalledTimes(2)
+    expect(tx.tenant.update).not.toHaveBeenCalled()
+    expect(tx.venue.create).not.toHaveBeenCalled()
+  })
+
   it('rejects a natural-key replay with different account details', async () => {
     const { tx, client } = fixture()
     tx.tenant.findUnique
