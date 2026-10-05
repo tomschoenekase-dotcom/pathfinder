@@ -14,13 +14,16 @@ const dashboardLayout = await readFile(path.join(root, 'apps/dashboard/app/layou
 
 test('responsive browser CI failures retain a bounded secret-free diagnostic tail', () => {
   const step = workflow.match(
-    /- name: Verify phone, tablet, and desktop core-product rendering[\s\S]*?(?=\n\s+- name: Build and verify browser bundles)/u,
+    /- name: Verify phone, tablet, and desktop core-product rendering[\s\S]*?(?=\n\s+- name: Responsive browser shard complete)/u,
   )?.[0]
 
   assert.ok(step)
   assert.match(step, /set -o pipefail/u)
   assert.match(step, /visual_log="\$\(mktemp\)"/u)
-  assert.match(step, /pnpm test:visual-browser 2>&1 \| tee "\$visual_log"/u)
+  assert.match(
+    step,
+    /pnpm test:visual-browser --shard="\$VISUAL_SHARD" 2>&1 \| tee "\$visual_log"/u,
+  )
   assert.match(step, /tail -n 80 "\$visual_log"/u)
   assert.match(step, /::error title=Responsive browser gate failed::\$safe_line/u)
   assert.match(step, /line\/\/'%'\/'%25'/u)

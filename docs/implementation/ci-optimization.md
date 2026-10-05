@@ -275,3 +275,45 @@ After the branch is pushed and has run on GitHub:
 7. The old stacked-docs behavior: docs commits on a long-lived branch that differs from master in
    code are full runs by design. A later enhancement could use the last fully green SHA as the
    base, but that needs a trustworthy record of that SHA.
+
+## Parallel required checks — October 5 iteration update
+
+The original CI critical path ran responsive browser smoke, secret scanning,
+workspace builds/typechecks, and the workspace test graph one after another.
+Required checks now use separate isolated runners:
+
+- `policy-and-integration`: all original policy, advisory, disposable integration,
+  client-bundle secret, DOM, accessibility, and script gates.
+- `browser-gates`: the same responsive browser suite in three file/project shards.
+  All phone, tablet and desktop cases remain; one worker per shard and existing
+  retries/timeouts remain. Matrix fail-fast is disabled so evidence is retained.
+- `workspace-checks`: the same typecheck, lint and complete planned workspace graph.
+
+Each starts after `plan`, with the original synthetic environment and disposable
+services. The existing protected `ci` check aggregates all three core jobs;
+`ci-required` also requires them plus IaC and visitor-launch. Failed, cancelled,
+missing, or unplanned skipped results still fail closed. Release events still
+force FULL; this update does not change that policy or branch protection.
+The improvement is parallel execution, not reuse of old test conclusions.
+Actual speed must be measured from the first hosted run; do not promise an ETA.
+Playwright's supported sharding preserves files within each project:
+https://playwright.dev/docs/test-sharding
+
+### Code-only production iteration
+
+For an edit with identical Prisma schema and migration files to the deployed
+qualified release, compare the complete change set and manifest against that
+release, and confirm the hosted active ledger already matches it. Use the code
+release checks, exact-revision staging admission, production promotion gate and
+same-SHA live health verification. Do not invoke the previous lineage migration
+operator, stop all apps, park old queue records, or repeat the database restore
+rehearsal when no database transition is being made. Existing backup evidence
+remains retained. A schema/migration/ledger mismatch requires a separately
+qualified database release; it cannot be classified as a code-only edit.
+This procedure does not make unchecked code approved or alter provider switches.
+
+Git-based production releases use Railway commit metadata. After a controlled
+rollout sets `PATHFINDER_RELEASE_SHA`, clear that fallback with skip-deploys
+once Git identity is proven. Leaving an old fixed value makes the existing
+conflict check correctly reject the next commit as an unknown revision. Never
+remove the conflict check or permit an unreviewed local-upload identity.
