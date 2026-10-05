@@ -1,12 +1,13 @@
 'use client'
 
-import { useId, useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { AlertTriangle, CalendarDays, CheckCircle2, ExternalLink, Info, MapPin } from 'lucide-react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import {
   legacyGuestResponseToBlocks,
   type GuestResponseBlock,
   type GuestResponsePlace,
+  type GuestResponseTextLink,
   type GuestVisitorAction,
 } from '@pathfinder/contracts/guest-response'
 
@@ -62,6 +63,55 @@ function safeWebHref(href: string): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Renders server-resolved link ranges inside plain answer text. Only the validated ranges become
+ * anchors; the text itself is never parsed as markup.
+ */
+function LinkedText({
+  text,
+  links,
+  onVisitorAction,
+}: {
+  text: string
+  links: GuestResponseTextLink[]
+  onVisitorAction?: (action: GuestVisitorAction) => void
+}) {
+  const parts: ReactNode[] = []
+  let cursor = 0
+  for (const link of links) {
+    const href = safeHttpsHref(link.href)
+    if (!href || link.start < cursor || link.end > text.length || link.end <= link.start) continue
+    parts.push(text.slice(cursor, link.start))
+    const label = text.slice(link.start, link.end)
+    parts.push(
+      <a
+        key={`${link.analyticsKey}-${link.start}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-semibold text-[var(--chat-accent-text)] underline decoration-current/40 underline-offset-2 hover:decoration-current focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]"
+        onClick={() =>
+          onVisitorAction?.({
+            type: 'OPEN_WEBSITE',
+            label,
+            target: { kind: 'URL', url: href },
+            style: 'secondary',
+            analyticsKey: link.analyticsKey,
+            permissionRequirement: 'PUBLIC',
+            confirmationRequired: false,
+          })
+        }
+      >
+        {label}
+        <span className="sr-only"> (opens in a new tab)</span>
+      </a>,
+    )
+    cursor = link.end
+  }
+  parts.push(text.slice(cursor))
+  return <>{parts}</>
 }
 
 function PlaceGrid({
@@ -166,7 +216,15 @@ export function ResponseRenderer({
           case 'text':
             return (
               <p key={index} className="whitespace-pre-wrap break-words" lang="" dir="auto">
-                {block.text}
+                {block.links?.length ? (
+                  <LinkedText
+                    text={block.text}
+                    links={block.links}
+                    {...(onVisitorAction ? { onVisitorAction } : {})}
+                  />
+                ) : (
+                  block.text
+                )}
               </p>
             )
           case 'callout': {

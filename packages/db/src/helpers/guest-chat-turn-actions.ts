@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
 import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
+import { GuestActionPlacement } from '@pathfinder/contracts/guest-action-links'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 
 import { db } from '../client'
@@ -140,6 +141,9 @@ export const GuestChatReplayMetadata = z
     // projections deliberately return only places and citations.
     answerEvidence: GuestAnswerEvidenceBundleSchema.optional(),
     pendingPlaceIdentity: GuestPlaceIdentityPending.optional(),
+    // Which approved guest actions the answer offered and where. Destinations are resolved from
+    // the venue's current catalog at display time, so no URL is stored per message.
+    actionPlacements: z.array(GuestActionPlacement).max(8).optional(),
   })
   .strict()
 
@@ -292,6 +296,9 @@ function guestChatResponseHash(
         ...(hasMetadataField('pendingPlaceIdentity')
           ? { pendingPlaceIdentity: metadata.pendingPlaceIdentity }
           : {}),
+        ...(hasMetadataField('actionPlacements')
+          ? { actionPlacements: metadata.actionPlacements }
+          : {}),
       }),
     )
     .digest('hex')
@@ -419,6 +426,7 @@ async function projectExistingTurn(
       replyKind: guestReplyKindFromFallbackCode(turn.fallbackCode),
       places: metadata.data.places,
       citations: metadata.data.citations,
+      actionPlacements: metadata.data.actionPlacements,
       replayed: true,
     }
   }
@@ -1464,6 +1472,7 @@ export async function finalizeGuestChatTurnAction(args: {
           replyKind: guestReplyKindFromFallbackCode(input.fallbackCode),
           places: replayMetadata.places,
           citations: replayMetadata.citations,
+          actionPlacements: replayMetadata.actionPlacements,
           replayed: false,
         }
       },

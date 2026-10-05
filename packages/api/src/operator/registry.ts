@@ -133,6 +133,7 @@ const builtInReads: readonly OperatorReadTool[] = [
         chatAccentColor: data.chatAccentColor ?? null,
         chatFont: data.chatFont,
         chatAppearance: appearance ?? null,
+        guestActions: Array.isArray(data.guestActions) ? data.guestActions : [],
       }
     },
   },

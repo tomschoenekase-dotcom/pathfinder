@@ -37,6 +37,7 @@ export type VisitorFixtureConversation =
   | 'reference'
   | 'placeholder'
   | 'pass'
+  | 'actions'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice =
   | 'none'
@@ -305,6 +306,57 @@ const PASS_CONVERSATION: ChatMessage[] = [
   },
 ]
 
+const ORDER_TEXT =
+  'Burger Barn is beside the carousel and serves until 8 PM. You can order ahead to skip the line, then pick up at the side window.'
+const PASS_TEXT =
+  'A season pass covers unlimited visits through December, plus free parking. It pays for itself on the third visit.'
+
+/** Server-composed approved actions: one inline link, then a single purchase button. */
+const ACTIONS_CONVERSATION: ChatMessage[] = [
+  { role: 'user', content: 'Can I order ahead at Burger Barn?' },
+  {
+    role: 'assistant',
+    content: ORDER_TEXT,
+    blocks: [
+      {
+        type: 'text',
+        text: ORDER_TEXT,
+        links: [
+          {
+            start: ORDER_TEXT.indexOf('order ahead'),
+            end: ORDER_TEXT.indexOf('order ahead') + 'order ahead'.length,
+            href: 'https://order.example.com/burger-barn?location=12',
+            analyticsKey: 'guest-action.burger-order',
+          },
+        ],
+      },
+    ],
+  },
+  { role: 'user', content: 'I want to buy a season pass.' },
+  {
+    role: 'assistant',
+    content: PASS_TEXT,
+    blocks: [
+      { type: 'text', text: PASS_TEXT },
+      {
+        type: 'actions',
+        actions: [
+          {
+            type: 'BUY_TICKETS',
+            label: 'Buy a season pass',
+            target: { kind: 'URL', url: 'https://tickets.example.com/season-pass' },
+            style: 'primary',
+            icon: 'ticket',
+            analyticsKey: 'guest-action.season-pass',
+            permissionRequirement: 'PUBLIC',
+            confirmationRequired: false,
+          },
+        ],
+      },
+    ],
+  },
+]
+
 const FIXTURE_CONVERSATIONS: Record<VisitorFixtureConversation, ChatMessage[]> = {
   empty: [],
   long: LONG_CONVERSATION,
@@ -314,6 +366,7 @@ const FIXTURE_CONVERSATIONS: Record<VisitorFixtureConversation, ChatMessage[]> =
   streaming: STREAMING_CONVERSATION,
   'voice-history': VOICE_HISTORY_CONVERSATION,
   pass: PASS_CONVERSATION,
+  actions: ACTIONS_CONVERSATION,
 }
 
 function fixtureVenue(

@@ -13,18 +13,29 @@ const webHref = z
 
 const sensitiveUrlKey =
   /(?:token|key|secret|signature|credential|auth|password|^sig$|^x-amz-|^x-goog-)/iu
-const safeHttpsHref = z
-  .string()
-  .trim()
-  .max(2_000)
-  .url()
-  .refine((value) => {
+
+/** HTTPS only, no embedded credentials, and no secret-like query or fragment parameter names. */
+export function isSafeHttpsHref(value: string): boolean {
+  try {
     const url = new URL(value)
     if (url.protocol !== 'https:' || url.username || url.password) return false
     return ![...url.searchParams.keys(), ...new URLSearchParams(url.hash.slice(1)).keys()].some(
       (key) => sensitiveUrlKey.test(key),
     )
-  }, 'Link must use HTTPS and contain no credentials or secret-like parameters')
+  } catch {
+    return false
+  }
+}
+
+const safeHttpsHref = z
+  .string()
+  .trim()
+  .max(2_000)
+  .url()
+  .refine(
+    isSafeHttpsHref,
+    'Link must use HTTPS and contain no credentials or secret-like parameters',
+  )
 
 const isoDateTime = z.string().datetime({ offset: true })
 
@@ -70,12 +81,46 @@ export const GuestResponsePlace = z
   })
   .strict()
 
+const analyticsKey = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u)
+
+/**
+ * A server-resolved inline link over a range of the text block. Ranges are UTF-16 offsets into
+ * `text`; the renderer turns only these ranges into anchors and never interprets markup.
+ */
+export const GuestResponseTextLink = z
+  .object({
+    start: z.number().int().nonnegative(),
+    end: z.number().int().positive(),
+    href: safeHttpsHref,
+    analyticsKey,
+  })
+  .strict()
+  .refine((link) => link.end > link.start, { message: 'Link range must not be empty' })
+
 export const GuestResponseTextBlock = z
   .object({
     type: z.literal('text'),
     text: nonEmptyText,
+    links: z.array(GuestResponseTextLink).min(1).max(4).optional(),
   })
   .strict()
+  .superRefine((block, ctx) => {
+    let previousEnd = 0
+    block.links?.forEach((link, index) => {
+      if (link.start < previousEnd || link.end > block.text.length)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['links', index],
+          message: 'Link ranges must be ordered, non-overlapping and inside the text',
+        })
+      previousEnd = link.end
+    })
+  })
 
 export const GuestResponseCalloutBlock = z
   .object({
@@ -133,12 +178,7 @@ export const GuestVisitorAction = z
         'accessibility',
       ])
       .optional(),
-    analyticsKey: z
-      .string()
-      .trim()
-      .min(1)
-      .max(100)
-      .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u),
+    analyticsKey,
     permissionRequirement: z
       .enum(['PUBLIC', 'AUTHENTICATED', 'EMPLOYEE', 'ADMIN'])
       .default('PUBLIC'),
@@ -333,6 +373,7 @@ export const GuestStructuredResponse = z
   .strict()
 
 export type GuestResponsePlace = z.infer<typeof GuestResponsePlace>
+export type GuestResponseTextLink = z.infer<typeof GuestResponseTextLink>
 export type GuestVisitorAction = z.infer<typeof GuestVisitorAction>
 export type GuestResponseBlock = z.infer<typeof GuestResponseBlock>
 export type GuestStructuredResponse = z.infer<typeof GuestStructuredResponse>

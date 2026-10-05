@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { GuestActionCatalog } from './guest-action-links'
+
 import { RoutineBudget, RoutineStopRules } from './agent-routine'
 import { McpAppearanceUpdateInput, type JsonSchema } from './mcp-v0'
 import { OPERATIONAL_UPDATE_LIFECYCLES } from './operational-update-lifecycle'
@@ -399,6 +401,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'venues.propose_operational_update_schedule',
   'venues.propose_operational_update_end',
   'appearance.propose_update',
+  'appearance.propose_guest_actions',
   'customers.propose_invite',
   'customers.propose_create',
   'offboarding.propose_execution',
@@ -507,6 +510,26 @@ const OperatorPlanInput = writeInput({
     }
   })
 })
+
+/** Replaces a venue's approved guest actions and/or sets the two presentation switches. */
+const AppearanceGuestActionsProposeInput = z
+  .object({
+    tenantId: Identifier,
+    venueId: Identifier,
+    operationId: z.string().uuid(),
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
+    guestActions: GuestActionCatalog.optional(),
+    actionLinks: z.boolean().optional(),
+    actionButtons: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.guestActions !== undefined ||
+      value.actionLinks !== undefined ||
+      value.actionButtons !== undefined,
+    { message: 'Provide guestActions, actionLinks or actionButtons' },
+  )
 
 /** Same appearance fields as Release B's McpAppearanceUpdateInput, scoped by tenantId. */
 const appearanceUpdateBase = McpAppearanceUpdateInput.innerType().innerType()
@@ -1473,6 +1496,7 @@ export const OPERATOR_MCP_INPUTS = {
     expectedUpdatedAt: IsoDateTime,
   }),
   'appearance.propose_update': AppearanceProposeInput,
+  'appearance.propose_guest_actions': AppearanceGuestActionsProposeInput,
   'customers.propose_create': writeInput({
     organizationName: z.string().trim().min(1).max(120),
     /** Lowercase letters, digits and hyphens. Derived from the name when absent. */
@@ -3268,6 +3292,7 @@ export const OPERATOR_MCP_OUTPUTS = {
       chatAccentColor: z.string().max(7).nullable(),
       chatFont: z.string().max(40),
       chatAppearance: z.record(z.unknown()).nullable(),
+      guestActions: z.array(z.record(z.unknown())).max(40),
     })
     .strict(),
   'support.list': Page(
@@ -4081,6 +4106,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.propose_operational_update_schedule': OperatorWriteResult,
   'venues.propose_operational_update_end': OperatorWriteResult,
   'appearance.propose_update': OperatorWriteResult,
+  'appearance.propose_guest_actions': OperatorWriteResult,
   'customers.propose_create': OperatorWriteResult,
   'customers.propose_invite': OperatorWriteResult,
   'offboarding.propose_execution': OperatorWriteResult,
@@ -5136,6 +5162,14 @@ const seeds: readonly Seed[] = [
     'appearance:propose',
     'venue',
     'appearance.update',
+  ],
+  [
+    'appearance.propose_guest_actions',
+    'Propose guest actions',
+    `Propose replacing the approved ordering, ticket, pass and booking links the visitor guide may offer, and/or the actionLinks and actionButtons switches. Requires expectedUpdatedAt. Asks a human unless an owner allows it by name.${PROPOSE}`,
+    'appearance:propose',
+    'venue',
+    'appearance.guest-actions',
   ],
   [
     'customers.propose_create',
