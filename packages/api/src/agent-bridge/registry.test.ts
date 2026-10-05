@@ -28,6 +28,7 @@ vi.mock('../prospect-agent/registry', () => ({
   createProspectAgentRegistry: () => ({ callTool: mocks.prospectCall }),
 }))
 vi.mock('@pathfinder/db', () => ({
+  VENUE_PACKAGE_TRANSACTION_OPTIONS: { maxWait: 10_000, timeout: 60_000 },
   registerAgentBridgeSession: mocks.register,
   heartbeatAgentBridgeSession: mocks.heartbeatSession,
   claimAgentBridgeTask: mocks.claim,

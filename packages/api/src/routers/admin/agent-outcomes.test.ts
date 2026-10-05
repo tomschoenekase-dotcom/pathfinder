@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  VENUE_PACKAGE_TRANSACTION_OPTIONS: { maxWait: 10_000, timeout: 60_000 },
   AgentOutcomeActionError: class AgentOutcomeActionError extends Error {
     constructor(
       readonly code: string,

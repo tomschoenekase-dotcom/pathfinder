@@ -23,6 +23,7 @@ vi.mock('@pathfinder/db', () => ({
     evalResult: { groupBy: mocks.evaluationOutcomes },
   },
   setContentVersionContext: vi.fn(async () => undefined),
+  VENUE_PACKAGE_TRANSACTION_OPTIONS: { maxWait: 10_000, timeout: 60_000 },
   withTenantIsolationBypass: mocks.bypass,
 }))
 
