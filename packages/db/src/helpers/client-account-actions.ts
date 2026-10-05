@@ -158,6 +158,35 @@ async function exactReplay(tx: typeof db, input: CreateClientAccountInput) {
   return { tenant: existing, venue: { id: venue.id, name: venue.name, slug: venue.slug } }
 }
 
+/**
+ * The identity provider's organization.created webhook upserts a bare tenant row (same id, name and
+ * slug) as soon as the organization exists, often before this action runs. That row has no owner
+ * record of ours, no venue and no client-created audit. It is the same client, so it is completed
+ * here instead of being reported as a conflict. A tenant this action already created keeps the
+ * exact-replay rules.
+ */
+async function webhookShell(tx: typeof db, input: CreateClientAccountInput) {
+  const existing = await tx.tenant.findUnique({
+    where: { id: input.tenantId },
+    select: clientAccountSelect,
+  })
+  if (!existing || existing.slug !== input.slug) return null
+  const [created, venues] = await Promise.all([
+    tx.auditLog.findFirst({
+      where: { tenantId: input.tenantId, action: 'admin.client.created' },
+      select: { id: true },
+    }),
+    tx.venue.count({ where: { tenantId: input.tenantId } }),
+  ])
+  if (created || venues > 0) return null
+  if (existing.name === input.name) return existing
+  return tx.tenant.update({
+    where: { id: input.tenantId },
+    data: { name: input.name },
+    select: clientAccountSelect,
+  })
+}
+
 export async function createClientAccountAction(
   input: CreateClientAccountInput,
   client: ClientAccountActionClient = db,
@@ -166,7 +195,8 @@ export async function createClientAccountAction(
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:client-create:${input.tenantId}`}, 0))`
-    const replay = await exactReplay(tx, input)
+    const shell = await webhookShell(tx, input)
+    const replay = shell ? null : await exactReplay(tx, input)
     if (replay) return { ...replay, replayed: true }
 
     let tenant: {
@@ -180,10 +210,12 @@ export async function createClientAccountAction(
       updatedAt: Date
     }
     try {
-      tenant = await tx.tenant.create({
-        data: { id: input.tenantId, name: input.name, slug: input.slug },
-        select: clientAccountSelect,
-      })
+      tenant =
+        shell ??
+        (await tx.tenant.create({
+          data: { id: input.tenantId, name: input.name, slug: input.slug },
+          select: clientAccountSelect,
+        }))
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         throw new ClientAccountActionError(
@@ -240,6 +272,18 @@ export async function createClientAccountAction(
             ...(input.initialVenue.defaultCenterLng !== undefined
               ? { defaultCenterLng: input.initialVenue.defaultCenterLng }
               : {}),
+            // The same default guide configuration ordinary venue creation gives every venue.
+            venueBotConfiguration: {
+              create: {
+                tenant: { connect: { id: input.tenantId } },
+                presentationMode: 'CLASSIC',
+                personalityMode: 'PRESET',
+                tonePreset: 'friendly',
+                tonePresetVersion: 1,
+                createdBy: input.actor.id,
+                updatedBy: input.actor.id,
+              },
+            },
           },
           select: { id: true, name: true, slug: true },
         })

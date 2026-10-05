@@ -29,6 +29,8 @@ import {
 } from './operator-venue-content'
 import { SupportRequestStatus } from './support-workflow'
 import { SourceConnectionConfigSchema } from './source-connections'
+import { TonePresetId } from './tone-presets'
+import { VenueBotResponseDepth } from './venue-bot-configuration'
 
 // Operator input never exposes a server-issued approval receipt. Preserve all configuration
 // refinements while omitting that authority field from both Zod and the advertised JSON schema.
@@ -216,6 +218,7 @@ export const OperatorToolScope = z.enum(['platform', 'tenant', 'venue'])
 export type OperatorToolScope = z.infer<typeof OperatorToolScope>
 
 /** Tools that always wait for a human, whatever the autonomy policy says. */
+/** Tools that always wait for a person when the deployment runs OPERATOR_APPROVAL_MODE=review. By default nothing waits. */
 export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'customers.propose_invite',
   // Creates a real organization at the identity provider, so a person decides each time.
@@ -395,6 +398,8 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'venues.propose_source',
   'venues.propose_source_connection',
   'venues.propose_knowledge',
+  'venues.propose_update',
+  'venues.propose_package_import',
   'venues.propose_content_changeset',
   'venues.propose_publish',
   'venues.propose_operational_update',
@@ -1044,6 +1049,38 @@ export const OPERATOR_MCP_INPUTS = {
       )
       .min(1)
       .max(50),
+  }),
+  'venues.propose_update': writeInput({
+    ...venueScope,
+    /** The venue updatedAt you read. Omitted means apply to the current version. */
+    expectedUpdatedAt: IsoDateTime.optional(),
+    name: z.string().trim().min(1).max(200).optional(),
+    description: z.string().max(1000).optional(),
+    guideNotes: z.string().max(2000).optional(),
+    category: z.string().max(100).optional(),
+    aiGuideName: z.string().trim().max(80).nullable().optional(),
+    aiGuideNotes: z.string().max(2000).nullable().optional(),
+    aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).optional(),
+    tonePreset: TonePresetId.optional(),
+    responseDepth: VenueBotResponseDepth.optional(),
+    greeting: z.string().trim().min(1).max(500).nullable().optional(),
+    publicDisplayName: z.string().trim().min(1).max(80).nullable().optional(),
+    /** A public https image. With chatAppearance background mode image it is the chat backdrop. */
+    chatBannerUrl: HttpsUrl.max(500).nullable().optional(),
+    chatLogoUrl: HttpsUrl.max(500).nullable().optional(),
+    chatShowPhotos: z.boolean().optional(),
+    chatShowLinks: z.boolean().optional(),
+  }).refine(
+    (value) =>
+      Object.keys(value).some(
+        (key) => !['tenantId', 'venueId', 'operationId', 'expectedUpdatedAt'].includes(key),
+      ),
+    { message: 'Provide at least one venue field to change' },
+  ),
+  'venues.propose_package_import': writeInput({
+    ...venueScope,
+    /** The same venue-package JSON the dashboard importer accepts (schemaVersion 1, 2 or 3). */
+    payload: z.record(z.unknown()),
   }),
   'crm.propose_contact_create': writeInput({
     organizationId: Identifier,
@@ -3309,7 +3346,7 @@ export const OPERATOR_MCP_OUTPUTS = {
       .strict(),
   ),
   'operator.get_manual': z
-    .object({ version: z.string().max(40), text: z.string().max(40_000) })
+    .object({ version: z.string().max(40), text: z.string().max(60_000) })
     .strict(),
   'operator.get_proposal': OperatorProposalView,
   'operator.list_proposals': Page(OperatorProposalView),
@@ -4099,6 +4136,8 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.propose_source': OperatorWriteResult,
   'venues.propose_source_connection': OperatorWriteResult,
   'venues.propose_knowledge': OperatorWriteResult,
+  'venues.propose_update': OperatorWriteResult,
+  'venues.propose_package_import': OperatorWriteResult,
   'venues.propose_content_changeset': OperatorWriteResult,
   'venues.propose_publish': OperatorWriteResult,
   'reports.propose_generate': OperatorWriteResult,
@@ -4264,7 +4303,7 @@ type Seed = readonly [
 
 const READ = ' Read-only.'
 const PROPOSE =
-  ' Creates a proposal; check status and show the approveUrl to the human when it is PENDING.'
+  ' Applies immediately: read status (APPLIED, FAILED or STALE) and result in the response.'
 
 const seeds: readonly Seed[] = [
   [
@@ -4869,7 +4908,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.propose_draft_review',
     'Propose draft review',
-    `Propose approving or rejecting one draft, bound to its content hash. Approval needs every escalation flag acknowledged by name. Approving a draft sends nothing. Always needs a human.${PROPOSE}`,
+    `Propose approving or rejecting one draft, bound to its content hash. Approval needs every escalation flag acknowledged by name. Approving a draft sends nothing.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.draft-review',
@@ -4877,7 +4916,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.propose_batch_stage',
     'Propose batch stage',
-    `Propose freezing up to 50 approved drafts into a send batch: exact recipients, subject, body and attachments, each bound to its content hash. Stages nothing for delivery. Always needs a human.${PROPOSE}`,
+    `Propose freezing up to 50 approved drafts into a send batch: exact recipients, subject, body and attachments, each bound to its content hash. Stages nothing for delivery.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.batch-stage',
@@ -4885,7 +4924,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.propose_batch_approve',
     'Propose batch approve',
-    `Propose approving one staged batch, bound to its recipient count and snapshot hash. Approval alone sends nothing. Always needs a human.${PROPOSE}`,
+    `Propose approving one staged batch, bound to its recipient count and snapshot hash. Approval alone sends nothing.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.batch-approve',
@@ -4893,7 +4932,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.propose_batch_release',
     'Propose batch release',
-    `Propose queueing one approved batch for delivery through the canonical release. Disabled unless the deployment turns the release adapter on, and even then bound by delivery control, a connected mailbox and the 1 to 50 recipient canary. Always needs a human.${PROPOSE}`,
+    `Propose queueing one approved batch for delivery through the canonical release. Disabled unless the deployment turns the release adapter on, and even then bound by delivery control, a connected mailbox and the 1 to 50 recipient canary.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.batch-release',
@@ -4909,7 +4948,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.propose_contact_address_change',
     'Propose contact address change',
-    `Propose moving a person to a new email address. The new address becomes a new contact; the old row keeps its address, correspondence history and every suppression, so the old address stays blocked. It never overrides a suppression: a person who declined, an account marked do-not-contact, or an address blocked anywhere in the CRM stops it. The new address starts unverified. Requires the contact's updatedAt. Always needs a human.${PROPOSE}`,
+    `Propose moving a person to a new email address. The new address becomes a new contact; the old row keeps its address, correspondence history and every suppression, so the old address stays blocked. It never overrides a suppression: a person who declined, an account marked do-not-contact, or an address blocked anywhere in the CRM stops it. The new address starts unverified. Requires the contact's updatedAt.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.contact-address-change',
@@ -4947,7 +4986,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.propose_duplicate_resolution',
     'Propose duplicate resolution',
-    `Propose recording a reviewed decision about two accounts: confirmed duplicate, distinct, or dismissed. This is a decision record only and does NOT merge: no contact, activity, message or receipt is moved, combined or deleted, and both accounts stay live. A confirmed duplicate marks the pair for a person to consolidate later. Always needs a human.${PROPOSE}`,
+    `Propose recording a reviewed decision about two accounts: confirmed duplicate, distinct, or dismissed. This is a decision record only and does NOT merge: no contact, activity, message or receipt is moved, combined or deleted, and both accounts stay live. A confirmed duplicate marks the pair for a person to consolidate later.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.duplicate-resolution',
@@ -4955,7 +4994,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.propose_organization_merge',
     'Propose account merge',
-    `Propose archiving one reviewed duplicate CRM account into a canonical target, bound to the exact merge preview hash. Contacts, venues and outreach history move in one transaction; the source opportunity and its stage history remain queryable through the merge receipt. Conflicts block without partial changes. This action always waits for a person.${PROPOSE}`,
+    `Propose archiving one reviewed duplicate CRM account into a canonical target, bound to the exact merge preview hash. Contacts, venues and outreach history move in one transaction; the source opportunity and its stage history remain queryable through the merge receipt. Conflicts block without partial changes.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.organization-merge',
@@ -4971,7 +5010,7 @@ const seeds: readonly Seed[] = [
   [
     'support.propose_information_request',
     'Propose information request',
-    `Propose asking the customer for specific missing facts, shown in their portal as a checklist, optionally naming the exact recipient. Applying it records one notification intent: the portal checklist is immediate, and an email carrying the checklist and the portal link is queued only where the deployment has turned client email on. Always needs a human.${PROPOSE}`,
+    `Propose asking the customer for specific missing facts, shown in their portal as a checklist, optionally naming the exact recipient. Applying it records one notification intent: the portal checklist is immediate, and an email carrying the checklist and the portal link is queued only where the deployment has turned client email on.${PROPOSE}`,
     'support:propose',
     'venue',
     'support.information-request',
@@ -4979,7 +5018,7 @@ const seeds: readonly Seed[] = [
   [
     'customers.propose_onboarding_questions',
     'Propose onboarding questions',
-    `Propose one reviewed group of up to ten existing blocking questions to an active tenant member. Each question keeps its canonical portal conversation. Applying it records one notification intent: the portal post is immediate, and an email to the recipient's verified address is queued only where the deployment has turned client email on. Nothing executes blocked work. Always needs a human.${PROPOSE}`,
+    `Propose one reviewed group of up to ten existing blocking questions to an active tenant member. Each question keeps its canonical portal conversation. Applying it records one notification intent: the portal post is immediate, and an email to the recipient's verified address is queued only where the deployment has turned client email on. Nothing executes blocked work.${PROPOSE}`,
     'customers:propose',
     'venue',
     'customers.onboarding-questions',
@@ -4987,7 +5026,7 @@ const seeds: readonly Seed[] = [
   [
     'support.propose_create_request',
     'Propose support request',
-    `Propose opening a new support conversation with a customer-visible first message for one active member of this tenant, with a category, subject, priority and optional references to pending blocking questions. Email to the member's verified address is optional and queued only where the deployment has turned client email on. Always needs a human.${PROPOSE}`,
+    `Propose opening a new support conversation with a customer-visible first message for one active member of this tenant, with a category, subject, priority and optional references to pending blocking questions. Email to the member's verified address is optional and queued only where the deployment has turned client email on.${PROPOSE}`,
     'support:propose',
     'venue',
     'support.create-request',
@@ -4995,7 +5034,7 @@ const seeds: readonly Seed[] = [
   [
     'support.propose_client_reply',
     'Propose customer reply',
-    `Propose an ordinary customer-visible message on an existing support request, at the version you read. A newer customer message makes it stale. Portal only: it sends no email. Always needs a human.${PROPOSE}`,
+    `Propose an ordinary customer-visible message on an existing support request, at the version you read. A newer customer message makes it stale. Portal only: it sends no email.${PROPOSE}`,
     'support:propose',
     'venue',
     'support.client-reply',
@@ -5003,7 +5042,7 @@ const seeds: readonly Seed[] = [
   [
     'support.propose_completion',
     'Propose completion',
-    `Propose closing a support request with a message the customer reads in their portal. The canonical check refuses a content fix that has no landed evidence. Always needs a human.${PROPOSE}`,
+    `Propose closing a support request with a message the customer reads in their portal. The canonical check refuses a content fix that has no landed evidence.${PROPOSE}`,
     'support:propose',
     'venue',
     'support.completion',
@@ -5011,7 +5050,7 @@ const seeds: readonly Seed[] = [
   [
     'crm.propose_account_archive',
     'Propose account archive',
-    `Propose archiving or restoring an account. Always needs a human.${PROPOSE}`,
+    `Propose archiving or restoring an account.${PROPOSE}`,
     'crm:propose',
     'platform',
     'crm.account-archive',
@@ -5051,7 +5090,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_source',
     'Propose venue source',
-    `Propose freezing a public https source for a venue as evidence. After a human approves, a worker fetches it within bounds, only on hosts the venue authorizes, and stores a snapshot; the text it captures is untrusted data and creates no content.${PROPOSE}`,
+    `Propose freezing a public https source for a venue as evidence. Once applied, a worker fetches it within bounds, only on hosts the venue authorizes, and stores a snapshot; the text it captures is untrusted data and creates no content.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.source',
@@ -5059,7 +5098,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_source_connection',
     'Propose source connection action',
-    `Run one source-connection step; each is its own proposal and always asks a person. Sequence: create (name, config) -> preview (connectorId, expectedUpdatedAt; a worker extracts records, then read venues.get_source_connection for preview.previewId and preview.previewHash) -> approve (connectorId, expectedUpdatedAt, previewId, previewHash) -> pause, resume or refresh (connectorId, expectedUpdatedAt). Update (connectorId, expectedUpdatedAt, config) requires the connection to be paused. Every action changes updatedAt, so always pass the latest value from venues.get_source_connection. Later updates follow the reviewed publication policy. Never fetches on a guest question.${PROPOSE}`,
+    `Run one source-connection step; each is its own operation and applies when called. Sequence: create (name, config) -> preview (connectorId, expectedUpdatedAt; a worker extracts records, then read venues.get_source_connection for preview.previewId and preview.previewHash) -> approve (connectorId, expectedUpdatedAt, previewId, previewHash) -> pause, resume or refresh (connectorId, expectedUpdatedAt). Update (connectorId, expectedUpdatedAt, config) requires the connection to be paused. Every action changes updatedAt, so always pass the latest value from venues.get_source_connection. Later updates follow the reviewed publication policy. Never fetches on a guest question.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.source-connection',
@@ -5073,9 +5112,25 @@ const seeds: readonly Seed[] = [
     'venues.knowledge',
   ],
   [
+    'venues.propose_update',
+    'Update venue settings',
+    `Change a venue's name, description, guide notes, category, AI guide name, AI notes, tone, tone preset, response depth, greeting, public display name, banner or logo image (public https URL), and photo or link display. Personality is the tone preset plus the AI guide name, AI notes (free-form instructions), greeting and response depth. Only the fields you pass change; null clears a nullable field. A banner URL is the chat background when the appearance background mode is image (set that with appearance.propose_update). Pass the updatedAt you read, or omit it to apply to the current version.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.update',
+  ],
+  [
+    'venues.propose_package_import',
+    'Import venue package JSON',
+    `Import the same venue-package JSON the dashboard JSON importer accepts (schemaVersion 1, 2 or 3: places, knowledge entries and, from version 2, venue settings). The server validates it, runs the duplicate scan, then approves and applies it in one step, so the content is live for the venue at once. Version 3 may also update and remove existing items by id. Validation errors or an incomplete duplicate scan fail the operation with the reasons and change nothing. Applied packages appear in the dashboard history and can be reverted there.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.package-import',
+  ],
+  [
     'venues.propose_content_changeset',
     'Propose content changeset',
-    `Propose creating, correcting or retiring venue content in one approval. Each operation names its representation, the row id and the revision it expects; a correction updates or retires the old row instead of adding a contradicting one. Stale revisions are refused. Audiences are never widened and nothing is published.${PROPOSE}`,
+    `Propose creating, correcting or retiring venue content in one operation. Each operation names its representation, the row id and the revision it expects; a correction updates or retires the old row instead of adding a contradicting one. Stale revisions are refused. Audiences are never widened and nothing is published.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.content-changeset',
@@ -5115,7 +5170,7 @@ const seeds: readonly Seed[] = [
   [
     'reports.propose_generate',
     'Propose report generation',
-    `Propose generating a weekly report draft for a venue week, or retrying a FAILED or provably stalled one. Spends model budget, creates a draft only, never publishes. Always needs a human.${PROPOSE}`,
+    `Propose generating a weekly report draft for a venue week, or retrying a FAILED or provably stalled one. Spends model budget, creates a draft only, never publishes.${PROPOSE}`,
     'reports:propose',
     'venue',
     'reports.generate',
@@ -5123,7 +5178,7 @@ const seeds: readonly Seed[] = [
   [
     'reports.propose_publish',
     'Propose report publish',
-    `Propose publishing a reviewed draft report at the observed updatedAt. Publishing makes the report visible in the customer portal; it does not email anyone, and delivery stays a separate action. Always needs a human.${PROPOSE}`,
+    `Propose publishing a reviewed draft report at the observed updatedAt. Publishing makes the report visible in the customer portal; it does not email anyone, and delivery stays a separate action.${PROPOSE}`,
     'reports:propose',
     'venue',
     'reports.publish',
@@ -5131,7 +5186,7 @@ const seeds: readonly Seed[] = [
   [
     'routines.propose_create',
     'Propose routine',
-    `Propose saving a routine definition, optionally with reminder stop rules and a dollar budget. It is always created disabled and never runs until a person approves routines.propose_enable.${PROPOSE}`,
+    `Propose saving a routine definition, optionally with reminder stop rules and a dollar budget. It is always created disabled and never runs until routines.propose_enable applies.${PROPOSE}`,
     'routines:propose',
     'venue',
     'routines.create',
@@ -5147,7 +5202,7 @@ const seeds: readonly Seed[] = [
   [
     'routines.propose_enable',
     'Propose routine enable',
-    `Propose enabling a routine so the scheduler may run it. A routine can message people or spend money, so this always needs a human.${PROPOSE}`,
+    `Propose enabling a routine so the scheduler may run it. A routine can message people or spend money.${PROPOSE}`,
     'routines:propose',
     'venue',
     'routines.enable',
@@ -5171,7 +5226,7 @@ const seeds: readonly Seed[] = [
   [
     'appearance.propose_guest_actions',
     'Propose guest actions',
-    `Propose replacing the approved ordering, ticket, pass and booking links the visitor guide may offer, and/or the actionLinks and actionButtons switches. Requires expectedUpdatedAt. Asks a human unless an owner allows it by name.${PROPOSE}`,
+    `Propose replacing the approved ordering, ticket, pass and booking links the visitor guide may offer, and/or the actionLinks and actionButtons switches. Requires expectedUpdatedAt.${PROPOSE}`,
     'appearance:propose',
     'venue',
     'appearance.guest-actions',
@@ -5179,7 +5234,7 @@ const seeds: readonly Seed[] = [
   [
     'customers.propose_create',
     'Propose customer account',
-    `Propose creating a customer account: an organization at the identity provider, the customer record and one draft venue that visitors cannot see. Nobody is invited and nothing is emailed; invite the customer with customers.propose_invite. Needs a connection that reaches every customer. Always needs a human.${PROPOSE}`,
+    `Propose creating a customer account: an organization at the identity provider, the customer record and one draft venue that visitors cannot see. Nobody is invited and nothing is emailed; invite the customer with customers.propose_invite. Needs a connection that reaches every customer.${PROPOSE}`,
     'customers:propose',
     'platform',
     'customers.create',
@@ -5187,7 +5242,7 @@ const seeds: readonly Seed[] = [
   [
     'customers.propose_invite',
     'Propose customer invite',
-    `Propose inviting a person to a customer's organization by email. They get a sign-up link, create their own account and land only in that customer's dashboard. The email is sent by the identity provider when a person approves. Always needs a human.${PROPOSE}`,
+    `Propose inviting a person to a customer's organization by email. They get a sign-up link, create their own account and land only in that customer's dashboard. The identity provider sends the email when it applies.${PROPOSE}`,
     'customers:propose',
     'tenant',
     'customers.invite',
@@ -5195,7 +5250,7 @@ const seeds: readonly Seed[] = [
   [
     'offboarding.propose_execution',
     'Propose offboarding execution',
-    `Propose executing a reviewed offboarding plan for one customer, covering every venue it has. Applying it, step by step with each outcome recorded so a failure can be resumed: closes the venues to visitors (guest chat stops serving; QR links and embeds show a neutral closed page), stops routines, report schedules and live-data feeds, revokes the customer's integration credentials and operator connections, and suspends the customer's member access in the app. It records, but never performs, the payment cancellation and the identity-provider action as checklist items for a person, and lists what exists as a manifest. Nothing is deleted; retention and deletion stay a separate future decision. Refused while a paid arrangement may still be live unless you pass billingHandled with a note. An approved execution can be reverted to reopen the venues and restore member access; credentials, routines and operator connections are not restored. Disabled unless the deployment turns it on. Always needs a human.${PROPOSE}`,
+    `Propose executing a reviewed offboarding plan for one customer, covering every venue it has. Applying it, step by step with each outcome recorded so a failure can be resumed: closes the venues to visitors (guest chat stops serving; QR links and embeds show a neutral closed page), stops routines, report schedules and live-data feeds, revokes the customer's integration credentials and operator connections, and suspends the customer's member access in the app. It records, but never performs, the payment cancellation and the identity-provider action as checklist items for a person, and lists what exists as a manifest. Nothing is deleted; retention and deletion stay a separate future decision. Refused while a paid arrangement may still be live unless you pass billingHandled with a note. An approved execution can be reverted to reopen the venues and restore member access; credentials, routines and operator connections are not restored. Disabled unless the deployment turns it on.${PROPOSE}`,
     'customers:propose',
     'tenant',
     'offboarding.execution',
@@ -5219,7 +5274,7 @@ const seeds: readonly Seed[] = [
   [
     'operator.propose_revert',
     'Propose revert',
-    `Propose reverting an applied proposal. Always needs a human.${PROPOSE}`,
+    `Propose reverting an applied proposal.${PROPOSE}`,
     'operator:revert',
     'platform',
     'operator.revert',

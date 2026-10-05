@@ -28,3 +28,6 @@ process.env.DIRECT_DATABASE_URL = databaseTarget.directDatabaseUrl
 for (const [name, value] of Object.entries(syntheticTestEnvironment)) {
   process.env[name] = value
 }
+
+// Operator tests exercise the optional review mode unless a test opts into the default (none).
+process.env.OPERATOR_APPROVAL_MODE ??= 'review'

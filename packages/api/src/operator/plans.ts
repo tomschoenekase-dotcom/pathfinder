@@ -3,7 +3,7 @@ import { db } from '@pathfinder/db'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
 import { admitAutoApply } from './admission'
-import { OPERATOR_ROUTINE_AUTO_KINDS, readPolicyRevision, resolveAutonomy } from './autonomy'
+import { isRoutineAutoKind, readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl } from './config'
 import { OperatorDeploymentDisabledError } from './deployment-prerequisite'
 import { assertGrantCapability, assertTenantInGrant, OperatorNotFoundError } from './grants'
@@ -215,7 +215,7 @@ export async function createPlan(
   // Plans made entirely of routine actions use transport throttling, without an approval quota.
   const planBudget =
     modes.every((mode) => mode === 'auto') &&
-    (prepared.every((step) => OPERATOR_ROUTINE_AUTO_KINDS.has(step.kind.kind)) ||
+    (prepared.every((step) => isRoutineAutoKind(step.kind.kind)) ||
       (await admitAutoApply(database, service.grant.grantId, service.now)).allowed)
   if (planBudget) {
     await approveAndApplyPlan(

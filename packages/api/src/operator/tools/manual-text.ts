@@ -3,10 +3,24 @@
  * filesystem at runtime (a Next standalone bundle does not ship docs/). A test keeps this equal to
  * the docs file; edit the docs file first, then update this constant to match.
  */
-export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v5'
+export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v6'
 
 export const OPERATOR_MANUAL_TEXT = [
   '# Operator manual',
+  '',
+  '## Approvals',
+  '',
+  'This deployment has no approval step (`OPERATOR_APPROVAL_MODE` is unset, the default). Every write tool applies when you call it: the response status is `APPLIED`, `FAILED` or `STALE`, never `PENDING`, and there is no approval page or `approveUrl` to show anyone. Where later sections say an action needs a human, waits for a person or mention approval, that describes the optional review mode (`OPERATOR_APPROVAL_MODE=review`), not this deployment. Deployment switches still decide whether an effect exists at all (for example customer invites, outbound delivery and offboarding). `operator.get_context` reports the live `approvalMode` of every tool.',
+  '',
+  '## Building a customer end to end',
+  '',
+  '1. `customers.propose_create` with `organizationName` and `venueName` (optional `slug`, `venueSlug`, `guideMode`, `city`, `region`, `prospectOrganizationId`) creates the client, its owner record and one draft venue in one call. The result gives `tenantId` and `venueId`.',
+  '2. `venues.propose_package_import` with `tenantId`, `venueId` and `payload` set to the dashboard venue-package JSON (schemaVersion 1: `places` and `knowledgeEntries`; 2 adds venue settings; 3 adds create, update and delete operations by id) validates it, scans for duplicates, approves and applies it in one call. Validation errors come back and nothing is applied. Applied packages show in the dashboard package history and can be reverted there.',
+  '3. `venues.propose_update` changes `name`, `description`, `guideNotes`, `category`, `aiGuideName`, `aiGuideNotes` (free-form guide instructions), `aiTone`, `tonePreset` (friendly, concise, enthusiastic, informative), `responseDepth` (BRIEF, BALANCED, DETAILED), `greeting`, `publicDisplayName`, `chatBannerUrl` and `chatLogoUrl` (public https images), `chatShowPhotos` and `chatShowLinks`. Pass only what changes. To show the banner as the chat background, set `chatAppearance.background.mode` to `image` with `appearance.propose_update`.',
+  '4. `appearance.propose_update` sets the theme, accent, font, title and full chat appearance; `appearance.propose_guest_actions` sets ticket, pass and booking links.',
+  '5. `venues.propose_publish` makes the venue visible to visitors. `customers.propose_invite` emails the client a sign-up link when the deployment has invites turned on.',
+  '',
+  'Custom personality profiles (the warmth, brevity, energy and formality sliders) are not available through the MCP yet; use the tone preset, guide name, guide notes, greeting and response depth.',
   '',
   '## Reusable venue source connections',
   '',
@@ -53,8 +67,8 @@ export const OPERATOR_MANUAL_TEXT = [
   '- Every proposal takes a fresh `operationId` (a UUID). Reusing the same `operationId` with the same arguments',
   '  returns the same proposal, so it is safe to retry after a timeout. Never reuse one for different arguments.',
   '- Every proposal returns `{proposalId, status, argsHash, approveUrl?, result?}`. Read `status` before you go on.',
-  '- `PENDING`: a human must approve. Show Tom the `approveUrl` and stop working on that item. Do not',
-  '  guess, retry, or route around it. Check back with `operator.get_proposal`.',
+  '- `PENDING`: only in review mode. A human must approve; show the `approveUrl` and check back with',
+  '  `operator.get_proposal`. With no approvals (the default) a write never stays pending.',
   '- `APPLIED`: it is done. `result` holds the outputs, such as new IDs.',
   '- `STALE`: the target changed after you read it. Read it again and propose again with the new version',
   '  or `expectedUpdatedAt`.',

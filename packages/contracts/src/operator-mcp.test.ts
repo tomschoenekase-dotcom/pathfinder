@@ -173,6 +173,8 @@ const EXPECTED_TOOLS = [
   'venues.propose_source',
   'venues.propose_source_connection',
   'venues.propose_knowledge',
+  'venues.propose_update',
+  'venues.propose_package_import',
   'venues.propose_content_changeset',
   'venues.propose_publish',
   'venues.propose_operational_update',
@@ -435,6 +437,28 @@ describe('operator MCP inputs', () => {
     const entry = { title: 'Hours', body: 'Open daily' }
     expect(knowledge.safeParse({ ...base, entries: Array(50).fill(entry) }).success).toBe(true)
     expect(knowledge.safeParse({ ...base, entries: Array(51).fill(entry) }).success).toBe(false)
+  })
+
+  it('bounds venue setting changes and package imports', () => {
+    const update = OPERATOR_MCP_INPUTS['venues.propose_update']
+    const base = { tenantId: 't', venueId: 'v', operationId: OPERATION_ID }
+    expect(update.safeParse(base).success).toBe(false)
+    expect(update.safeParse({ ...base, expectedUpdatedAt: TS }).success).toBe(false)
+    expect(update.safeParse({ ...base, greeting: 'Welcome in!' }).success).toBe(true)
+    expect(
+      update.safeParse({ ...base, chatBannerUrl: 'https://cdn.example.com/hall.jpg' }).success,
+    ).toBe(true)
+    expect(
+      update.safeParse({ ...base, chatBannerUrl: 'http://cdn.example.com/a.jpg' }).success,
+    ).toBe(false)
+    expect(update.safeParse({ ...base, surprise: true }).success).toBe(false)
+    const pkg = OPERATOR_MCP_INPUTS['venues.propose_package_import']
+    expect(pkg.safeParse({ ...base, payload: { schemaVersion: 1, places: [] } }).success).toBe(true)
+    expect(pkg.safeParse(base).success).toBe(false)
+    expect(getOperatorToolDefinition('venues.propose_package_import')?.proposalKind).toBe(
+      'venues.package-import',
+    )
+    expect(getOperatorToolDefinition('venues.propose_update')?.proposalKind).toBe('venues.update')
   })
 
   it('validates proposed guest actions like the dashboard does', () => {

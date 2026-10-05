@@ -6,6 +6,20 @@ import { writeOperatorAudit, type OperatorDatabase } from './audit'
 export type OperatorAutonomyMode = 'ask' | 'auto'
 
 /**
+ * How the deployment treats operator writes. `none` (the default, owner direction 2026-10-05) applies
+ * every action as soon as the MCP asks for it: there is no approval page. `review` restores the
+ * per-capability policy below, with its always-ask kinds, routine defaults and hourly budget.
+ * Deployment switches (customer invites, outbound delivery and so on) still decide what is available.
+ */
+export type OperatorApprovalMode = 'none' | 'review'
+
+export function operatorApprovalMode(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): OperatorApprovalMode {
+  return env.OPERATOR_APPROVAL_MODE?.trim().toLowerCase() === 'review' ? 'review' : 'none'
+}
+
+/**
  * Hard-coded, never configurable: these kinds wait for a human even in "go ham" mode. They grant a
  * person access, undo live changes, or bundle other kinds. Billing, deletion and policy changes
  * have no operator tool at all.
@@ -62,8 +76,21 @@ export const OPERATOR_POLICY_CAPABILITIES: readonly OperatorCapability[] =
     (capability) => !capability.endsWith(':read'),
   ) as OperatorCapability[]
 
+/** In review mode, the kinds that always wait for a person. With no approvals, none do. */
 export function isAlwaysAskKind(kind: string): boolean {
-  return OPERATOR_ALWAYS_ASK_KINDS.has(kind)
+  return operatorApprovalMode() === 'review' && OPERATOR_ALWAYS_ASK_KINDS.has(kind)
+}
+
+/** A capability with no switch of its own. With no approvals only plans, which follow their steps. */
+export function isLockedCapability(capability: OperatorCapability): boolean {
+  return operatorApprovalMode() === 'review'
+    ? OPERATOR_LOCKED_CAPABILITIES.has(capability)
+    : capability === 'operator:plan'
+}
+
+/** Applies without spending the hourly automatic budget: every kind when there are no approvals. */
+export function isRoutineAutoKind(kind: string): boolean {
+  return operatorApprovalMode() === 'none' || OPERATOR_ROUTINE_AUTO_KINDS.has(kind)
 }
 
 /**
@@ -149,9 +176,10 @@ export async function resolveAutonomy(
   proposal: Readonly<{ kind: string; capability: OperatorCapability }>,
   database: OperatorDatabase = db,
 ): Promise<OperatorAutonomyMode> {
-  if (isAlwaysAskKind(proposal.kind) || OPERATOR_LOCKED_CAPABILITIES.has(proposal.capability)) {
+  if (isAlwaysAskKind(proposal.kind) || isLockedCapability(proposal.capability)) {
     return 'ask'
   }
+  if (operatorApprovalMode() === 'none') return 'auto'
   const row = await database.operatorAutonomyPolicy.findUnique({
     where: { capability: proposal.capability },
     select: { mode: true, allowedKinds: true },
@@ -165,6 +193,28 @@ export async function resolveAutonomy(
 
 /** Read-only view for `operator.get_autonomy`. */
 export async function readAutonomyPolicies(database: OperatorDatabase = db) {
+  if (operatorApprovalMode() === 'none') {
+    // Loaded here, not at module top: the kinds import proposals, which imports this module.
+    const { OPERATOR_PROPOSAL_KINDS } = await import('./kinds')
+    return OPERATOR_POLICY_CAPABILITIES.map((capability) => {
+      const locked = isLockedCapability(capability)
+      const autoKinds = locked
+        ? []
+        : [
+            ...OPERATOR_PROPOSAL_KINDS.filter((kind) => kind.capability === capability).map(
+              (kind) => kind.kind,
+            ),
+            // Reverts are handled outside the kind list.
+            ...(capability === 'operator:revert' ? ['operator.revert'] : []),
+          ]
+      return {
+        capability,
+        mode: (autoKinds.length > 0 ? 'auto' : 'ask') as OperatorAutonomyMode,
+        locked,
+        autoKinds: autoKinds.sort(),
+      }
+    })
+  }
   const rows = await database.operatorAutonomyPolicy.findMany({
     select: { capability: true, mode: true, allowedKinds: true },
   })

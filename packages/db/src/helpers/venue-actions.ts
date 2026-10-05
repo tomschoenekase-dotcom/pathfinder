@@ -549,10 +549,14 @@ export async function updateVenueChatDesignAction(
       select: venueChatDesignSelect,
     })
     if (!before) throw new VenueActionError('NOT_FOUND', 'Venue not found')
+    // The platform operator may point branding at a public https image directly; everyone else
+    // selects a reviewed media derivative.
+    const operatorBranding = input.actor.type === 'HUMAN' && input.actor.role === 'PLATFORM_ADMIN'
     for (const key of ['chatLogoUrl', 'chatBannerUrl'] as const) {
       const requested = input.fields[key]
       const current = before[key]
       if (requested !== undefined && requested !== null && requested !== current) {
+        if (operatorBranding && /^https:\/\//u.test(requested)) continue
         throw new VenueActionError(
           'INVALID_INPUT',
           'New branding URLs are not accepted; select a reviewed media derivative.',
@@ -701,10 +705,14 @@ export async function updateVenueChatDesignAction(
         )
         .filter(([, value]) => value !== undefined),
     )
-    if (input.fields.chatLogoDerivativeId !== undefined) {
+    // Choosing a derivative clears the legacy link, unless the same change sets a new link.
+    if (input.fields.chatLogoDerivativeId !== undefined && input.fields.chatLogoUrl === undefined) {
       requestedEntries.push(['chatLogoUrl', null])
     }
-    if (input.fields.chatBannerDerivativeId !== undefined) {
+    if (
+      input.fields.chatBannerDerivativeId !== undefined &&
+      input.fields.chatBannerUrl === undefined
+    ) {
       requestedEntries.push(['chatBannerUrl', null])
     }
     const exactReplay = requestedEntries.every(([key, value]) => {

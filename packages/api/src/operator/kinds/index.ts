@@ -18,8 +18,10 @@ import { crmStageChangeKind } from './crm-stage-change'
 import { venuesCreateKind } from './venues-create'
 import { venuesContentChangesetKind } from './venues-content-changeset'
 import { venuesKnowledgeKind } from './venues-knowledge'
+import { venuesPackageImportKind } from './venues-package-import'
 import { venuesPublishKind } from './venues-publish'
 import { venuesSourceKind } from './venues-source'
+import { venuesUpdateKind } from './venues-update'
 import { sourceConnectionKind } from './source-connections'
 
 /**
@@ -37,6 +39,8 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   crmStageChangeKind,
   venuesCreateKind,
   venuesKnowledgeKind,
+  venuesUpdateKind,
+  venuesPackageImportKind,
   venuesContentChangesetKind,
   venuesSourceKind,
   sourceConnectionKind,
@@ -74,4 +78,6 @@ export {
   venuesContentChangesetKind,
   venuesSourceKind,
   venuesPublishKind,
+  venuesUpdateKind,
+  venuesPackageImportKind,
 }

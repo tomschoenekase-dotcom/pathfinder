@@ -12,12 +12,7 @@ import { ZodError } from 'zod'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
 import { admitAutoApply } from './admission'
-import {
-  isAlwaysAskKind,
-  OPERATOR_ROUTINE_AUTO_KINDS,
-  readPolicyRevision,
-  resolveAutonomy,
-} from './autonomy'
+import { isAlwaysAskKind, isRoutineAutoKind, readPolicyRevision, resolveAutonomy } from './autonomy'
 import { OPERATOR_OAUTH_LIFETIMES, approveUrl, type OperatorServerConfig } from './config'
 import {
   assertGrantCapability,
@@ -476,7 +471,7 @@ export async function createProposal(
     const autonomy = await resolveAutonomy(kind, database)
     if (
       autonomy === 'auto' &&
-      (OPERATOR_ROUTINE_AUTO_KINDS.has(kind.kind) ||
+      (isRoutineAutoKind(kind.kind) ||
         (await admitAutoApply(database, service.grant.grantId, service.now)).allowed)
     ) {
       await approveAndApplyProposal(
@@ -1123,8 +1118,33 @@ export async function createRevertProposal(
     },
   })
   await auditTransition(database, service.requestId, row, 'CREATED', null)
-  // Reverts are always-ask; resolveAutonomy returns ask for them whatever the policy rows say.
-  return proposalView(row, service.config)
+  // In review mode reverts always ask; with no approvals a revert applies at once.
+  if (
+    (await resolveAutonomy({ kind: row.kind, capability: 'operator:revert' }, database)) === 'auto'
+  ) {
+    try {
+      await approveAndApplyProposal(
+        {
+          proposalId: row.id,
+          argsHash,
+          actorUserId: service.grant.userId,
+          auto: true,
+          requestId: service.requestId,
+          now: service.now,
+        },
+        { database, kinds: service.kinds, allowedUserIds: service.config.allowedUserIds },
+      )
+    } catch (error) {
+      logger.error({
+        action: 'operator.revert.post_record_failure',
+        error: error instanceof Error ? error.name : 'unknown',
+        requestId: service.requestId,
+        proposalId: row.id,
+      })
+    }
+  }
+  const current = await database.operatorProposal.findUnique({ where: { id: row.id } })
+  return proposalView(current ?? row, service.config)
 }
 
 export function newRequestId() {

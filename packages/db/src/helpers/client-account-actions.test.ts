@@ -26,6 +26,7 @@ function fixture() {
     tenant: {
       findUnique: vi.fn(),
       create: vi.fn(async () => tenant),
+      update: vi.fn(async () => tenant),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     user: {
@@ -38,9 +39,14 @@ function fixture() {
     },
     venue: {
       findFirst: vi.fn(),
+      count: vi.fn(async () => 0),
       create: vi.fn(async () => ({ id: 'venue-1', name: 'Lobby', slug: 'lobby' })),
     },
-    auditLog: { create: vi.fn(async () => ({})) },
+    auditLog: {
+      create: vi.fn(async () => ({})),
+      // An existing tenant was created by this action unless a test says otherwise.
+      findFirst: vi.fn(async (): Promise<{ id: string } | null> => ({ id: 'audit-1' })),
+    },
   }
   return { tx, client: { $transaction: vi.fn(async (callback) => callback(tx)) } }
 }
@@ -77,7 +83,7 @@ describe('canonical client account actions', () => {
 
   it('returns an exact natural-key replay without mutating or duplicating audit', async () => {
     const { tx, client } = fixture()
-    tx.tenant.findUnique.mockResolvedValueOnce(tenant)
+    tx.tenant.findUnique.mockResolvedValueOnce(tenant).mockResolvedValueOnce(tenant)
     tx.user.findUnique.mockResolvedValueOnce({ id: 'owner-1', email: 'owner@example.com' })
     tx.tenantMembership.findUnique.mockResolvedValueOnce({ role: 'OWNER', status: 'ACTIVE' })
     const result = await createClientAccountAction(
@@ -96,9 +102,59 @@ describe('canonical client account actions', () => {
     expect(tx.auditLog.create).not.toHaveBeenCalled()
   })
 
+  it('completes the bare tenant the identity-provider webhook made first, with its venue', async () => {
+    const { tx, client } = fixture()
+    tx.tenant.findUnique.mockResolvedValueOnce(tenant)
+    tx.auditLog.findFirst.mockResolvedValueOnce(null)
+    const result = await createClientAccountAction(
+      {
+        tenantId: 'tenant-1',
+        name: 'Northstar',
+        slug: 'northstar',
+        owner: { id: 'owner-1', email: 'owner@example.com' },
+        actor,
+        initialVenue: { name: 'Lobby', slug: 'lobby', guideMode: 'non_location', isActive: false },
+      },
+      client as never,
+    )
+    expect(result).toMatchObject({ replayed: false, venue: { id: 'venue-1' } })
+    expect(tx.tenant.create).not.toHaveBeenCalled()
+    expect(tx.tenantMembership.upsert).toHaveBeenCalledOnce()
+    expect(tx.venue.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isActive: false }) }),
+    )
+    expect(JSON.stringify(tx.auditLog.create.mock.calls)).toContain('admin.client.created')
+  })
+
+  it('never adopts a tenant that already has a venue or a different slug', async () => {
+    for (const setup of ['venue', 'slug'] as const) {
+      const { tx, client } = fixture()
+      const row = setup === 'slug' ? { ...tenant, slug: 'other' } : tenant
+      tx.tenant.findUnique.mockResolvedValue(row)
+      tx.auditLog.findFirst.mockResolvedValue(null)
+      if (setup === 'venue') tx.venue.count.mockResolvedValueOnce(1)
+      await expect(
+        createClientAccountAction(
+          {
+            tenantId: 'tenant-1',
+            name: 'Northstar',
+            slug: 'northstar',
+            owner: { id: 'owner-1', email: 'owner@example.com' },
+            actor,
+            initialVenue: { name: 'Lobby', slug: 'lobby', guideMode: 'non_location' },
+          },
+          client as never,
+        ),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(tx.venue.create).not.toHaveBeenCalled()
+    }
+  })
+
   it('rejects a natural-key replay with different account details', async () => {
     const { tx, client } = fixture()
-    tx.tenant.findUnique.mockResolvedValueOnce({ ...tenant, name: 'Different' })
+    tx.tenant.findUnique
+      .mockResolvedValueOnce({ ...tenant, name: 'Different' })
+      .mockResolvedValueOnce({ ...tenant, name: 'Different' })
     await expect(
       createClientAccountAction(
         {
