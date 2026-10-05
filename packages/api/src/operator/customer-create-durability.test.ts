@@ -461,6 +461,22 @@ describe('customers.propose_create durable operation contract', () => {
     })
   })
 
+  it('rechecks the create gate after proposal and before the provider can be called', async () => {
+    const database = fakeDatabase()
+    const operationId = randomUUID()
+    const view = await propose(database, createArgs(operationId))
+    process.env.OPERATOR_CUSTOMER_CREATE_ENABLED = 'false'
+    await approve(database, view)
+    expect(await getOperation(database, operationId)).toMatchObject({
+      status: 'FAILED',
+      failureCode: 'DISABLED',
+      effect: 'none',
+    })
+    expect(world.calls.createOrganization).toBe(0)
+    expect(world.tenants.size).toBe(0)
+    expect(world.venues).toHaveLength(0)
+  })
+
   it('persists principal, kind, normalized args hash and state before any effect', async () => {
     const database = fakeDatabase()
     const operationId = randomUUID()

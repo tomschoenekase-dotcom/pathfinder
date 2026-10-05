@@ -22,6 +22,7 @@ import {
 } from '@pathfinder/db'
 
 import type { OperatorDatabase } from '../audit'
+import { OperatorDeploymentDisabledError } from '../deployment-prerequisite'
 import { assertTenantInGrant, OperatorNotFoundError } from '../grants'
 import {
   OPERATOR_OUTCOME_UNKNOWN,
@@ -67,9 +68,6 @@ let provider: CustomerProvider = realProvider
 export function setCustomerProviderForTests(next: CustomerProvider | null) {
   provider = next ?? realProvider
 }
-
-const disabled = (what: string) =>
-  Object.assign(new Error(`${what} is not enabled on this deployment.`), { code: 'DISABLED' })
 
 const slugify = (name: string) =>
   name
@@ -207,7 +205,8 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
   parse: (raw) => createInput.parse(raw),
   target: () => ({}),
   authorize: async (args, context: OperatorKindContext) => {
-    if (!isCustomerCreateEnabled()) throw disabled('Customer creation')
+    if (!isCustomerCreateEnabled())
+      throw new OperatorDeploymentDisabledError('customers.propose_create')
     // A new customer belongs to no existing tenant, so only a connection that reaches all of them may.
     if (!context.grant.allTenants) throw new OperatorNotFoundError()
     if (args.prospectOrganizationId) {
@@ -254,7 +253,8 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
     ({ organizationName: args.organizationName, venueName: args.venueName }) as JsonValue,
   apply: async (args, context: OperatorApplyContext) => {
     // Checked again: the switch may have been turned off between approval and dispatch.
-    if (!isCustomerCreateEnabled()) throw disabled('Customer creation')
+    if (!isCustomerCreateEnabled())
+      throw new OperatorDeploymentDisabledError('customers.propose_create')
     const database = context.database
     const actor = { type: 'HUMAN', id: context.actor.id, role: 'PLATFORM_ADMIN' } as const
     const identity = { requestId: context.operationId, requestHash: requestHash(args), actor }
@@ -514,7 +514,8 @@ export const customersInviteKind: OperatorProposalKind<InviteArgs> = {
   parse: (raw) => inviteInput.parse(raw),
   target: (args) => ({ tenantId: args.tenantId }),
   authorize: async (args, context: OperatorKindContext) => {
-    if (!isCustomerInviteEnabled()) throw disabled('Customer invitations')
+    if (!isCustomerInviteEnabled())
+      throw new OperatorDeploymentDisabledError('customers.propose_invite')
     await assertTenantInGrant(context.grant, args.tenantId, context.database)
     const tenant = await context.database.tenant.findUnique({
       where: { id: args.tenantId },
@@ -531,7 +532,8 @@ export const customersInviteKind: OperatorProposalKind<InviteArgs> = {
   snapshot: async (args) =>
     ({ tenantId: args.tenantId, email: args.email, role: args.role }) as JsonValue,
   apply: async (args, context: OperatorApplyContext) => {
-    if (!isCustomerInviteEnabled()) throw disabled('Customer invitations')
+    if (!isCustomerInviteEnabled())
+      throw new OperatorDeploymentDisabledError('customers.propose_invite')
     const invitation = await provider.ensureInvitation({
       organizationId: args.tenantId,
       emailAddress: args.email,

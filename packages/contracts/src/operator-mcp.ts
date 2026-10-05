@@ -3344,6 +3344,11 @@ export const OPERATOR_MCP_OUTPUTS = {
               /** Last time this grant called the tool successfully; null if never recorded. */
               lastSuccessAt: IsoDateTime.nullable(),
               /** Not measured by this server. A provider or worker needs its own health read. */
+              deploymentPrerequisite: z
+                .object({ flag: z.string(), enabled: z.boolean(), recoveryAction: z.string() })
+                .strict()
+                .nullable()
+                .optional(),
               providerConnected: z.null(),
               workerAvailable: z.null(),
             })

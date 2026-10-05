@@ -12,6 +12,7 @@ import {
   type OperatorConfigResolution,
   type OperatorServerConfig,
 } from './config'
+import { OperatorDeploymentDisabledError } from './deployment-prerequisite'
 import {
   OperatorCapabilityError,
   OperatorNotFoundError,
@@ -149,6 +150,13 @@ const KIND_REFUSAL_CODES = OPERATOR_KIND_REFUSAL_CODES
 
 /** Structured, non-sensitive detail a kind attaches to its refusal (current state, matches). */
 function refusalDetails(error: unknown): Record<string, unknown> {
+  if (error instanceof OperatorDeploymentDisabledError) {
+    return {
+      details: error.details,
+      ...(error.operationRecorded === false ? { operationRecorded: false } : {}),
+      nextAction: `${error.message} ${error.details.prerequisite.recoveryAction} Nothing new was recorded or changed by this call. After the owner enables it, retry the unchanged request with the same operationId.`,
+    }
+  }
   if (!error || typeof error !== 'object' || !('details' in error)) return {}
   const details = (error as { details: unknown }).details
   if (!details || typeof details !== 'object') return {}
