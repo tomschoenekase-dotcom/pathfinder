@@ -1064,25 +1064,26 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/content-version-context.ts',
     method: '$executeRaw',
-    hash: '9ccd41762a4ccb60ee4e28199bef30cfef8fb0ae10b6c4c2a445e032cc62b356',
+    // Non-package path explicitly clears this marker after the package branch returns.
+    hash: 'e4b84345e2d0ce537633833b0cfb8bd9020a989ad8daaa31c7e50fafe6a9ed57',
     policy: 'transaction-content-history-context',
   },
   {
     file: 'packages/db/src/helpers/content-version-context.ts',
     method: '$executeRaw',
-    hash: '175d67ebe56f69da7dec92181e81611dcee0cc452aa119869916131addc3e7c0',
+    hash: '53db95e55fe98b443ab59212702814199131b75a847b9c9766692a6d176f1f01',
     policy: 'transaction-content-history-context',
   },
   {
     file: 'packages/db/src/helpers/content-version-context.ts',
     method: '$executeRaw',
-    hash: 'cd5bb9920d3a963f06d894c51a04cda1c2b3baa759ee5c8e5275c16b0af49a94',
+    hash: 'c8c9a070da127b1ae740da5996eaf1c28fdbe39a451dad6e3a4ad083f094b009',
     policy: 'transaction-content-history-context',
   },
   {
     file: 'packages/db/src/helpers/content-version-context.ts',
     method: '$executeRaw',
-    hash: '7431972afdc1ba30a8e8e22f53931236195fd7878538c3e588fc8d994107d69c',
+    hash: '4d4fd65d664ca33bc4080136c9e2a29289367f50c5f613247ea855ace645834d',
     policy: 'transaction-content-history-context',
   },
   {

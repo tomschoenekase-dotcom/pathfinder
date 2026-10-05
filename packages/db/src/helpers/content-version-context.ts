@@ -99,22 +99,22 @@ export async function setContentVersionContext(
   )`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.venue_package_id',
-    ${input.venuePackage?.venuePackageId ?? ''},
+    ${''},
     true
   )`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.venue_package_item_key',
-    ${input.venuePackage?.itemKey ?? ''},
+    ${''},
     true
   )`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.venue_package_action',
-    ${input.venuePackage?.action ?? ''},
+    ${''},
     true
   )`
   await tx.$executeRaw`SELECT set_config(
     'pathfinder.source_provenance',
-    ${input.venuePackage ? JSON.stringify(input.venuePackage.sourceProvenance) : ''},
+    ${''},
     true
   )`
 }
