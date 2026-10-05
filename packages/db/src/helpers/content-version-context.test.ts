@@ -26,14 +26,16 @@ describe('setContentVersionContext', () => {
       actorId: 'actor-1',
       venuePackage: packageContext,
     })
-    expect(executeRaw).toHaveBeenCalledTimes(6)
+    expect(executeRaw).toHaveBeenCalledTimes(1)
     expect(executeRaw.mock.calls.map((call) => call.slice(1))).toEqual([
-      ['actor-1'],
-      [''],
-      [packageContext.venuePackageId],
-      [packageContext.itemKey],
-      [packageContext.action],
-      [JSON.stringify(packageContext.sourceProvenance)],
+      [
+        'actor-1',
+        '',
+        packageContext.venuePackageId,
+        packageContext.itemKey,
+        packageContext.action,
+        JSON.stringify(packageContext.sourceProvenance),
+      ],
     ])
 
     executeRaw.mockClear()

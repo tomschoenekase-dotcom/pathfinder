@@ -1044,6 +1044,14 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/content-version-context.ts',
     method: '$executeRaw',
+    // Reviewed batching of the same six transaction-local package markers. No row access,
+    // dynamic SQL, scope change or new provenance value; bind this exact template only.
+    hash: '61345e9f7d8b69de3c1ce8d4f4f562c1da46c957bd507f7f61f582ee3d14fdf5',
+    policy: 'transaction-content-history-context',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$executeRaw',
     hash: '847fa7ac679ecfb036d7bf675f4eb6da381e3f183487b3601d402f68b690ec45',
     policy: 'transaction-content-history-context',
   },

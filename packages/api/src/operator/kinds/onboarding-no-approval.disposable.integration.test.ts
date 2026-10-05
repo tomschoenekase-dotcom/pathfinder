@@ -469,6 +469,46 @@ describe.skipIf(!enabled)(
       })
     })
 
+    it('imports the full package with 100ms latency on every database round trip', async () => {
+      const venue = await importFixtureVenue()
+      const delayed = db.$extends({
+        query: {
+          async $allOperations({ args, query }) {
+            await new Promise((resolve) => setTimeout(resolve, 100))
+            return query(args)
+          },
+        },
+      })
+      const view = await createProposal(
+        'venues.propose_package_import',
+        {
+          operationId: randomUUID(),
+          tenantId,
+          venueId: venue.id,
+          payload: fullPackage(),
+        },
+        {
+          config,
+          database: delayed as typeof db,
+          grant,
+          kinds,
+          now: new Date(),
+          requestId: randomUUID(),
+        },
+      )
+      expect(view.status).toBe('APPLIED')
+      await withTenantIsolationBypass(async () => {
+        expect(await db.venueKnowledgeEntry.count({ where: { tenantId, venueId: venue.id } })).toBe(
+          107,
+        )
+        expect(
+          await db.contentVersion.count({
+            where: { tenantId, venueId: venue.id, venuePackageAction: 'APPLY' },
+          }),
+        ).toBe(107)
+      })
+    })
+
     it('refuses an invalid package before recording anything', async () => {
       const before = await db.venuePackage.count({ where: { tenantId, venueId } })
       await expect(
