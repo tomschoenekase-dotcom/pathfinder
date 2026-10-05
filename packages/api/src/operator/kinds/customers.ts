@@ -333,6 +333,7 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
           tenantId: validated.organizationId,
           name: args.organizationName,
           slug,
+          providerSlug: validated.organizationSlug,
           owner: { id: validated.userId, email: validated.emailAddress },
           actor,
           initialVenue: {

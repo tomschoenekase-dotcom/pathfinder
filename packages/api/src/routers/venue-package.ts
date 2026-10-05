@@ -11,7 +11,6 @@ import {
 import {
   getVenuePackageSemanticCoverage,
   assertGlobalAiAvailable,
-  assertVenueAiAvailable,
   lockVenueContentMutation,
   recordOrReplayOnboardingMilestoneEvent,
   writeAuditLogStrict,
@@ -1361,7 +1360,13 @@ export async function createVenuePackageDraftService(request: {
     candidates = await generateVenuePackageCandidateEmbeddings({
       payload: input.payload,
       usageSink: usage.sink,
-      admissionGuard: () => assertVenueAiAvailable(db, { tenantId, venueId: input.venueId }),
+      // Package authoring must work before a draft venue is visible to guests. The preparation
+      // and finalization transactions check its scoped existence and content version; keep the
+      // global AI pause and budget gates without requiring visitor availability.
+      admissionGuard: async () => {
+        await assertGlobalAiAvailable(db)
+        await assertVenue(db, tenantId, input.venueId)
+      },
       budgetGate: usage.budgetGate,
       shouldAbort: usage.persistenceFailed,
     })

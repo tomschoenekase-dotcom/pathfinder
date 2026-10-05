@@ -46,6 +46,8 @@ export type CreateClientAccountInput = {
   name: string
   slug: string
   owner: OwnerIdentity
+  /** Slug read from the validated provider organization; Clerk may generate its own. */
+  providerSlug?: string | undefined
   actor: PlatformAdminActor
   initialVenue?: InitialVenue | undefined
 }
@@ -170,7 +172,8 @@ async function webhookShell(tx: typeof db, input: CreateClientAccountInput) {
     where: { id: input.tenantId },
     select: clientAccountSelect,
   })
-  if (!existing || existing.slug !== input.slug) return null
+  if (!existing || (existing.slug !== input.slug && existing.slug !== input.providerSlug))
+    return null
   const [created, venues] = await Promise.all([
     tx.auditLog.findFirst({
       where: { tenantId: input.tenantId, action: 'admin.client.created' },
@@ -179,10 +182,10 @@ async function webhookShell(tx: typeof db, input: CreateClientAccountInput) {
     tx.venue.count({ where: { tenantId: input.tenantId } }),
   ])
   if (created || venues > 0) return null
-  if (existing.name === input.name) return existing
+  if (existing.name === input.name && existing.slug === input.slug) return existing
   return tx.tenant.update({
     where: { id: input.tenantId },
-    data: { name: input.name },
+    data: { name: input.name, slug: input.slug },
     select: clientAccountSelect,
   })
 }

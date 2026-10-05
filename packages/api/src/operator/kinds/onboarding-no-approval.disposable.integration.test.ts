@@ -15,6 +15,8 @@ vi.mock('../../lib/venue-package-semantic-analysis', async (importOriginal) => {
     ...original,
     generateVenuePackageCandidateEmbeddings: vi.fn(
       async (params: Parameters<typeof original.generateVenuePackageCandidateEmbeddings>[0]) => {
+        // Exercise production admission even though provider vectors are deterministic here.
+        await params.admissionGuard()
         const inputs = original.venuePackageSemanticInputs(params.payload)
         return {
           places: inputs.places.map((_, draftIndex) => ({ draftIndex, embedding: vector() })),
@@ -74,11 +76,11 @@ const fakeProvider: CustomerProvider = {
     await withTenantIsolationBypass(() =>
       db.tenant.upsert({
         where: { id },
-        create: { id, name: input.name, slug: input.slug },
+        create: { id, name: input.name, slug: 'example-provider-generated' },
         update: { name: input.name },
       }),
     )
-    return { id, name: input.name, slug: input.slug }
+    return { id, name: input.name, slug: 'example-provider-generated' }
   }) as never,
   validateOwner: (async (input: {
     organizationId: string
@@ -87,7 +89,7 @@ const fakeProvider: CustomerProvider = {
   }) => ({
     organizationId: input.organizationId,
     organizationName: 'Example',
-    organizationSlug: 'example',
+    organizationSlug: 'example-provider-generated',
     userId: input.userId,
     emailAddress: input.emailAddress,
   })) as never,
