@@ -135,7 +135,7 @@ jobs:
       - name: Verify visitor launch on compact, tablet, desktop and WebKit browsers
         run: pnpm --dir apps/dashboard test:visitor-launch-browser
 
-  ci:
+  policy-and-integration:
     needs: plan
     # Always runs (never skipped): cheap policy checks and script tests apply to every change.
     # Heavy gates inside it are skipped only on an explicit 'false' from the plan.
@@ -376,24 +376,6 @@ jobs:
           RUN_CLERK_WEBHOOK_DB_INTEGRATION: '1'
       - name: Synchronize reviewed character assets
         run: pnpm characters:sync
-      - name: Install the pinned Chromium runtime for visual smoke tests
-        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
-        run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
-      - name: Verify phone, tablet, and desktop core-product rendering
-        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
-        run: |
-          set -o pipefail
-          visual_log="$(mktemp)"
-          if ! pnpm test:visual-browser 2>&1 | tee "$visual_log"
-          then
-            while IFS= read -r line; do
-              safe_line="${line//'%'/'%25'}"
-              safe_line="${safe_line//$'\r'/'%0D'}"
-              safe_line="${safe_line//$'\n'/'%0A'}"
-              echo "::error title=Responsive browser gate failed::$safe_line"
-            done < <(tail -n 80 "$visual_log")
-            exit 1
-          fi
       - name: Build and verify browser bundles contain no server secrets
         if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
         env:
@@ -406,6 +388,190 @@ jobs:
       - name: Verify Packet 2 automated accessibility contracts
         if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
         run: pnpm test:accessibility
+      - name: Prove billing command races and recovery on disposable PostgreSQL
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
+        env:
+          RUN_BILLING_COMMAND_DB_INTEGRATION: '1'
+        run: pnpm --filter @pathfinder/billing exec vitest run src/agent-commands-disposable.integration.test.ts
+      - run: pnpm test:scripts
+
+  browser-gates:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/3, 2/3, 3/3]
+    # Always runs (never skipped): cheap policy checks and script tests apply to every change.
+    # Heavy gates inside it are skipped only on an explicit 'false' from the plan.
+    if: ${{ !cancelled() && needs.plan.outputs.run_browser_gates != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: pathfinder_disposable_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      RAILWAY_ENVIRONMENT: staging
+      DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      REDIS_URL: redis://127.0.0.1:6379
+      CLERK_SECRET_KEY: test_clerk_secret
+      CLERK_PUBLISHABLE_KEY: test_clerk_pub
+      CLERK_WEBHOOK_SECRET: test_webhook_secret
+      INTEGRATION_ENCRYPTION_KEY: test_encryption_key_32_chars_long!
+      STORAGE_BUCKET: test-bucket
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: test
+      STORAGE_SECRET_ACCESS_KEY: test
+      RESEND_API_KEY: test
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir packages/db db:generate
+      - name: Apply migrations through the disposable-target guard
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
+        run: |
+          set -o pipefail
+          migration_log="$(mktemp)"
+          if ! pnpm db:migrate:disposable -- \
+            --database pathfinder_disposable_ci \
+            --confirm-database pathfinder_disposable_ci 2>&1 | tee "$migration_log"
+          then
+            while IFS= read -r line; do
+              safe_line="${line//'%'/'%25'}"
+              safe_line="${safe_line//$'\r'/'%0D'}"
+              safe_line="${safe_line//$'\n'/'%0A'}"
+              echo "::error title=Disposable migration failed::$safe_line"
+            done < <(tail -n 30 "$migration_log")
+            exit 1
+          fi
+        env:
+          PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
+          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      - run: pnpm characters:sync
+      - name: Install the pinned Chromium runtime for visual smoke tests
+        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
+        run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
+      - name: Verify phone, tablet, and desktop core-product rendering
+        if: ${{ needs.plan.outputs.run_browser_gates != 'false' }}
+        env:
+          VISUAL_SHARD: ${{ matrix.shard }}
+        run: |
+          set -o pipefail
+          visual_log="$(mktemp)"
+          if ! pnpm test:visual-browser --shard="$VISUAL_SHARD" 2>&1 | tee "$visual_log"
+          then
+            while IFS= read -r line; do
+              safe_line="${line//'%'/'%25'}"
+              safe_line="${safe_line//$'\r'/'%0D'}"
+              safe_line="${safe_line//$'\n'/'%0A'}"
+              echo "::error title=Responsive browser gate failed::$safe_line"
+            done < <(tail -n 80 "$visual_log")
+            exit 1
+          fi
+      - name: Responsive browser shard complete
+        run: echo "Responsive browser shard passed"
+
+  workspace-checks:
+    needs: plan
+    # Always runs (never skipped): cheap policy checks and script tests apply to every change.
+    # Heavy gates inside it are skipped only on an explicit 'false' from the plan.
+    if: ${{ !cancelled() && needs.plan.outputs.run_workspace_graph != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: pathfinder_disposable_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      RAILWAY_ENVIRONMENT: staging
+      DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      REDIS_URL: redis://127.0.0.1:6379
+      CLERK_SECRET_KEY: test_clerk_secret
+      CLERK_PUBLISHABLE_KEY: test_clerk_pub
+      CLERK_WEBHOOK_SECRET: test_webhook_secret
+      INTEGRATION_ENCRYPTION_KEY: test_encryption_key_32_chars_long!
+      STORAGE_BUCKET: test-bucket
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: test
+      STORAGE_SECRET_ACCESS_KEY: test
+      RESEND_API_KEY: test
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir packages/db db:generate
+      - name: Apply migrations through the disposable-target guard
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
+        run: |
+          set -o pipefail
+          migration_log="$(mktemp)"
+          if ! pnpm db:migrate:disposable -- \
+            --database pathfinder_disposable_ci \
+            --confirm-database pathfinder_disposable_ci 2>&1 | tee "$migration_log"
+          then
+            while IFS= read -r line; do
+              safe_line="${line//'%'/'%25'}"
+              safe_line="${safe_line//$'\r'/'%0D'}"
+              safe_line="${safe_line//$'\n'/'%0A'}"
+              echo "::error title=Disposable migration failed::$safe_line"
+            done < <(tail -n 30 "$migration_log")
+            exit 1
+          fi
+        env:
+          PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
+          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      - run: pnpm characters:sync
       - name: Run pnpm turbo run typecheck
         if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
         env:
@@ -413,11 +579,6 @@ jobs:
           PLAN_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
         # Unquoted on purpose: the plan emits validated `--filter=<workspace>` words only.
         run: pnpm turbo run typecheck $PLAN_TURBO_FILTERS
-      - name: Prove billing command races and recovery on disposable PostgreSQL
-        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
-        env:
-          RUN_BILLING_COMMAND_DB_INTEGRATION: '1'
-        run: pnpm --filter @pathfinder/billing exec vitest run src/agent-commands-disposable.integration.test.ts
       - name: Run pnpm turbo run lint
         if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
         env:
@@ -428,13 +589,37 @@ jobs:
         env:
           PATHFINDER_CI_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
         run: node scripts/run-ci-workspace-tests.mjs
-      - run: pnpm test:scripts
+
+  # Preserve the required ci check: it succeeds only after every original core gate passes.
+  ci:
+    needs: [plan, policy-and-integration, browser-gates, workspace-checks]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+      - name: Evaluate parallel core gate results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/ci-required-gate.mjs --core
 
   # Always-running aggregate for branch protection. It fails if any required job failed, was
   # cancelled or was skipped without an explicit plan exclusion, so a skipped job can never leave
   # a required check silently green. Selective success is never release approval.
   ci-required:
-    needs: [plan, ci, railway-iac, visitor-launch]
+    needs:
+      [
+        plan,
+        ci,
+        railway-iac,
+        visitor-launch,
+        policy-and-integration,
+        browser-gates,
+        workspace-checks,
+      ]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
