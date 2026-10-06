@@ -67,7 +67,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v23')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v24')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -417,7 +417,8 @@ describe('buildVenueSystemPrompt', () => {
   it('requires a graceful unknown instead of inferring missing venue facts', () => {
     const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
     expect(prompt).toContain('Never infer a missing policy, hour, location, accessibility detail')
-    expect(prompt).toContain('Do not fabricate an answer to appear helpful')
+    expect(prompt).toContain("If a requested fact isn't supplied, say so briefly")
+    expect(prompt).toContain('Never fabricate')
   })
 
   it('structurally isolates venue and retrieved content from trusted instructions', () => {
@@ -518,14 +519,29 @@ describe('buildVenueSystemPrompt', () => {
     expect(prompt).not.toContain('right nearby')
   })
 
-  it('falls back to default description when venue.description is null', () => {
+  it('omits a missing description instead of inventing generic venue copy', () => {
     const prompt = buildVenueSystemPrompt({
-      venue: { ...venue, description: null },
+      venue: { ...venue, description: null, category: null },
       relevantPlaces,
       userLat: 0,
       userLng: 0,
     })
-    expect(prompt).toContain('A venue with many things to explore.')
+    expect(prompt).not.toContain('A venue with many things to explore.')
+    expect(prompt).not.toContain('About this venue:')
+    expect(prompt).not.toContain('Kind of place:')
+  })
+
+  it('supplies the configured kind of place so the guide can name it naturally', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue: { ...venue, description: null, category: 'theme park' },
+      relevantPlaces,
+      userLat: 0,
+      userLng: 0,
+      currentDate: '2026-10-06',
+    })
+    expect(prompt).toContain('Kind of place: theme park')
+    expect(prompt).toContain('never a "venue"')
+    expect(prompt).toContain('Today is 2026-10-06')
   })
 
   it('handles empty places gracefully', () => {

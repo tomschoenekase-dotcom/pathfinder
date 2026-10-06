@@ -1688,6 +1688,7 @@ const chatReadRouter = router({
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     const prepareVenuePrompt = () =>
       buildVenueSystemPromptParts({
+        currentDate: operationalNow.toISOString().slice(0, 10),
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {

@@ -2801,7 +2801,7 @@ describe('chat router', () => {
           request: expect.objectContaining({ retainLocation: false }),
         }),
       )
-      expect(getConcatenatedSystemPrompt()).toContain('this is a content guide, not a map')
+      expect(getConcatenatedSystemPrompt()).toContain('You cannot see where the visitor is')
       expect(getConcatenatedSystemPrompt()).not.toContain('has not shared a usable live position')
       expect(getConcatenatedSystemPrompt()).not.toContain('about 400 feet away')
       expect(emitEvent).toHaveBeenCalledWith(
