@@ -23,9 +23,15 @@ const MAX_DIRECTORY_PLACES = 400
 const MAX_DIRECTORY_PROMPT_CHARS = 32_000
 const DESCRIPTOR_CHARS = 160
 const MAX_LINKED_ADDITIONS = 6
-const LINK_SOURCE_ENTRIES = 4
+const LINK_SOURCE_ENTRIES = 12
 const LINKED_ENTRY_CHARS = 1_500
 const MIN_LINK_NAME_CHARS = 4
+// Directory rows keep only what the prompt line and link expansion use.
+const DIRECTORY_CONTENT_CHARS = LINKED_ENTRY_CHARS + 100
+// Linked records stop once retrieved plus linked content reaches this many characters.
+const MAX_CONTEXT_CHARS_WITH_LINKS = 24_000
+const DIRECTORY_CACHE_TTL_MS = 60_000
+const DIRECTORY_CACHE_MAX_VENUES = 200
 
 export type GuestDirectoryKnowledge = Omit<SemanticKnowledgeEntry, 'distance'>
 export type GuestDirectoryPlace = Omit<SemanticPlace, 'distance' | 'distanceMeters'>
@@ -97,7 +103,7 @@ export async function loadGuestVenueDirectory(params: {
       id: row.id,
       title: row.title,
       category: row.category,
-      content: row.content,
+      content: row.content.slice(0, DIRECTORY_CONTENT_CHARS),
       sourceType: row.sourceType,
       sourceName: row.sourceName,
       sourceUrl: row.sourceUrl,
@@ -108,6 +114,56 @@ export async function loadGuestVenueDirectory(params: {
     incomplete:
       knowledgeRows.length >= MAX_DIRECTORY_KNOWLEDGE || places.length >= MAX_DIRECTORY_PLACES,
   }
+}
+
+/**
+ * A small per-process cache. The directory changes only when operators edit content, and
+ * reloading it every turn would add a sequential database round trip; a stable directory also
+ * keeps the provider's cached prompt prefix warm. Retrieved details stay live every turn.
+ */
+export function createGuestVenueDirectoryCache(options: {
+  ttlMs: number
+  maxEntries: number
+  now?: () => number
+}) {
+  const now = options.now ?? Date.now
+  const entries = new Map<string, { expiresAt: number; value: Promise<GuestVenueDirectory> }>()
+  return {
+    get(key: string, load: () => Promise<GuestVenueDirectory>): Promise<GuestVenueDirectory> {
+      const time = now()
+      const hit = entries.get(key)
+      if (hit && hit.expiresAt > time) {
+        entries.delete(key)
+        entries.set(key, hit)
+        return hit.value
+      }
+      const value: Promise<GuestVenueDirectory> = load().catch((error: unknown) => {
+        if (entries.get(key)?.value === value) entries.delete(key)
+        throw error
+      })
+      entries.set(key, { expiresAt: time + options.ttlMs, value })
+      while (entries.size > options.maxEntries) entries.delete(entries.keys().next().value!)
+      return value
+    },
+    clear() {
+      entries.clear()
+    },
+  }
+}
+
+// Tests drive the database through per-test mocks, so the shared cache is off under test.
+const sharedDirectoryCache = createGuestVenueDirectoryCache({
+  ttlMs: process.env.NODE_ENV === 'test' ? 0 : DIRECTORY_CACHE_TTL_MS,
+  maxEntries: DIRECTORY_CACHE_MAX_VENUES,
+})
+
+export function loadGuestVenueDirectoryCached(
+  params: Parameters<typeof loadGuestVenueDirectory>[0],
+): Promise<GuestVenueDirectory> {
+  const scope = params.includeSecondLayer ? 'second-layer' : 'public'
+  return sharedDirectoryCache.get(`${params.tenantId}|${params.venueId}|${scope}`, () =>
+    loadGuestVenueDirectory(params),
+  )
 }
 
 function firstSentence(text: string | null | undefined): string {
@@ -217,7 +273,10 @@ export function expandGuestKnowledgeLinks<T extends GuestDirectoryKnowledge>(par
   entries: T[]
   directory: GuestVenueDirectory
   currentDate: string
+  maxContextChars?: number
 }): Array<T | (GuestDirectoryKnowledge & { distance: number })> {
+  const maxContextChars = params.maxContextChars ?? MAX_CONTEXT_CHARS_WITH_LINKS
+  let contextChars = params.entries.reduce((sum, entry) => sum + entry.content.length, 0)
   const currentYear = Number(params.currentDate.slice(0, 4))
   const present = new Set(params.entries.map((entry) => entry.id))
   const placeNames = new Set(params.directory.places.map((place) => normalizeGuestText(place.name)))
@@ -238,15 +297,14 @@ export function expandGuestKnowledgeLinks<T extends GuestDirectoryKnowledge>(par
       if (added.length >= MAX_LINKED_ADDITIONS) break
       if (present.has(candidate.entry.id)) continue
       if (!containsGuestTerm(text, candidate.name)) continue
+      const content =
+        candidate.entry.content.length > LINKED_ENTRY_CHARS
+          ? `${candidate.entry.content.slice(0, LINKED_ENTRY_CHARS)}\n...[source excerpt]...`
+          : candidate.entry.content
+      if (contextChars + content.length > maxContextChars) continue
       present.add(candidate.entry.id)
-      added.push({
-        ...candidate.entry,
-        content:
-          candidate.entry.content.length > LINKED_ENTRY_CHARS
-            ? `${candidate.entry.content.slice(0, LINKED_ENTRY_CHARS)}\n...[source excerpt]...`
-            : candidate.entry.content,
-        distance: 1,
-      })
+      contextChars += content.length
+      added.push({ ...candidate.entry, content, distance: 1 })
     }
   }
   return [...params.entries, ...added]

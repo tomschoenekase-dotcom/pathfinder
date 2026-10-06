@@ -494,6 +494,36 @@ describe('retrieveGuestKnowledge', () => {
     expect(result.trace.excludedSourceIds).toContain(prior.id)
   })
 
+  it('always keeps the five nearest vector hits that production returned before fusion', async () => {
+    const semanticRows = Array.from({ length: 5 }, (_, index) =>
+      row(`vector-${index}`, `Accessible seating ${index}`, 'Companion seats are on the aisle.'),
+    )
+    const lexicalRows = Array.from({ length: 20 }, (_, index) =>
+      row(`hours-${index}`, `Hours notice ${index}`, 'Open until 5 PM.'),
+    )
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce(lexicalRows)
+      .mockResolvedValueOnce(lexicalRows)
+      .mockResolvedValueOnce(semanticRows)
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany } },
+      query: 'When do you close?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: [0.1],
+      semanticSearch: vi
+        .fn()
+        .mockResolvedValue(
+          semanticRows.map((source, index) => ({ ...source, distance: 0.1 * index })),
+        ),
+    })
+    const ids = result.entries.map(({ id }) => id)
+    expect(ids).toHaveLength(8)
+    expect(ids).toEqual(expect.arrayContaining(semanticRows.map(({ id }) => id)))
+  })
+
   it('bounds semantic source readback and reports candidates outside the bound', async () => {
     const sources = Array.from({ length: 21 }, (_, index) =>
       row(`source-${index}`, 'Hours', 'Open until 5 PM.'),

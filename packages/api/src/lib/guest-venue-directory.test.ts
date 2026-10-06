@@ -9,6 +9,7 @@ import {
 } from './evaluation/guest-answer-quality-corpus'
 import {
   buildGuestVenueDirectoryPrompt,
+  createGuestVenueDirectoryCache,
   expandGuestKnowledgeLinks,
   guestDirectoryName,
   isPastDatedGuestEvent,
@@ -183,5 +184,65 @@ describe('guest venue directory', () => {
       currentDate: '2026-10-06',
     })
     expect(expanded.map((entry) => entry.id)).toEqual(['kb-mention'])
+  })
+})
+
+describe('guest venue directory cache', () => {
+  const empty: GuestVenueDirectory = { knowledge: [], places: [], incomplete: false }
+
+  it('reuses a load within the TTL and reloads after it', async () => {
+    let time = 0
+    const cache = createGuestVenueDirectoryCache({ ttlMs: 60_000, maxEntries: 10, now: () => time })
+    const load = vi.fn().mockResolvedValue(empty)
+    await cache.get('tenant|venue|public', load)
+    time = 59_999
+    await cache.get('tenant|venue|public', load)
+    expect(load).toHaveBeenCalledTimes(1)
+    time = 60_000
+    await cache.get('tenant|venue|public', load)
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps tenant, venue and visibility scopes separate', async () => {
+    const cache = createGuestVenueDirectoryCache({ ttlMs: 60_000, maxEntries: 10, now: () => 0 })
+    const load = vi.fn().mockResolvedValue(empty)
+    await cache.get('tenant-a|venue|public', load)
+    await cache.get('tenant-b|venue|public', load)
+    await cache.get('tenant-a|venue|second-layer', load)
+    expect(load).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not keep a failed load', async () => {
+    const cache = createGuestVenueDirectoryCache({ ttlMs: 60_000, maxEntries: 10, now: () => 0 })
+    const load = vi.fn().mockRejectedValueOnce(new Error('db down')).mockResolvedValue(empty)
+    await expect(cache.get('k', load)).rejects.toThrow('db down')
+    await expect(cache.get('k', load)).resolves.toEqual(empty)
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('evicts the least recently used venue beyond its bound', async () => {
+    const cache = createGuestVenueDirectoryCache({ ttlMs: 60_000, maxEntries: 2, now: () => 0 })
+    const load = vi.fn().mockResolvedValue(empty)
+    await cache.get('a', load)
+    await cache.get('b', load)
+    await cache.get('a', load)
+    await cache.get('c', load)
+    await cache.get('a', load)
+    expect(load).toHaveBeenCalledTimes(3)
+    await cache.get('b', load)
+    expect(load).toHaveBeenCalledTimes(4)
+  })
+})
+
+describe('guest knowledge link budget', () => {
+  it('stops adding linked records at the total context budget', () => {
+    const overview = knowledge.find((entry) => entry.id === K.diningOverview)!
+    const expanded = expandGuestKnowledgeLinks({
+      entries: [{ ...overview, distance: 0.2 }],
+      directory,
+      currentDate: '2026-10-06',
+      maxContextChars: overview.content.length + 10,
+    })
+    expect(expanded.map((entry) => entry.id)).toEqual([K.diningOverview])
   })
 })

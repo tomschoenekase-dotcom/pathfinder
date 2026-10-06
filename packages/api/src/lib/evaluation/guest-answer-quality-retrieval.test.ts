@@ -160,6 +160,35 @@ describe('guest place lexical fusion', () => {
     })
   })
 
+  it('always keeps the five nearest semantic places when lexical matches are plentiful', async () => {
+    const semanticPlaces = THEME_PARK_PLACES.slice(0, 8).map((place) => ({
+      ...place,
+      distance: 0.3,
+    }))
+    const lexicalOnly = Array.from({ length: 12 }, (_, index) => ({
+      ...THEME_PARK_PLACES[0]!,
+      id: `lexical-${index}`,
+      name: `Snack Cart ${index}`,
+      type: 'food',
+      itemType: 'restaurant',
+    }))
+    const places = await fuseGuestPlacesWithLexical({
+      reader: { place: { findMany: vi.fn().mockResolvedValue(lexicalOnly) } },
+      query: 'Where to eat',
+      tenantId: THEME_PARK_SCOPE.tenantId,
+      venueId: THEME_PARK_SCOPE.venueId,
+      includeSecondLayer: false,
+      semanticPlaces: Promise.resolve(semanticPlaces),
+      limit: 8,
+      userLat: null,
+      userLng: null,
+    })
+    expect(places.map((place) => place.id)).toEqual(
+      expect.arrayContaining(semanticPlaces.slice(0, 5).map((place) => place.id)),
+    )
+    expect(places.some((place) => place.id.startsWith('lexical-'))).toBe(true)
+  })
+
   it('returns the semantic list unchanged when the query has no lexical concepts', async () => {
     const findMany = vi.fn()
     const semanticPlaces = THEME_PARK_PLACES.slice(0, 3).map((place) => ({

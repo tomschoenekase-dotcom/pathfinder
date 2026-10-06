@@ -100,7 +100,7 @@ import {
   buildGuestVenueDirectoryPrompt,
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
-  loadGuestVenueDirectory,
+  loadGuestVenueDirectoryCached,
   type GuestVenueDirectory,
 } from '../lib/guest-venue-directory'
 import {
@@ -1287,28 +1287,27 @@ const chatReadRouter = router({
     const currentDate = operationalNow.toISOString().slice(0, 10)
     if (queryEmbedding) {
       const [places, knowledge] = await Promise.all([
-        searchPlacesByEmbedding({
-          queryEmbedding,
-          venueId: input.venueId,
+        fuseGuestPlacesWithLexical({
+          reader: ctx.db,
+          query: retrievalQuery,
+          previousQuery: previousGuestQuery,
           tenantId: venue.tenantId,
-          userLat: rankingLocation?.lat ?? null,
-          userLng: rankingLocation?.lng ?? null,
-          limit: recommendationRetrievalLimit,
+          venueId: input.venueId,
           includeSecondLayer,
-        }).then((semanticPlaces) =>
-          fuseGuestPlacesWithLexical({
-            reader: ctx.db,
-            query: retrievalQuery,
-            previousQuery: previousGuestQuery,
-            tenantId: venue.tenantId,
+          // Runs alongside the lexical place read inside the fusion helper.
+          semanticPlaces: searchPlacesByEmbedding({
+            queryEmbedding,
             venueId: input.venueId,
-            includeSecondLayer,
-            semanticPlaces,
-            limit: recommendationRetrievalLimit,
+            tenantId: venue.tenantId,
             userLat: rankingLocation?.lat ?? null,
             userLng: rankingLocation?.lng ?? null,
+            limit: recommendationRetrievalLimit,
+            includeSecondLayer,
           }),
-        ),
+          limit: recommendationRetrievalLimit,
+          userLat: rankingLocation?.lat ?? null,
+          userLng: rankingLocation?.lng ?? null,
+        }),
         retrieveGuestKnowledge({
           reader: ctx.db,
           query: retrievalQuery,
@@ -1448,7 +1447,7 @@ const chatReadRouter = router({
     relevantKnowledgeEntries = nativeRead.knowledgeEntries
     // The complete public directory; a failure only removes it from the prompt.
     const emptyDirectory: GuestVenueDirectory = { knowledge: [], places: [], incomplete: false }
-    const loadedDirectory = await loadGuestVenueDirectory({
+    const loadedDirectory = await loadGuestVenueDirectoryCached({
       reader: ctx.db,
       tenantId: venue.tenantId,
       venueId: input.venueId,

@@ -14,9 +14,10 @@ const TOTAL_RESULT_CONTENT_CHARS = 20_000
 // Reciprocal-rank fusion constant. Semantic and lexical lanes contribute equally so a record
 // without a stored embedding can still outrank weaker vector neighbours on a strong text match.
 const FUSION_RANK_OFFSET = 10
-// Vector neighbours past this rank join only when a text match corroborates them, so the tail
-// of a weak semantic list cannot crowd matching records out of a broad answer.
-const SEMANTIC_UNCORROBORATED_LIMIT = 4
+// The previous production result was the top five vector neighbours. They are always kept, so
+// the fused result is never a subset of what guests got before. Neighbours past this rank join
+// only when a text match corroborates them, so a weak semantic tail cannot crowd out matches.
+const SEMANTIC_UNCORROBORATED_LIMIT = 5
 
 const STOP_WORDS = new Set([
   'a',
@@ -777,7 +778,26 @@ export async function retrieveGuestKnowledge(params: {
   const candidates = [...fused.values()]
     .sort((a, b) => b.score - a.score || a.order - b.order)
     .map(({ entry }) => entry)
+  const guaranteed = new Set(
+    candidates
+      .filter((entry) =>
+        semanticCandidates
+          .slice(0, SEMANTIC_UNCORROBORATED_LIMIT)
+          .some((hit) => hit.id === entry.id),
+      )
+      .map((entry) => entry.id),
+  )
   const selected = candidates.slice(0, resultLimit)
+  // Restore any guaranteed vector hit that fused ranking pushed past the budget by replacing the
+  // lowest-ranked non-guaranteed entries.
+  for (const entry of candidates.slice(resultLimit)) {
+    if (!guaranteed.has(entry.id)) continue
+    let replaceAt = selected.length - 1
+    while (replaceAt >= 0 && guaranteed.has(selected[replaceAt]!.id)) replaceAt -= 1
+    if (replaceAt < 0) break
+    selected.splice(replaceAt, 1)
+    selected.push(entry)
+  }
   const perEntryChars = Math.max(
     MIN_RESULT_CONTENT_CHARS,
     Math.min(

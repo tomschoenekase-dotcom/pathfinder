@@ -10,6 +10,8 @@ import {
 const LEXICAL_PLACE_CANDIDATES = 40
 const BROAD_PLACE_LIMIT = 12
 const FUSION_RANK_OFFSET = 10
+// The nearest semantic places always stay, as with Knowledge, so fusion only adds recall.
+const GUARANTEED_SEMANTIC_PLACES = 5
 
 type GuestPlaceRow = Omit<SemanticPlace, 'distance' | 'distanceMeters'>
 
@@ -47,7 +49,8 @@ export async function fuseGuestPlacesWithLexical(params: {
   tenantId: string
   venueId: string
   includeSecondLayer: boolean
-  semanticPlaces: SemanticPlace[]
+  /** May be pending: the lexical read runs in parallel with the semantic search. */
+  semanticPlaces: SemanticPlace[] | Promise<SemanticPlace[]>
   limit: number
   userLat: number | null
   userLng: number | null
@@ -56,10 +59,10 @@ export async function fuseGuestPlacesWithLexical(params: {
   const limit = broad ? Math.max(params.limit, BROAD_PLACE_LIMIT) : params.limit
   const reader = params.reader as Partial<GuestPlaceLexicalReader>
   if (concepts.length === 0 || typeof reader.place?.findMany !== 'function')
-    return params.semanticPlaces.slice(0, limit)
+    return (await params.semanticPlaces).slice(0, limit)
   const terms = [...new Set(concepts.flat())]
   // Lexical recall is additive: any read failure keeps the semantic result unchanged.
-  const rows = await Promise.resolve()
+  const rowsPromise = Promise.resolve()
     .then(() =>
       reader.place!.findMany({
         where: {
@@ -100,12 +103,13 @@ export async function fuseGuestPlacesWithLexical(params: {
     )
     .then((result) => (Array.isArray(result) ? result : []))
     .catch(() => [] as GuestPlaceRow[])
+  const [semanticPlaces, rows] = await Promise.all([params.semanticPlaces, rowsPromise])
   const lexical = rows
     .map((place) => ({ place, score: placeScore(place, concepts) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score)
   const fused = new Map<string, { place: SemanticPlace; score: number; order: number }>()
-  params.semanticPlaces.forEach((place, index) => {
+  semanticPlaces.forEach((place, index) => {
     fused.set(place.id, { place, score: 1 / (FUSION_RANK_OFFSET + index + 1), order: index })
   })
   lexical.forEach(({ place }, index) => {
@@ -136,8 +140,20 @@ export async function fuseGuestPlacesWithLexical(params: {
       order: fused.size,
     })
   })
-  return [...fused.values()]
+  const ranked = [...fused.values()]
     .sort((a, b) => b.score - a.score || a.order - b.order)
-    .slice(0, limit)
     .map(({ place }) => place)
+  const guaranteed = new Set(
+    semanticPlaces.slice(0, GUARANTEED_SEMANTIC_PLACES).map((place) => place.id),
+  )
+  const selected = ranked.slice(0, limit)
+  for (const place of ranked.slice(limit)) {
+    if (!guaranteed.has(place.id)) continue
+    let replaceAt = selected.length - 1
+    while (replaceAt >= 0 && guaranteed.has(selected[replaceAt]!.id)) replaceAt -= 1
+    if (replaceAt < 0) break
+    selected.splice(replaceAt, 1)
+    selected.push(place)
+  }
+  return selected
 }
