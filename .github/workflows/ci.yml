@@ -604,6 +604,9 @@ jobs:
       - name: Verify workspace test graph
         if: ${{ matrix.lane == 'tests' && needs.plan.outputs.run_workspace_graph != 'false' }}
         env:
+          # Match the qualified typecheck budget for cold test transforms.
+          # The wrapper runs fresh tests; required typechecks retain ^build.
+          NODE_OPTIONS: --max-old-space-size=6144
           PATHFINDER_CI_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
         run: node scripts/run-ci-workspace-tests.mjs
 

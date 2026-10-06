@@ -347,6 +347,18 @@ fail-fast is disabled and no assertion, suite, timeout or opt-in is removed. Thi
 removes the 6-8 minute typecheck prerequisite before tests start. Browser and policy
 jobs still limit the overall full run; this is not a promise of instant full CI.
 
+The first hosted split exposed an implicit cache dependency: the test lane's
+`^build` API TypeScript task exhausted the default 4GB heap even though the same
+typecheck/build graph passed with 6GB in the parallel lane. The CI test wrapper
+now uses `--only --cache=local:,remote:`: every selected test executes fresh,
+without rebuilding dependencies. All tested workspaces also have typechecks;
+the required type lane retains the identical `^build` graph and plan filters.
+The reviewed tests consume workspace source rather than emitted build artifacts;
+Prisma generation and character sync stay in both lanes. Because `--only` also
+removes dependency cache hashes, test cache reads and writes are disabled.
+Ordinary local `pnpm test` and `turbo.json` remain unchanged. Both lanes use the
+qualified 6GB heap budget. The original failed run remains failed evidence.
+
 A completed FULL run records a small artifact bound to repository, exact commit,
 Git tree, run and attempt. A later push or PR may reuse it only when the official
 GitHub commit tree exactly matches the current checkout and every expected full

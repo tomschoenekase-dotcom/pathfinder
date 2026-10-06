@@ -72,6 +72,7 @@ test('workspace tests start independently of types and both lanes remain require
   const condition = workspace.slice(start).split('\n')[1]
   assert.ok(condition.includes("matrix.lane == 'tests'"))
   assert.ok(condition.includes("needs.plan.outputs.run_workspace_graph != 'false'"))
+  assert.match(workspace.slice(start), /NODE_OPTIONS: --max-old-space-size=6144/u)
   // GitHub reduces a matrix dependency to failure unless every lane succeeds.
   assert.match(job('ci'), /browser-gates, workspace-checks\]/u)
   assert.match(job('ci-required'), /workspace-checks/u)
