@@ -5,7 +5,7 @@ import { canonicalEvaluationJson, type CanonicalJsonValue } from '@pathfinder/co
 import { z } from 'zod'
 
 import type { GuestAnswerEvidenceSourceInput } from './guest-answer-evidence'
-import type { GuestCitation } from './guest-citations'
+import { GENERAL_BACKGROUND_CITATION_DETAIL, type GuestCitation } from './guest-citations'
 import { escapeUntrustedPromptData } from './venue-context'
 
 const SHA256 = /^[0-9a-f]{64}$/u
@@ -154,7 +154,7 @@ ${referenceLines}
     citations: citedReferences.map((reference) => ({
       label: citationLabel(reference.title),
       href: reference.url,
-      detail: 'General background',
+      detail: GENERAL_BACKGROUND_CITATION_DETAIL,
     })),
     evidenceSources: [
       {

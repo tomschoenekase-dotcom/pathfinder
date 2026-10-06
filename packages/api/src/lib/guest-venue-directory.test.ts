@@ -246,3 +246,80 @@ describe('guest knowledge link budget', () => {
     expect(expanded.map((entry) => entry.id)).toEqual([K.diningOverview])
   })
 })
+
+describe('guest venue directory descriptors', () => {
+  const place = (overrides: Partial<GuestVenueDirectory['places'][number]>) => ({
+    ...THEME_PARK_PLACES[0]!,
+    id: 'descriptor-place',
+    areaName: 'Fire Realm',
+    shortDescription: null,
+    longDescription: null,
+    ...overrides,
+  })
+  const promptFor = (partial: Partial<GuestVenueDirectory>) =>
+    buildGuestVenueDirectoryPrompt(
+      { knowledge: [], places: [], incomplete: false, ...partial },
+      { currentDate: '2026-10-06' },
+    )
+
+  it('skips a sentence that only repeats the name, so a ride keeps its real kind', () => {
+    const prompt = promptFor({
+      places: [place({ name: 'Ember Swing', type: 'ride', itemType: 'activity' })],
+      knowledge: [
+        {
+          id: 'kb-swing',
+          title: 'Ember Swing: visitor information',
+          category: 'Ride information',
+          content: 'Ember Swing. Rotating pendulum ride that swings riders upside down.',
+          sourceType: 'website_research',
+          sourceName: null,
+          sourceUrl: 'https://park.example/attractions/coasters/ember-swing/',
+        },
+      ],
+    })
+    expect(prompt).toContain(
+      '- Ember Swing (activity, ride, Fire Realm): Rotating pendulum ride that swings riders upside down.',
+    )
+    expect(prompt).not.toContain('Ember Swing: visitor information')
+  })
+
+  it('matches a subtitled place to its visitor entry and skips location-pin caveats', () => {
+    const prompt = promptFor({
+      places: [
+        place({
+          name: 'Glowcave: Quest for the Lantern',
+          type: 'ride',
+          itemType: 'activity',
+          shortDescription:
+            'Approximate public-approach anchor; this pin does not establish an exact door. Interactive dark ride with onboard targets.',
+        }),
+      ],
+    })
+    expect(prompt).toContain(
+      '- Glowcave: Quest for the Lantern (activity, ride, Fire Realm): Interactive dark ride with onboard targets.',
+    )
+    expect(prompt).not.toContain('anchor')
+  })
+
+  it('keeps decimals inside one sentence and leaves a name-only record without a descriptor', () => {
+    const prompt = promptFor({
+      places: [
+        place({
+          name: 'Spark Mile',
+          type: 'ride',
+          itemType: null,
+          shortDescription: 'A 4.5 minute family train loop.',
+        }),
+        place({
+          id: 'bare',
+          name: 'Quiet Bench',
+          type: 'amenity',
+          itemType: null,
+          shortDescription: 'Quiet Bench.',
+        }),
+      ],
+    })
+    expect(prompt).toContain('- Spark Mile (ride, Fire Realm): A 4.5 minute family train loop.')
+    expect(prompt).toContain('- Quiet Bench (amenity, Fire Realm)\n')
+  })
+})

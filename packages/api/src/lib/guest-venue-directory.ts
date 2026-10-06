@@ -9,7 +9,7 @@ import {
   type GuestKnowledgeReader,
   type GuestKnowledgeRow,
 } from './guest-knowledge-retrieval'
-import { escapeUntrustedPromptData } from './venue-context'
+import { escapeUntrustedPromptData, guestPlaceKindLabel } from './venue-context'
 
 /**
  * A complete, compact directory of a venue's public guide records: one line per place and per
@@ -166,10 +166,24 @@ export function loadGuestVenueDirectoryCached(
   )
 }
 
-function firstSentence(text: string | null | undefined): string {
+// Location-pin and wayfinding caveats say where a record sits, not what it is.
+const LOCATION_CAVEAT =
+  /\b(?:approach anchor|feature anchor|this pin|doorways?|exact doors?|walking[- ]routes?|research location|step-free access|signed public queue)\b/iu
+
+/**
+ * The first sentence that says what a record is. A sentence that only repeats the record's name
+ * ("Mura Fury.") or a location caveat would leave the model guessing a ride's kind from its name.
+ */
+function firstSentence(text: string | null | undefined, name?: string): string {
   const clean = (text ?? '').replace(/\s+/g, ' ').trim()
   if (!clean) return ''
-  const sentence = clean.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? clean
+  const sentences = clean.split(/(?<=[.!?])\s+/u)
+  const nameKey = name ? normalizeGuestText(name) : ''
+  const sentence =
+    sentences.find((candidate) => {
+      const key = normalizeGuestText(candidate.replace(/[.!?]+$/u, ''))
+      return key.length > 0 && key !== nameKey && !LOCATION_CAVEAT.test(candidate)
+    }) ?? ''
   return sentence.length > DESCRIPTOR_CHARS
     ? `${sentence.slice(0, DESCRIPTOR_CHARS - 1).trimEnd()}…`
     : sentence
@@ -214,25 +228,27 @@ export function buildGuestVenueDirectoryPrompt(
   }
   const mergedKnowledgeIds = new Set<string>()
   const placeLines = directory.places.map((place) => {
-    const kind = (place.itemType ?? place.type).replace(/_/g, ' ')
+    const kind = guestPlaceKindLabel(place)
     const area = place.areaName ? `, ${place.areaName}` : ''
     // Same-name places keep only name, kind and area here: place-identity resolution decides
     // which one the visitor means and supplies only that one's details.
     if ((nameCounts.get(normalizeGuestText(place.name)) ?? 0) > 1)
       return `- ${place.name} (${kind}${area})`
-    const match = knowledgeByName.get(normalizeGuestText(place.name))
+    const match =
+      knowledgeByName.get(normalizeGuestText(place.name)) ??
+      knowledgeByName.get(normalizeGuestText(guestDirectoryName(place.name)))
     if (match) mergedKnowledgeIds.add(match.id)
     const descriptor =
-      firstSentence(match?.content) ||
-      firstSentence(place.shortDescription) ||
-      firstSentence(place.longDescription)
+      firstSentence(match?.content, place.name) ||
+      firstSentence(place.shortDescription, place.name) ||
+      firstSentence(place.longDescription, place.name)
     return `- ${place.name} (${kind}${area})${descriptor ? `: ${descriptor}` : ''}`
   })
   const past: string[] = []
   const topicLines: string[] = []
   for (const entry of directory.knowledge) {
     if (mergedKnowledgeIds.has(entry.id)) continue
-    const line = `- [${entry.category}] ${entry.title}: ${firstSentence(entry.content)}`
+    const line = `- [${entry.category}] ${entry.title}: ${firstSentence(entry.content, guestDirectoryName(entry.title))}`
     if (isPastDatedGuestEvent(entry, currentYear)) past.push(`- ${entry.title}`)
     else topicLines.push(line)
   }

@@ -1144,9 +1144,15 @@ describe('chat router', () => {
       expect(prompt).not.toContain('Already visited detail only.')
       expect(prompt).not.toContain('foreign-id')
       expect(result.places?.map((place) => place.id)).toEqual(['p2'])
-      expect(result.citations).toEqual([
-        expect.objectContaining({ href: 'https://zoo.example/penguins' }),
-      ])
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            replayMetadata: expect.objectContaining({
+              citations: [expect.objectContaining({ href: 'https://zoo.example/penguins' })],
+            }),
+          }),
+        }),
+      )
     })
 
     it('finds the ninth unvisited option and does not refill an empty recommendation pool with visited places', async () => {
@@ -2385,8 +2391,7 @@ describe('chat router', () => {
       expect(getConcatenatedSystemPrompt()).not.toContain('GENERAL BACKGROUND ONLY')
     })
 
-    it('persists and returns safe provenance for retrieved entities explicitly named in the answer', async () => {
-      setupHappyPath('The Elephants habitat is open today.')
+    function mockSourcedElephants() {
       semanticSearch.places.mockResolvedValueOnce([
         {
           ...placeRows[0]!,
@@ -2399,23 +2404,49 @@ describe('chat router', () => {
           sourceUrl: 'https://zoo.example/elephants',
         },
       ])
+    }
+
+    it('persists provenance for named entities but shows no routine sources', async () => {
+      setupHappyPath('The Elephants habitat is open today.')
+      mockSourcedElephants()
 
       const result = await caller.chat.send(sendInput)
 
-      expect(result.citations).toEqual([
-        {
-          label: 'Official zoo visitor guide',
-          href: 'https://zoo.example/elephants',
-          detail: 'Place: Elephants',
-        },
-      ])
+      expect(result.citations).toEqual([])
+      expect(result.blocks).toBeUndefined()
       expect(guestTurnActions.finalize).toHaveBeenCalledWith(
         expect.objectContaining({
           input: expect.objectContaining({
-            replayMetadata: expect.objectContaining({ citations: result.citations }),
+            replayMetadata: expect.objectContaining({
+              citations: [
+                {
+                  label: 'Official zoo visitor guide',
+                  href: 'https://zoo.example/elephants',
+                  detail: 'Place: Elephants',
+                },
+              ],
+            }),
           }),
         }),
       )
+    })
+
+    it('shows the source page as a link when the visitor asks for one', async () => {
+      setupHappyPath('Here is the Elephants page.')
+      mockSourcedElephants()
+
+      const result = await caller.chat.send({
+        ...sendInput,
+        message: 'Can you send me the link for the elephants?',
+      })
+
+      const link = {
+        label: 'Elephants',
+        href: 'https://zoo.example/elephants',
+        detail: 'Place: Elephants',
+      }
+      expect(result.citations).toEqual([link])
+      expect(result.blocks).toEqual([{ type: 'citations', heading: 'links', citations: [link] }])
     })
 
     it('admits employee-only knowledge for a same-tenant member without emitting visitor analytics', async () => {
@@ -4626,51 +4657,45 @@ describe('chat router', () => {
       expect(voiceTranscriptSegmentFindMany).not.toHaveBeenCalled()
     })
 
-    it('restores persisted place cards and citations for completed assistant turns', async () => {
+    it('restores a requested link but not routine sources for completed assistant turns', async () => {
       dbQueryRaw.mockResolvedValueOnce([
         { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
       ])
-      messageFindMany.mockResolvedValueOnce([
+      const citations = [
         {
-          id: 'assistant-1',
-          role: 'assistant',
-          content: 'Visit the Elephants habitat.',
-          sessionSequence: 1,
-          createdAt: new Date('2026-09-07T16:00:00.000Z'),
-          guestChatTurn: {
-            replayMetadata: {
-              places: [],
-              citations: [
-                {
-                  label: 'Official zoo visitor guide',
-                  href: 'https://zoo.example/elephants',
-                  detail: 'Place: Elephants',
-                },
-              ],
-            },
-          },
+          label: 'Official zoo visitor guide',
+          href: 'https://zoo.example/elephants',
+          detail: 'Place: Elephants',
         },
+      ]
+      const row = (id: string, role: string, content: string, sequence: number) => ({
+        id,
+        role,
+        content,
+        sessionSequence: sequence,
+        createdAt: new Date(Date.UTC(2026, 8, 7, 16, sequence)),
+        guestChatTurn: role === 'assistant' ? { replayMetadata: { places: [], citations } } : null,
+      })
+      messageFindMany.mockResolvedValueOnce([
+        row('user-1', 'user', 'Tell me about the elephants.', 1),
+        row('assistant-1', 'assistant', 'The Elephants habitat is shaded.', 2),
+        row('user-2', 'user', 'What is the website for that?', 3),
+        row('assistant-2', 'assistant', 'Visit the Elephants habitat.', 4),
       ])
 
-      await expect(
-        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
-      ).resolves.toEqual({
-        messages: [
+      const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
+      const byId = new Map(result.messages.map((message) => [message.id, message]))
+      expect(byId.get('assistant-1')).not.toHaveProperty('blocks')
+      expect(byId.get('assistant-2')).toMatchObject({
+        blocks: [
           {
-            id: 'assistant-1',
-            role: 'assistant',
-            content: 'Visit the Elephants habitat.',
-            replyKind: 'ANSWER',
-            blocks: [
+            type: 'citations',
+            heading: 'links',
+            citations: [
               {
-                type: 'citations',
-                citations: [
-                  {
-                    label: 'Official zoo visitor guide',
-                    href: 'https://zoo.example/elephants',
-                    detail: 'Place: Elephants',
-                  },
-                ],
+                label: 'Elephants',
+                href: 'https://zoo.example/elephants',
+                detail: 'Place: Elephants',
               },
             ],
           },
@@ -4970,7 +4995,7 @@ describe('chat router', () => {
       }
       const placement = [{ presentation: 'INLINE', actionId: 'burger-order', start: 8, end: 19 }]
 
-      it('re-resolves the link against the current catalog and keeps sources', async () => {
+      it('re-resolves the link against the current catalog without routine sources', async () => {
         historyRow(placement)
         venueFindMany.mockResolvedValue([
           {
@@ -4987,12 +5012,11 @@ describe('chat router', () => {
               type: 'text',
               links: [{ start: 8, end: 19, href: 'https://order.example.com/new-burger' }],
             },
-            { type: 'citations' },
           ],
         })
       })
 
-      it('shows a since-disabled action as plain text with its sources', async () => {
+      it('shows a since-disabled action as plain text', async () => {
         historyRow(placement)
         venueFindMany.mockResolvedValue([
           {
@@ -5005,8 +5029,8 @@ describe('chat router', () => {
         const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
         expect(result.messages[0]).toMatchObject({
           content: 'You can order ahead at Burger Barn.',
-          blocks: [{ type: 'citations' }],
         })
+        expect(JSON.stringify(result.messages[0])).not.toContain('Dining guide')
       })
 
       it('applies a later switch-off to saved conversations', async () => {

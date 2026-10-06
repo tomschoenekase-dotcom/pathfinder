@@ -399,6 +399,7 @@ export function composeGuestActionBlocks(input: {
   now: Date
   places?: readonly GuestResponsePlace[]
   citations?: readonly { label: string; href?: string | undefined; detail?: string | undefined }[]
+  citationsHeading?: 'sources' | 'links'
 }): GuestResponseBlock[] | null {
   if (!guestActionsAllowed(input.settings) || input.placements.length === 0) return null
   const active = new Map(activeGuestActions(input.catalog, input.now).map((a) => [a.id, a]))
@@ -454,6 +455,7 @@ export function composeGuestActionBlocks(input: {
       ? [
           {
             type: 'citations' as const,
+            ...(input.citationsHeading ? { heading: input.citationsHeading } : {}),
             citations: input.citations.map((citation) => ({
               label: citation.label,
               ...(citation.href ? { href: citation.href } : {}),

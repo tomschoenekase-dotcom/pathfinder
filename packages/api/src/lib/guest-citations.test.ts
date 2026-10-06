@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildGuestCitations } from './guest-citations'
+import { buildGuestCitations, selectGuestVisibleCitations } from './guest-citations'
 
 const candidate = {
   entityId: 'place-1',
@@ -60,5 +60,64 @@ describe('guest citations', () => {
         ],
       }),
     ).toEqual([{ label: 'Venue handbook', detail: 'Venue knowledge: Accessibility' }])
+  })
+})
+
+describe('selectGuestVisibleCitations', () => {
+  const stored = [
+    {
+      label: 'Grill dining',
+      href: 'https://park.example/dining/grill/',
+      detail: 'Venue knowledge: Grill: visitor information',
+    },
+    { label: 'Grill page', href: 'https://park.example/dining/grill/', detail: 'Place: Grill' },
+    {
+      label: 'Market dining',
+      href: 'https://park.example/dining/market/',
+      detail: 'Place: Market',
+    },
+    { label: 'Tickets', href: 'https://park.example/tickets/', detail: 'Venue knowledge: Tickets' },
+    { label: 'Staff handbook', detail: 'Venue knowledge: Hours' },
+  ]
+
+  it.each([
+    'What is there to eat?',
+    'Rank the coasters in order of intensity',
+    'Which rides are best for kids?',
+  ])('hides routine venue sources for %j', (visitorMessage) => {
+    expect(selectGuestVisibleCitations({ visitorMessage, citations: stored })).toBeNull()
+  })
+
+  it('shows at most two distinct linked destinations when the visitor asks for a page', () => {
+    expect(
+      selectGuestVisibleCitations({
+        visitorMessage: 'Can I order ahead at the grill? Send the link',
+        citations: stored,
+      }),
+    ).toEqual({
+      heading: 'links',
+      citations: [
+        {
+          label: 'Grill',
+          href: 'https://park.example/dining/grill/',
+          detail: 'Venue knowledge: Grill: visitor information',
+        },
+        { label: 'Market', href: 'https://park.example/dining/market/', detail: 'Place: Market' },
+      ],
+    })
+  })
+
+  it('keeps general web background attributed as sources', () => {
+    const general = {
+      label: 'General reference: Volcanoes',
+      href: 'https://ref.example/volcano',
+      detail: 'General background',
+    }
+    expect(
+      selectGuestVisibleCitations({
+        visitorMessage: 'How do volcanoes work?',
+        citations: [...stored, general],
+      }),
+    ).toEqual({ heading: 'sources', citations: [general] })
   })
 })

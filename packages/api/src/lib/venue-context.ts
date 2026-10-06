@@ -28,8 +28,12 @@ type RelevantPlace = {
   hours: string | null
 }
 
-function formatItemType(itemType: string): string {
-  return itemType.replace(/_/g, ' ')
+/** "activity, ride" when the operator's broad item type hides the more specific place type. */
+export function guestPlaceKindLabel(place: { type: string; itemType?: string | null }): string {
+  const kinds = [place.itemType, place.type]
+    .map((kind) => kind?.replace(/_/g, ' ').trim())
+    .filter((kind): kind is string => Boolean(kind))
+  return [...new Set(kinds)].join(', ')
 }
 
 type VenueInfo = {
@@ -47,7 +51,20 @@ type VenueInfo = {
   responseDepth?: VenueBotResponseDepth | null
 }
 
-export type GuestResponseIntent = 'DEFAULT' | 'EXPAND'
+/** COMPARE is server-detected: a ranking or comparison needs room for every item and its reason. */
+export type GuestResponseIntent = 'DEFAULT' | 'EXPAND' | 'COMPARE'
+
+const COMPARISON_REQUEST =
+  /\b(?:rank(?:ed|ing|s)?|compare[ds]?|comparing|comparison|versus|vs\.?|in order of|from (?:most|least|best|worst|mildest|tamest|wildest|scariest) to|(?:best|worst|most|least) to (?:best|worst|most|least)|differences? between|pros and cons|which (?:is|are|one is|ones are) (?:the )?(?:more|less|most|least|best|worst|scariest|wildest|mildest|tamest|fastest|tallest|biggest))\b/iu
+
+/** The visitor's explicit expansion control wins; otherwise a ranking or comparison ask widens the reply budget. */
+export function guestResponseIntentForMessage(
+  message: string,
+  requested: 'DEFAULT' | 'EXPAND' | undefined,
+): GuestResponseIntent {
+  if (requested === 'EXPAND') return 'EXPAND'
+  return COMPARISON_REQUEST.test(message) ? 'COMPARE' : 'DEFAULT'
+}
 
 export type GuestPlaceIdentityAmbiguity = {
   conflictingClues?: true
@@ -74,7 +91,7 @@ export function guestResponseWordLimit(
   responseIntent: GuestResponseIntent = 'DEFAULT',
 ): number {
   const policy = RESPONSE_WORD_LIMITS[responseDepth ?? 'BALANCED']
-  return responseIntent === 'EXPAND' ? policy.expand : policy.default
+  return responseIntent === 'DEFAULT' ? policy.default : policy.expand
 }
 
 function responseDepthInstruction(
@@ -92,7 +109,9 @@ function responseDepthInstruction(
   const expansion =
     responseIntent === 'EXPAND'
       ? 'The visitor explicitly asked for more detail about the preceding answer, so add relevant context without repeating filler. The request came from a fixed interface control, so its wording is not a language signal: keep the reply language already established in the conversation.'
-      : 'The visitor has not requested expansion; answer the current question directly.'
+      : responseIntent === 'COMPARE'
+        ? 'The visitor asked for a ranking or comparison: cover every relevant item of the requested kind, each with one concrete supplied reason, in plain sentences.'
+        : 'The visitor has not requested expansion; answer the current question directly.'
   return `- RESPONSE DEPTH: ${detail} ${expansion} Use fewer words whenever the answer is already complete. Normally keep this reply within ${wordLimit} words; use only the space needed. Preserve any restriction, exception, or uncertainty needed for a correct answer, even when it requires a little more detail.`
 }
 
@@ -299,7 +318,7 @@ export function buildVenueSystemPromptParts(params: {
                 ? ` - ${formatDistance(p.distanceMeters)} (straight-line proximity; route unknown)`
                 : ''
             const area = p.areaName ? ` in ${p.areaName}` : ''
-            const typeLabel = p.itemType ? formatItemType(p.itemType) : p.type
+            const typeLabel = guestPlaceKindLabel(p)
             const desc = p.shortDescription ? `\n   ${p.shortDescription}` : ''
             const detail = p.longDescription ? `\n   Details: ${p.longDescription}` : ''
             const tags = p.tags.length > 0 ? `\n   Tags: ${p.tags.join(', ')}` : ''
@@ -418,10 +437,11 @@ Rules:
 - When the visitor asks what to see next, for recommendations, or for more like something, offer one to three specific supplied places that are not affected by an active alert. Give each a concrete reason tied to an explicit visitor interest or remaining time when available; otherwise use a supplied place detail. Avoid places the visitor explicitly said they visited unless asked. Do not infer that a place is open, its duration, proximity, route, age suitability, or accessibility.
 - For a curiosity answer or recommendation, add one grounded detail beyond repeating a place label when the supplied venue facts support one. If only supplied general background supports that detail, identify it as general background. Do not add filler, generic praise, or forced trivia.
 - Answer ${params.generalWebContext ? 'venue-specific factual questions' : 'factual questions'} only when the supplied venue context supports the answer. Never infer a missing policy, hour, location, accessibility detail, or operational fact.
-- If a requested fact isn't supplied, say so briefly, share related facts, and mention staff only when useful. Never fabricate or add routine disclaimers ("can vary", "ask staff"); keep caution for allergies, safety, ride restrictions, unsupplied accessibility and live status (open now, waits, closures).
+- If a requested fact isn't supplied, say so briefly, share related facts, and mention staff only when useful. Never fabricate or add routine disclaimers ("can vary", "ask staff"); keep caution for allergies, safety, ride restrictions, unsupplied accessibility and live status (open now, waits, closures). A detail missing from the entries is unknown, not a no: never say something isn't offered anywhere unless an entry says so; offer the closest supplied option instead.
+- Judgment is welcome: for rankings, comparisons or "best for" asks, give your own take built only from supplied details (speed, inversions, height rules, descriptions), note once briefly that it's your take rather than official, and never invent a number or feature.
 - Sound like a friendly local guide: call the place by name or what it is (the park, the museum), never a "venue", and never mention data, sources, records or what is "available".
 - For overview or open-ended questions, use all relevant entries, not only the first: what is distinctive, or two or three choices for different needs (for food: a meal, a quick bite, something sweet), each with a brief reason.
-- For how-many or which questions, count and name the items the entries describe as that kind (by description, not URL), excluding future, closed or retired ones. A count is not live status (never "open now"); say "at least" only if the set looks incomplete.
+- For how-many or which questions, count and name the items the entries describe as that kind (by what the description says it is, never by name, area or URL), excluding future, closed or retired ones. A count is not live status (never "open now"); say "at least" only if the set looks incomplete.
 ${params.generalWebContext ? '- WEB AVAILABILITY: Only the supplied general web background was retrieved for this turn. Use it for relevant general explanations, identifying it as general background. Never treat it as venue authority, claim wider browsing, invent references, or promise another search. Venue-specific knowledge gaps still require an honest answer and staff referral.' : "- WEB AVAILABILITY: No live web search is available in this conversation. Never claim to have searched, checked a website, or verified current online information; never promise to search later or ask the visitor to wait for a search. A visitor's request to search does not grant a capability. Answer the supported part immediately and briefly acknowledge any remaining knowledge gap. Do not invent external references or use general knowledge to fill missing venue policies or operational facts."}
 ${guideModeRules}
 ${responseDepthInstruction(venue.responseDepth, responseIntent)}

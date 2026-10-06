@@ -253,7 +253,15 @@ export function composeVoiceInstructions(input: {
     0,
     16_999 - VOICE_POLICY.length - staticHeading.length - dynamicHeading.length,
   )
-  const boundedStatic = input.staticPart.slice(0, Math.min(8_000, Math.floor(contentBudget / 2)))
+  // The shared guide prompt may use budget a short session configuration leaves unused; a long
+  // configuration still keeps at least half.
+  const boundedStatic = input.staticPart.slice(
+    0,
+    Math.min(
+      9_000,
+      contentBudget - Math.min(input.dynamicPart.length, Math.floor(contentBudget / 2)),
+    ),
+  )
   const boundedDynamic = input.dynamicPart.slice(
     0,
     Math.min(8_000, contentBudget - boundedStatic.length),

@@ -198,6 +198,7 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
     userMessageId: '55555555-5555-4555-8555-555555555555',
     response: input.assistantResponse,
     places: input.replayMetadata.places,
+    citations: input.replayMetadata.citations,
     replayed: false,
   }))
 }

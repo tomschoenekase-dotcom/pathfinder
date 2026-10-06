@@ -230,6 +230,8 @@ export const GuestResponseActionsBlock = z
 export const GuestResponseCitationsBlock = z
   .object({
     type: z.literal('citations'),
+    // "links" when the visitor asked for a page to act on; general background stays "sources".
+    heading: z.enum(['sources', 'links']).optional(),
     citations: z
       .array(
         z

@@ -5,6 +5,7 @@ import {
   buildVenueSystemPromptParts,
   escapeUntrustedPromptData,
   formatDistance,
+  guestResponseIntentForMessage,
   guestResponseWordLimit,
   GUEST_CHAT_PROMPT_VERSION,
 } from './venue-context'
@@ -67,7 +68,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v24')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v25')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -383,6 +384,44 @@ describe('guest response-depth policy', () => {
     expect(staticPart).toContain('Use fewer words whenever the answer is already complete')
     expect(staticPart).toContain('Normally keep this reply within 200 words')
     expect(staticPart).toContain('Preserve any restriction, exception, or uncertainty')
+  })
+})
+
+describe('guest ranking and comparison policy', () => {
+  it.each([
+    ['What are the coasters ranked by intensity', 'COMPARE'],
+    ['Compare the two water rides', 'COMPARE'],
+    ['Which is scarier, the launch coaster or the drop tower?', 'DEFAULT'],
+    ['Which one is the most intense?', 'COMPARE'],
+    ['Order them from mildest to wildest', 'COMPARE'],
+    ['What non coasters are there', 'DEFAULT'],
+    ['Where is the grill?', 'DEFAULT'],
+  ] as const)('classifies %j as %s', (message, intent) => {
+    expect(guestResponseIntentForMessage(message, undefined)).toBe(intent)
+  })
+
+  it('lets the explicit expansion control win and gives rankings the expanded budget', () => {
+    expect(guestResponseIntentForMessage('Rank them', 'EXPAND')).toBe('EXPAND')
+    expect(guestResponseWordLimit('BALANCED', 'COMPARE')).toBe(150)
+    expect(guestResponseWordLimit('BRIEF', 'COMPARE')).toBe(100)
+    const { staticPart } = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      responseIntent: 'COMPARE',
+    })
+    expect(staticPart).toContain('cover every relevant item of the requested kind')
+    expect(staticPart).toContain('Normally keep this reply within 150 words')
+  })
+
+  it('separates grounded judgment from unknown operational facts', () => {
+    const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
+    expect(prompt).toContain('Judgment is welcome')
+    expect(prompt).toContain('never invent a number or feature')
+    expect(prompt).toContain('A detail missing from the entries is unknown, not a no')
+    expect(prompt).toContain('never by name, area or URL')
+    expect(prompt).toContain('keep caution for allergies, safety, ride restrictions')
   })
 })
 

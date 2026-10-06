@@ -353,7 +353,7 @@ export function ResponseRenderer({
                   id={`${citationsHeadingId}-${index}`}
                   className="text-xs font-semibold uppercase tracking-wide text-[var(--chat-text-muted)]"
                 >
-                  Sources
+                  {block.heading === 'links' ? 'Links' : 'Sources'}
                 </h3>
                 <ol className="mt-2 space-y-1.5 text-xs text-[var(--chat-text-muted)]">
                   {block.citations.map((citation, citationIndex) => {

@@ -73,3 +73,59 @@ export function buildGuestCitations(input: {
   }
   return [...citations.values()]
 }
+
+/** Marks general web background, which stays attributed because it is not venue authority. */
+export const GENERAL_BACKGROUND_CITATION_DETAIL = 'General background'
+
+const MAX_REQUESTED_VENUE_LINKS = 2
+
+// The visitor asked for somewhere to go next: a page, a booking or purchase, a ticket or an order.
+const VISITOR_LINK_REQUEST =
+  /\b(?:links?|urls?|websites?|web ?pages?|web ?sites?|official (?:site|page)|(?:the|its|their|a) (?:site|page)|book(?:ing)?|reserv(?:e|ations?)|buy(?:ing)?|purchas(?:e|ing)|tickets?|mobile order(?:ing)?|order (?:online|ahead|food|from)|sign ?up|register)\b/iu
+
+export type GuestVisibleCitations = {
+  heading: 'sources' | 'links'
+  citations: GuestCitation[]
+}
+
+/**
+ * Which stored citations a visitor sees. Venue provenance is kept for evidence and review, but
+ * a routine bibliography of pages the answer already summarized is noise on a phone. A venue
+ * source page is shown only when the visitor asked for a page, booking, purchase or order, and
+ * then only as a link. General web background stays attributed.
+ */
+export function selectGuestVisibleCitations(input: {
+  visitorMessage: string
+  citations: readonly { label: string; href?: string | undefined; detail?: string | undefined }[]
+}): GuestVisibleCitations | null {
+  const general = input.citations.filter(
+    (citation) => citation.detail === GENERAL_BACKGROUND_CITATION_DETAIL,
+  )
+  const requested = new Map<string, GuestCitation>()
+  if (VISITOR_LINK_REQUEST.test(input.visitorMessage)) {
+    for (const citation of input.citations) {
+      if (requested.size >= MAX_REQUESTED_VENUE_LINKS) break
+      if (citation.detail === GENERAL_BACKGROUND_CITATION_DETAIL || !citation.href) continue
+      if (requested.has(citation.href)) continue
+      // Name the destination by what it is about, not by the research record's source title.
+      const name = (citation.detail ?? citation.label)
+        .replace(/^(?:Place|Venue knowledge): /u, '')
+        .replace(/:\s*visitor information$/iu, '')
+      requested.set(citation.href, {
+        label: name,
+        href: citation.href,
+        detail: citation.detail ?? name,
+      })
+    }
+  }
+  const citations = [
+    ...requested.values(),
+    ...general.map((citation) => ({
+      label: citation.label,
+      ...(citation.href ? { href: citation.href } : {}),
+      detail: citation.detail ?? citation.label,
+    })),
+  ]
+  if (citations.length === 0) return null
+  return { heading: general.length ? 'sources' : 'links', citations }
+}

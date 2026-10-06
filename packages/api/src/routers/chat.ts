@@ -76,13 +76,13 @@ import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
-import { buildVenueSystemPromptParts } from '../lib/venue-context'
+import { buildVenueSystemPromptParts, guestResponseIntentForMessage } from '../lib/venue-context'
 import { buildGuestRecommendationDecision } from '../lib/venue-recommendation-context'
 import {
   enforceRecommendationDisclosure,
   renderRecommendationPromptBlock,
 } from '../lib/venue-recommendation-prompt'
-import { buildGuestCitations } from '../lib/guest-citations'
+import { buildGuestCitations, selectGuestVisibleCitations } from '../lib/guest-citations'
 import { decideGuestGeneralWebSearch } from '../lib/guest-general-web-policy'
 import { resolveGuestGeneralWebConfiguration } from '../lib/guest-general-web-configuration'
 import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
@@ -430,7 +430,7 @@ function guestActionResponseBlocks(
   turn: {
     response: string
     places: readonly unknown[]
-    citations: readonly { label: string; href?: string | undefined; detail?: string | undefined }[]
+    citations: ReturnType<typeof selectGuestVisibleCitations>
     actionPlacements?: readonly GuestActionPlacement[] | undefined
   },
 ): GuestResponseBlock[] | null {
@@ -442,8 +442,19 @@ function guestActionResponseBlocks(
     settings: state.settings,
     now: new Date(),
     places: turn.places as GuestResponsePlace[],
-    citations: turn.citations,
+    ...(turn.citations
+      ? { citations: turn.citations.citations, citationsHeading: turn.citations.heading }
+      : {}),
   })
+}
+
+/** Stored citations stay complete for evidence; visitors see only the ones worth acting on. */
+function guestCitationBlocks(
+  visible: ReturnType<typeof selectGuestVisibleCitations>,
+): GuestResponseBlock[] | null {
+  return visible
+    ? [{ type: 'citations' as const, heading: visible.heading, citations: visible.citations }]
+    : null
 }
 
 const admittedChatSendProcedure = publicProcedure
@@ -785,17 +796,22 @@ const chatReadRouter = router({
     }
     reservationMs = elapsedMilliseconds(reservationStartedAt)
     if (reservation.state === 'COMPLETE') {
-      const replayBlocks = guestActionResponseBlocks(
-        await loadGuestActionState(ctx.db, venue, ctx.experienceScope),
-        reservation,
-      )
+      const visibleCitations = selectGuestVisibleCitations({
+        visitorMessage: input.message,
+        citations: reservation.citations,
+      })
+      const replayBlocks =
+        guestActionResponseBlocks(await loadGuestActionState(ctx.db, venue, ctx.experienceScope), {
+          ...reservation,
+          citations: visibleCitations,
+        }) ?? guestCitationBlocks(visibleCitations)
       return {
         response: reservation.response,
         replyKind: reservation.replyKind,
         assistantMessageId: reservation.assistantMessageId,
         sessionId: reservation.sessionId,
         places: reservation.places,
-        citations: reservation.citations,
+        citations: visibleCitations?.citations ?? [],
         ...(replayBlocks ? { blocks: replayBlocks } : {}),
         replayed: true,
       }
@@ -835,17 +851,22 @@ const chatReadRouter = router({
     }
     claimMs = elapsedMilliseconds(claimStartedAt)
     if (claimed.state === 'COMPLETE') {
-      const replayBlocks = guestActionResponseBlocks(
-        await loadGuestActionState(ctx.db, venue, ctx.experienceScope),
-        claimed,
-      )
+      const visibleCitations = selectGuestVisibleCitations({
+        visitorMessage: input.message,
+        citations: claimed.citations,
+      })
+      const replayBlocks =
+        guestActionResponseBlocks(await loadGuestActionState(ctx.db, venue, ctx.experienceScope), {
+          ...claimed,
+          citations: visibleCitations,
+        }) ?? guestCitationBlocks(visibleCitations)
       return {
         response: claimed.response,
         replyKind: claimed.replyKind,
         assistantMessageId: claimed.assistantMessageId,
         sessionId: claimed.sessionId,
         places: claimed.places,
-        citations: claimed.citations,
+        citations: visibleCitations?.citations ?? [],
         ...(replayBlocks ? { blocks: replayBlocks } : {}),
         replayed: true,
       }
@@ -1757,7 +1778,7 @@ const chatReadRouter = router({
         featuredPlace,
         ...(input.language ? { language: input.language } : {}),
         guideMode,
-        responseIntent: input.responseIntent ?? 'DEFAULT',
+        responseIntent: guestResponseIntentForMessage(trimmedInput, input.responseIntent),
         ...(selectedEngagementQuestion || allowAiInventedQuestion
           ? {
               engagementQuestion: {
@@ -2577,14 +2598,20 @@ const chatReadRouter = router({
       }
     }
 
-    const responseBlocks = guestActionResponseBlocks(guestActionState, finalized)
+    const visibleCitations = selectGuestVisibleCitations({
+      visitorMessage: trimmedInput,
+      citations: finalized.citations,
+    })
+    const responseBlocks =
+      guestActionResponseBlocks(guestActionState, { ...finalized, citations: visibleCitations }) ??
+      guestCitationBlocks(visibleCitations)
     return {
       response: finalized.response,
       replyKind: finalized.replyKind,
       assistantMessageId: finalized.assistantMessageId,
       sessionId: finalized.sessionId,
       places: finalized.places,
-      citations: finalized.citations,
+      citations: visibleCitations?.citations ?? [],
       ...(responseBlocks ? { blocks: responseBlocks } : {}),
       replayed: finalized.replayed,
       providerFirstTextMs: streamProjection?.providerFirstTextMs() ?? null,
@@ -2749,6 +2776,8 @@ const chatReadRouter = router({
         )
       : null
 
+    // Citation visibility depends on what the visitor asked in the turn being replayed.
+    let lastVisitorText = ''
     return {
       ...(input.operationId
         ? {
@@ -2759,6 +2788,7 @@ const chatReadRouter = router({
         : {}),
       messages: historyEntries.map((entry) => {
         if (entry.kind === 'voice') {
+          if (entry.row.speaker === 'VISITOR') lastVisitorText = entry.row.text
           return {
             id: `voice:${entry.row.voiceSessionId}:${entry.row.providerEventId}`,
             role: entry.row.speaker === 'VISITOR' ? ('user' as const) : ('assistant' as const),
@@ -2768,6 +2798,7 @@ const chatReadRouter = router({
             voiceDelivery: entry.interrupted ? ('INTERRUPTED' as const) : ('CAPTURED' as const),
           }
         }
+        if (entry.row.role === 'user') lastVisitorText = entry.row.content
         const replay =
           entry.row.role === 'assistant'
             ? GuestChatReplayMetadata.safeParse(entry.row.guestChatTurn?.replayMetadata)
@@ -2782,26 +2813,21 @@ const chatReadRouter = router({
           ...(replay?.success && replay.data.places.length ? { places: replay.data.places } : {}),
           ...(() => {
             if (!replay?.success) return {}
-            // Offered actions are re-resolved now: a since-disabled action shows as plain text.
-            const actionBlocks = guestActionResponseBlocks(historyActionState, {
-              response: entry.row.content,
-              places: replay.data.places,
+            const visibleCitations = selectGuestVisibleCitations({
+              visitorMessage: lastVisitorText,
               citations: replay.data.citations,
-              ...(replay.data.actionPlacements
-                ? { actionPlacements: replay.data.actionPlacements }
-                : {}),
             })
-            if (actionBlocks) return { blocks: actionBlocks }
-            return replay.data.citations.length
-              ? {
-                  blocks: [
-                    {
-                      type: 'citations' as const,
-                      citations: replay.data.citations,
-                    },
-                  ],
-                }
-              : {}
+            // Offered actions are re-resolved now: a since-disabled action shows as plain text.
+            const blocks =
+              guestActionResponseBlocks(historyActionState, {
+                response: entry.row.content,
+                places: replay.data.places,
+                citations: visibleCitations,
+                ...(replay.data.actionPlacements
+                  ? { actionPlacements: replay.data.actionPlacements }
+                  : {}),
+              }) ?? guestCitationBlocks(visibleCitations)
+            return blocks ? { blocks } : {}
           })(),
         }
       }),
