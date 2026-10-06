@@ -26,7 +26,11 @@ for (const flag of [
 ]) {
   if (needs.plan.outputs[flag] !== 'true') throw new Error('full-plan-required')
 }
-if (needs.plan.outputs.turbo_filters !== '') throw new Error('unfiltered-full-plan-required')
+// GitHub drops empty job outputs. A missing filter therefore reaches both
+// workspace lanes as the same empty environment value as an explicit ''.
+// Other values, including malformed null/non-string values, cannot seed FULL.
+if (needs.plan.outputs.turbo_filters !== undefined && needs.plan.outputs.turbo_filters !== '')
+  throw new Error('unfiltered-full-plan-required')
 const tree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim()
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 const evidence = {

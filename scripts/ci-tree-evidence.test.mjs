@@ -315,6 +315,9 @@ test('full evidence writer refuses scoped, incomplete, failed or filtered qualif
       (n) => {
         n.plan.outputs.turbo_filters = '--filter=@pathfinder/api'
       },
+      (n) => {
+        n.plan.outputs.turbo_filters = null
+      },
     ]) {
       const n = structuredClone(fullNeeds)
       mutate(n)
@@ -336,6 +339,8 @@ test('full evidence writer refuses scoped, incomplete, failed or filtered qualif
       )
       assert.equal(result.status, 1)
     }
+    // The hosted runner omits empty job outputs before downstream toJSON(needs).
+    delete fullNeeds.plan.outputs.turbo_filters
     const result = spawnSync(
       process.execPath,
       [path.join(scripts, 'record-ci-tree-evidence.mjs')],
