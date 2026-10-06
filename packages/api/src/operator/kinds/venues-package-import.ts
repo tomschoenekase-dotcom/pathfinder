@@ -10,12 +10,75 @@ import {
 } from '../../lib/venue-package-core'
 import { createVenuePackageDraftService } from '../../routers/venue-package'
 import { VenuePackagePayload } from '../../schemas/venue-package'
-import { assertVenueInGrant } from '../grants'
+import { assertGrantCapability, assertVenueInGrant } from '../grants'
 import type { OperatorApplyContext, OperatorKindContext, OperatorProposalKind } from '../proposals'
+import { downloadAttachment } from '../tools/crm-csv-import'
 
 const input = OPERATOR_MCP_INPUTS['venues.propose_package_import']
-type ImportArgs = Omit<ReturnType<typeof input.parse>, 'payload'> & {
+type ImportArgs = Omit<ReturnType<typeof input.parse>, 'payload' | 'file'> & {
   payload: VenuePackagePayload
+}
+type PackageFile = NonNullable<ReturnType<typeof input.parse>['file']>
+
+/** 500 records of full text with provenance, with room for pretty-printing. */
+const MAX_PACKAGE_FILE_BYTES = 8 * 1024 * 1024
+
+const rejected = (message: string) =>
+  Object.assign(new Error(message), { code: 'PACKAGE_REJECTED', summary: message })
+
+export type PackageFileDownload = (file: PackageFile) => Promise<string>
+
+const realDownload: PackageFileDownload = (file) =>
+  downloadAttachment(file, {
+    maxBytes: MAX_PACKAGE_FILE_BYTES,
+    mimeTypes: ['application/json', 'text/json', 'text/plain', 'application/octet-stream'],
+    accept: 'application/json,text/plain',
+    typeLabel: 'a JSON file',
+    textLabel: 'JSON',
+    error: (code, message) =>
+      code === 'INVALID'
+        ? rejected(`${message}. Nothing was recorded or changed.`)
+        : Object.assign(new Error(message), { code: 'FETCH_FAILED' }),
+  })
+let download: PackageFileDownload = realDownload
+
+/** Test seam only. Production always downloads through the pinned public-address fetch. */
+export function setPackageFileDownloadForTests(next: PackageFileDownload | null) {
+  download = next ?? realDownload
+}
+
+/**
+ * Turns an attached package file into the inline payload before anything is recorded, so the
+ * proposal, its idempotency hash and the stored package hold exactly the file's JSON. A retry with
+ * a fresh download link for the same file therefore replays the same operation. Scope is checked
+ * before anything is fetched.
+ */
+export async function resolvePackageAttachment(
+  raw: unknown,
+  context: Pick<OperatorKindContext, 'grant' | 'database'>,
+): Promise<unknown> {
+  const { file, ...rest } = input.parse(raw)
+  if (!file) return raw
+  assertGrantCapability(context.grant, 'venues:propose')
+  await assertVenueInGrant(context.grant, rest.tenantId, rest.venueId, context.database)
+  const text = await download(file)
+  let json: unknown
+  try {
+    json = JSON.parse(text.replace(/^\uFEFF/u, ''))
+  } catch {
+    throw rejected('The attached file is not valid JSON. Nothing was recorded or changed.')
+  }
+  // Accept the package itself, or an export that wraps it as { payload: {...} }.
+  const wrapped =
+    json && typeof json === 'object' && !Array.isArray(json) && 'payload' in json
+      ? (json as { payload: unknown }).payload
+      : json
+  if (!wrapped || typeof wrapped !== 'object' || Array.isArray(wrapped)) {
+    throw rejected(
+      'The attached file is not a venue package object. Nothing was recorded or changed.',
+    )
+  }
+  return { ...rest, payload: wrapped }
 }
 
 /** Stable UUIDs per operation and step, so a retried apply replays instead of importing twice. */
@@ -59,7 +122,9 @@ export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
   tool: 'venues.propose_package_import',
   capability: 'venues:propose',
   parse: (raw) => {
-    const parsed = input.parse(raw)
+    const { file, ...parsed } = input.parse(raw)
+    // Attachments are resolved to their JSON before a proposal is made (resolvePackageAttachment).
+    if (file || !parsed.payload) throw rejected('Provide the package as payload.')
     return { ...parsed, payload: VenuePackagePayload.parse(parsed.payload) }
   },
   target: (args) => ({ tenantId: args.tenantId, venueId: args.venueId }),

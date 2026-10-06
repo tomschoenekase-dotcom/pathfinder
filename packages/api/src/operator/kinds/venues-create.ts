@@ -1,12 +1,19 @@
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
-import { createVenueAction, normalizeVenueSlug, setVenueAvailabilityAction } from '@pathfinder/db'
+import {
+  createVenueAction,
+  normalizeVenueSlug,
+  setVenueAvailabilityAction,
+  VenueActionError,
+  venueSlugHeldByOtherTenant,
+} from '@pathfinder/db'
 
 import type { OperatorDatabase } from '../audit'
 import { OperatorNotFoundError } from '../grants'
 import {
   OperatorStaleError,
   type OperatorApplyContext,
+  type OperatorKindContext,
   type OperatorProposalKind,
   type StoredOperatorProposal,
 } from '../proposals'
@@ -14,6 +21,14 @@ import { operatorReason, venueActor } from './shared'
 
 const input = OPERATOR_MCP_INPUTS['venues.propose_create']
 type CreateArgs = ReturnType<typeof input.parse>
+
+const slugTakenError = () =>
+  Object.assign(
+    new Error(
+      'That slug is already the visitor link of another customer. Omit slug to get a free one, or choose another.',
+    ),
+    { code: 'SLUG_TAKEN' },
+  )
 
 type VenueState = { venueId: string; slug: string; isActive: boolean; updatedAt: string }
 
@@ -61,6 +76,20 @@ export const venuesCreateKind: OperatorProposalKind<CreateArgs> = {
   capability: 'venues:propose',
   parse: (raw) => input.parse(raw),
   target: (args) => ({ tenantId: args.tenantId }),
+  authorize: async (args, context: OperatorKindContext) => {
+    // The visitor link is /<slug>/chat across every customer, so a chosen slug another customer
+    // holds would open their guide. Refused before anything is recorded.
+    if (
+      args.slug !== undefined &&
+      (await venueSlugHeldByOtherTenant(
+        context.database,
+        args.tenantId,
+        normalizeVenueSlug(args.slug),
+      ))
+    ) {
+      throw slugTakenError()
+    }
+  },
   targetVersion: async (args, context) => slugVersion(context.database, args),
   currentVersion: async (args, context) => slugVersion(context.database, args),
   describe: (args) => ({
@@ -99,7 +128,13 @@ export const venuesCreateKind: OperatorProposalKind<CreateArgs> = {
         ...(place ? { guideNotes: `Located in ${place}.` } : {}),
       },
       context.database,
-    )
+    ).catch((error: unknown) => {
+      // Another customer took the slug between proposing and applying; nothing was created.
+      if (error instanceof VenueActionError && error.reason === 'SLUG_TAKEN') {
+        throw Object.assign(slugTakenError(), { provedNoEffect: true })
+      }
+      throw error
+    })
     const venueId = created.record.id
     const after = (await readVenue(context.database, args.tenantId, venueId))!
     // A first creation must end inactive. A replay reports the venue as it is now: if a person

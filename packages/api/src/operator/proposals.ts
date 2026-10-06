@@ -102,6 +102,8 @@ export const OPERATOR_KIND_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RELEASE_DISABLED',
   'DISABLED',
   'SLUG_TAKEN',
+  // A venue package (inline or attached) that cannot be read; nothing was recorded.
+  'PACKAGE_REJECTED',
   'UNRECONCILED_PRIOR_OPERATION',
   // The target moved since it was read (the current state rides along as `details`).
   'STALE',
