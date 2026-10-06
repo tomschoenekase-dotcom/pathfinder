@@ -420,7 +420,7 @@ describe('guest ranking and comparison policy', () => {
     expect(prompt).toContain('Judgment is welcome')
     expect(prompt).toContain('never invent a number or feature')
     expect(prompt).toContain('A detail missing from the entries is unknown, not a no')
-    expect(prompt).toContain('never by name, area or URL')
+    expect(prompt).toContain('a name, area, URL path or shared grouping never makes one')
     expect(prompt).toContain('keep caution for allergies, safety, ride restrictions')
   })
 })
