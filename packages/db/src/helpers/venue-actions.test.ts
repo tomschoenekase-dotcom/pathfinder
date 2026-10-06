@@ -970,7 +970,8 @@ describe('canonical venue actions', () => {
 
     const { tx, client } = fixture()
     const baseSlug = 'a'.repeat(200)
-    tx.venue.findFirst.mockResolvedValueOnce({ id: 'collision' }).mockResolvedValueOnce(null)
+    // The base slug is already a venue's visitor link (in any customer); the suffix keeps 200.
+    tx.$queryRaw.mockResolvedValueOnce([{ slug: baseSlug }] as never)
     tx.venue.create.mockImplementationOnce(async (args: { data: { slug: string } }) => ({
       ...core,
       slug: args.data.slug,

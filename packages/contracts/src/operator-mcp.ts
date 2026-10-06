@@ -285,6 +285,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'venues.get_effective_guest_version',
   'venues.get_release_preflight',
   'venues.get_preview_link',
+  'venues.get_guest_link',
   'appearance.get',
   'support.list',
   'operator.get_manual',
@@ -522,7 +523,8 @@ const AppearanceGuestActionsProposeInput = z
     tenantId: Identifier,
     venueId: Identifier,
     operationId: z.string().uuid(),
-    expectedUpdatedAt: z.string().datetime({ offset: true }),
+    /** The updatedAt from appearance.get. Omitted means apply to the current version. */
+    expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
     guestActions: GuestActionCatalog.optional(),
     actionLinks: z.boolean().optional(),
     actionButtons: z.boolean().optional(),
@@ -539,8 +541,9 @@ const AppearanceGuestActionsProposeInput = z
 /** Same appearance fields as Release B's McpAppearanceUpdateInput, scoped by tenantId. */
 const appearanceUpdateBase = McpAppearanceUpdateInput.innerType().innerType()
 const AppearanceProposeInput = appearanceUpdateBase
-  .omit({ clientId: true })
-  .extend({ tenantId: Identifier })
+  .omit({ clientId: true, expectedUpdatedAt: true })
+  // Omitted means apply to the current version, as venues.propose_update does.
+  .extend({ tenantId: Identifier, expectedUpdatedAt: IsoDateTime.optional() })
   .strict()
   .refine(
     (value) =>
@@ -878,6 +881,7 @@ export const OPERATOR_MCP_INPUTS = {
   'venues.get_effective_guest_version': VenueEffectiveGuestVersionInput,
   'venues.get_release_preflight': VenueReleasePreflightInput,
   'venues.get_preview_link': VenuePreviewLinkInput,
+  'venues.get_guest_link': readInput({ ...venueScope }),
   'appearance.get': readInput({ ...venueScope }),
   'support.list': readInput({
     ...tenantScope,
@@ -1080,7 +1084,19 @@ export const OPERATOR_MCP_INPUTS = {
   'venues.propose_package_import': writeInput({
     ...venueScope,
     /** The same venue-package JSON the dashboard importer accepts (schemaVersion 1, 2 or 3). */
-    payload: z.record(z.unknown()),
+    payload: z.record(z.unknown()).optional(),
+    /** Or the package as an attached .json file; the server downloads it and imports it unchanged. */
+    file: z
+      .object({
+        download_url: z.string().url().max(4096),
+        file_id: z.string().min(1).max(191),
+        mime_type: z.string().max(100).optional(),
+        file_name: z.string().max(200).optional(),
+      })
+      .strict()
+      .optional(),
+  }).refine((value) => Boolean(value.payload) !== Boolean(value.file), {
+    message: 'Provide exactly one of payload (inline JSON) or file (an attached .json file)',
   }),
   'crm.propose_contact_create': writeInput({
     organizationId: Identifier,
@@ -1407,7 +1423,11 @@ export const OPERATOR_MCP_INPUTS = {
     reason: z.string().trim().min(1).max(500),
   }),
   'venues.propose_content_changeset': writeInput({ ...VenueContentChangesetShape }),
-  'venues.propose_publish': writeInput({ ...venueScope, expectedUpdatedAt: IsoDateTime }),
+  'venues.propose_publish': writeInput({
+    ...venueScope,
+    /** The venue updatedAt you read. Omitted means publish the current version. */
+    expectedUpdatedAt: IsoDateTime.optional(),
+  }),
   'reports.propose_generate': writeInput({
     ...venueScope,
     /** Retry: the id of a FAILED, or provably stalled GENERATING, report. Its week and title are reused. */
@@ -3320,6 +3340,30 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.get_effective_guest_version': VenueEffectiveGuestVersionOutput,
   'venues.get_release_preflight': VenueReleasePreflightOutput,
   'venues.get_preview_link': VenuePreviewLinkOutput,
+  'venues.get_guest_link': z
+    .object({
+      venueId: Identifier,
+      slug: z.string().max(200),
+      isActive: z.boolean(),
+      /** The public visitor chat link, or null when the deployment has no guest web origin. */
+      publicUrl: z.string().url().max(2000).nullable(),
+      /** The same link tagged for QR codes. */
+      qrUrl: z.string().url().max(2000).nullable(),
+      /** True only when the link opens this venue's live chatbot with content to answer from. */
+      usable: z.boolean(),
+      blockers: z
+        .array(
+          z
+            .object({
+              code: z.string().max(64),
+              detail: z.string().max(500),
+              nextAction: z.string().max(500),
+            })
+            .strict(),
+        )
+        .max(10),
+    })
+    .strict(),
   'appearance.get': z
     .object({
       venueId: Identifier,
@@ -4434,6 +4478,13 @@ const seeds: readonly Seed[] = [
     'venue',
   ],
   [
+    'venues.get_guest_link',
+    'Get visitor chatbot link',
+    `Return the public visitor chatbot link (and its QR variant) for a venue, whether it works now, and anything that stops it working (not published, no guest content, slug shared with another customer, no guest web origin) with the action that fixes each. Share this link with visitors; it is not a private preview.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
     'appearance.get',
     'Get venue appearance',
     `Read visitor chat appearance settings and the updatedAt needed to propose a change.${READ}`,
@@ -5122,7 +5173,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_package_import',
     'Import venue package JSON',
-    `Import the same venue-package JSON the dashboard JSON importer accepts (schemaVersion 1, 2 or 3: places, knowledge entries and, from version 2, venue settings). The server validates it, runs the duplicate scan, then approves and applies it in one step, so the content is live for the venue at once. Version 3 may also update and remove existing items by id. Validation errors or an incomplete duplicate scan fail the operation with the reasons and change nothing. Applied packages appear in the dashboard history and can be reverted there.${PROPOSE}`,
+    `Import the same venue-package JSON the dashboard JSON importer accepts (schemaVersion 1, 2 or 3: places, knowledge entries and, from version 2, venue settings). Pass it inline as payload, or attach the .json file as file and the server downloads it, so large packages need not be retyped; every record, its full text and provenance are imported exactly as supplied. Retrying with the same operationId and the same content never imports twice. The server validates it, runs the duplicate scan, then approves and applies it in one step, so the content is live for the venue at once. Version 3 may also update and remove existing items by id. Validation errors or an incomplete duplicate scan fail the operation with the reasons and change nothing. Applied packages appear in the dashboard history and can be reverted there.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.package-import',
@@ -5162,7 +5213,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_publish',
     'Propose venue publish',
-    `Propose making a venue available to visitors (sets it active) at the observed updatedAt. This is availability only; it does not publish content or enable a website or app surface.${PROPOSE}`,
+    `Propose making a venue available to visitors (sets it active). Pass the updatedAt you read to refuse if it changed since, or omit it to publish the current version. The result includes the visitor chatbot link (publicUrl); venues.get_guest_link reports whether it works. This is availability only; it does not publish content or enable a website or app surface.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.publish',
@@ -5218,7 +5269,7 @@ const seeds: readonly Seed[] = [
   [
     'appearance.propose_update',
     'Propose appearance update',
-    `Propose visitor chat title, theme, accent, font, or appearance changes. Requires expectedUpdatedAt.${PROPOSE}`,
+    `Propose visitor chat title, theme, accent, font, or appearance changes. Pass the updatedAt from appearance.get to refuse if it changed since, or omit it to apply to the current version.${PROPOSE}`,
     'appearance:propose',
     'venue',
     'appearance.update',
@@ -5226,7 +5277,7 @@ const seeds: readonly Seed[] = [
   [
     'appearance.propose_guest_actions',
     'Propose guest actions',
-    `Propose replacing the approved ordering, ticket, pass and booking links the visitor guide may offer, and/or the actionLinks and actionButtons switches. Requires expectedUpdatedAt.${PROPOSE}`,
+    `Propose replacing the approved ordering, ticket, pass and booking links the visitor guide may offer, and/or the actionLinks and actionButtons switches. Pass the updatedAt from appearance.get to refuse a change made since, or omit it to apply to the current version.${PROPOSE}`,
     'appearance:propose',
     'venue',
     'appearance.guest-actions',
@@ -5323,11 +5374,13 @@ export const OPERATOR_MCP_TOOLS: readonly OperatorToolDefinition[] = seeds.map(
         readOnlyHint: isRead,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: name === 'crm.stage_csv_import',
+        openWorldHint: name === 'crm.stage_csv_import' || name === 'venues.propose_package_import',
       },
       capability,
       effect: isRead ? 'read' : isControl ? 'control' : 'proposal',
-      ...(name === 'crm.stage_csv_import' ? { _meta: { 'openai/fileParams': ['file'] } } : {}),
+      ...(name === 'crm.stage_csv_import' || name === 'venues.propose_package_import'
+        ? { _meta: { 'openai/fileParams': ['file'] } }
+        : {}),
       ...(proposalKind ? { proposalKind } : {}),
       scope,
     } satisfies OperatorToolDefinition

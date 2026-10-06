@@ -820,10 +820,8 @@ describe('venue router', () => {
   })
 
   it('venue.create appends suffix on slug collision', async () => {
-    // First call: collision; second call: free
-    venueFindFirst
-      .mockResolvedValueOnce({ id: 'other' }) // slug 'city-zoo' taken
-      .mockResolvedValueOnce(null) // slug 'city-zoo-2' free
+    // 'city-zoo' is already a venue's visitor link (in any customer); 'city-zoo-2' is free.
+    dbQueryRaw.mockResolvedValueOnce([{ slug: 'city-zoo' }])
     venueCreate.mockResolvedValueOnce({ ...venueRow, slug: 'city-zoo-2', places: [] })
 
     const caller = testRouter.createCaller(ownerCtx())

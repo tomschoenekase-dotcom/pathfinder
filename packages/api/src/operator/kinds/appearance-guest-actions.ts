@@ -116,7 +116,8 @@ export const appearanceGuestActionsKind: OperatorProposalKind<GuestActionsArgs> 
   target: (args) => ({ tenantId: args.tenantId, venueId: args.venueId }),
   authorize: (args, context: OperatorKindContext) =>
     assertVenueInGrant(context.grant, args.tenantId, args.venueId, context.database),
-  targetVersion: async (args) => new Date(args.expectedUpdatedAt).toISOString(),
+  targetVersion: async (args) =>
+    args.expectedUpdatedAt ? new Date(args.expectedUpdatedAt).toISOString() : null,
   currentVersion: async (args, context) =>
     (await readGuestActions(context.database, args.tenantId, args.venueId))?.updatedAt ?? null,
   describe: (args) => ({
@@ -140,8 +141,14 @@ export const appearanceGuestActionsKind: OperatorProposalKind<GuestActionsArgs> 
   }),
   snapshot: async (args, context) =>
     (await readGuestActions(context.database, args.tenantId, args.venueId)) as unknown as JsonValue,
-  apply: (args, context) =>
-    applyGuestActions(context, args.tenantId, args.venueId, args.expectedUpdatedAt, change(args)),
+  apply: async (args, context) => {
+    // Without an expected version the change applies to the venue as it is now.
+    const expected =
+      args.expectedUpdatedAt ??
+      (await readGuestActions(context.database, args.tenantId, args.venueId))?.updatedAt
+    if (!expected) throw new OperatorStaleError('The venue is no longer available.')
+    return applyGuestActions(context, args.tenantId, args.venueId, expected, change(args))
+  },
   revert: async (original: StoredOperatorProposal, context) => {
     const before = original.beforeSnapshot as GuestActionsSnapshot | null
     const after = original.afterSnapshot as GuestActionsSnapshot | null

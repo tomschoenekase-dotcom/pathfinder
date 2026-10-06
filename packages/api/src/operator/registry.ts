@@ -16,6 +16,7 @@ import { readAutonomyPolicies, readPolicyRevision } from './autonomy'
 import type { OperatorServerConfig } from './config'
 import { assertGrantCapability, buildOperatorReadScope, OperatorNotFoundError } from './grants'
 import { OPERATOR_PROPOSAL_KINDS } from './kinds'
+import { resolvePackageAttachment } from './kinds/venues-package-import'
 import type { VerifiedOperatorGrant } from './oauth'
 import { createPlan } from './plans'
 import {
@@ -234,7 +235,14 @@ export function createOperatorRegistry(
           await createRevertProposal(args, (raw) => RevertInput.parse(raw), service),
         )
       }
-      if (kinds.has(name)) return validateOutput(name, await createProposal(name, args, service))
+      if (kinds.has(name)) {
+        // An attached package file becomes its exact JSON before anything is recorded.
+        const resolved =
+          name === 'venues.propose_package_import'
+            ? await resolvePackageAttachment(args, context)
+            : args
+        return validateOutput(name, await createProposal(name, resolved, service))
+      }
       throw new OperatorUnknownToolError('Unknown tool')
     },
   }

@@ -33,7 +33,7 @@ test('ci aggregate and core checks are never skipped by a failed or missing plan
 })
 
 test('every plan-driven condition skips only on an explicit false', () => {
-  const conditions = [...workflow.matchAll(/needs\.plan\.outputs\.(\w+) ([!=]=) '(\w+)'/gu)]
+  const conditions = [...workflow.matchAll(/needs\.plan\.outputs\.(run_\w+) ([!=]=) '(\w+)'/gu)]
   assert.ok(conditions.length > 20)
   for (const [, , operator, value] of conditions) {
     assert.equal(operator, '!=')
@@ -65,7 +65,7 @@ test('static policy checks and script tests are unconditional in the policy job'
   }
 })
 
-test('release-bearing runs are forced to the full suite in YAML, independent of the classifier', () => {
+test('release-bearing runs require full CI unless identical-tree full qualification is verified', () => {
   const forced = workflow.match(/- name: Force the full suite[\s\S]*?\n        run:/u)?.[0]
   assert.ok(forced)
   assert.match(forced, /github\.event_name != 'pull_request' && github\.event_name != 'push'/u)
@@ -86,7 +86,8 @@ test('release-bearing runs are forced to the full suite in YAML, independent of 
   const classify = workflow.match(
     /- name: Classify the complete change set[\s\S]*?continue-on-error/u,
   )?.[0]
-  assert.match(classify ?? '', /if: \$\{\{ !\(/u)
+  assert.match(classify ?? '', /steps\.reuse\.outputs\.verified != 'true' && !\(/u)
+  assert.match(forced, /steps\.reuse\.outputs\.verified != 'true'/u)
 })
 
 test('merge queues and manual runs trigger CI and are never cancelled', () => {

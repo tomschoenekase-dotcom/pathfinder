@@ -60,6 +60,7 @@ function matches(item: Row, where: Record<string, unknown>) {
   const or = (xs: Record<string, unknown>[]) =>
     xs.some((x) => {
       if ('contentModuleId' in x) return item.contentModuleId == null
+      if ('contentRevisionId' in x) return item.contentRevisionId == null
       const [field, clause] = Object.entries(x)[0]!
       return String(item[field as keyof Row])
         .toLowerCase()

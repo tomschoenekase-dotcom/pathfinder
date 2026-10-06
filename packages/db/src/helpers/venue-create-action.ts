@@ -19,6 +19,8 @@ export class VenueActionError extends Error {
   constructor(
     readonly code: 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT',
     message: string,
+    /** Set when the conflict is a public slug that another customer already holds. */
+    readonly reason?: 'SLUG_TAKEN',
   ) {
     super(message)
     this.name = 'VenueActionError'
@@ -268,18 +270,52 @@ async function findReplay(tx: typeof db, input: CreateVenueActionInput) {
   })
 }
 
-async function uniqueSlug(tx: typeof db, tenantId: string, base: string): Promise<string> {
+type SlugReader = Pick<typeof db, '$queryRaw'>
+
+/** A real database always answers with a row list; anything else (a stub) holds nothing. */
+const asRows = (rows: unknown): Array<{ slug?: unknown }> =>
+  Array.isArray(rows) ? (rows as Array<{ slug?: unknown }>) : []
+
+/**
+ * Whether another customer's venue already holds this slug. The visitor link is `/<slug>/chat` and
+ * the public lookup resolves a slug across every customer, so a slug is only a usable link when no
+ * other customer has it.
+ */
+export async function venueSlugHeldByOtherTenant(
+  reader: SlugReader,
+  tenantId: string,
+  slug: string,
+): Promise<boolean> {
+  const rows = await reader.$queryRaw<Array<{ slug: string }>>`
+    SELECT slug FROM venues WHERE slug = ${slug} AND tenant_id <> ${tenantId} LIMIT 1`
+  return asRows(rows).some((row) => row.slug === slug)
+}
+
+/**
+ * The first of base, base-2, base-3 ... that no other customer's venue holds and, unless
+ * `allowOwnTenant`, no venue of this customer holds either. With `allowOwnTenant`, a replay in the
+ * same customer sees its own venue excluded and so derives the same slug again.
+ */
+export async function firstPublicVenueSlug(
+  reader: SlugReader,
+  tenantId: string,
+  base: string,
+  options: { allowOwnTenant?: boolean } = {},
+): Promise<string> {
+  const ownTenantBlocks = options.allowOwnTenant !== true
+  // One read of every held slug in this family (normalized slugs hold only a-z, 0-9 and '-', so
+  // the pattern has no wildcards of its own); the first free candidate is then chosen in memory.
+  const rows = await reader.$queryRaw<Array<{ slug: string }>>`
+    SELECT slug FROM venues
+    WHERE (slug = ${base} OR slug LIKE ${`${base.slice(0, 190)}-%`})
+      AND (tenant_id <> ${tenantId} OR ${ownTenantBlocks})`
+  const held = new Set(asRows(rows).map((row) => row.slug))
   let candidate = base
-  let suffix = 2
-  for (;;) {
-    const existing = await tx.venue.findFirst({
-      where: { tenantId, slug: candidate },
-      select: { id: true },
-    })
-    if (!existing) return candidate
-    const suffixText = `-${suffix++}`
+  for (let suffix = 2; held.has(candidate); suffix += 1) {
+    const suffixText = `-${suffix}`
     candidate = `${base.slice(0, 200 - suffixText.length)}${suffixText}`
   }
+  return candidate
 }
 
 function safeVenueState(record: {
@@ -394,6 +430,9 @@ export async function createVenueAction(
     }
     await setContentVersionContext(tx, { actorId })
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:venue-create:${input.tenantId}:${baseSlug}`}, 0))`
+    // Slugs are public links across customers, so creations from one base are serialized
+    // platform-wide too. Always taken after the tenant lock, so the lock order cannot cycle.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:venue-public-slug:${baseSlug}`}, 0))`
     if (input.callerSuppliedSlug && humanOperationKey) {
       // No receipt exists for this key, so a venue already holding the slug was not created by it.
       const occupied = await tx.venue.findFirst({
@@ -436,9 +475,20 @@ export async function createVenueAction(
         return { record: existing, replayed: true }
       }
     }
+    // Only a new venue reaches here; replays of this customer's own venue returned above.
+    if (
+      input.callerSuppliedSlug &&
+      (await venueSlugHeldByOtherTenant(tx, input.tenantId, baseSlug))
+    ) {
+      throw new VenueActionError(
+        'CONFLICT',
+        'This venue slug is already the visitor link of another customer. Choose a different slug.',
+        'SLUG_TAKEN',
+      )
+    }
     const slug = input.callerSuppliedSlug
       ? baseSlug
-      : await uniqueSlug(tx, input.tenantId, baseSlug)
+      : await firstPublicVenueSlug(tx, input.tenantId, baseSlug)
     const initial = input.initialContent
     const record = await tx.venue.create({
       data: {

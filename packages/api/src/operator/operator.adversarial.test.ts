@@ -7,7 +7,7 @@ import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db
 
 import { resolveAutonomy, setAutonomyPolicy } from './autonomy'
 import { resolveOperatorConfig, type OperatorServerConfig } from './config'
-import { handleOperatorMcpRequest } from './http'
+import { handleOperatorMcpRequest, OPERATOR_MCP_MAX_BODY_BYTES } from './http'
 import { OPERATOR_PROPOSAL_KINDS } from './kinds'
 import {
   armOperatorConnection,
@@ -1001,7 +1001,7 @@ describe.skipIf(!enabled)(
 
     // ------------------------------------------------------------------ size and rate limits
     describe('limits', () => {
-      it('an MCP body over 128 KiB is refused with 413, declared or streamed', async () => {
+      it('an MCP body over the limit is refused with 413, declared or streamed', async () => {
         const connection = await connect()
         const headers = {
           authorization: `Bearer ${connection.access}`,
@@ -1019,12 +1019,12 @@ describe.skipIf(!enabled)(
           new Request('https://app.operator.test/api/operator/mcp', {
             method: 'POST',
             headers,
-            body: padded(200 * 1024),
+            body: padded(OPERATOR_MCP_MAX_BODY_BYTES + 1024),
           }),
           deps(),
         )
         expect(streamed.status).toBe(413)
-        const oversizedBody = padded(200 * 1024)
+        const oversizedBody = padded(OPERATOR_MCP_MAX_BODY_BYTES + 1024)
         const declared = await handleOperatorMcpRequest(
           new Request('https://app.operator.test/api/operator/mcp', {
             method: 'POST',
@@ -1038,7 +1038,8 @@ describe.skipIf(!enabled)(
           new Request('https://app.operator.test/api/operator/mcp', {
             method: 'POST',
             headers,
-            body: padded(100 * 1024),
+            // A whole venue package fits: far beyond the former 128 KiB ceiling.
+            body: padded(1024 * 1024),
           }),
           deps(),
         )

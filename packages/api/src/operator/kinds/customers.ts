@@ -16,9 +16,11 @@ import {
   completeClientCreateIntentAction,
   confirmClientCreateProviderAction,
   createClientAccountAction,
+  firstPublicVenueSlug,
   linkProspectConversionAction,
   recordOrReplayOnboardingMilestoneEvent,
   startClientCreateProviderAction,
+  venueSlugHeldByOtherTenant,
 } from '@pathfinder/db'
 
 import type { OperatorDatabase } from '../audit'
@@ -216,6 +218,28 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
       })
       if (!organization) throw new OperatorNotFoundError()
     }
+    // A chosen venue slug is the public visitor link; one another customer holds is refused here,
+    // before the identity provider is called. A retry of this same operation is not refused by
+    // the venue it already created.
+    const ownTenant = args.venueSlug
+      ? ((
+          await context.database.clientCreateIntent.findUnique({
+            where: { requestId: args.operationId },
+            select: { completedTenantId: true },
+          })
+        )?.completedTenantId ?? '')
+      : ''
+    if (
+      args.venueSlug &&
+      (await venueSlugHeldByOtherTenant(context.database, ownTenant, args.venueSlug))
+    ) {
+      throw Object.assign(
+        new Error(
+          'That venueSlug is already the visitor link of another customer. Omit venueSlug to get a free one, or choose another.',
+        ),
+        { code: 'SLUG_TAKEN' },
+      )
+    }
     // A prior operation for this same customer whose outcome is unconfirmed may already have made
     // the identity-provider organization. A new operation would make a second identity, so it is
     // refused until the earlier one is reconciled.
@@ -328,6 +352,16 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
         emailAddress: owner.email,
       })
       const place = [args.city, args.region].filter(Boolean).join(', ')
+      // The default venue slug must be a link no other customer holds. This customer's own venue is
+      // ignored, so a replay derives the same slug and matches the venue it already created.
+      const venueSlug =
+        args.venueSlug ??
+        (await firstPublicVenueSlug(
+          database,
+          validated.organizationId,
+          slugify(args.venueName) || 'venue',
+          { allowOwnTenant: true },
+        ))
       const created = await createClientAccountAction(
         {
           tenantId: validated.organizationId,
@@ -338,7 +372,7 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
           actor,
           initialVenue: {
             name: args.venueName,
-            slug: args.venueSlug ?? (slugify(args.venueName) || 'venue'),
+            slug: venueSlug,
             guideMode: args.guideMode,
             isActive: false,
             ...(place ? { guideNotes: `Located in ${place}.` } : {}),
