@@ -82,11 +82,12 @@ describe('retrieveGuestKnowledge', () => {
     expect(result.entries[0]?.content).toContain('137')
     expect(result.trace).toMatchObject({
       path: 'lexical-fallback',
-      limits: { strict: 20, broad: 60, result: 5 },
+      limits: { strict: 20, broad: 60, result: 12 },
       partialCoverage: true,
     })
     expect(result.trace.retrievedSourceIds).toContain('knowledge-capacity-137')
-    expect(findMany).toHaveBeenCalledTimes(2)
+    // The saturated OR query adds one bounded read per concept (capacity, north, gallery).
+    expect(findMany).toHaveBeenCalledTimes(5)
     for (const call of findMany.mock.calls) {
       expect(call[0]).toMatchObject({
         where: { tenantId: 'tenant-a', venueId: 'venue-a', isEnabled: true, visibility: 'PUBLIC' },
@@ -515,7 +516,7 @@ describe('retrieveGuestKnowledge', () => {
     })
     expect(findMany.mock.calls[2]![0].where.id.in).toHaveLength(20)
     expect(findMany.mock.calls[2]![0].take).toBe(20)
-    expect(result.entries).toHaveLength(5)
+    expect(result.entries).toHaveLength(8)
     expect(result.trace.partialCoverage).toBe(true)
     expect(result.trace.excludedSourceIds).toContain('source-20')
   })

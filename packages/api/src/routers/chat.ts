@@ -95,6 +95,7 @@ import {
   projectGuestModelHistory,
 } from '../lib/guest-conversation-history'
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
+import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
   compatibleGuestPlaceIdentityCandidates,
   explicitlyNamedGuestPlaceLabels,
@@ -201,7 +202,9 @@ export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | 
 }
 
 const NEAREST_PLACES_LIMIT = 8
-const KNOWLEDGE_ENTRIES_LIMIT = 5
+// Semantic candidate pool; guest-knowledge-retrieval fuses it with lexical hits and applies the
+// final per-question budget, so this must exceed that budget.
+const KNOWLEDGE_ENTRIES_LIMIT = 12
 const HISTORY_LIMIT = 10
 const HISTORY_LOAD_LIMIT = 40
 const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
@@ -1267,6 +1270,13 @@ const chatReadRouter = router({
         : Promise.resolve(null)
     let relevantPlaces: Awaited<ReturnType<typeof searchPlacesByEmbedding>>
     let relevantKnowledgeEntries: Awaited<ReturnType<typeof searchKnowledgeByEmbedding>>
+    // Lexical follow-up context only; the embedding still represents the current message.
+    const previousGuestQuery =
+      [...historyDesc]
+        .sort((left, right) => right.sessionSequence - left.sessionSequence)
+        .filter((row) => row.role === 'user')
+        .map((row) => row.content)
+        .find((content, index) => !(index === 0 && content === trimmedInput)) ?? null
     if (queryEmbedding) {
       const [places, knowledge] = await Promise.all([
         searchPlacesByEmbedding({
@@ -1277,10 +1287,24 @@ const chatReadRouter = router({
           userLng: rankingLocation?.lng ?? null,
           limit: recommendationRetrievalLimit,
           includeSecondLayer,
-        }),
+        }).then((semanticPlaces) =>
+          fuseGuestPlacesWithLexical({
+            reader: ctx.db,
+            query: retrievalQuery,
+            previousQuery: previousGuestQuery,
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            includeSecondLayer,
+            semanticPlaces,
+            limit: recommendationRetrievalLimit,
+            userLat: rankingLocation?.lat ?? null,
+            userLng: rankingLocation?.lng ?? null,
+          }),
+        ),
         retrieveGuestKnowledge({
           reader: ctx.db,
           query: retrievalQuery,
+          previousQuery: previousGuestQuery,
           queryEmbedding,
           venueId: input.venueId,
           tenantId: venue.tenantId,
@@ -1309,6 +1333,7 @@ const chatReadRouter = router({
         await retrieveGuestKnowledge({
           reader: ctx.db,
           query: retrievalQuery,
+          previousQuery: previousGuestQuery,
           queryEmbedding: null,
           venueId: input.venueId,
           tenantId: venue.tenantId,

@@ -248,6 +248,8 @@ describe('chat router', () => {
     })
     semanticSearch.places.mockResolvedValue(placeRows)
     semanticSearch.knowledge.mockResolvedValue([])
+    // Lexical place recall shares this delegate; tests queue explicit rows where they matter.
+    placeFindMany.mockResolvedValue([])
     venueKnowledgeEntryFindMany.mockResolvedValue([])
     operationalUpdateFindMany.mockResolvedValue([])
     venueLocationFindMany.mockResolvedValue([])
@@ -2776,8 +2778,8 @@ describe('chat router', () => {
         },
       ])
 
-      // Exact-label discovery refreshes canonical content after semantic ranking.
-      placeFindMany.mockReset().mockResolvedValueOnce([
+      // Exact-label discovery (and lexical place recall) read canonical content after semantic ranking.
+      placeFindMany.mockReset().mockResolvedValue([
         {
           ...placeRows[0],
           shortDescription: 'Meet the herd.',
