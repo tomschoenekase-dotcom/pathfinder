@@ -523,7 +523,8 @@ const AppearanceGuestActionsProposeInput = z
     tenantId: Identifier,
     venueId: Identifier,
     operationId: z.string().uuid(),
-    expectedUpdatedAt: z.string().datetime({ offset: true }),
+    /** The updatedAt from appearance.get. Omitted means apply to the current version. */
+    expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
     guestActions: GuestActionCatalog.optional(),
     actionLinks: z.boolean().optional(),
     actionButtons: z.boolean().optional(),
@@ -5276,7 +5277,7 @@ const seeds: readonly Seed[] = [
   [
     'appearance.propose_guest_actions',
     'Propose guest actions',
-    `Propose replacing the approved ordering, ticket, pass and booking links the visitor guide may offer, and/or the actionLinks and actionButtons switches. Requires expectedUpdatedAt.${PROPOSE}`,
+    `Propose replacing the approved ordering, ticket, pass and booking links the visitor guide may offer, and/or the actionLinks and actionButtons switches. Pass the updatedAt from appearance.get to refuse a change made since, or omit it to apply to the current version.${PROPOSE}`,
     'appearance:propose',
     'venue',
     'appearance.guest-actions',

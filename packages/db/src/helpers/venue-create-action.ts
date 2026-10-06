@@ -272,6 +272,10 @@ async function findReplay(tx: typeof db, input: CreateVenueActionInput) {
 
 type SlugReader = Pick<typeof db, '$queryRaw'>
 
+/** A real database always answers with a row list; anything else (a stub) holds nothing. */
+const asRows = (rows: unknown): Array<{ slug?: unknown }> =>
+  Array.isArray(rows) ? (rows as Array<{ slug?: unknown }>) : []
+
 /**
  * Whether another customer's venue already holds this slug. The visitor link is `/<slug>/chat` and
  * the public lookup resolves a slug across every customer, so a slug is only a usable link when no
@@ -284,7 +288,7 @@ export async function venueSlugHeldByOtherTenant(
 ): Promise<boolean> {
   const rows = await reader.$queryRaw<Array<{ slug: string }>>`
     SELECT slug FROM venues WHERE slug = ${slug} AND tenant_id <> ${tenantId} LIMIT 1`
-  return rows.some((row) => row.slug === slug)
+  return asRows(rows).some((row) => row.slug === slug)
 }
 
 /**
@@ -305,7 +309,7 @@ export async function firstPublicVenueSlug(
     SELECT slug FROM venues
     WHERE (slug = ${base} OR slug LIKE ${`${base.slice(0, 190)}-%`})
       AND (tenant_id <> ${tenantId} OR ${ownTenantBlocks})`
-  const held = new Set(rows.map((row) => row.slug))
+  const held = new Set(asRows(rows).map((row) => row.slug))
   let candidate = base
   for (let suffix = 2; held.has(candidate); suffix += 1) {
     const suffixText = `-${suffix}`

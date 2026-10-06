@@ -46,7 +46,11 @@ vi.mock('../lib/guest-query-embedding', () => ({
 }))
 
 import type { AnthropicMessagesClient } from '@pathfinder/ai'
-import { OperatorCapability } from '@pathfinder/contracts/operator-mcp'
+import {
+  OPERATOR_MCP_INPUTS,
+  OPERATOR_MCP_TOOLS,
+  OperatorCapability,
+} from '@pathfinder/contracts/operator-mcp'
 import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import type { TRPCContext } from '../context'
@@ -167,12 +171,22 @@ async function connect() {
     await handleClientRegistration(
       new Request('https://app.operator.test/oauth/register', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7' },
+        // A fresh documentation address per run keeps reruns under the per-address limit.
+        headers: {
+          'content-type': 'application/json',
+          'x-forwarded-for': `198.51.100.${1 + Math.floor(Math.random() * 250)}`,
+        },
         body: JSON.stringify({ client_name: 'Example connector', redirect_uris: [REDIRECT] }),
       }),
-      deps,
+      // Registration is rate-limited per hour across the shared disposable database; a unique
+      // far-future hour keeps this run's single registration independent of other suites.
+      {
+        ...deps,
+        now: () => new Date(Date.UTC(2031, 0, 1) + Math.floor(Math.random() * 3_000_000) * 60_000),
+      },
     )
-  ).json()) as { client_id: string }
+  ).json()) as { client_id?: string; error?: string }
+  if (!registered.client_id) throw new Error(`registration failed: ${registered.error}`)
   const verifier = randomBytes(48).toString('base64url')
   const challenge = createHash('sha256').update(verifier).digest('base64url')
   await armOperatorConnection({ userId: ownerId, requestId: randomUUID() })
@@ -181,7 +195,7 @@ async function connect() {
     userId: ownerId,
     params: {
       response_type: 'code',
-      client_id: registered.client_id,
+      client_id: registered.client_id!,
       redirect_uri: REDIRECT,
       code_challenge: challenge,
       code_challenge_method: 'S256',
@@ -640,6 +654,111 @@ describe.skipIf(!enabled)('operator onboarding flow end to end', { timeout: 300_
     expect(resolved.id).not.toBe(otherVenueId)
   })
 
+  const KNOWLEDGE =
+    'Strollers can be rented at Guest Services near the main gate for 12 dollars a day.'
+  const NOTICE = 'Splash Cove is closed today for maintenance'
+
+  it('6. adds knowledge, a live notice and ticket links, and reads content and readiness', async () => {
+    const knowledge = await call('venues.propose_knowledge', {
+      operationId: randomUUID(),
+      tenantId,
+      venueId,
+      entries: [{ title: 'Stroller rental', body: KNOWLEDGE, category: 'Services' }],
+    })
+    expect(knowledge.isError, JSON.stringify(knowledge.structuredContent)).toBe(false)
+    expect(knowledge.structuredContent).toMatchObject({ status: 'APPLIED' })
+
+    const now = Date.now()
+    const notice = await call('venues.propose_operational_update', {
+      operationId: randomUUID(),
+      tenantId,
+      venueId,
+      updateType: 'TEMPORARY_CLOSURE',
+      severity: 'CLOSURE',
+      title: NOTICE,
+      body: 'It reopens tomorrow at 10:00.',
+      startsAt: new Date(now - 60_000).toISOString(),
+      expiresAt: new Date(now + 86_400_000).toISOString(),
+      goLive: true,
+    })
+    expect(notice.isError, JSON.stringify(notice.structuredContent)).toBe(false)
+    expect(notice.structuredContent).toMatchObject({ status: 'APPLIED' })
+    const notices = await call('venues.list_operational_updates', { tenantId, venueId })
+    expect(JSON.stringify(notices.structuredContent)).toContain(NOTICE)
+
+    const actions = await call('appearance.propose_guest_actions', {
+      operationId: randomUUID(),
+      tenantId,
+      venueId,
+      actionLinks: true,
+      guestActions: [
+        {
+          id: 'day-tickets',
+          label: 'Buy day tickets',
+          url: 'https://tickets.ocean-grove.example.com/day?ref=guide',
+          actionType: 'BUY_TICKETS',
+        },
+      ],
+    })
+    expect(actions.isError, JSON.stringify(actions.structuredContent)).toBe(false)
+    expect(actions.structuredContent).toMatchObject({ status: 'APPLIED' })
+    const look = await call('appearance.get', { tenantId, venueId })
+    expect(look.structuredContent.guestActions).toEqual([
+      expect.objectContaining({
+        id: 'day-tickets',
+        url: 'https://tickets.ocean-grove.example.com/day?ref=guide',
+      }),
+    ])
+
+    const content = await call('venues.list_content', {
+      tenantId,
+      venueId,
+      representation: 'LEGACY_KNOWLEDGE',
+    })
+    expect(content.isError, JSON.stringify(content.structuredContent)).toBe(false)
+    expect(JSON.stringify(content.structuredContent)).toContain('Stroller rental')
+    const readiness = await call('venues.get_readiness', { tenantId, venueId })
+    expect(readiness.isError, JSON.stringify(readiness.structuredContent)).toBe(false)
+    expect(readiness.structuredContent.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'venue_active', passed: true }),
+        expect.objectContaining({ key: 'has_content', passed: true }),
+      ]),
+    )
+  })
+
+  it('7. every tool is live for this connection, and every venue read works on the new venue', async () => {
+    const context = await call('operator.get_context', {})
+    const tools = new Map<string, Record<string, any>>(
+      (context.structuredContent.tools as Array<Record<string, any>>).map((tool) => [
+        tool.name,
+        tool,
+      ]),
+    )
+    const notLive: string[] = []
+    for (const tool of OPERATOR_MCP_TOOLS) {
+      const view = tools.get(tool.name)
+      if (!view?.implemented || !view.authorized) notLive.push(`${tool.name}: not available`)
+      else if (tool.effect === 'proposal' && view.approvalMode !== 'auto')
+        notLive.push(`${tool.name}: waits for approval`)
+    }
+    expect(notLive).toEqual([])
+    const crashed: string[] = []
+    for (const tool of OPERATOR_MCP_TOOLS.filter((entry) => entry.effect === 'read')) {
+      const schema = (OPERATOR_MCP_INPUTS as Record<string, { safeParse: (v: unknown) => any }>)[
+        tool.name
+      ]!
+      const args = [{ tenantId, venueId }, { tenantId }, {}].find(
+        (candidate) => schema.safeParse(candidate).success,
+      )
+      if (!args) continue
+      const result = await call(tool.name, args)
+      const code = result.structuredContent.error
+      if (code === 'TOOL_FAILED' || code === 'OUTPUT_INVALID') crashed.push(`${tool.name}: ${code}`)
+    }
+    expect(crashed).toEqual([])
+  })
+
   it('answers a visitor from the imported content', async () => {
     const create = vi
       .fn()
@@ -673,5 +792,18 @@ describe.skipIf(!enabled)('operator onboarding flow end to end', { timeout: 300_
     })
     expect(create).toHaveBeenCalled()
     expect(JSON.stringify(reply)).toContain('Pier Seven')
+
+    // Knowledge added later and the live closure notice reach the guide too.
+    await guest.chat.send({
+      venueId,
+      anonymousToken: randomUUID(),
+      operationId: randomUUID(),
+      message: 'Can I rent a stroller?',
+    })
+    const prompt = (create.mock.calls.at(-1)![0] as { system: Array<{ text: string }> }).system
+      .map((block) => block.text)
+      .join('')
+    expect(prompt).toContain(KNOWLEDGE)
+    expect(prompt).toContain(NOTICE)
   })
 })

@@ -5,7 +5,7 @@ import {
   OPERATOR_MCP_TOOLS,
 } from '@pathfinder/contracts/operator-mcp'
 
-import { isAlwaysAskKind, readAutonomyPolicies } from '../autonomy'
+import { isAlwaysAskKind, operatorApprovalMode, readAutonomyPolicies } from '../autonomy'
 import { customerDeploymentPrerequisite } from '../deployment-prerequisite'
 import type { OperatorReadTool } from '../registry'
 import { OPERATOR_MANUAL_VERSION } from './manual-text'
@@ -70,11 +70,14 @@ export function createContextReadTool(implemented: ReadonlySet<string>): Operato
           const approvalMode =
             !proposal || !isImplemented
               ? null
-              : tool.proposalKind && isAlwaysAskKind(tool.proposalKind)
-                ? ('ask' as const)
-                : autoKinds.get(tool.capability)?.includes(tool.proposalKind ?? '')
-                  ? ('auto' as const)
-                  : ('ask' as const)
+              : // With no approval step every write, plans included, applies when called.
+                operatorApprovalMode() === 'none'
+                ? ('auto' as const)
+                : tool.proposalKind && isAlwaysAskKind(tool.proposalKind)
+                  ? ('ask' as const)
+                  : autoKinds.get(tool.capability)?.includes(tool.proposalKind ?? '')
+                    ? ('auto' as const)
+                    : ('ask' as const)
           return {
             name: tool.name,
             effect: tool.effect,
