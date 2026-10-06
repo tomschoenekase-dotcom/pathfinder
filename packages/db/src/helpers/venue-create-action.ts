@@ -282,9 +282,9 @@ export async function venueSlugHeldByOtherTenant(
   tenantId: string,
   slug: string,
 ): Promise<boolean> {
-  const rows = await reader.$queryRaw<Array<{ held: number }>>`
-    SELECT 1 AS held FROM venues WHERE slug = ${slug} AND tenant_id <> ${tenantId} LIMIT 1`
-  return rows.length > 0
+  const rows = await reader.$queryRaw<Array<{ slug: string }>>`
+    SELECT slug FROM venues WHERE slug = ${slug} AND tenant_id <> ${tenantId} LIMIT 1`
+  return rows.some((row) => row.slug === slug)
 }
 
 /**
@@ -299,17 +299,19 @@ export async function firstPublicVenueSlug(
   options: { allowOwnTenant?: boolean } = {},
 ): Promise<string> {
   const ownTenantBlocks = options.allowOwnTenant !== true
+  // One read of every held slug in this family (normalized slugs hold only a-z, 0-9 and '-', so
+  // the pattern has no wildcards of its own); the first free candidate is then chosen in memory.
+  const rows = await reader.$queryRaw<Array<{ slug: string }>>`
+    SELECT slug FROM venues
+    WHERE (slug = ${base} OR slug LIKE ${`${base.slice(0, 190)}-%`})
+      AND (tenant_id <> ${tenantId} OR ${ownTenantBlocks})`
+  const held = new Set(rows.map((row) => row.slug))
   let candidate = base
-  let suffix = 2
-  for (;;) {
-    const rows = await reader.$queryRaw<Array<{ held: number }>>`
-      SELECT 1 AS held FROM venues
-      WHERE slug = ${candidate} AND (tenant_id <> ${tenantId} OR ${ownTenantBlocks})
-      LIMIT 1`
-    if (rows.length === 0) return candidate
-    const suffixText = `-${suffix++}`
+  for (let suffix = 2; held.has(candidate); suffix += 1) {
+    const suffixText = `-${suffix}`
     candidate = `${base.slice(0, 200 - suffixText.length)}${suffixText}`
   }
+  return candidate
 }
 
 function safeVenueState(record: {
