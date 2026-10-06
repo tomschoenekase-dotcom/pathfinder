@@ -1,8 +1,10 @@
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { buildVenueAccessArtifacts } from '@pathfinder/contracts/venue-access-artifacts'
 import { setVenueAvailabilityAction } from '@pathfinder/db'
 
 import type { OperatorDatabase } from '../audit'
+import { parseExactOrigin } from '../config'
 import { assertVenueInGrant, OperatorNotFoundError } from '../grants'
 import {
   OperatorStaleError,
@@ -45,7 +47,8 @@ export const venuesPublishKind: OperatorProposalKind<PublishArgs> = {
   target: (args) => ({ tenantId: args.tenantId, venueId: args.venueId }),
   authorize: (args, context: OperatorKindContext) =>
     assertVenueInGrant(context.grant, args.tenantId, args.venueId, context.database),
-  targetVersion: async (args) => new Date(args.expectedUpdatedAt).toISOString(),
+  targetVersion: async (args) =>
+    args.expectedUpdatedAt ? new Date(args.expectedUpdatedAt).toISOString() : null,
   currentVersion: async (args, context) =>
     (await readAvailability(context.database, args.tenantId, args.venueId))?.updatedAt ?? null,
   describe: () => ({
@@ -55,11 +58,16 @@ export const venuesPublishKind: OperatorProposalKind<PublishArgs> = {
   snapshot: async (args, context) =>
     (await readAvailability(context.database, args.tenantId, args.venueId)) as unknown as JsonValue,
   apply: async (args, context: OperatorApplyContext) => {
+    // Without an expected version the venue is published as it is now.
+    const expected =
+      args.expectedUpdatedAt ??
+      (await readAvailability(context.database, args.tenantId, args.venueId))?.updatedAt
+    if (!expected) throw new OperatorNotFoundError()
     await setVenueAvailabilityAction(
       {
         tenantId: args.tenantId,
         venueId: args.venueId,
-        expectedUpdatedAt: new Date(args.expectedUpdatedAt),
+        expectedUpdatedAt: new Date(expected),
         enabled: true,
         reason: `Published. ${operatorReason(context.proposalId)}`,
         actor: venueActor(context.actor, 'MANAGER'),
@@ -67,8 +75,21 @@ export const venuesPublishKind: OperatorProposalKind<PublishArgs> = {
       context.database,
     )
     const after = (await readAvailability(context.database, args.tenantId, args.venueId))!
+    const venue = await context.database.venue.findFirst({
+      where: { id: args.venueId, tenantId: args.tenantId },
+      select: { slug: true },
+    })
+    const configured = process.env.NEXT_PUBLIC_WEB_URL
+    const origin = configured ? parseExactOrigin(configured) : null
+    const link = origin && venue ? buildVenueAccessArtifacts(origin, venue.slug) : null
     return {
-      result: { venueId: args.venueId, isActive: after.isActive, updatedAt: after.updatedAt },
+      result: {
+        venueId: args.venueId,
+        isActive: after.isActive,
+        updatedAt: after.updatedAt,
+        // The visitor chatbot link; venues.get_guest_link also checks content and slug sharing.
+        publicUrl: link?.publicUrl ?? null,
+      },
       after: after as unknown as JsonValue,
     }
   },

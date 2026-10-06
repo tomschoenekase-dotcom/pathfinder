@@ -1228,6 +1228,28 @@ const approvedOperations = [
     hash: '19f67dc59cfb8f7262bda219dc7c9d2feb4c8fd354150f439951d87e57faeca6',
     policy: 'tenant-venue-create-slug-lock',
   },
+  // Slugs are visitor links across customers: creations from one base slug are serialized
+  // platform-wide, after the tenant lock above.
+  {
+    file: 'packages/db/src/helpers/venue-create-action.ts',
+    method: '$executeRaw',
+    hash: '549c9f67bb7b8737ce7fe80ed8c16be7b1825c6747c34f2a04d46e386ff16863',
+    policy: 'tenant-venue-create-slug-lock',
+  },
+  // Read-only: whether another customer's venue holds a visitor slug (returns only the slug).
+  {
+    file: 'packages/db/src/helpers/venue-create-action.ts',
+    method: '$queryRaw',
+    hash: '336f6c98e117d1f4d5a4184580e30879fc2b43512eb7d687d7f4bb682fb6afe5',
+    policy: 'public-venue-slug',
+  },
+  // Read-only: the held slugs of one base-slug family, to pick a free visitor slug.
+  {
+    file: 'packages/db/src/helpers/venue-create-action.ts',
+    method: '$queryRaw',
+    hash: '3bc9b4d142a3429489ea447182a3db61ab941eabf1c6b36ef8f58b6a2a3058a0',
+    policy: 'public-venue-slug',
+  },
   // Serialize one client credential's create operation key before replay receipt lookup.
   {
     file: 'packages/db/src/helpers/venue-create-action.ts',

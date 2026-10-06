@@ -232,26 +232,47 @@ type File = {
 }
 export type CsvDownload = (file: File) => Promise<string>
 
+/** What one kind of attachment allows, and how its errors are worded. */
+export type AttachmentPolicy = Readonly<{
+  maxBytes: number
+  mimeTypes: readonly string[]
+  accept: string
+  /** Completes "Attachment must be ..." and "Attachment is not UTF-8 ...". */
+  typeLabel: string
+  textLabel: string
+  /** `INVALID` is the file's own fault (wrong type or encoding); `FETCH_FAILED` is retryable. */
+  error: (code: 'INVALID' | 'FETCH_FAILED', message: string) => Error
+}>
+
+const CSV_ATTACHMENT: AttachmentPolicy = {
+  maxBytes: MAX_CSV_BYTES,
+  mimeTypes: ['text/csv', 'application/csv', 'text/plain', 'application/octet-stream'],
+  accept: 'text/csv,text/plain',
+  typeLabel: 'a CSV',
+  textLabel: 'CSV',
+  error: (code, message) =>
+    new CsvImportError(code === 'INVALID' ? 'INVALID_CSV' : 'FETCH_FAILED', message),
+}
+
+/** Fetch a signed CSV attachment by pinned public DNS address. Every redirect is checked anew. */
+export const downloadCsvAttachment: CsvDownload = (file) => downloadAttachment(file, CSV_ATTACHMENT)
+
 /** Fetch a signed attachment by pinned public DNS address. Every redirect is checked anew. */
-export const downloadCsvAttachment: CsvDownload = async (file) => {
-  if (
-    file.mime_type &&
-    !['text/csv', 'application/csv', 'text/plain', 'application/octet-stream'].includes(
-      file.mime_type.toLowerCase(),
-    )
-  ) {
-    throw new CsvImportError('INVALID_CSV', 'Attachment must be a CSV')
+export async function downloadAttachment(file: File, policy: AttachmentPolicy): Promise<string> {
+  const fail = policy.error
+  if (file.mime_type && !policy.mimeTypes.includes(file.mime_type.toLowerCase())) {
+    throw fail('INVALID', `Attachment must be ${policy.typeLabel}`)
   }
   let current = file.download_url
   const deadline = Date.now() + 15_000
   for (let redirect = 0; redirect <= 2; redirect++) {
     const remaining = deadline - Date.now()
-    if (remaining <= 0) throw new CsvImportError('FETCH_FAILED', 'Attachment timed out')
+    if (remaining <= 0) throw fail('FETCH_FAILED', 'Attachment timed out')
     let url: URL
     try {
       url = new URL(current)
     } catch {
-      throw new CsvImportError('FETCH_FAILED', 'Attachment URL is invalid')
+      throw fail('FETCH_FAILED', 'Attachment URL is invalid')
     }
     if (
       url.protocol !== 'https:' ||
@@ -261,7 +282,7 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
       isPrivateHostname(url.hostname) ||
       isIP(url.hostname) !== 0
     ) {
-      throw new CsvImportError('FETCH_FAILED', 'Attachment URL is not a public HTTPS address')
+      throw fail('FETCH_FAILED', 'Attachment URL is not a public HTTPS address')
     }
     let dnsTimer: ReturnType<typeof setTimeout> | undefined
     const addresses = await Promise.race([
@@ -270,7 +291,7 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
         .catch(() => []),
       new Promise<string[]>((_, reject) => {
         dnsTimer = setTimeout(
-          () => reject(new CsvImportError('FETCH_FAILED', 'Attachment DNS timed out')),
+          () => reject(fail('FETCH_FAILED', 'Attachment DNS timed out')),
           remaining,
         )
       }),
@@ -280,10 +301,10 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
       addresses.length > 16 ||
       addresses.some((address) => !isPublicWebsiteAddress(address))
     ) {
-      throw new CsvImportError('FETCH_FAILED', 'Attachment host is not public')
+      throw fail('FETCH_FAILED', 'Attachment host is not public')
     }
     const requestRemaining = deadline - Date.now()
-    if (requestRemaining <= 0) throw new CsvImportError('FETCH_FAILED', 'Attachment timed out')
+    if (requestRemaining <= 0) throw fail('FETCH_FAILED', 'Attachment timed out')
     const response = await new Promise<{ status: number; location?: string; body: Buffer }>(
       (resolve, reject) => {
         const req = httpsRequest(
@@ -295,26 +316,24 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
             path: `${url.pathname}${url.search}`,
             headers: {
               Host: url.host,
-              Accept: 'text/csv,text/plain',
+              Accept: policy.accept,
               'Accept-Encoding': 'identity',
             },
             timeout: Math.min(10_000, requestRemaining),
           },
           (incoming) => {
             const declared = Number(incoming.headers['content-length'] ?? 0)
-            if (declared > MAX_CSV_BYTES) {
+            if (declared > policy.maxBytes) {
               incoming.destroy()
-              reject(new CsvImportError('FETCH_FAILED', 'Attachment exceeds the byte limit'))
+              reject(fail('FETCH_FAILED', 'Attachment exceeds the byte limit'))
               return
             }
             const chunks: Buffer[] = []
             let size = 0
             incoming.on('data', (part: Buffer) => {
               size += part.byteLength
-              if (size > MAX_CSV_BYTES)
-                incoming.destroy(
-                  new CsvImportError('FETCH_FAILED', 'Attachment exceeds the byte limit'),
-                )
+              if (size > policy.maxBytes)
+                incoming.destroy(fail('FETCH_FAILED', 'Attachment exceeds the byte limit'))
               else chunks.push(part)
             })
             incoming.on('error', reject)
@@ -327,11 +346,9 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
             )
           },
         )
-        req.on('timeout', () =>
-          req.destroy(new CsvImportError('FETCH_FAILED', 'Attachment timed out')),
-        )
+        req.on('timeout', () => req.destroy(fail('FETCH_FAILED', 'Attachment timed out')))
         const absoluteDeadline = setTimeout(
-          () => req.destroy(new CsvImportError('FETCH_FAILED', 'Attachment timed out')),
+          () => req.destroy(fail('FETCH_FAILED', 'Attachment timed out')),
           requestRemaining,
         )
         req.on('close', () => clearTimeout(absoluteDeadline))
@@ -339,25 +356,24 @@ export const downloadCsvAttachment: CsvDownload = async (file) => {
         req.end()
       },
     ).catch(() => {
-      throw new CsvImportError('FETCH_FAILED', 'Attachment could not be downloaded')
+      throw fail('FETCH_FAILED', 'Attachment could not be downloaded')
     })
     if ([301, 302, 303, 307, 308].includes(response.status) && response.location) {
       try {
         current = new URL(response.location, url).toString()
       } catch {
-        throw new CsvImportError('FETCH_FAILED', 'Attachment redirect URL is invalid')
+        throw fail('FETCH_FAILED', 'Attachment redirect URL is invalid')
       }
       continue
     }
-    if (response.status !== 200)
-      throw new CsvImportError('FETCH_FAILED', 'Attachment download failed')
+    if (response.status !== 200) throw fail('FETCH_FAILED', 'Attachment download failed')
     try {
       return new TextDecoder('utf-8', { fatal: true }).decode(response.body)
     } catch {
-      throw new CsvImportError('INVALID_CSV', 'Attachment is not UTF-8 CSV')
+      throw fail('INVALID', `Attachment is not UTF-8 ${policy.textLabel}`)
     }
   }
-  throw new CsvImportError('FETCH_FAILED', 'Attachment redirected too many times')
+  throw fail('FETCH_FAILED', 'Attachment redirected too many times')
 }
 
 function normalizedValues(source: Record<string, string>, mapping: Record<string, string>) {

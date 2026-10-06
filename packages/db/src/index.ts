@@ -1112,8 +1112,10 @@ export type {
 } from './helpers/client-create-intents'
 export {
   createVenueAction,
+  firstPublicVenueSlug,
   normalizeVenueSlug,
   venueCreateSelect,
+  venueSlugHeldByOtherTenant,
   venueListSelect,
   VenueActionError,
 } from './helpers/venue-create-action'

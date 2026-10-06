@@ -53,6 +53,7 @@ function matches(row: FixtureRow, where: Record<string, unknown>): boolean {
   const matchesOr = (items: Record<string, unknown>[]) =>
     items.some((item) => {
       if ('contentModuleId' in item) return row.contentModuleId == null
+      if ('contentRevisionId' in item) return row.contentRevisionId == null
       if ('contentRevision' in item) {
         // Mirrors the connected-source fence: no revision, or one not created by a source.
         const revision = (item.contentRevision as { is: unknown }).is
