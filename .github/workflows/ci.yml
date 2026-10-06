@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # Supersede stale runs on development branches only. Master, the staging release branch, the
 # production promotion pull request and merge queues are never cancelled by a later push.
@@ -20,18 +21,22 @@ concurrency:
 
 jobs:
   # Dependency-aware change plan (docs/implementation/ci-optimization.md). Every uncertainty and
-  # every release-bearing event resolves to the full suite; an output is only ever skipped when it
+  # every release-bearing event requires full source qualification; an output is only ever skipped when it
   # is exactly 'false'. Required checks keep their names and always resolve through ci-required.
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      mode: ${{ steps.plan.outputs.mode || steps.force.outputs.mode }}
-      run_visitor_launch: ${{ steps.plan.outputs.run_visitor_launch || steps.force.outputs.run_visitor_launch }}
-      run_database_integration: ${{ steps.plan.outputs.run_database_integration || steps.force.outputs.run_database_integration }}
-      run_browser_gates: ${{ steps.plan.outputs.run_browser_gates || steps.force.outputs.run_browser_gates }}
-      run_workspace_graph: ${{ steps.plan.outputs.run_workspace_graph || steps.force.outputs.run_workspace_graph }}
-      turbo_filters: ${{ steps.plan.outputs.turbo_filters || steps.force.outputs.turbo_filters }}
+      mode: ${{ steps.reuse.outputs.mode || steps.plan.outputs.mode || steps.force.outputs.mode }}
+      run_visitor_launch: ${{ steps.reuse.outputs.run_visitor_launch || steps.plan.outputs.run_visitor_launch || steps.force.outputs.run_visitor_launch }}
+      run_database_integration: ${{ steps.reuse.outputs.run_database_integration || steps.plan.outputs.run_database_integration || steps.force.outputs.run_database_integration }}
+      run_browser_gates: ${{ steps.reuse.outputs.run_browser_gates || steps.plan.outputs.run_browser_gates || steps.force.outputs.run_browser_gates }}
+      run_workspace_graph: ${{ steps.reuse.outputs.run_workspace_graph || steps.plan.outputs.run_workspace_graph || steps.force.outputs.run_workspace_graph }}
+      turbo_filters: ${{ steps.reuse.outputs.turbo_filters || steps.plan.outputs.turbo_filters || steps.force.outputs.turbo_filters }}
+      reuse_verified: ${{ steps.reuse.outputs.reuse_verified }}
+      evidence_tree: ${{ steps.reuse.outputs.evidence_tree }}
+      evidence_run_id: ${{ steps.reuse.outputs.evidence_run_id }}
+      evidence_recorded_at: ${{ steps.reuse.outputs.evidence_recorded_at }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -43,9 +48,15 @@ jobs:
           # setup-node v5 enables package-manager caching from package.json `packageManager`, which
           # needs pnpm on PATH. The classifier is plain node with no dependencies, so opt out.
           package-manager-cache: false
+      - name: Look for fresh full CI on this identical source tree
+        id: reuse
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/find-ci-tree-evidence.mjs
       - name: Classify the complete change set
         id: plan
-        if: ${{ !((github.event_name != 'pull_request' && github.event_name != 'push') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/pathfinder-v2-staging' || github.head_ref == 'codex/pathfinder-v2-staging' || (github.event_name == 'pull_request' && github.base_ref != 'master')) }}
+        if: ${{ steps.reuse.outputs.verified != 'true' && !((github.event_name != 'pull_request' && github.event_name != 'push') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/pathfinder-v2-staging' || github.head_ref == 'codex/pathfinder-v2-staging' || (github.event_name == 'pull_request' && github.base_ref != 'master')) }}
         continue-on-error: true
         env:
           PLAN_EVENT: ${{ github.event_name }}
@@ -64,7 +75,7 @@ jobs:
             --summary "$GITHUB_STEP_SUMMARY"
       - name: Force the full suite for release-bearing runs
         id: force
-        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'push') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/pathfinder-v2-staging' || github.head_ref == 'codex/pathfinder-v2-staging' || (github.event_name == 'pull_request' && github.base_ref != 'master') }}
+        if: ${{ steps.reuse.outputs.verified != 'true' && ((github.event_name != 'pull_request' && github.event_name != 'push') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/pathfinder-v2-staging' || github.head_ref == 'codex/pathfinder-v2-staging' || (github.event_name == 'pull_request' && github.base_ref != 'master')) }}
         run: |
           {
             echo 'mode=full'
@@ -499,6 +510,12 @@ jobs:
 
   workspace-checks:
     needs: plan
+    # Tests must not wait behind the 6-8 minute typecheck. The matrix result is
+    # successful only when both lanes pass; the protected aggregates still require it.
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [types-and-lint, tests]
     # Always runs (never skipped): cheap policy checks and script tests apply to every change.
     # Heavy gates inside it are skipped only on an explicit 'false' from the plan.
     if: ${{ !cancelled() && needs.plan.outputs.run_workspace_graph != 'false' }}
@@ -573,20 +590,23 @@ jobs:
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
       - run: pnpm characters:sync
       - name: Run pnpm turbo run typecheck
-        if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
+        if: ${{ matrix.lane == 'types-and-lint' && needs.plan.outputs.run_workspace_graph != 'false' }}
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           PLAN_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
         # Unquoted on purpose: the plan emits validated `--filter=<workspace>` words only.
         run: pnpm turbo run typecheck $PLAN_TURBO_FILTERS
       - name: Run pnpm turbo run lint
-        if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
+        if: ${{ matrix.lane == 'types-and-lint' && needs.plan.outputs.run_workspace_graph != 'false' }}
         env:
           PLAN_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
         run: pnpm turbo run lint $PLAN_TURBO_FILTERS
       - name: Verify workspace test graph
-        if: ${{ needs.plan.outputs.run_workspace_graph != 'false' }}
+        if: ${{ matrix.lane == 'tests' && needs.plan.outputs.run_workspace_graph != 'false' }}
         env:
+          # Match the qualified typecheck budget for cold test transforms.
+          # The wrapper runs fresh tests; required typechecks retain ^build.
+          NODE_OPTIONS: --max-old-space-size=6144
           PATHFINDER_CI_TURBO_FILTERS: ${{ needs.plan.outputs.turbo_filters }}
         run: node scripts/run-ci-workspace-tests.mjs
 
@@ -608,7 +628,7 @@ jobs:
 
   # Always-running aggregate for branch protection. It fails if any required job failed, was
   # cancelled or was skipped without an explicit plan exclusion, so a skipped job can never leave
-  # a required check silently green. Selective success is never release approval.
+  # a required check silently green. Selective success is never release approval. Identical-tree reuse requires recent complete full CI; live admission and promotion remain separate.
   ci-required:
     needs:
       [
@@ -632,3 +652,17 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: node scripts/ci-required-gate.mjs
+      - name: Record full-tree qualification for later identical merges
+        id: tree-evidence
+        if: ${{ needs.plan.outputs.mode == 'full' }}
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/record-ci-tree-evidence.mjs
+      - name: Retain bounded full-tree qualification
+        if: ${{ needs.plan.outputs.mode == 'full' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-full-tree-${{ steps.tree-evidence.outputs.tree }}-attempt-${{ github.run_attempt }}
+          path: ${{ steps.tree-evidence.outputs.file }}
+          if-no-files-found: error
+          retention-days: 1

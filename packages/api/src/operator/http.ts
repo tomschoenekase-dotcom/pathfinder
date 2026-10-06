@@ -32,7 +32,13 @@ import {
 import { argsHash } from './tokens'
 import { OperatorInvalidCursorError } from './tools/page'
 
-const MAX_BODY_BYTES = 128 * 1024
+/**
+ * Read only after the bearer token is verified. Sized for the largest venue package the dashboard
+ * importer accepts (500 records of full text with provenance), even when a client escapes every
+ * non-ASCII character, so a whole package fits in one call.
+ */
+export const OPERATOR_MCP_MAX_BODY_BYTES = 8 * 1024 * 1024
+const MAX_BODY_BYTES = OPERATOR_MCP_MAX_BODY_BYTES
 const PROTOCOL_VERSIONS = new Set(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'])
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18'
 
@@ -197,7 +203,12 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
   FETCH_FAILED: {
     retryable: true,
     nextAction:
-      'Supply a fresh authorized CSV attachment link or csvText and retry with the same operationId.',
+      'The attachment could not be downloaded. Attach the file again (or send its content inline) and retry with the same operationId. Nothing was recorded or changed.',
+  },
+  PACKAGE_REJECTED: {
+    retryable: false,
+    nextAction:
+      'Fix the venue package so it is a valid package JSON object (the message names the problem), then send it again. Nothing was recorded or changed.',
   },
   SCOPE_REQUIRED: {
     retryable: false,
@@ -429,7 +440,13 @@ export async function handleOperatorMcpRequest(
     const tooLarge = error instanceof Error && error.message === 'BODY_TOO_LARGE'
     return respond(
       tooLarge ? 413 : 400,
-      rpcError(null, -32700, tooLarge ? 'Request too large' : 'Parse error'),
+      rpcError(
+        null,
+        -32700,
+        tooLarge
+          ? `Request too large: the limit is ${MAX_BODY_BYTES} bytes. Nothing was recorded or changed.`
+          : 'Parse error',
+      ),
       requestId,
     )
   }
@@ -461,7 +478,7 @@ export async function handleOperatorMcpRequest(
                 capabilities: { tools: { listChanged: false } },
                 serverInfo: { name: 'torchiko-operator', version: '1.2.0' },
                 instructions:
-                  'Call operator.get_context and operator.get_manual first. Routine authorized CRM writes can apply immediately. Read each result; show the approveUrl only when a proposal remains PENDING. CSV attachments use crm.stage_csv_import before crm.propose_import_commit.',
+                  'Call operator.get_context and operator.get_manual first. Routine authorized CRM writes can apply immediately. Read each result; show the approveUrl only when a proposal remains PENDING. CSV attachments use crm.stage_csv_import before crm.propose_import_commit. An attached venue package .json goes to venues.propose_package_import as file; venues.get_guest_link returns the visitor chatbot link.',
               },
             },
             requestId,

@@ -135,6 +135,11 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
       return { tenant: { id: input.tenantId, slug: input.slug }, venue, replayed: false }
     }),
     linkProspectConversionAction: vi.fn(async () => ({})),
+    // Venue slugs in this world are never held by another customer.
+    firstPublicVenueSlug: vi.fn(
+      async (_database: unknown, _tenantId: string, base: string) => base,
+    ),
+    venueSlugHeldByOtherTenant: vi.fn(async () => false),
   }
 })
 

@@ -1,6 +1,14 @@
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { buildVenueAccessArtifacts } from '@pathfinder/contracts/venue-access-artifacts'
+import { venueSlugHeldByOtherTenant } from '@pathfinder/db'
 
-import { assertTenantInGrant, buildOperatorReadScope, OperatorNotFoundError } from '../grants'
+import { parseExactOrigin } from '../config'
+import {
+  assertTenantInGrant,
+  assertVenueInGrant,
+  buildOperatorReadScope,
+  OperatorNotFoundError,
+} from '../grants'
 import type { OperatorReadTool } from '../registry'
 import { pageResult, requireCursorInScope } from './page'
 
@@ -119,4 +127,87 @@ const venuesGetReadiness: OperatorReadTool = {
   },
 }
 
-export const venueReadTools: readonly OperatorReadTool[] = [venuesList, venuesGetReadiness]
+/**
+ * The public visitor chatbot link, built exactly as the dashboard's Visitor access page builds it,
+ * with every reason it would not open this venue's working guide right now.
+ */
+const venuesGetGuestLink: OperatorReadTool = {
+  name: 'venues.get_guest_link',
+  capability: 'venues:read',
+  async handler(raw, context) {
+    const input = OPERATOR_MCP_INPUTS['venues.get_guest_link'].parse(raw)
+    await assertVenueInGrant(context.grant, input.tenantId, input.venueId, context.database)
+    const venue = await context.database.venue.findFirst({
+      where: { id: input.venueId, tenantId: input.tenantId },
+      select: { id: true, slug: true, isActive: true },
+    })
+    if (!venue) throw new OperatorNotFoundError()
+    const configured = process.env.NEXT_PUBLIC_WEB_URL
+    const origin = configured ? parseExactOrigin(configured) : null
+    const artifacts = origin ? buildVenueAccessArtifacts(origin, venue.slug) : null
+    const [knowledge, places, shared] = await Promise.all([
+      context.database.venueKnowledgeEntry.count({
+        where: {
+          tenantId: input.tenantId,
+          venueId: venue.id,
+          isEnabled: true,
+          visibility: 'PUBLIC',
+        },
+      }),
+      context.database.place.count({
+        where: {
+          tenantId: input.tenantId,
+          venueId: venue.id,
+          isActive: true,
+          visibility: 'PUBLIC',
+        },
+      }),
+      venueSlugHeldByOtherTenant(context.database, input.tenantId, venue.slug),
+    ])
+    const blockers: Array<{ code: string; detail: string; nextAction: string }> = []
+    if (!artifacts) {
+      blockers.push({
+        code: 'GUEST_ORIGIN_UNCONFIGURED',
+        detail: 'This deployment has no exact https guest web origin (NEXT_PUBLIC_WEB_URL).',
+        nextAction: 'Ask the deployment owner to set NEXT_PUBLIC_WEB_URL on the dashboard service.',
+      })
+    }
+    if (!venue.isActive) {
+      blockers.push({
+        code: 'VENUE_NOT_PUBLISHED',
+        detail: 'The venue is a draft, so the link shows an unavailable page.',
+        nextAction: 'Call venues.propose_publish with the venue updatedAt from venues.list.',
+      })
+    }
+    if (knowledge + places === 0) {
+      blockers.push({
+        code: 'NO_GUEST_CONTENT',
+        detail: 'No enabled public knowledge or places, so the guide has nothing to answer from.',
+        nextAction:
+          'Import content with venues.propose_package_import or venues.propose_knowledge.',
+      })
+    }
+    if (shared) {
+      blockers.push({
+        code: 'SLUG_SHARED',
+        detail: "Another customer's venue has the same slug, so this link may open their guide.",
+        nextAction: 'Ask a person to give one of the two venues a different slug in the dashboard.',
+      })
+    }
+    return {
+      venueId: venue.id,
+      slug: venue.slug,
+      isActive: venue.isActive,
+      publicUrl: artifacts?.publicUrl ?? null,
+      qrUrl: artifacts?.qrUrl ?? null,
+      usable: blockers.length === 0,
+      blockers,
+    }
+  },
+}
+
+export const venueReadTools: readonly OperatorReadTool[] = [
+  venuesList,
+  venuesGetReadiness,
+  venuesGetGuestLink,
+]

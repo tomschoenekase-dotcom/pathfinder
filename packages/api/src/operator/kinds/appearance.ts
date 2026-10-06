@@ -3,7 +3,7 @@ import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 import { updateVenueChatDesignAction, venueChatDesignSelect } from '@pathfinder/db'
 
 import type { OperatorDatabase } from '../audit'
-import { assertVenueInGrant } from '../grants'
+import { assertVenueInGrant, OperatorNotFoundError } from '../grants'
 import {
   OperatorStaleError,
   type OperatorApplyContext,
@@ -95,7 +95,8 @@ export const appearanceUpdateKind: OperatorProposalKind<AppearanceArgs> = {
   target: (args) => ({ tenantId: args.tenantId, venueId: args.venueId }),
   authorize: (args, context: OperatorKindContext) =>
     assertVenueInGrant(context.grant, args.tenantId, args.venueId, context.database),
-  targetVersion: async (args) => new Date(args.expectedUpdatedAt).toISOString(),
+  targetVersion: async (args) =>
+    args.expectedUpdatedAt ? new Date(args.expectedUpdatedAt).toISOString() : null,
   currentVersion: async (args, context) =>
     (await readDesign(context.database, args.tenantId, args.venueId))?.updatedAt ?? null,
   describe: (args) => ({
@@ -106,8 +107,14 @@ export const appearanceUpdateKind: OperatorProposalKind<AppearanceArgs> = {
   }),
   snapshot: async (args, context) =>
     (await readDesign(context.database, args.tenantId, args.venueId)) as unknown as JsonValue,
-  apply: (args, context) =>
-    applyDesign(context, args.tenantId, args.venueId, args.expectedUpdatedAt, fields(args)),
+  apply: async (args, context) => {
+    // Without an expected version the change applies to the venue as it is now.
+    const expected =
+      args.expectedUpdatedAt ??
+      (await readDesign(context.database, args.tenantId, args.venueId))?.updatedAt
+    if (!expected) throw new OperatorNotFoundError()
+    return applyDesign(context, args.tenantId, args.venueId, expected, fields(args))
+  },
   revert: async (original: StoredOperatorProposal, context) => {
     const before = original.beforeSnapshot as DesignSnapshot | null
     const after = original.afterSnapshot as DesignSnapshot | null
