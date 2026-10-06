@@ -57,6 +57,26 @@ test('workspace checks retain typecheck, lint and the complete test graph', () =
   assert.match(workspace, /pnpm db:migrate:disposable/u)
 })
 
+test('workspace tests start independently of types and both lanes remain required', () => {
+  const workspace = job('workspace-checks')
+  assert.match(workspace, /fail-fast: false/u)
+  assert.match(workspace, /lane: \[types-and-lint, tests\]/u)
+  for (const step of ['Run pnpm turbo run typecheck', 'Run pnpm turbo run lint']) {
+    const start = workspace.indexOf(`- name: ${step}`)
+    assert.ok(start >= 0)
+    const condition = workspace.slice(start).split('\n')[1]
+    assert.ok(condition.includes("matrix.lane == 'types-and-lint'"))
+    assert.ok(condition.includes("needs.plan.outputs.run_workspace_graph != 'false'"))
+  }
+  const start = workspace.indexOf('- name: Verify workspace test graph')
+  const condition = workspace.slice(start).split('\n')[1]
+  assert.ok(condition.includes("matrix.lane == 'tests'"))
+  assert.ok(condition.includes("needs.plan.outputs.run_workspace_graph != 'false'"))
+  // GitHub reduces a matrix dependency to failure unless every lane succeeds.
+  assert.match(job('ci'), /browser-gates, workspace-checks\]/u)
+  assert.match(job('ci-required'), /workspace-checks/u)
+})
+
 test('existing protected ci check and final aggregate wait for every parallel gate', () => {
   assert.match(
     job('ci'),
