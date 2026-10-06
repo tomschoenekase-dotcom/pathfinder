@@ -3752,6 +3752,37 @@ describe('chat router', () => {
       expect(concatenatedSystemPrompt).toContain('Elephants')
     })
 
+    it('sends the complete public directory as the cached block between static and dynamic', async () => {
+      setupHappyPath('ok')
+      placeFindMany.mockResolvedValue(placeRows)
+
+      await caller.chat.send(sendInput)
+
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+      const systemBlocks = callArgs.system as Array<{
+        type: string
+        text: string
+        cache_control?: { type: string }
+      }>
+      expect(systemBlocks).toHaveLength(3)
+      expect(systemBlocks[0]?.cache_control).toBeUndefined()
+      expect(systemBlocks[1]).toMatchObject({ cache_control: { type: 'ephemeral' } })
+      expect(systemBlocks[1]?.text).toContain('DIRECTORY: This directory lists every public place')
+      expect(systemBlocks[1]?.text).toContain('Elephants')
+      expect(systemBlocks[2]?.cache_control).toBeUndefined()
+      expect(placeFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            isActive: true,
+            visibility: 'PUBLIC',
+          }),
+          take: 400,
+        }),
+      )
+    })
+
     it('does not inject an engagement question when the tenant mode is STOIC', async () => {
       setupHappyPath('ok')
 

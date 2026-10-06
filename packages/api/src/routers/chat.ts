@@ -97,6 +97,13 @@ import {
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
+  buildGuestVenueDirectoryPrompt,
+  expandGuestKnowledgeLinks,
+  isPastDatedGuestEvent,
+  loadGuestVenueDirectory,
+  type GuestVenueDirectory,
+} from '../lib/guest-venue-directory'
+import {
   compatibleGuestPlaceIdentityCandidates,
   explicitlyNamedGuestPlaceLabels,
   guestPlaceIdentityKey,
@@ -1277,6 +1284,7 @@ const chatReadRouter = router({
         .filter((row) => row.role === 'user')
         .map((row) => row.content)
         .find((content, index) => !(index === 0 && content === trimmedInput)) ?? null
+    const currentDate = operationalNow.toISOString().slice(0, 10)
     if (queryEmbedding) {
       const [places, knowledge] = await Promise.all([
         searchPlacesByEmbedding({
@@ -1438,6 +1446,45 @@ const chatReadRouter = router({
       relevantPlaces = [entryPlace, ...relevantPlaces.filter((place) => place.id !== entryPlace.id)]
     }
     relevantKnowledgeEntries = nativeRead.knowledgeEntries
+    // The complete public directory; a failure only removes it from the prompt.
+    const emptyDirectory: GuestVenueDirectory = { knowledge: [], places: [], incomplete: false }
+    const loadedDirectory = await loadGuestVenueDirectory({
+      reader: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      includeSecondLayer,
+      asOf: operationalNow,
+    }).catch(() => {
+      logger.warn({ action: 'guest-directory-unavailable', venueId: venue.id })
+      return emptyDirectory
+    })
+    // The directory follows the same native-release projection as retrieved content.
+    const directoryRead = applyNativeGuestContentRead({
+      snapshot: nativeReadSnapshot,
+      legacyPlaces: loadedDirectory.places,
+      legacyKnowledgeEntries: loadedDirectory.knowledge.map((entry) => ({ ...entry, distance: 0 })),
+    })
+    const guestDirectory: GuestVenueDirectory =
+      directoryRead.path === nativeRead.path
+        ? {
+            places: directoryRead.places,
+            knowledge: directoryRead.knowledgeEntries,
+            incomplete: loadedDirectory.incomplete,
+          }
+        : emptyDirectory
+    const currentYear = Number(currentDate.slice(0, 4))
+    const normalizedQuery = trimmedInput.toLocaleLowerCase()
+    relevantKnowledgeEntries = expandGuestKnowledgeLinks({
+      entries: relevantKnowledgeEntries.filter(
+        // A past dated event stays out of context unless the visitor names it.
+        (entry) =>
+          !isPastDatedGuestEvent(entry, currentYear) ||
+          normalizedQuery.includes(entry.title.toLocaleLowerCase()),
+      ),
+      directory: guestDirectory,
+      currentDate,
+    })
+    const directoryPrompt = buildGuestVenueDirectoryPrompt(guestDirectory, { currentDate })
     let placeIdentity = await projectGuestPlaceIdentity({
       reader: ctx.db,
       query: effectiveIdentityQuery,
@@ -1688,7 +1735,7 @@ const chatReadRouter = router({
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     const prepareVenuePrompt = () =>
       buildVenueSystemPromptParts({
-        currentDate: operationalNow.toISOString().slice(0, 10),
+        currentDate,
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {
@@ -1927,10 +1974,17 @@ const chatReadRouter = router({
           : {}),
         admissionGuard: assertGenerationAvailable,
         budgetGate: sharedBudgetGate,
-        system: [
-          { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
-          { type: 'text', text: dynamicPart },
-        ],
+        // The directory is stable per venue, so the cache breakpoint moves after it.
+        system: directoryPrompt
+          ? [
+              { type: 'text', text: staticPart },
+              { type: 'text', text: directoryPrompt, cache_control: { type: 'ephemeral' } },
+              { type: 'text', text: dynamicPart },
+            ]
+          : [
+              { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
+              { type: 'text', text: dynamicPart },
+            ],
         messages: [
           ...history.map((m: { role: string; content: string }) => ({
             role: m.role as 'user' | 'assistant',
@@ -2114,7 +2168,7 @@ const chatReadRouter = router({
       citations.push(...generalWebProjection.citations)
     const answerEvidence = buildGuestAnswerEvidenceBundle({
       assistantResponse,
-      staticSystemPrompt: staticPart,
+      staticSystemPrompt: `${staticPart}${directoryPrompt}`,
       dynamicSystemPrompt: dynamicPart,
       ...(generationRouteConfigurationVersion
         ? { routeConfigurationVersion: generationRouteConfigurationVersion }

@@ -444,7 +444,7 @@ function boundedRelevantContent(
   return `${prefix}${content.slice(start, end)}${suffix}`
 }
 
-function selectShape() {
+export function guestKnowledgeSelectShape() {
   return {
     id: true,
     title: true,
@@ -493,6 +493,82 @@ function textClause(term: string) {
   }
 }
 
+/** The guest-visible Knowledge scope: tenant, venue, visibility, publication and source fences. */
+export function guestKnowledgeScope(scopeParams: {
+  tenantId: string
+  venueId: string
+  includeSecondLayer: boolean
+  asOf: Date
+}) {
+  const publicationAuthority = {
+    OR: [
+      { contentModuleId: null },
+      {
+        contentPublication: { action: 'PUBLISH' },
+        contentRevision: {
+          audience: 'PUBLIC',
+          AND: [
+            { OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: scopeParams.asOf } }] },
+            { OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: scopeParams.asOf } }] },
+            {
+              OR: [
+                { kind: { not: 'OPERATIONAL_FACT' } },
+                { operationalFact: { expiresAt: null } },
+                { operationalFact: { expiresAt: { gt: scopeParams.asOf } } },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+  }
+  const adoptionAuthority = {
+    OR: [
+      { contentModuleId: { not: null } },
+      { universalContentAdoption: { is: null } },
+      { universalContentAdoption: { is: { activation: { is: null } } } },
+    ],
+  }
+  return {
+    tenantId: scopeParams.tenantId,
+    venueId: scopeParams.venueId,
+    isEnabled: true,
+    // Connected-source facts have an additional approval/freshness fence. The cached source
+    // reader owns that check; lexical or embedding hits must never bypass it.
+    sourceType: { not: 'SOURCE_CONNECTION' },
+    ...(scopeParams.includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
+    AND: [
+      publicationAuthority,
+      adoptionAuthority,
+      {
+        OR: [
+          // The relation also uses required tenant/venue keys. Prisma's relation-null
+          // predicate tests that composite key and excludes ordinary legacy rows.
+          // Test the nullable revision key itself; connected revisions remain fenced.
+          { contentRevisionId: null },
+          { contentRevision: { is: { NOT: { createdBy: { startsWith: 'source-connection:' } } } } },
+        ],
+      },
+    ],
+  }
+}
+
+/** Rejects connected-source rows and module rows whose publication is no longer the latest. */
+export function hasCurrentGuestPublicationAuthority(row: GuestKnowledgeRow): boolean {
+  if (
+    row.sourceType === 'SOURCE_CONNECTION' ||
+    row.contentRevision?.createdBy?.startsWith('source-connection:')
+  )
+    return false
+  if (!row.contentModuleId) return true
+  const latest = row.contentPublication?.module.publications[0]
+  return Boolean(
+    latest &&
+    latest.id === row.contentPublicationId &&
+    latest.eventOrder === row.contentPublication?.eventOrder,
+  )
+}
+
 export async function retrieveGuestKnowledge(params: {
   reader: unknown
   query: string
@@ -523,57 +599,12 @@ export async function retrieveGuestKnowledge(params: {
   } = guestRetrievalConcepts(params.query, params.previousQuery)
   const resultLimit = broadQuestion ? BROAD_RESULT_LIMIT : RESULT_LIMIT
   const asOf = params.asOf ?? new Date()
-  const publicationAuthority = {
-    OR: [
-      { contentModuleId: null },
-      {
-        contentPublication: { action: 'PUBLISH' },
-        contentRevision: {
-          audience: 'PUBLIC',
-          AND: [
-            { OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: asOf } }] },
-            { OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: asOf } }] },
-            {
-              OR: [
-                { kind: { not: 'OPERATIONAL_FACT' } },
-                { operationalFact: { expiresAt: null } },
-                { operationalFact: { expiresAt: { gt: asOf } } },
-              ],
-            },
-          ],
-        },
-      },
-    ],
-  }
-  const adoptionAuthority = {
-    OR: [
-      { contentModuleId: { not: null } },
-      { universalContentAdoption: { is: null } },
-      { universalContentAdoption: { is: { activation: { is: null } } } },
-    ],
-  }
-  const scope = {
+  const scope = guestKnowledgeScope({
     tenantId: params.tenantId,
     venueId: params.venueId,
-    isEnabled: true,
-    // Connected-source facts have an additional approval/freshness fence. The cached source
-    // reader owns that check; lexical or embedding hits must never bypass it.
-    sourceType: { not: 'SOURCE_CONNECTION' },
-    ...(params.includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
-    AND: [
-      publicationAuthority,
-      adoptionAuthority,
-      {
-        OR: [
-          // The relation also uses required tenant/venue keys. Prisma's relation-null
-          // predicate tests that composite key and excludes ordinary legacy rows.
-          // Test the nullable revision key itself; connected revisions remain fenced.
-          { contentRevisionId: null },
-          { contentRevision: { is: { NOT: { createdBy: { startsWith: 'source-connection:' } } } } },
-        ],
-      },
-    ],
-  }
+    includeSecondLayer: params.includeSecondLayer,
+    asOf,
+  })
   const strictWhere = concepts.length
     ? {
         ...scope,
@@ -594,13 +625,13 @@ export async function retrieveGuestKnowledge(params: {
   const [strict, broadAll, semantic, activated] = await Promise.all([
     reader.venueKnowledgeEntry.findMany({
       where: strictWhere,
-      select: selectShape(),
+      select: guestKnowledgeSelectShape(),
       orderBy: [{ lastReviewedAt: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
       take: STRICT_LIMIT,
     }),
     reader.venueKnowledgeEntry.findMany({
       where: broadWhere,
-      select: selectShape(),
+      select: guestKnowledgeSelectShape(),
       orderBy: [{ lastReviewedAt: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
       take: BROAD_LIMIT,
     }),
@@ -621,20 +652,6 @@ export async function retrieveGuestKnowledge(params: {
       : Promise.resolve([]),
   ])
   const activatedLegacyIds = new Set(activated.map((row) => row.adoption.legacyKnowledgeEntryId))
-  const hasCurrentPublicationAuthority = (row: GuestKnowledgeRow) => {
-    if (
-      row.sourceType === 'SOURCE_CONNECTION' ||
-      row.contentRevision?.createdBy?.startsWith('source-connection:')
-    )
-      return false
-    if (!row.contentModuleId) return true
-    const latest = row.contentPublication?.module.publications[0]
-    return Boolean(
-      latest &&
-      latest.id === row.contentPublicationId &&
-      latest.eventOrder === row.contentPublication?.eventOrder,
-    )
-  }
   // Revalidate bounded semantic identities after the parallel searches. This
   // also covers sources that disappeared from the public lexical scope and
   // corrections whose old content survives in an earlier semantic result.
@@ -642,7 +659,7 @@ export async function retrieveGuestKnowledge(params: {
   const semanticRows = semanticCandidates.length
     ? await reader.venueKnowledgeEntry.findMany({
         where: { ...scope, id: { in: semanticCandidates.map((entry) => entry.id) } },
-        select: selectShape(),
+        select: guestKnowledgeSelectShape(),
         take: SEMANTIC_LIMIT,
       })
     : []
@@ -655,7 +672,7 @@ export async function retrieveGuestKnowledge(params: {
           concepts.map((group) =>
             reader.venueKnowledgeEntry.findMany({
               where: { ...scope, OR: group.map(textClause).flatMap((clause) => clause.OR) },
-              select: selectShape(),
+              select: guestKnowledgeSelectShape(),
               orderBy: [{ lastReviewedAt: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
               take: PER_CONCEPT_LIMIT,
             }),
@@ -681,7 +698,7 @@ export async function retrieveGuestKnowledge(params: {
   // rejected authority observation must win over another lane's older hit.
   const authorityExcludedIds = new Set(
     [...strict, ...broad, ...semanticRows]
-      .filter((row) => !hasCurrentPublicationAuthority(row))
+      .filter((row) => !hasCurrentGuestPublicationAuthority(row))
       .map((row) => row.id),
   )
   for (const entry of semanticCandidates) {
