@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -34,6 +34,41 @@ test('diagnostic tail stays bounded to the newest lines', () => {
   const tail = createDiagnosticTail(3, 4)
   for (const line of ['one', 'two', 'three', 'four']) tail.push(line)
   assert.deepEqual(tail.values(), ['two', 'hree', 'four'])
+})
+
+test('test-only CI scheduling retains required type validation for every test workspace', async () => {
+  const turbo = JSON.parse(await readFile(path.join(root, 'turbo.json'), 'utf8'))
+  assert.deepEqual(turbo.tasks.test.dependsOn, ['^build'])
+  assert.deepEqual(turbo.tasks.typecheck.dependsOn, turbo.tasks.test.dependsOn)
+  const manifests = []
+  for (const parent of ['apps', 'packages']) {
+    for (const entry of await readdir(path.join(root, parent), { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      try {
+        manifests.push(
+          JSON.parse(await readFile(path.join(root, parent, entry.name, 'package.json'), 'utf8')),
+        )
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+      }
+    }
+  }
+  const tested = manifests.filter((manifest) => manifest.scripts?.test)
+  assert.ok(tested.length > 0)
+  for (const manifest of tested) {
+    assert.ok(
+      manifest.scripts.typecheck,
+      `${manifest.name} tests require parallel typecheck coverage`,
+    )
+  }
+  // Both platform launchers must prevent stale upstream-dependent test cache hits.
+  assert.match(runner, /turbo run test --only --cache=local:,remote:/u)
+  assert.match(runner, /'test',\s*'--only',\s*'--cache=local:,remote:'/u)
+  assert.match(workflow, /PLAN_TURBO_FILTERS: \$\{\{ needs.plan.outputs.turbo_filters \}\}/u)
+  assert.match(
+    workflow,
+    /PATHFINDER_CI_TURBO_FILTERS: \$\{\{ needs.plan.outputs.turbo_filters \}\}/u,
+  )
 })
 
 test('one visible annotation keeps the newest redacted failure context within bounds', () => {

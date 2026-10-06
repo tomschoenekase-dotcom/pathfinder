@@ -1,6 +1,6 @@
 # CI optimization (packet W13)
 
-Status: implemented on a worktree branch, not yet run on GitHub. Every speedup below is an
+Historical packet W13: implemented on a worktree branch at the time of writing. Every speedup below is an
 estimate from the measured baseline. Measuring the real effect is a follow-up run (see "Follow-up
 measurement").
 
@@ -185,12 +185,13 @@ The explanation lists required and not-required jobs and is written to the job s
 
 ## 4. Safety invariants
 
-1. The full suite runs on the exact release SHA. Pushes to `codex/pathfinder-v2-staging` (which
-   trigger staging admission through `workflow_run`), the promotion pull request, pushes to
-   `master`, merge queues and manual runs always run every gate.
-2. Selective success never counts as release approval. Staging admission, staging release and the
-   production promotion gate depend on a full run of the release SHA; the plan summary says so on
-   every selective run.
+1. Every release source tree requires full qualification. Staging pushes, production promotion
+   PRs and master pushes run the full suite unless a recent complete full run proves the exact
+   identical Git tree, including this workflow, dependencies, tests and policy. Manual runs and
+   merge queues always run every gate independently. See the October 5 latency update below.
+2. Selective success never counts as release approval. Identical-tree qualification is explicitly
+   attributed to the original full run; it is not reported as execution on the new commit. Exact
+   staging admission, production promotion and live deployment health remain independent.
 3. Uncertainty means FULL. The only skip is a positive proof, and each skippable output must equal
    the literal string `false`.
 4. Required checks always resolve. No required workflow is path-filtered; skipped jobs are covered
@@ -292,9 +293,9 @@ Required checks now use separate isolated runners:
 Each starts after `plan`, with the original synthetic environment and disposable
 services. The existing protected `ci` check aggregates all three core jobs;
 `ci-required` also requires them plus IaC and visitor-launch. Failed, cancelled,
-missing, or unplanned skipped results still fail closed. Release events still
-force FULL; this update does not change that policy or branch protection.
-The improvement is parallel execution, not reuse of old test conclusions.
+missing, or unplanned skipped results still fail closed. This original parallelism update still
+forced FULL on release events and did not change branch protection. The later identical-tree
+update below changes source qualification deliberately.
 Actual speed must be measured from the first hosted run; do not promise an ETA.
 Playwright's supported sharding preserves files within each project:
 https://playwright.dev/docs/test-sharding
@@ -317,3 +318,92 @@ rollout sets `PATHFINDER_RELEASE_SHA`, clear that fallback with skip-deploys
 once Git identity is proven. Leaving an old fixed value makes the existing
 conflict check correctly reject the next commit as an unknown revision. Never
 remove the conflict check or permit an unreviewed local-upload identity.
+
+## October 5 measured latency repair
+
+This revision is a CI-only change. Application code, migrations, provider switches,
+Railway WaitForCI, hosted admission and production promotion remain unchanged.
+The earlier W13 estimates and owner action list are historical. Native production
+already uses Git deployment identity and WaitForCI; do not repeat migration/drain
+work for a code-only release or rotate a token because a local helper failed.
+
+### Evidence from actual hosted runs
+
+| Run                                                                                         | Actual longest runner task                  | Meaning                                                                       |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------- |
+| [37354756228](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/37354756228) | Workspace 14.9 min: types 6.6, tests 6.3    | Sequential work; rerun metadata retains earlier successful jobs               |
+| [37365255047](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/37365255047) | Workspace 18.9 min: types 8.2, tests 8.3    | Runner work is much shorter than the queue/outage and retry elapsed time      |
+| [37361809310](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/37361809310) | Hosted staging admission 1.7 min            | Live resource/revision admission is not the long test bottleneck              |
+| [37386735043](https://github.com/tomschoenekase-dotcom/pathfinder/actions/runs/37386735043) | Visitor 13.9 min; workspace 12.6 min failed | Three dependent mock helpers were omitted from the initial affected preflight |
+
+The guest-query CI failed at 23:21 UTC, but the continuation did not inspect it
+until about 23:40. That agent response delay also contributed. Faster tests alone
+cannot fix late diagnosis, repeated helper fixes or the GitHub runner incident.
+
+### Changes
+
+Workspace tests and types/lint run on separate runners. Both lanes remain required;
+fail-fast is disabled and no assertion, suite, timeout or opt-in is removed. This
+removes the 6-8 minute typecheck prerequisite before tests start. Browser and policy
+jobs still limit the overall full run; this is not a promise of instant full CI.
+
+The first hosted split exposed an implicit cache dependency: the test lane's
+`^build` API TypeScript task exhausted the default 4GB heap even though the same
+typecheck/build graph passed with 6GB in the parallel lane. The CI test wrapper
+now uses `--only --cache=local:,remote:`: every selected test executes fresh,
+without rebuilding dependencies. All tested workspaces also have typechecks;
+the required type lane retains the identical `^build` graph and plan filters.
+The reviewed tests consume workspace source rather than emitted build artifacts;
+Prisma generation and character sync stay in both lanes. Because `--only` also
+removes dependency cache hashes, test cache reads and writes are disabled.
+Ordinary local `pnpm test` and `turbo.json` remain unchanged. Both lanes use the
+qualified 6GB heap budget. The original failed run remains failed evidence.
+
+A completed FULL run records a small artifact bound to repository, exact commit,
+Git tree, run and attempt. A later push or PR may reuse it only when the official
+GitHub commit tree exactly matches the current checkout and every expected full
+job succeeded. Source changes in any file, including this workflow, dependencies,
+tests or policy, invalidate reuse. The full source run must be no older than six
+hours. Scoped and reused runs cannot seed or renew full evidence; fork sources,
+missing jobs, wrong attempts, failed or skipped checks and stale artifacts refuse.
+Only the exact bounded JSON ZIP entry is read, never unpacked or executed.
+
+The plan reports `mode=verified-tree`, the original full run ID, timestamp and tree.
+The aggregate independently compares that proof to its actual Git checkout. Current
+policy/script/advisory checks and IaC still execute; fresh staging deployment
+admission, protected production promotion and exact production health still apply.
+Manual runs and merge queues always execute the full suite. Lookup errors or a
+45-second lookup budget cause normal CI, never permission to release unchecked code.
+Artifact names include the attempt, so normal reruns cannot collide with prior uploads.
+
+First delivery of this workflow needs full qualification. Before claiming the
+reuse speedup works, record one actual hosted full artifact and an actual identical
+source-tree run using it. Local fixtures are not hosted acceptance. GitHub queues,
+build duration, changed merge trees and live health failures can still add time.
+
+### Procedure for the next "update production"
+
+1. Collect the completed Claude branches and existing guest fix into one coherent
+   candidate; use the real frozen staging base. Preserve other work and exact source
+   evidence. Do not push a sequence of partially diagnosed helper fixes.
+2. Before pushing, run the complete affected package/dependent test graph, not just
+   the new test file. For retrieval this includes voice and evaluation mock helpers;
+   for MCP use the disposable five-operation flow. Resolve any failure fully once.
+   Use the existing dependency-aware change plan and validated Turbo filters.
+3. Inspect one bounded exact candidate CI status, then act on the first new failure.
+   Distinguish queued runner time from running test time. Do not restart an unchanged
+   failing run. Keep deterministic mocks and assertions intact.
+4. Use supported release assessment/handoff and genuine local-owner prepublication
+   finalization against the frozen base. Attribute reused proof to its actual source
+   revision; do not label it local execution on the new SHA or hardcode ten jobs.
+   The full workflow now has eleven jobs, including both workspace matrix lanes.
+5. Deploy staging with the actual owner identity, pass hosted live admission, then
+   pass the real production promotion gate. If merges keep the identical qualified
+   source tree, metadata reuse avoids new full test cycles; changed trees require
+   fresh qualification. Native production WaitForCI and exact three-service health
+   remain required. Code-only changes do not repeat backup/restore/migration/drain.
+6. Check the changed guest/MCP flow once in production and return its exact revision.
+   Refresh an unchanged plugin catalog only when a catalog change requires it.
+
+This workflow changes the source qualification rule openly; it does not mark a
+failed check green, disable production protection or announce deployment from CI.

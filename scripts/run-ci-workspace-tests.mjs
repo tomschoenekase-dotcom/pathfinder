@@ -8,14 +8,30 @@ const windows = process.platform === 'win32'
 const executable = windows ? process.env.ComSpec || 'cmd.exe' : 'pnpm'
 // Optional scope from the CI change plan; an invalid value falls back to the full graph.
 const { filters } = parseTurboFilters(process.env.PATHFINDER_CI_TURBO_FILTERS)
+// The required parallel typecheck lane runs the same ^build graph. Tests consume
+// workspace source, not those emitted outputs. --only removes dependency hashes
+// too, so disable cache reads/writes rather than replay stale dependent tests.
 const args = windows
   ? [
       '/d',
       '/s',
       '/c',
-      ['pnpm exec turbo run test --concurrency=2 --output-logs=full', ...filters].join(' '),
+      [
+        'pnpm exec turbo run test --only --cache=local:,remote: --concurrency=2 --output-logs=full',
+        ...filters,
+      ].join(' '),
     ]
-  : ['exec', 'turbo', 'run', 'test', '--concurrency=2', '--output-logs=full', ...filters]
+  : [
+      'exec',
+      'turbo',
+      'run',
+      'test',
+      '--only',
+      '--cache=local:,remote:',
+      '--concurrency=2',
+      '--output-logs=full',
+      ...filters,
+    ]
 
 const child = spawn(executable, args, {
   env: process.env,
