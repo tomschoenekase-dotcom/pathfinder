@@ -18,7 +18,9 @@ export type VenuePackageLifecycleStatus = 'DRAFT' | 'APPROVED' | 'APPLIED' | 'RE
 
 // Full packages perform duplicate verification, content history and milestone writes in one
 // transaction. Keep a finite budget without changing Prisma defaults for unrelated operations.
-export const VENUE_PACKAGE_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 } as const
+// A full-venue v3 package (hundreds of updates with history) can outlast a minute under load;
+// a timed-out apply rolls back whole, so the limit only bounds how long one venue stays locked.
+export const VENUE_PACKAGE_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 300_000 } as const
 
 export class VenuePackageLifecycleError extends Error {
   constructor(

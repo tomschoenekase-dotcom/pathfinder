@@ -129,7 +129,9 @@ async function step<T>(name: 'draft' | 'approve' | 'apply', run: () => Promise<T
       const retry =
         code === 'CONFLICT'
           ? ' Nothing was applied. Retry with a new operationId; the saved draft stays unapplied.'
-          : ''
+          : code === 'P2028'
+            ? ' The database transaction ran out of time and rolled back; nothing was applied. Retry with a new operationId.'
+            : ''
       Object.assign(error, {
         summary: `The ${name} step failed (${code}): ${message}.${retry}`.slice(0, 500),
       })
