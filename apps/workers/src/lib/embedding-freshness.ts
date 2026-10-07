@@ -112,6 +112,7 @@ export function classifyEmbeddingFreshness(params: {
   entityType: 'PLACE' | 'KNOWLEDGE_ENTRY'
   expectedSourceHash: string
   expectedProfile: string
+  manualRefresh?: boolean
 }): EmbeddingFreshnessCandidate {
   const { row } = params
   const signals = [
@@ -129,7 +130,17 @@ export function classifyEmbeddingFreshness(params: {
   let primaryReason: EmbeddingFreshnessReason
   const dispatch = dispatchReason(row)
 
-  if (dispatch) primaryReason = dispatch
+  // With the dispatcher disabled, an unleased queue entry is not proof of freshness.
+  // Still defer to any active writer, including a claim for an older revision.
+  if (
+    params.manualRefresh &&
+    row.claimStatus === 'RUNNING' &&
+    row.claimLeaseExpiresAt &&
+    row.claimLeaseExpiresAt > row.observedAt
+  )
+    primaryReason = 'current-running'
+  else if (dispatch && (!params.manualRefresh || dispatch === 'dispatch-leased'))
+    primaryReason = dispatch
   else if (!row.claimStatus)
     primaryReason = row.hasEmbedding ? 'legacy-vector-no-claim' : 'missing-vector-no-claim'
   else if (row.claimStatus === 'COMPLETE') {
@@ -168,9 +179,9 @@ export function classifyEmbeddingFreshness(params: {
     contentUpdatedAt: row.updatedAt,
     primaryReason,
     signals,
-    actionable: (ACTIONABLE_EMBEDDING_FRESHNESS_REASONS as readonly string[]).includes(
-      primaryReason,
-    ),
+    actionable:
+      (ACTIONABLE_EMBEDDING_FRESHNESS_REASONS as readonly string[]).includes(primaryReason) ||
+      (params.manualRefresh === true && primaryReason === 'current-complete-revision-drift'),
   }
 }
 
@@ -279,7 +290,11 @@ export async function auditEmbeddingFreshness(params: {
   tenantId: string
   venueId?: string
   scanCap?: number
+  /** Only for the scoped refresh command while the background dispatcher is disabled. */
+  manualRefresh?: boolean
 }): Promise<EmbeddingFreshnessAudit> {
+  if (params.manualRefresh && !params.venueId)
+    throw new Error('Manual embedding refresh requires a venue scope')
   return db.$transaction(
     async (tx) => {
       const scanCap = Math.max(1, Math.min(EMBEDDING_FRESHNESS_SCAN_CAP, params.scanCap ?? 10_000))
@@ -297,7 +312,7 @@ export async function auditEmbeddingFreshness(params: {
           ...(placeCursor ? { cursor: placeCursor } : {}),
           take: take + 1,
         })
-        if (rows.length > take) truncated = true
+        if (rows.length > take && remaining === take) truncated = true
         for (const row of rows.slice(0, take)) {
           const text = buildPlaceText(row)
           candidates.push(
@@ -306,6 +321,7 @@ export async function auditEmbeddingFreshness(params: {
               entityType: 'PLACE',
               expectedSourceHash: embeddingSourceHash('place', text),
               expectedProfile: placeProfile,
+              manualRefresh: params.manualRefresh === true,
             }),
           )
         }
@@ -315,6 +331,15 @@ export async function auditEmbeddingFreshness(params: {
       }
 
       const knowledgeProfile = getAiEmbeddingProfile(AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT)
+      // If places exactly exhaust the cap, probe for unread knowledge rows.
+      if (remaining === 0 && !truncated) {
+        const unread = await readKnowledgePage(tx, {
+          tenantId: params.tenantId,
+          ...(params.venueId ? { venueId: params.venueId } : {}),
+          take: 1,
+        })
+        truncated = unread.length > 0
+      }
       let knowledgeCursor: string | undefined
       while (remaining > 0) {
         const take = Math.min(EMBEDDING_FRESHNESS_PAGE_SIZE, remaining)
@@ -324,7 +349,7 @@ export async function auditEmbeddingFreshness(params: {
           ...(knowledgeCursor ? { cursor: knowledgeCursor } : {}),
           take: take + 1,
         })
-        if (rows.length > take) truncated = true
+        if (rows.length > take && remaining === take) truncated = true
         for (const row of rows.slice(0, take)) {
           const text = buildKnowledgeEntryText(row)
           candidates.push(
@@ -333,6 +358,7 @@ export async function auditEmbeddingFreshness(params: {
               entityType: 'KNOWLEDGE_ENTRY',
               expectedSourceHash: embeddingSourceHash('knowledge-entry', text),
               expectedProfile: knowledgeProfile,
+              manualRefresh: params.manualRefresh === true,
             }),
           )
         }
@@ -341,7 +367,6 @@ export async function auditEmbeddingFreshness(params: {
         knowledgeCursor = rows[take - 1]!.id
       }
 
-      if (remaining === 0) truncated = true
       const grouped = new Map<string, EmbeddingFreshnessAudit['groups'][number]>()
       for (const candidate of candidates) {
         const key = `${candidate.venueId}\0${candidate.entityType}\0${candidate.primaryReason}`

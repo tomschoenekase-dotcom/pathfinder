@@ -53,6 +53,71 @@ function row(overrides: Record<string, unknown> = {}) {
 
 describe('embedding freshness classification', () => {
   it.each([
+    [{ dispatchId: 'queued', claimSourceHash: 'old' }, 'complete-source-mismatch', true],
+    [
+      {
+        dispatchId: 'queued',
+        dispatchNextAttemptAt: new Date(observedAt.getTime() + 1000),
+        claimSourceHash: 'old',
+      },
+      'complete-source-mismatch',
+      true,
+    ],
+    [{ dispatchId: 'queued' }, 'current-complete', false],
+    [
+      {
+        dispatchId: 'queued',
+        dispatchLeaseToken: 'lease',
+        dispatchLeaseExpiresAt: new Date(observedAt.getTime() + 1000),
+        claimSourceHash: 'old',
+      },
+      'dispatch-leased',
+      false,
+    ],
+    [
+      {
+        dispatchId: 'queued',
+        dispatchLeaseToken: 'lease',
+        dispatchLeaseExpiresAt: new Date(0),
+        claimSourceHash: 'old',
+      },
+      'complete-source-mismatch',
+      true,
+    ],
+    [
+      {
+        claimStatus: 'RUNNING',
+        claimSourceHash: 'old',
+        claimLeaseExpiresAt: new Date(observedAt.getTime() + 1000),
+      },
+      'current-running',
+      false,
+    ],
+    [
+      { dispatchId: 'queued', claimUpdatedAt: new Date(0) },
+      'current-complete-revision-drift',
+      true,
+    ],
+    [
+      { dispatchId: 'queued', hasEmbedding: false },
+      'complete-claim-missing-vector-invariant-breach',
+      false,
+    ],
+  ] as const)(
+    'manual refresh classifies %s as %s without competing with writers',
+    (overrides, reason, actionable) => {
+      expect(
+        classifyEmbeddingFreshness({
+          row: row(overrides),
+          entityType: 'PLACE',
+          expectedSourceHash: 'expected-hash',
+          expectedProfile: 'expected-profile',
+          manualRefresh: true,
+        }),
+      ).toMatchObject({ primaryReason: reason, actionable })
+    },
+  )
+  it.each([
     [{}, 'current-complete', false],
     [
       {
@@ -111,6 +176,76 @@ describe('embedding freshness classification', () => {
 })
 
 describe('auditEmbeddingFreshness', () => {
+  it('finishes a multi-page venue without falsely reporting truncation', async () => {
+    const places = Array.from({ length: 201 }, (_, index) => ({
+      ...row({ id: `place_${index}` }),
+      name: 'Fictional ride',
+      type: 'ride',
+      itemType: null,
+      shortDescription: null,
+      longDescription: null,
+      tags: [],
+      areaName: null,
+      hours: null,
+    }))
+    mocks.queryRaw
+      .mockResolvedValueOnce(places)
+      .mockResolvedValueOnce([places[200]])
+      .mockResolvedValueOnce([])
+    expect(
+      await auditEmbeddingFreshness({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+    ).toMatchObject({ scanned: 201, truncated: false })
+  })
+  it.each([false, true])(
+    'probes unread knowledge when places exactly fill the cap (unread=%s)',
+    async (unread) => {
+      const place = {
+        ...row(),
+        name: 'Fictional ride',
+        type: 'ride',
+        itemType: null,
+        shortDescription: null,
+        longDescription: null,
+        tags: [],
+        areaName: null,
+        hours: null,
+      }
+      mocks.queryRaw
+        .mockResolvedValueOnce([place])
+        .mockResolvedValueOnce(unread ? [{ id: 'unread' }] : [])
+      expect(
+        await auditEmbeddingFreshness({ tenantId: 'tenant_1', venueId: 'venue_1', scanCap: 1 }),
+      ).toMatchObject({ scanned: 1, truncated: unread })
+    },
+  )
+  it('requires an explicit venue for manual refresh', async () => {
+    await expect(
+      auditEmbeddingFreshness({ tenantId: 'tenant_1', manualRefresh: true }),
+    ).rejects.toThrow('venue scope')
+  })
+  it('exposes queued stale records to the manual command while preserving the dispatcher audit', async () => {
+    const place = {
+      ...row({ dispatchId: 'queued', claimSourceHash: 'old' }),
+      name: 'Fictional ride',
+      type: 'ride',
+      itemType: null,
+      shortDescription: null,
+      longDescription: null,
+      tags: [],
+      areaName: null,
+      hours: null,
+    }
+    mocks.queryRaw.mockResolvedValueOnce([place]).mockResolvedValueOnce([])
+    const standard = await auditEmbeddingFreshness({ tenantId: 'tenant_1', venueId: 'venue_1' })
+    expect(standard.actionableCandidates).toHaveLength(0)
+    mocks.queryRaw.mockResolvedValueOnce([place]).mockResolvedValueOnce([])
+    const manual = await auditEmbeddingFreshness({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      manualRefresh: true,
+    })
+    expect(manual.actionableCandidates).toHaveLength(1)
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.transaction.mockImplementation(async (run) => run({ $queryRaw: mocks.queryRaw }))

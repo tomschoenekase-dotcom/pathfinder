@@ -87,20 +87,40 @@ export async function runVenueRefreshCommand(
     place: processEmbedPlaceJob,
     knowledge: processEmbedKnowledgeEntryJob,
   }
-  const before = await audit({ tenantId: command.tenantId, venueId: command.venueId })
+  const scope = { tenantId: command.tenantId, venueId: command.venueId, manualRefresh: true }
+  const before = await audit(scope)
   const stale = before.actionableCandidates.filter((c) => c.venueId === command.venueId)
+  const blockedCount = (result: typeof before) =>
+    result.groups
+      .filter(
+        (g) =>
+          g.venueId === command.venueId &&
+          [
+            'dispatch-leased',
+            'current-running',
+            'complete-claim-missing-vector-invariant-breach',
+          ].includes(g.reason),
+      )
+      .reduce((total, g) => total + g.count, 0)
+  const blocked = blockedCount(before)
   if (command.mode === 'plan') {
     return {
       mode: 'plan' as const,
       venueId: command.venueId,
       stale: summary(stale),
       truncated: before.truncated,
-      next:
-        stale.length === 0
-          ? 'Every embedding for this venue is current.'
-          : `Run again with --apply yes --max ${stale.length} --receipts <new file>.`,
+      blocked,
+      next: before.truncated
+        ? 'Audit is incomplete; cannot certify freshness or apply a refresh.'
+        : blocked > 0
+          ? `${blocked} records need lease expiry or claim repair before refreshing.`
+          : stale.length === 0
+            ? 'Every embedding for this venue is current.'
+            : `Run again with --apply yes --max ${stale.length} --receipts <new file>.`,
     }
   }
+  if (before.truncated || blocked > 0)
+    throw new VenueRefreshError('Audit is incomplete or blocked; cannot safely refresh this venue')
   if (stale.length > command.max) {
     throw new VenueRefreshError(
       `${stale.length} records are stale; raise --max to at least that many`,
@@ -150,8 +170,18 @@ export async function runVenueRefreshCommand(
     }
     refreshed += batch.length
   }
-  const after = await audit({ tenantId: command.tenantId, venueId: command.venueId })
+  const after = await audit(scope)
   const remaining = after.actionableCandidates.filter((c) => c.venueId === command.venueId)
+  if (after.truncated || blockedCount(after) > 0 || remaining.length > 0) {
+    record({
+      action: 'refresh.incomplete',
+      refreshed,
+      remaining: remaining.length,
+      blocked: blockedCount(after),
+      truncated: after.truncated,
+    })
+    throw new VenueRefreshError('Refresh finished but freshness is not proven. See the receipts.')
+  }
   record({ action: 'refresh.complete', refreshed, remaining: remaining.length })
   return {
     mode: 'apply' as const,

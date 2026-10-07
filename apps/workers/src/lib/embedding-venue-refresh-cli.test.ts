@@ -41,7 +41,9 @@ describe('embedding:refresh-venue arguments', () => {
   })
 
   it('refuses to run while the background dispatcher could also write', () => {
-    expect(() => parseVenueRefreshArgs(base, {} as NodeJS.ProcessEnv)).toThrow('EMBEDDING_DISPATCH_ENABLED=false')
+    expect(() => parseVenueRefreshArgs(base, {} as NodeJS.ProcessEnv)).toThrow(
+      'EMBEDDING_DISPATCH_ENABLED=false',
+    )
   })
 
   it('requires an explicit bound and a receipt file to apply', () => {
@@ -54,6 +56,60 @@ describe('embedding:refresh-venue arguments', () => {
 })
 
 describe('embedding:refresh-venue run', () => {
+  it.each([
+    'truncated',
+    'dispatch-leased',
+    'current-running',
+    'complete-claim-missing-vector-invariant-breach',
+  ])('never certifies or writes an incomplete or blocked audit: %s', async (reason) => {
+    const result = {
+      ...audit([]),
+      truncated: reason === 'truncated',
+      groups:
+        reason === 'truncated'
+          ? []
+          : [{ venueId: 'venue-a', entityType: 'PLACE', reason, count: 1 }],
+    }
+    const read = vi.fn().mockResolvedValue(result)
+    const place = vi.fn()
+    const plan = await runVenueRefreshCommand(
+      { mode: 'plan', tenantId: 'tenant-a', venueId: 'venue-a' },
+      { audit: read as never, processors: { place, knowledge: vi.fn() } as never },
+    )
+    expect(plan).not.toHaveProperty('next', 'Every embedding for this venue is current.')
+    expect(read).toHaveBeenCalledWith({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      manualRefresh: true,
+    })
+    await expect(
+      runVenueRefreshCommand(
+        {
+          mode: 'apply',
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          max: 1,
+          receipts: 'must-not-be-created.jsonl',
+        },
+        { audit: read as never, processors: { place, knowledge: vi.fn() } as never },
+      ),
+    ).rejects.toThrow('cannot safely refresh')
+    expect(place).not.toHaveBeenCalled()
+  })
+  it('reports incomplete when a processor returns without producing a current embedding', async () => {
+    const receipts = join(mkdtempSync(join(tmpdir(), 'venue-refresh-')), 'receipts.jsonl')
+    const read = vi.fn().mockResolvedValue(audit([candidate('PLACE', 'p1')]))
+    await expect(
+      runVenueRefreshCommand(
+        { mode: 'apply', tenantId: 'tenant-a', venueId: 'venue-a', max: 1, receipts },
+        {
+          audit: read as never,
+          processors: { place: vi.fn().mockResolvedValue(undefined), knowledge: vi.fn() } as never,
+        },
+      ),
+    ).rejects.toThrow('freshness is not proven')
+    expect(readFileSync(receipts, 'utf8')).toContain('refresh.incomplete')
+  })
   it('plans without embedding anything', async () => {
     const place = vi.fn()
     const knowledge = vi.fn()
