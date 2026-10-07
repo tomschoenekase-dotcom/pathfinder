@@ -26,9 +26,8 @@
 
 /*
  * The visitor chat owns its scrolling; the page itself must not drag or rubber-band. The document
- * is pinned and painted with the active venue's bottom-bar color (--visitor-page-bg, set while the
- * chat is open) so the home-indicator area and the space Safari exposes beneath the composer while
- * the keyboard is open continue the composer band instead of flashing another color.
+ * is pinned and painted with the active venue's page color (--visitor-page-bg, set while the chat
+ * is open) so status-bar, home-indicator and overscroll areas never flash the light default.
  */
 html[data-visitor-chat],
 html[data-visitor-chat] body {

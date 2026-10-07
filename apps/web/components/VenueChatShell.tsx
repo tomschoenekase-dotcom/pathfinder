@@ -105,16 +105,12 @@ function useImageLoad(src: string | null) {
  * and browser chrome hint with the active venue's colors. Everything is restored on exit so other
  * routes keep the global light surface and blue theme-color. Safari still owns its keyboard
  * accessory bar and address pill; only page-controlled regions can be themed.
- *
- * The document takes the bottom-bar color, not the transcript color: while the iOS keyboard is
- * open the shell shrinks to the visual viewport, and the document is what shows beneath the
- * composer (behind Safari's floating address pill, accessory bar and translucent keyboard).
  */
-function useVisitorDocumentSurface(bottomColor: string, chromeColor: string) {
+function useVisitorDocumentSurface(pageColor: string, chromeColor: string) {
   useEffect(() => {
     const root = document.documentElement
     root.dataset.visitorChat = ''
-    root.style.setProperty('--visitor-page-bg', bottomColor)
+    root.style.setProperty('--visitor-page-bg', pageColor)
     const themeMetas = Array.from(
       document.head.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]'),
     )
@@ -127,7 +123,7 @@ function useVisitorDocumentSurface(bottomColor: string, chromeColor: string) {
         if (meta.isConnected) meta.content = previous[index] ?? meta.content
       })
     }
-  }, [bottomColor, chromeColor])
+  }, [pageColor, chromeColor])
 }
 
 export function VenueChatShell(props: {
@@ -315,7 +311,7 @@ export function VenueChatShell(props: {
     hasBackgroundImage: backdropReady,
     highContrast: preferences.highContrast,
   })
-  useVisitorDocumentSurface(tokens.footerBg, tokens.headerBg)
+  useVisitorDocumentSurface(tokens.pageBg, tokens.headerBg)
   // Without a chosen background, a reviewed banner keeps its original header placement.
   const headerBanner =
     !wantsBackdrop && !compactAppHeader && !preferences.highContrast && Boolean(bannerUrl)
