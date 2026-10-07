@@ -70,6 +70,7 @@ const EXPECTED_TOOLS = [
   'venues.list_content',
   'venues.get_content',
   'venues.preview_content_changeset',
+  'venues.check_package',
   'venues.list_releases',
   'venues.get_release',
   'venues.get_effective_guest_version',
@@ -259,9 +260,11 @@ describe('operator MCP catalog', () => {
       expect(tool.effect).toBe(isRead ? 'read' : isControl ? 'control' : 'proposal')
       expect(tool.annotations.readOnlyHint).toBe(isRead)
       expect(tool.annotations.destructiveHint).toBe(false)
-      // Only the two tools that download a user's attachment reach outside the deployment.
+      // Only the tools that download a user's attachment reach outside the deployment.
       expect(tool.annotations.openWorldHint).toBe(
-        tool.name === 'crm.stage_csv_import' || tool.name === 'venues.propose_package_import',
+        ['crm.stage_csv_import', 'venues.check_package', 'venues.propose_package_import'].includes(
+          tool.name,
+        ),
       )
       expect(OperatorCapability.safeParse(tool.capability).success).toBe(true)
       expect(['platform', 'tenant', 'venue']).toContain(tool.scope)

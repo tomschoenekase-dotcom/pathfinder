@@ -56,10 +56,13 @@ export function setPackageFileDownloadForTests(next: PackageFileDownload | null)
 export async function resolvePackageAttachment(
   raw: unknown,
   context: Pick<OperatorKindContext, 'grant' | 'database'>,
+  capability: 'venues:propose' | 'venues:read' = 'venues:propose',
 ): Promise<unknown> {
-  const { file, ...rest } = input.parse(raw)
+  const { file, ...rest } = (
+    capability === 'venues:read' ? OPERATOR_MCP_INPUTS['venues.check_package'] : input
+  ).parse(raw)
   if (!file) return raw
-  assertGrantCapability(context.grant, 'venues:propose')
+  assertGrantCapability(context.grant, capability)
   await assertVenueInGrant(context.grant, rest.tenantId, rest.venueId, context.database)
   const text = await download(file)
   let json: unknown
@@ -87,7 +90,7 @@ function stepKey(operationId: string, step: 'draft' | 'approve' | 'apply') {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
 }
 
-function counts(payload: VenuePackagePayload) {
+export function counts(payload: VenuePackagePayload) {
   if (payload.schemaVersion === 3) {
     return {
       places: {
@@ -113,6 +116,29 @@ function failure(message: string, extra: Record<string, unknown> = {}) {
 }
 
 /**
+ * Runs one import step and keeps its reason on the receipt. Without a summary the operator records
+ * only the code (for example CONFLICT), and the caller cannot tell which step failed or what to do.
+ */
+async function step<T>(name: 'draft' | 'approve' | 'apply', run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    if (error && typeof error === 'object' && !('summary' in error)) {
+      const message = error instanceof Error ? error.message : String(error)
+      const code = 'code' in error ? String((error as { code: unknown }).code) : 'ERROR'
+      const retry =
+        code === 'CONFLICT'
+          ? ' Nothing was applied. Retry with a new operationId; the saved draft stays unapplied.'
+          : ''
+      Object.assign(error, {
+        summary: `The ${name} step failed (${code}): ${message}.${retry}`.slice(0, 500),
+      })
+    }
+    throw error
+  }
+}
+
+/**
  * Imports the dashboard's venue-package JSON end to end: saves the draft (with the duplicate scan),
  * approves it acknowledging its warnings, and applies it. Applied packages keep the dashboard's
  * history and revert. Validation errors stop the operation before anything guests can see changes.
@@ -120,7 +146,7 @@ function failure(message: string, extra: Record<string, unknown> = {}) {
 const GUIDE_QUALITY_FINDINGS_SHOWN = 40
 
 /** Guide-quality findings tell the author exactly which records to rewrite before re-importing. */
-function guideQualityFindings(
+export function guideQualityFindings(
   warnings: ReadonlyArray<{ code: string; path: string; message: string }>,
 ) {
   const findings = warnings.filter((warning) => warning.code.startsWith('GUIDE_QUALITY_'))
@@ -167,12 +193,14 @@ export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
     const { tenantId, venueId } = args
     const database = context.database
     const actor = { type: 'HUMAN' as const, id: context.actor.id, role: 'PLATFORM_ADMIN' as const }
-    const draft = await createVenuePackageDraftService({
-      db: database as never,
-      tenantId,
-      actor,
-      input: { venueId, draftKey: stepKey(context.operationId, 'draft'), payload: args.payload },
-    })
+    const draft = await step('draft', () =>
+      createVenuePackageDraftService({
+        db: database as never,
+        tenantId,
+        actor,
+        input: { venueId, draftKey: stepKey(context.operationId, 'draft'), payload: args.payload },
+      }),
+    )
     const pkg = draft.value
     if (pkg.status === 'APPLIED') {
       return {
@@ -189,36 +217,40 @@ export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
     }
     let current = pkg as { id: string; status: string; updatedAt: Date }
     if (current.status === 'DRAFT') {
-      current = await approveVenuePackageLifecycle({
-        db: database as never,
-        tenantId,
-        venueId,
-        actor,
-        command: {
-          id: pkg.id,
-          expectedUpdatedAt: pkg.updatedAt,
-          commandKey: stepKey(context.operationId, 'approve'),
-          acknowledgedPayloadHash: pkg.preview.payloadHash,
-          acknowledgedWarningDigest: pkg.preview.warningDigest,
-        },
-      })
-    }
-    // Content-version markers are transaction-local. Content effects, history, package receipt
-    // and RELEASED milestone must commit together, just as they do through the dashboard router.
-    const applied = await database.$transaction(
-      async (tx) =>
-        applyVenuePackageLifecycle({
-          db: tx as never,
+      current = await step('approve', () =>
+        approveVenuePackageLifecycle({
+          db: database as never,
           tenantId,
           venueId,
           actor,
           command: {
-            id: current.id,
-            expectedUpdatedAt: current.updatedAt,
-            commandKey: stepKey(context.operationId, 'apply'),
+            id: pkg.id,
+            expectedUpdatedAt: pkg.updatedAt,
+            commandKey: stepKey(context.operationId, 'approve'),
+            acknowledgedPayloadHash: pkg.preview.payloadHash,
+            acknowledgedWarningDigest: pkg.preview.warningDigest,
           },
         }),
-      VENUE_PACKAGE_TRANSACTION_OPTIONS,
+      )
+    }
+    // Content-version markers are transaction-local. Content effects, history, package receipt
+    // and RELEASED milestone must commit together, just as they do through the dashboard router.
+    const applied = await step('apply', () =>
+      database.$transaction(
+        async (tx) =>
+          applyVenuePackageLifecycle({
+            db: tx as never,
+            tenantId,
+            venueId,
+            actor,
+            command: {
+              id: current.id,
+              expectedUpdatedAt: current.updatedAt,
+              commandKey: stepKey(context.operationId, 'apply'),
+            },
+          }),
+        VENUE_PACKAGE_TRANSACTION_OPTIONS,
+      ),
     )
     return {
       result: {

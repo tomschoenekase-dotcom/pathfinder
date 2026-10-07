@@ -164,7 +164,7 @@ describe('spreadsheet import safety', () => {
       {
         importId: 'import-1',
         rows: [
-          row(2, { Venue: 'Caf�' }, { venueName: 'Caf�' }),
+          row(2, { Venue: 'Caf\uFFFD' }, { venueName: 'Caf\uFFFD' }),
           row(3, { Venue: 'Bad\u0000Name' }, { venueName: 'Bad\u0000Name' }),
         ],
         actor,

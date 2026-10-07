@@ -213,6 +213,7 @@ jobs:
       - run: pnpm verify:tenant-registry
       - run: pnpm verify:tenant-bypasses
       - run: pnpm verify:raw-sql
+      - run: pnpm verify:source-encoding
       - run: pnpm verify:tenant-procedures
       - run: pnpm verify:docker-context
       - run: pnpm verify:docker-context:effective

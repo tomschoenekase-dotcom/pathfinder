@@ -280,6 +280,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'venues.list_content',
   'venues.get_content',
   'venues.preview_content_changeset',
+  'venues.check_package',
   'venues.list_releases',
   'venues.get_release',
   'venues.get_effective_guest_version',
@@ -416,6 +417,13 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'operator.propose_revert',
 ] as const
 
+/** Tools that download a user's attached file: the only ones that reach outside the deployment. */
+export const OPERATOR_FILE_TOOL_NAMES: readonly string[] = [
+  'crm.stage_csv_import',
+  'venues.check_package',
+  'venues.propose_package_import',
+]
+
 export type OperatorReadToolName = (typeof OPERATOR_READ_TOOL_NAMES)[number]
 export type OperatorWriteToolName = (typeof OPERATOR_WRITE_TOOL_NAMES)[number]
 export type OperatorControlToolName = (typeof OPERATOR_CONTROL_TOOL_NAMES)[number]
@@ -438,6 +446,22 @@ export const OPERATOR_PLAN_STEP_TOOLS = OPERATOR_WRITE_TOOL_NAMES.filter(
 // ---------------------------------------------------------------------------
 
 const readInput = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict()
+
+/** A venue package given inline or as an attached .json file (check and import take the same). */
+const VenuePackageSourceShape = {
+  /** The same venue-package JSON the dashboard importer accepts (schemaVersion 1, 2 or 3). */
+  payload: z.record(z.unknown()).optional(),
+  /** Or the package as an attached .json file; the server downloads it and uses it unchanged. */
+  file: z
+    .object({
+      download_url: z.string().url().max(4096),
+      file_id: z.string().min(1).max(191),
+      mime_type: z.string().max(100).optional(),
+      file_name: z.string().max(200).optional(),
+    })
+    .strict()
+    .optional(),
+} as const
 const writeInput = <T extends z.ZodRawShape>(shape: T) =>
   z.object({ ...shape, operationId: OperationId }).strict()
 
@@ -558,6 +582,10 @@ const AppearanceProposeInput = appearanceUpdateBase
     message: 'title cannot be combined with clearing chatAppearance',
     path: ['chatAppearance'],
   })
+
+const PackageCheckIssue = z
+  .object({ code: z.string().max(80), path: z.string().max(300), message: z.string().max(600) })
+  .strict()
 
 export const OPERATOR_MCP_INPUTS = {
   'crm.search_organizations': readInput({
@@ -876,6 +904,10 @@ export const OPERATOR_MCP_INPUTS = {
   'venues.list_content': VenueContentListInput,
   'venues.get_content': VenueContentGetInput,
   'venues.preview_content_changeset': readInput({ ...VenueContentChangesetShape }),
+  'venues.check_package': readInput({ ...venueScope, ...VenuePackageSourceShape }).refine(
+    (value) => Boolean(value.payload) !== Boolean(value.file),
+    { message: 'Provide exactly one of payload (inline JSON) or file (an attached .json file)' },
+  ),
   'venues.list_releases': VenueReleaseListInput,
   'venues.get_release': VenueReleaseGetInput,
   'venues.get_effective_guest_version': VenueEffectiveGuestVersionInput,
@@ -1083,18 +1115,7 @@ export const OPERATOR_MCP_INPUTS = {
   ),
   'venues.propose_package_import': writeInput({
     ...venueScope,
-    /** The same venue-package JSON the dashboard importer accepts (schemaVersion 1, 2 or 3). */
-    payload: z.record(z.unknown()).optional(),
-    /** Or the package as an attached .json file; the server downloads it and imports it unchanged. */
-    file: z
-      .object({
-        download_url: z.string().url().max(4096),
-        file_id: z.string().min(1).max(191),
-        mime_type: z.string().max(100).optional(),
-        file_name: z.string().max(200).optional(),
-      })
-      .strict()
-      .optional(),
+    ...VenuePackageSourceShape,
   }).refine((value) => Boolean(value.payload) !== Boolean(value.file), {
     message: 'Provide exactly one of payload (inline JSON) or file (an attached .json file)',
   }),
@@ -3335,6 +3356,46 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.list_content': VenueContentListOutput,
   'venues.get_content': VenueContentGetOutput,
   'venues.preview_content_changeset': ContentChangesetPreviewOutput,
+  'venues.check_package': z
+    .object({
+      venueId: Identifier,
+      /** True when the package would import: no validation errors. */
+      importable: z.boolean(),
+      /** True when it would import and every record already meets the writing guide. */
+      ready: z.boolean(),
+      plan: z
+        .object({
+          places: z
+            .object({
+              create: z.number().int(),
+              update: z.number().int(),
+              remove: z.number().int(),
+            })
+            .strict(),
+          knowledgeEntries: z
+            .object({
+              create: z.number().int(),
+              update: z.number().int(),
+              remove: z.number().int(),
+            })
+            .strict(),
+        })
+        .strict()
+        .nullable(),
+      errors: z.array(PackageCheckIssue).max(40),
+      errorCount: z.number().int().nonnegative(),
+      guideQuality: z
+        .object({
+          total: z.number().int().nonnegative(),
+          shown: z.array(PackageCheckIssue).max(40),
+          next: z.string().max(500),
+        })
+        .strict(),
+      otherWarnings: z.array(PackageCheckIssue).max(40),
+      otherWarningCount: z.number().int().nonnegative(),
+      note: z.string().max(500),
+    })
+    .strict(),
   'venues.list_releases': VenueReleaseListOutput,
   'venues.get_release': VenueReleaseGetOutput,
   'venues.get_effective_guest_version': VenueEffectiveGuestVersionOutput,
@@ -4436,6 +4497,13 @@ const seeds: readonly Seed[] = [
     'venue',
   ],
   [
+    'venues.check_package',
+    'Check venue package',
+    `Check a venue package (inline payload or attached .json file) without saving or changing anything: the import plan, validation errors, and guideQuality findings with exact record paths and what to fix (research or pin notes, "listed" voice, labels in names, source links, weak first sentences, missing Height: lines, question titles). Fix and re-check until ready is true, then import with venues.propose_package_import.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
     'venues.preview_content_changeset',
     'Preview content changeset',
     `Compute, without changing anything, what a content changeset would do: per-operation old and new values, whether each expected revision is still current, problems and notes. The same checks run when the changeset is proposed.${READ}`,
@@ -5173,7 +5241,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_package_import',
     'Import venue package JSON',
-    `Import the same venue-package JSON the dashboard JSON importer accepts (schemaVersion 1, 2 or 3: places, knowledge entries and, from version 2, venue settings). Pass it inline as payload, or attach the .json file as file and the server downloads it, so large packages need not be retyped; every record, its full text and provenance are imported exactly as supplied. Retrying with the same operationId and the same content never imports twice. The server validates it, runs the duplicate scan, then approves and applies it in one step, so the content is live for the venue at once. Version 3 may also update and remove existing items by id. Validation errors or an incomplete duplicate scan fail the operation with the reasons and change nothing. Applied packages appear in the dashboard history and can be reverted there. Place coordinates go on each place as lat and lng decimal-degree numbers given together (for example lat 42.4651, lng -92.3420); strings and latitude/longitude or coordinates keys are rejected. To change coordinates of an existing place, send a version 3 update for that place id; it replaces the place's whole state, so include every field. Other venue tools cannot set coordinates. Write records for visitors, not as research notes: each record's first sentence says what the thing is ("X is a junior roller coaster"), exact facts go on labeled lines (Height:, Hours:, Price:, Also called:), and source names, URLs, checked-on dates, pin or mapping notes and source disagreements stay out of the text (sources go in sourceUrl and sourceName). operator.get_manual, "Writing guide records", has the full standard.${PROPOSE}`,
+    `Run venues.check_package on the same payload or file first and fix it until ready is true. Import the same venue-package JSON the dashboard JSON importer accepts (schemaVersion 1, 2 or 3: places, knowledge entries and, from version 2, venue settings). Pass it inline as payload, or attach the .json file as file and the server downloads it, so large packages need not be retyped; every record, its full text and provenance are imported exactly as supplied. Retrying with the same operationId and the same content never imports twice. The server validates it, runs the duplicate scan, then approves and applies it in one step, so the content is live for the venue at once. Version 3 may also update and remove existing items by id. Validation errors or an incomplete duplicate scan fail the operation with the reasons and change nothing. Applied packages appear in the dashboard history and can be reverted there. Place coordinates go on each place as lat and lng decimal-degree numbers given together (for example lat 42.4651, lng -92.3420); strings and latitude/longitude or coordinates keys are rejected. To change coordinates of an existing place, send a version 3 update for that place id; it replaces the place's whole state, so include every field. Other venue tools cannot set coordinates. Write records for visitors, not as research notes: each record's first sentence says what the thing is ("X is a junior roller coaster"), exact facts go on labeled lines (Height:, Hours:, Price:, Also called:), and source names, URLs, checked-on dates, pin or mapping notes and source disagreements stay out of the text (sources go in sourceUrl and sourceName). operator.get_manual, "Writing guide records", has the full standard.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.package-import',
@@ -5374,11 +5442,11 @@ export const OPERATOR_MCP_TOOLS: readonly OperatorToolDefinition[] = seeds.map(
         readOnlyHint: isRead,
         destructiveHint: false,
         idempotentHint: true,
-        openWorldHint: name === 'crm.stage_csv_import' || name === 'venues.propose_package_import',
+        openWorldHint: OPERATOR_FILE_TOOL_NAMES.includes(name),
       },
       capability,
       effect: isRead ? 'read' : isControl ? 'control' : 'proposal',
-      ...(name === 'crm.stage_csv_import' || name === 'venues.propose_package_import'
+      ...(OPERATOR_FILE_TOOL_NAMES.includes(name)
         ? { _meta: { 'openai/fileParams': ['file'] } }
         : {}),
       ...(proposalKind ? { proposalKind } : {}),

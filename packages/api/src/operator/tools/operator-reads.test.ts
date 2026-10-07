@@ -196,6 +196,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'venues.list_content',
         'venues.get_content',
         'venues.preview_content_changeset',
+        'venues.check_package',
         'venues.list_releases',
         'venues.get_release',
         'venues.get_effective_guest_version',

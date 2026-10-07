@@ -24,6 +24,7 @@ import { reportReadTools } from './reports'
 import { supportReadTools } from './support'
 import { updateReadTools } from './updates'
 import { venueContentReadTools } from './venue-content'
+import { venuesCheckPackage } from './venue-package-check'
 import { venueReleaseReadTools } from './venue-releases'
 import { venueSourceReadTools } from './venue-sources'
 import { sourceConnectionReadTools } from './source-connections'
@@ -55,6 +56,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...venueSourceReadTools,
   ...sourceConnectionReadTools,
   ...venueContentReadTools,
+  venuesCheckPackage,
   ...venueReleaseReadTools,
   ...supportReadTools,
   ...updateReadTools,

@@ -6,6 +6,7 @@
     "dev": "echo dev:workers",
     "embedding:freshness": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-freshness.ts",
     "embedding:claim-repair": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-claim-repair.ts",
+    "embedding:refresh-venue": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-refresh-venue.ts",
     "jobs:terminal-redrive": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/terminal-redrive.ts",
     "agent-bridge:run": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/agent-bridge-runner.ts",
     "character:complete-request": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/character-factory-executor.ts",

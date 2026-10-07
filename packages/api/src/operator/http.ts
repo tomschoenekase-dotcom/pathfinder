@@ -478,7 +478,7 @@ export async function handleOperatorMcpRequest(
                 capabilities: { tools: { listChanged: false } },
                 serverInfo: { name: 'torchiko-operator', version: '1.2.0' },
                 instructions:
-                  'Call operator.get_context and operator.get_manual first. Routine authorized CRM writes can apply immediately. Read each result; show the approveUrl only when a proposal remains PENDING. CSV attachments use crm.stage_csv_import before crm.propose_import_commit. An attached venue package .json goes to venues.propose_package_import as file; venues.get_guest_link returns the visitor chatbot link.',
+                  'Call operator.get_context and operator.get_manual first. Routine authorized CRM writes can apply immediately. Read each result; show the approveUrl only when a proposal remains PENDING. CSV attachments use crm.stage_csv_import before crm.propose_import_commit. An attached venue package .json goes to venues.check_package as file until ready is true, then to venues.propose_package_import as file; venues.get_guest_link returns the visitor chatbot link.',
               },
             },
             requestId,

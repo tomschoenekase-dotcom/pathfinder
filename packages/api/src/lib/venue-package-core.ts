@@ -119,7 +119,7 @@ const venuePackageSelect = {
   updatedAt: true,
 } as const
 
-function conflict(message = 'Venue package changed; refresh and review it again'): never {
+export function conflict(message = 'Venue package changed; refresh and review it again'): never {
   throw new TRPCError({ code: 'CONFLICT', message })
 }
 
@@ -137,7 +137,7 @@ function mapLifecycleError(error: unknown): never {
   })
 }
 
-function digest(value: unknown): string {
+export function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
@@ -187,7 +187,7 @@ function directProvenanceData(input: {
   }
 }
 
-function jsonValue(value: unknown): object {
+export function jsonValue(value: unknown): object {
   return JSON.parse(JSON.stringify(value)) as object
 }
 
@@ -199,7 +199,7 @@ function normalizeLabel(value: string): string {
     .trim()
 }
 
-async function assertVenue(db: DbClient, tenantId: string, venueId: string) {
+export async function assertVenue(db: DbClient, tenantId: string, venueId: string) {
   const venue = await db.venue.findFirst({
     where: { id: venueId, tenantId },
     select: venuePackageVenueSelect,
@@ -1051,11 +1051,11 @@ export function assertStoredVenuePackageEvidenceCurrent(params: {
   }
 }
 
-async function findPackage(db: DbClient, tenantId: string, id: string) {
+export async function findPackage(db: DbClient, tenantId: string, id: string) {
   return db.venuePackage.findFirst({ where: { id, tenantId }, select: venuePackageSelect })
 }
 
-function auditState(pkg: NonNullable<Awaited<ReturnType<typeof findPackage>>>) {
+export function auditState(pkg: NonNullable<Awaited<ReturnType<typeof findPackage>>>) {
   return {
     id: pkg.id,
     venueId: pkg.venueId,

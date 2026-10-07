@@ -3,7 +3,7 @@
  * filesystem at runtime (a Next standalone bundle does not ship docs/). A test keeps this equal to
  * the docs file; edit the docs file first, then update this constant to match.
  */
-export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v9'
+export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v10'
 
 export const OPERATOR_MANUAL_TEXT = [
   '# Operator manual',
@@ -40,15 +40,20 @@ export const OPERATOR_MANUAL_TEXT = [
   '### Structure that makes a venue answer well',
   '',
   'Give every venue these topics as well as one record per place:',
+  '',
   '- **Hours and season.** One topic with every operating day and date range written out, for example "Hours: 10:30am-6:30pm daily, June 5-August 23", "Hours: weekends only, September 5-7", "Closed: Mondays", and the season end ("The 2026 season ended September 7; 2027 dates are not announced yet"). Never write hours without the days they apply to.',
   '- **Complete category lists.** One topic per category that names every member, with its kind and area: every restaurant and kiosk, every roller coaster, every ride that is not a coaster, every animal or exhibit. The guide answers "what food is there" and "how many coasters" from these.',
   '- **Kids by height.** One topic listing every ride by the height a child needs, with and without an adult, so "what can my 4-year-old ride" is answered completely.',
   '- **Planning by area.** Which big rides or exhibits are in which area, so a short visit can be planned one area at a time.',
   '- **Ratings the venue publishes** (thrill levels, age ranges) belong on each record and in the category lists.',
   '',
-  '### The import checks your writing',
+  '### Check before you import',
   '',
-  '`venues.propose_package_import` reviews every record it creates or updates and returns `result.guideQuality`: `total` and up to 40 `shown` findings, each with the record path and what to fix (research or pin notes, record-voice phrases, research labels in names, source links in text, a first sentence that does not say what the thing is, a ride without a `Height:` line, question-style titles). The import still applies; fix the named records and import a schemaVersion 3 update until `total` is 0.',
+  'Run `venues.check_package` with the same `payload` or attached `file` you would import. It saves nothing and calls no model. It returns the import `plan`, validation `errors`, and `guideQuality`: `total` and up to 40 `shown` findings, each with the record path and what to fix (research or pin notes, record-voice phrases, research labels in names, source links in text, a first sentence that does not say what the thing is, a ride without a `Height:` line, question-style titles). Fix the named records and check again until `ready` is true; then import once with `venues.propose_package_import`.',
+  '',
+  'Also fix `otherWarnings` such as `DUPLICATE_IN_PACKAGE` (two records with the same title): give each record its own clear title or merge them. The import itself adds a semantic duplicate scan whose warnings never block it.',
+  '',
+  'If an import fails, its receipt `result.summary` names the step (draft, approve or apply) and the reason. A failed import changes nothing guests see. Retry with a new `operationId`; never reuse the failed one, because it replays the saved draft.',
   '',
   '### Self-test before you hand a venue over',
   '',
