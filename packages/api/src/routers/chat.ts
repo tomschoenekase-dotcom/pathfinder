@@ -81,6 +81,7 @@ import {
   buildVenueSystemPromptParts,
   guestResponseIntentForMessage,
   guestVenueClock,
+  isGuestHeightOrAgeRideQuestion,
 } from '../lib/venue-context'
 import { buildGuestRecommendationDecision } from '../lib/venue-recommendation-context'
 import {
@@ -1793,6 +1794,7 @@ const chatReadRouter = router({
         ...(input.language ? { language: input.language } : {}),
         guideMode,
         responseIntent: guestResponseIntentForMessage(trimmedInput, input.responseIntent),
+        heightOrAgeRideQuestion: isGuestHeightOrAgeRideQuestion(trimmedInput),
         ...(selectedEngagementQuestion || allowAiInventedQuestion
           ? {
               engagementQuestion: {

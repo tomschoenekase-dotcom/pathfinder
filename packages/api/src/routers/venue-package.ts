@@ -1,3 +1,4 @@
+import { venuePackageGuideQualityWarnings } from '../lib/venue-guide-quality'
 import { createHash, randomUUID } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { AiGatewayError } from '@pathfinder/ai'
@@ -494,6 +495,7 @@ function duplicateWarnings(
     seenKnowledge.add(normalized)
   })
 
+  warnings.push(...venuePackageGuideQualityWarnings(payload))
   return sortVenuePackageIssues(warnings)
 }
 

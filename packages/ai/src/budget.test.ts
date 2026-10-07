@@ -71,8 +71,8 @@ describe('AI cost budget ceilings', () => {
     // fractional 0.125 rate rounds upward at the reservation's integer scale.
     expect(spec.pricingUsdPerMillionTokens.cacheWrite).toBe(0.125)
     expect(spec.pricingUsdPerMillionTokens.input).toBe(0.1)
-    expect(reservedUnits).toBe(2_625_600n)
-    const ordinaryOnlyUnits = 2_025_600n
+    expect(reservedUnits).toBe(2_651_200n)
+    const ordinaryOnlyUnits = 2_051_200n
     expect(reservedUnits).toBeGreaterThan(ordinaryOnlyUnits)
     const gate = withAiRequestBudgetCeiling(NOOP_AI_BUDGET_GATE, ordinaryOnlyUnits)
     await expect(

@@ -117,6 +117,26 @@ function failure(message: string, extra: Record<string, unknown> = {}) {
  * approves it acknowledging its warnings, and applies it. Applied packages keep the dashboard's
  * history and revert. Validation errors stop the operation before anything guests can see changes.
  */
+const GUIDE_QUALITY_FINDINGS_SHOWN = 40
+
+/** Guide-quality findings tell the author exactly which records to rewrite before re-importing. */
+function guideQualityFindings(
+  warnings: ReadonlyArray<{ code: string; path: string; message: string }>,
+) {
+  const findings = warnings.filter((warning) => warning.code.startsWith('GUIDE_QUALITY_'))
+  return {
+    total: findings.length,
+    shown: findings
+      .slice(0, GUIDE_QUALITY_FINDINGS_SHOWN)
+      .map(({ code, path, message }) => ({ code, path, message })),
+    ...(findings.length
+      ? {
+          next: 'Rewrite the named records to the operator manual standard ("Writing guide records") and import a schemaVersion 3 update until total is 0.',
+        }
+      : {}),
+  }
+}
+
 export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
   kind: 'venues.package-import',
   tool: 'venues.propose_package_import',
@@ -207,6 +227,7 @@ export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
         status: applied.status,
         plan: counts(args.payload),
         warnings: report.warnings.length,
+        guideQuality: guideQualityFindings(report.warnings),
         replayed: false,
       },
       after: { packageId: applied.id, status: applied.status } as JsonValue,

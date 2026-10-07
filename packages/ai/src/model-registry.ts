@@ -188,7 +188,9 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   }),
   // Explicit provider-diversity candidate. Anthropic remains the platform
   // default until a governed workload/client/venue override selects this key.
-  [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaSpec(512),
+  // A ranking across a large venue (a reason per ride) can exceed 512 tokens; an incomplete
+  // response becomes a fallback reply, so the guest route leaves room. Billing is per token used.
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaSpec(1_024),
   [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),

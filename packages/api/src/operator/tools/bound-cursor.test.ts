@@ -20,7 +20,7 @@ const base: CursorQuery = {
   tool: 'crm.search_organizations',
   scope: 'platform',
   sort: 'name',
-  filters: { query: 'Lost Island', city: 'Waterloo', region: 'IA', limit: 25 },
+  filters: { query: 'Emberwild Park', city: 'Springfield', region: 'IL', limit: 25 },
 }
 
 describe('bound cursors', () => {
@@ -29,7 +29,7 @@ describe('bound cursors', () => {
     expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/u)
     const same: CursorQuery = {
       ...base,
-      filters: { query: '  lost island ', city: 'waterloo', region: 'ia', limit: 10 },
+      filters: { query: '  emberwild park ', city: 'springfield', region: 'il', limit: 10 },
     }
     expect(readBoundCursor(same, cursor)).toBe('org_42')
   })

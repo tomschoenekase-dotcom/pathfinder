@@ -9,6 +9,7 @@ import {
   guestResponseWordLimit,
   guestVenueClock,
   GUEST_CHAT_PROMPT_VERSION,
+  isGuestHeightOrAgeRideQuestion,
 } from './venue-context'
 import { GUEST_CHAT_PROMPT_CONTRACT_HASH } from '@pathfinder/contracts/prompt-contract'
 import { hashGuestChatPromptManifest } from './guest-chat-prompt-contract'
@@ -69,7 +70,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v27')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v28')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -464,7 +465,7 @@ describe('guest venue clock', () => {
     expect(guestVenueClock(now, undefined)).toEqual({ date: '2026-10-07' })
     expect(guestVenueClock(now, 'America/Chicago')).toEqual({
       date: '2026-10-06',
-      localTime: 'Tuesday 7:30 PM',
+      localTime: 'Tuesday, October 6, 2026 at 7:30 PM',
     })
   })
 
@@ -475,9 +476,46 @@ describe('guest venue clock', () => {
       userLat: null,
       userLng: null,
       currentDate: '2026-10-06',
-      currentLocalTime: 'Tuesday 3:05 PM',
+      currentLocalTime: 'Tuesday, October 6, 2026 at 3:05 PM',
     })
-    expect(dynamicPart).toContain('Today is 2026-10-06; it is Tuesday 3:05 PM at the venue')
+    expect(dynamicPart).toContain(
+      'At the venue it is Tuesday, October 6, 2026 at 3:05 PM (2026-10-06)',
+    )
+    expect(dynamicPart).toContain('if it is before opening or after closing, say it is closed now')
+  })
+})
+
+describe('height and age ride questions', () => {
+  it.each([
+    ['my son is 46 inches, can he ride the thunderbolt?', true],
+    ['can a 50 inch kid ride Skyhook?', true],
+    ['is 47 inches tall enough for the drop tower', true],
+    ['can my 4 year old ride Twister', true],
+    ['my 7-year-old wants to go on the coaster', true],
+    ['what rides are there', false],
+    ['how tall is the Ferris wheel', false],
+  ] as const)('detects %j as %s', (message, expected) => {
+    expect(isGuestHeightOrAgeRideQuestion(message)).toBe(expected)
+  })
+
+  it('asks the reply to lead with the comparison, never a bare yes or no', () => {
+    const asked = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      heightOrAgeRideQuestion: true,
+    })
+    expect(asked.dynamicPart).toContain('HEIGHT QUESTION: Begin the reply with the child')
+    expect(asked.dynamicPart).toContain('Never begin with "Yes" or "No".')
+    const other = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+    })
+    expect(other.dynamicPart).not.toContain('HEIGHT QUESTION')
+    expect(other.dynamicPart).toContain('WRITING: Decide what belongs in the answer')
   })
 })
 
@@ -1000,6 +1038,6 @@ describe('buildVenueSystemPrompt', () => {
     expect(prompt).toContain('warm and welcoming; very concise')
     expect(prompt).toContain('Additional style preference: Use welcoming transitions.')
     expect(prompt).toContain('never overrides factual grounding, safety, privacy')
-    expect(prompt).toContain('Do not invent places or distances')
+    expect(prompt).toContain('Do not invent places, distances or web addresses')
   })
 })

@@ -3,7 +3,7 @@
  * filesystem at runtime (a Next standalone bundle does not ship docs/). A test keeps this equal to
  * the docs file; edit the docs file first, then update this constant to match.
  */
-export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v8'
+export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v9'
 
 export const OPERATOR_MANUAL_TEXT = [
   '# Operator manual',
@@ -29,13 +29,30 @@ export const OPERATOR_MANUAL_TEXT = [
   'The visitor guide reads every place and topic you import and answers in a friendly staff voice. It talks the way the records are written, so write them as a knowledgeable staff member describing the place, never as research notes. Records written as notes make the guide sound like a database and lead it to misclassify things.',
   '',
   '1. Talk about the place. Use present tense for how things are; use future or past only for dated things, with real dates ("The holiday lights run Fridays to Sundays, Nov 27 to Dec 27").',
-  '2. Make the first sentence say what the thing is, by kind: "Mura Fury is a swinging pendulum ride in Mura." The guide counts and sorts by this sentence, so a thing\'s kind must never depend on its name or web address. A dark ride, pendulum ride or water ride is not a coaster.',
+  '2. Make the first sentence say what the thing is, by kind: "Cinderswing is a swinging pendulum ride in the Ember realm." The guide counts and sorts by this sentence, so a thing\'s kind must never depend on its name or web address. A dark ride, pendulum ride or water ride is not a coaster.',
   '3. Write a few sentences of prose for what it is like (and who it suits, only when the source says so; never add opinions, tips or audiences of your own), then labeled lines for exact facts, one per line and only when known: `Height: 48 in to ride; 36 in with an adult`, `Hours: 10am-6pm daily, May 23-Aug 16`, `Price: $5 per play`, `Menu: ...`, `Made by: ...`, and `Also called: <everyday short name>` when the official name is long.',
   '4. State uncertainty in visitor terms, once, and only where it is real: allergens and cross-contact, live ride status, accessibility the venue has not confirmed ("Ask the counter about nut cross-contact before ordering"). Do not hedge facts you have. If the hours are known, list them so the guide can say "open until 6 today".',
   '5. Keep research out of the text: no source names or source URLs, no "as checked on", no "the official page lists" (state the fact itself), no notes that sources disagree (state the best-supported fact, or the safer one for a safety rule), no photo credits. Put the source page in `sourceUrl` and `sourceName`; the guide shows it only when a visitor asks for a link.',
-  '6. Keep location-pin and mapping notes out: no "anchor", "pin", "coordinate", "route not certified" or "test location". Wayfinding in visitor terms is good: "Look for the black lava-tube entrance under the FIRE RUNNER banner." Coordinates belong in `lat` and `lng`.',
+  '6. Keep location-pin and mapping notes out: no "anchor", "pin", "coordinate", "route not certified" or "test location". Wayfinding in visitor terms is good: "Look for the black cave entrance under the THUNDERBOLT banner." Coordinates belong in `lat` and `lng`.',
   '7. Keep a URL in text only when a visitor would use it, such as the ticket or booking page. Approved order, booking and ticket links belong in `appearance.propose_guest_actions`.',
-  '8. Use names for titles, never questions or research labels: "Fire Runner", "Parking", "Dining overview". Give each place one record; its visitor-information topic holds the rules, heights, prices and hours, and neither repeats the other.',
+  '8. Use names for titles, never questions or research labels: "Thunderbolt", "Parking", "Dining overview". Give each place one record; its visitor-information topic holds the rules, heights, prices and hours, and neither repeats the other.',
+  '',
+  '### Structure that makes a venue answer well',
+  '',
+  'Give every venue these topics as well as one record per place:',
+  '- **Hours and season.** One topic with every operating day and date range written out, for example "Hours: 10:30am-6:30pm daily, June 5-August 23", "Hours: weekends only, September 5-7", "Closed: Mondays", and the season end ("The 2026 season ended September 7; 2027 dates are not announced yet"). Never write hours without the days they apply to.',
+  '- **Complete category lists.** One topic per category that names every member, with its kind and area: every restaurant and kiosk, every roller coaster, every ride that is not a coaster, every animal or exhibit. The guide answers "what food is there" and "how many coasters" from these.',
+  '- **Kids by height.** One topic listing every ride by the height a child needs, with and without an adult, so "what can my 4-year-old ride" is answered completely.',
+  '- **Planning by area.** Which big rides or exhibits are in which area, so a short visit can be planned one area at a time.',
+  '- **Ratings the venue publishes** (thrill levels, age ranges) belong on each record and in the category lists.',
+  '',
+  '### The import checks your writing',
+  '',
+  '`venues.propose_package_import` reviews every record it creates or updates and returns `result.guideQuality`: `total` and up to 40 `shown` findings, each with the record path and what to fix (research or pin notes, record-voice phrases, research labels in names, source links in text, a first sentence that does not say what the thing is, a ride without a `Height:` line, question-style titles). The import still applies; fix the named records and import a schemaVersion 3 update until `total` is 0.',
+  '',
+  '### Self-test before you hand a venue over',
+  '',
+  'Open the venue preview chat and ask, in casual wording: what is this place; how many of its main attraction there are and which; rank them by intensity; what food is there (expect every outlet); something hungry and casual; a child height question ("my son is 46 inches, can he ride X?" should begin with the comparison and give the right verdict); an allergy question; "is X open right now" and "how late are you open today" (expect the real calendar and local time); a ticket link; something the venue does not have; and a "tell me more" follow-up. Fix the records behind any wrong, incomplete or robotic answer.',
   '',
   '## Reusable venue source connections',
   '',

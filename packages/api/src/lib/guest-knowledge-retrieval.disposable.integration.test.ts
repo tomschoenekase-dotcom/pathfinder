@@ -47,7 +47,7 @@ describe.skipIf(!enabled)('guest knowledge on disposable PostgreSQL', () => {
           venueId,
           title: 'Yuta attractions',
           category: 'rides',
-          content: 'Yuta includes the Matugani launch coaster.',
+          content: 'The Earth Realm includes the Vulkara launch coaster.',
           isEnabled: true,
         })),
       })
@@ -60,7 +60,7 @@ describe.skipIf(!enabled)('guest knowledge on disposable PostgreSQL', () => {
         includeSecondLayer: false,
       })
       expect(result.entries.map((entry) => entry.id)).toEqual([publicId])
-      expect(result.entries[0]?.content).toContain('Matugani')
+      expect(result.entries[0]?.content).toContain('Vulkara')
     })
   }, 30_000)
 })

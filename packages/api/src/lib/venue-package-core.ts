@@ -1,3 +1,4 @@
+import { venuePackageGuideQualityWarnings } from './venue-guide-quality'
 import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import {
@@ -554,6 +555,7 @@ function duplicateWarnings(
     seenKnowledge.add(normalized)
   })
 
+  warnings.push(...venuePackageGuideQualityWarnings(payload))
   return sortVenuePackageIssues(warnings)
 }
 
