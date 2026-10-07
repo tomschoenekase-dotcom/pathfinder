@@ -262,6 +262,25 @@ Draft and lifecycle commands use idempotency keys, but operators should rely on 
 than constructing API calls manually. Keep the original JSON and the server-produced preview as
 review evidence.
 
+## Agent workflow (operator MCP)
+
+Agents building venues follow the operator manual ("Writing guide records", "Structure that makes a
+venue answer well", "Check before you import"). The loop:
+
+1. Write the package to the writing guide.
+2. Run `venues.check_package` with the file or payload. It saves nothing and calls no model. Fix
+   every `errors` entry, every `guideQuality` finding and every `DUPLICATE_IN_PACKAGE` warning, then
+   check again until `ready` is true.
+3. Import once with `venues.propose_package_import` and a fresh `operationId`. A failed import
+   applies nothing; its receipt `result.summary` names the step and the reason. Retry with a new
+   `operationId`, never the failed one, because the same operation replays its saved draft.
+4. Refresh the venue's embeddings while the background dispatcher is off:
+   `pnpm embedding:refresh-venue --tenant-id <id> --venue-id <id>` in the target environment
+   prints the stale count without writing; add `--apply yes --max <count> --receipts <new file>`
+   to embed them with the worker processors. It never retries and stops at the first failure.
+5. Ask the venue preview chat the manual's self-test questions and fix the records behind any wrong,
+   incomplete or robotic answer.
+
 ## Change control
 
 The Zod schemas are runtime authority. Changes to accepted fields, bounds, defaults, or semantics

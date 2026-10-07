@@ -13,6 +13,8 @@ const files = execFileSync('git', ['ls-files', '-z'], {
   .split('\0')
   .filter((file) => file && TEXT.test(file))
 
+// Built from its code point so this file never contains the character it looks for.
+const REPLACEMENT = String.fromCharCode(0xfffd)
 const findings = []
 for (const file of files) {
   let text
@@ -21,9 +23,9 @@ for (const file of files) {
   } catch {
     continue
   }
-  if (!text.includes('�')) continue
+  if (!text.includes(REPLACEMENT)) continue
   text.split('\n').forEach((line, index) => {
-    if (line.includes('�')) findings.push(`${file}:${index + 1}`)
+    if (line.includes(REPLACEMENT)) findings.push(`${file}:${index + 1}`)
   })
 }
 
