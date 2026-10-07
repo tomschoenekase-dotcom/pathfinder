@@ -84,6 +84,7 @@ describe('selectGuestVisibleCitations', () => {
     'What is there to eat?',
     'Rank the coasters in order of intensity',
     'Which rides are best for kids?',
+    'Can I order food ahead on my phone?',
   ])('hides routine venue sources for %j', (visitorMessage) => {
     expect(selectGuestVisibleCitations({ visitorMessage, citations: stored })).toBeNull()
   })
