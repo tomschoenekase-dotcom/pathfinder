@@ -243,6 +243,43 @@ describe('VenueChatShell venue scoped voice captions', () => {
     meta.remove()
   })
 
+  it('paints the document with the bottom-bar color so the keyboard gap continues the composer', () => {
+    const root = document.documentElement
+    const shellBg = () =>
+      (document.querySelector('[data-chat-shell]') as HTMLElement).style.backgroundColor
+    const footerBg = () =>
+      (document.querySelector('[data-chat-shell]') as HTMLElement).style.getPropertyValue(
+        '--chat-footer-bg',
+      )
+    const themed = {
+      ...venue('themed-venue'),
+      chatAppearance: { ...DEFAULT_CHAT_APPEARANCE, headerColor: '#173F35' },
+    }
+    const { rerender, unmount } = render(
+      <VenueChatShell {...shellProps('themed-venue')} venue={themed} />,
+    )
+    expect(footerBg()).toBe('#173F35')
+    expect(root.style.getPropertyValue('--visitor-page-bg')).toBe('#173F35')
+    // The transcript keeps its own surface.
+    expect(shellBg()).not.toBe('rgb(23, 63, 53)')
+
+    rerender(
+      <VenueChatShell
+        {...shellProps('themed-venue')}
+        venue={{
+          ...themed,
+          chatAppearance: { ...themed.chatAppearance, footerColor: '#2A1B4D' },
+        }}
+      />,
+    )
+    expect(root.style.getPropertyValue('--visitor-page-bg')).toBe('#2A1B4D')
+
+    // Without venue colors the bottom bar is the page surface, so the default look is unchanged.
+    rerender(<VenueChatShell {...shellProps('plain-venue')} venue={venue('plain-venue')} />)
+    expect(root.style.getPropertyValue('--visitor-page-bg')).toBe(footerBg())
+    unmount()
+  })
+
   it('opens straight into the guide with no arrival screen to go back to', () => {
     render(<VenueChatShell {...shellProps('plain-venue')} />)
     expect(screen.queryByRole('link', { name: /back/i })).toBeNull()
