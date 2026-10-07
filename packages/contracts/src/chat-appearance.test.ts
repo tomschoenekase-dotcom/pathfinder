@@ -77,3 +77,14 @@ describe('chat appearance contract', () => {
     expect(decodeChatAppearanceParam(null)).toBeNull()
   })
 })
+
+describe('chat appearance time zone', () => {
+  it('keeps a recognized time zone and drops an unknown one', () => {
+    expect(parseChatAppearance({ timeZone: 'America/Chicago' }).timeZone).toBe('America/Chicago')
+    expect(parseChatAppearance({ timeZone: 'Mars/Olympus' })).not.toHaveProperty('timeZone')
+    expect(
+      ChatAppearanceSchema.safeParse({ ...DEFAULT_CHAT_APPEARANCE, timeZone: 'Nope/Zone' }).success,
+    ).toBe(false)
+    expect(parseChatAppearance(null)).not.toHaveProperty('timeZone')
+  })
+})

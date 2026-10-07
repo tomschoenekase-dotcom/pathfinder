@@ -7,6 +7,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { TRPCError } from '@trpc/server'
+import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 import {
   activeGuestActions,
@@ -76,7 +77,11 @@ import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
-import { buildVenueSystemPromptParts, guestResponseIntentForMessage } from '../lib/venue-context'
+import {
+  buildVenueSystemPromptParts,
+  guestResponseIntentForMessage,
+  guestVenueClock,
+} from '../lib/venue-context'
 import { buildGuestRecommendationDecision } from '../lib/venue-recommendation-context'
 import {
   enforceRecommendationDisclosure,
@@ -358,6 +363,7 @@ type PublicChatVenue = {
   customInstruction?: string | null
   venueBotPresentationMode?: 'CLASSIC' | 'CHARACTER' | null
   venueBotCharacterKey?: string | null
+  chatAppearance?: unknown
 }
 
 type ChatExperienceScope = 'PUBLIC' | 'SECOND_LAYER'
@@ -499,6 +505,7 @@ const admittedChatSendProcedure = publicProcedure
              v.default_center_lat AS "defaultCenterLat",
              v.default_center_lng AS "defaultCenterLng",
              v.is_active AS "isActive",
+             v.chat_appearance AS "chatAppearance",
              v.second_layer_enabled AS "secondLayerEnabled",
              v.second_layer_label AS "secondLayerLabel",
              v.second_layer_access_key AS "secondLayerAccessKey",
@@ -1305,7 +1312,11 @@ const chatReadRouter = router({
         .filter((row) => row.role === 'user')
         .map((row) => row.content)
         .find((content, index) => !(index === 0 && content === trimmedInput)) ?? null
-    const currentDate = operationalNow.toISOString().slice(0, 10)
+    const venueClock = guestVenueClock(
+      operationalNow,
+      parseChatAppearance(venue.chatAppearance).timeZone,
+    )
+    const currentDate = venueClock.date
     if (queryEmbedding) {
       const [places, knowledge] = await Promise.all([
         fuseGuestPlacesWithLexical({
@@ -1757,6 +1768,7 @@ const chatReadRouter = router({
     const prepareVenuePrompt = () =>
       buildVenueSystemPromptParts({
         currentDate,
+        ...(venueClock.localTime ? { currentLocalTime: venueClock.localTime } : {}),
         venueGuideRecordIds: venueGuide.recordIds,
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),

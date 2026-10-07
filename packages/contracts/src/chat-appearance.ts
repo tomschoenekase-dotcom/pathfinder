@@ -9,6 +9,21 @@ import { z } from 'zod'
  */
 const HexColor = z.string().regex(/^#[0-9A-Fa-f]{6}$/u)
 
+/** An IANA time zone the runtime recognizes, such as America/Chicago. */
+export const VenueTimeZone = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((zone) => {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: zone })
+      return true
+    } catch {
+      return false
+    }
+  }, 'Unknown time zone')
+
 export const ChatAppearanceBackgroundSchema = z
   .object({
     /** `image` uses the venue's reviewed banner derivative; there is no other image source. */
@@ -46,6 +61,11 @@ export const ChatAppearanceSchema = z
     actionLinks: z.boolean().optional(),
     /** The guide may offer one approved guest action as a button when that is the point. */
     actionButtons: z.boolean().optional(),
+    /**
+     * The venue's local time zone, so the guide knows today's local date and time ("open until
+     * 6, about three hours left"). Absent means the guide only knows the server date.
+     */
+    timeZone: VenueTimeZone.optional(),
   })
   .strict()
 
@@ -112,6 +132,9 @@ export function parseChatAppearance(value: unknown): ChatAppearance {
     requestMore: pick(shape.requestMore, input.requestMore, defaults.requestMore),
     actionLinks: pick(z.boolean(), input.actionLinks, defaults.actionLinks),
     actionButtons: pick(z.boolean(), input.actionButtons, defaults.actionButtons),
+    ...(VenueTimeZone.safeParse(input.timeZone).success
+      ? { timeZone: (input.timeZone as string).trim() }
+      : {}),
   }
 }
 

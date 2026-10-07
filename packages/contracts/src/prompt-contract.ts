@@ -4,4 +4,4 @@
  */
 export const GUEST_CHAT_PROMPT_VERSION = 'guest-chat-prompt-v26' as const
 export const GUEST_CHAT_PROMPT_CONTRACT_HASH =
-  '23e7651f096e8d0db87085645b4b6f087e8546c63f7f9009fbf41a121cb13307' as const
+  '22b989a455c217a8de2853451418cc65862c564b57e719f8bad3d244abbd3101' as const

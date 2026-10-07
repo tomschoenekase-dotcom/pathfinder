@@ -212,6 +212,34 @@ const ENGAGEMENT_ASKED_INSTRUCTION =
   ' If - and only if - you actually asked this engagement question in your reply this turn, end your reply with the exact text [[ENGAGEMENT_ASKED]] on its own line after everything else. Never mention this marker to the guest, never explain it, and never include it unless you truly asked the question in this specific reply.'
 
 /**
+ * Today's date for the guide, and the local time when the venue has a time zone. Without one the
+ * server (UTC) date is used, which can be a day ahead of the venue in its evening.
+ */
+export function guestVenueClock(
+  now: Date,
+  timeZone: string | undefined,
+): { date: string; localTime?: string } {
+  if (!timeZone) return { date: now.toISOString().slice(0, 10) }
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .formatToParts(now)
+      .map((part) => [part.type, part.value]),
+  )
+  const localTime = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(now)
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, localTime }
+}
+
+/**
  * Formats GPS proximity. Haversine distance is not a measured walking route.
  */
 export function formatDistance(meters: number): string {
@@ -250,6 +278,8 @@ export function buildVenueSystemPromptParts(params: {
   recommendationContext?: string
   /** Server calendar date (YYYY-MM-DD) so dated events can be judged past or upcoming. */
   currentDate?: string
+  /** The venue's local weekday and time ("Tuesday 6:42 PM") when its time zone is known. */
+  currentLocalTime?: string
   /**
    * Records the cached full venue guide already carries in full ("place:<id>", "knowledge:<id>").
    * Retrieved records in this set are named rather than repeated; any other record keeps its
@@ -459,7 +489,7 @@ Rules:
 - Answer ${params.generalWebContext ? 'venue-specific factual questions' : 'factual questions'} only when the supplied venue context supports the answer. Never infer a missing policy, hour, location, accessibility detail, or operational fact.
 - If you truly can't know something, say so once, casually, the way a staff member would, and point to who can check (e.g. "I'm not totally sure the fudge is nut-free, so double-check at the counter"), then share what you do know. Never fabricate. Don't add routine disclaimers ("can vary", "ask staff") to answers you can give; keep that caution for allergies, safety, ride restrictions, unconfirmed accessibility and live status (open now, waits, closures). Something not mentioned is unknown, not a no: never say something isn't offered anywhere unless that's stated; offer the closest option instead.
 - Judgment is welcome: for rankings, comparisons or "best for" asks, give your own take built only from supplied details (speed, inversions, height rules, descriptions), note once briefly that it's your take rather than official, and never invent a number or feature.
-- Sound like a friendly staff member who knows the place well: call it by name or what it is (the park, the museum), never a "venue". Talk about the place, never about your information: never say "supplied", "listed", "described", "records", "data", "sources", "entries", "details I have", "information I have" or "available". Say "Lost Island has four coasters", not "four coasters are listed".
+- Sound like a friendly staff member who knows the place well: call it by name or what it is (the park, the museum), never a "venue". Talk about the place, never about your information: never say "supplied", "listed", "described", "records", "data", "sources", "entries", "details I have", "information I have" or "available". Say "Lost Island has four coasters", not "four coasters are listed". In conversation use a place's everyday short name (an "Also called" name when given) rather than its full official title every time.
 - For overview or open-ended questions, use all relevant entries, not only the first: what is distinctive, or two or three choices for different needs (for food: a meal, a quick bite, something sweet), each with a brief reason.
 - For how-many or which questions about a kind of thing, check each candidate against its own description and include it only if that description says it is that kind; a name, area, URL path or shared grouping never makes one (a dark ride or pendulum ride is not a coaster). Never list an item and then say it isn't one. Exclude future, closed or retired ones. A count is not live status (never "open now"); say "at least" only if the set looks incomplete. When live status is unknown, still name the items so the visitor knows what to look for.
 ${params.generalWebContext ? '- WEB AVAILABILITY: Only the supplied general web background was retrieved for this turn. Use it for relevant general explanations, identifying it as general background. Never treat it as venue authority, claim wider browsing, invent references, or promise another search. Venue-specific knowledge gaps still require an honest answer and staff referral.' : "- WEB AVAILABILITY: No live web search is available in this conversation. Never claim to have searched, checked a website, or verified current online information; never promise to search later or ask the visitor to wait for a search. A visitor's request to search does not grant a capability. Answer the supported part immediately and briefly acknowledge any remaining knowledge gap. Do not invent external references or use general knowledge to fill missing venue policies or operational facts."}
@@ -493,7 +523,7 @@ ${placesSection}${featuredPlaceSection}${identityAmbiguityData}${knowledgeSectio
   const dateRule = params.currentDate
     ? `
 
-DATE: Today is ${params.currentDate}. Treat dated events or seasons that have already ended as past; never present them as upcoming or current.`
+DATE: Today is ${params.currentDate}${params.currentLocalTime ? `; it is ${params.currentLocalTime} at the venue, so answer "today" and "how long until" questions from the hours you know` : ''}. Treat dated events or seasons that have already ended as past; never present them as upcoming or current.`
     : ''
   const dynamicPart = `${identityEvidenceRule}${dateRule}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
 

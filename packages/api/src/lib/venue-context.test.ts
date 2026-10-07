@@ -7,6 +7,7 @@ import {
   formatDistance,
   guestResponseIntentForMessage,
   guestResponseWordLimit,
+  guestVenueClock,
   GUEST_CHAT_PROMPT_VERSION,
 } from './venue-context'
 import { GUEST_CHAT_PROMPT_CONTRACT_HASH } from '@pathfinder/contracts/prompt-contract'
@@ -454,6 +455,29 @@ describe('full venue guide mode', () => {
     )
     expect(dynamicPart).not.toContain('GUIDE_TOPIC_DETAIL')
     expect(dynamicPart).toContain('NAMED_PAST_EVENT_DETAIL')
+  })
+})
+
+describe('guest venue clock', () => {
+  it('uses the venue local date and time, not the UTC date, in the venue evening', () => {
+    const now = new Date('2026-10-07T00:30:00Z')
+    expect(guestVenueClock(now, undefined)).toEqual({ date: '2026-10-07' })
+    expect(guestVenueClock(now, 'America/Chicago')).toEqual({
+      date: '2026-10-06',
+      localTime: 'Tuesday 7:30 PM',
+    })
+  })
+
+  it('tells the guide the local time so it can answer "how long until close"', () => {
+    const { dynamicPart } = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      currentDate: '2026-10-06',
+      currentLocalTime: 'Tuesday 3:05 PM',
+    })
+    expect(dynamicPart).toContain('Today is 2026-10-06; it is Tuesday 3:05 PM at the venue')
   })
 })
 
