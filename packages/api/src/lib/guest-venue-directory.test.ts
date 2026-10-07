@@ -11,6 +11,7 @@ import {
   buildGuestVenueDirectoryPrompt,
   buildGuestVenueGuidePrompt,
   guestFacingText,
+  guestFacingTitle,
   createGuestVenueDirectoryCache,
   expandGuestKnowledgeLinks,
   guestDirectoryName,
@@ -356,7 +357,7 @@ describe('full venue guide', () => {
         category: 'Dining',
         content:
           'Burgers and bowls.\n\nLandmark appearance: a visitor photo: https://photos.example/1.jpg',
-        sourceType: null,
+        sourceType: 'website_research',
         sourceName: null,
         sourceUrl: null,
       },
@@ -365,7 +366,7 @@ describe('full venue guide', () => {
         title: 'Spring Bloom Festival 2024',
         category: 'Events',
         content: 'Old festival details.',
-        sourceType: null,
+        sourceType: 'website_research',
         sourceName: null,
         sourceUrl: null,
       },
@@ -379,6 +380,20 @@ describe('full venue guide', () => {
         'Teacup ride. Approximate ride-feature anchor; use the signed public queue. Kids love it.',
       ),
     ).toBe('Teacup ride. Kids love it.')
+  })
+
+  it('drops research bookkeeping and source lists but keeps facts and a usable link', () => {
+    expect(
+      guestFacingText(
+        'The current official ride page lists 52 inches to ride. See the matching visitor-information entry for source caveats. Sources: Ride https://park.example/coasters/ride/ ; Chart https://park.example/safety/ . Checked October 4, 2026 against the park site.',
+      ),
+    ).toBe('52 inches to ride.')
+    expect(guestFacingText('For online tickets, visit https://park.example/tickets/.')).toBe(
+      'For online tickets, visit https://park.example/tickets/.',
+    )
+    expect(guestFacingTitle('Ride height planning reference and six source conflicts')).toBe(
+      'Ride height planning reference',
+    )
   })
 
   it('carries every record in full as readable tagged records', () => {
