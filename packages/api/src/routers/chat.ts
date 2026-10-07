@@ -97,7 +97,7 @@ import {
 import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
-  buildGuestVenueDirectoryPrompt,
+  buildGuestVenueGuidePrompt,
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
   loadGuestVenueDirectoryCached,
@@ -1504,7 +1504,8 @@ const chatReadRouter = router({
       directory: guestDirectory,
       currentDate,
     })
-    const directoryPrompt = buildGuestVenueDirectoryPrompt(guestDirectory, { currentDate })
+    const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, { currentDate })
+    const directoryPrompt = venueGuide.prompt
     let placeIdentity = await projectGuestPlaceIdentity({
       reader: ctx.db,
       query: effectiveIdentityQuery,
@@ -1756,6 +1757,7 @@ const chatReadRouter = router({
     const prepareVenuePrompt = () =>
       buildVenueSystemPromptParts({
         currentDate,
+        venueGuideRecordIds: venueGuide.recordIds,
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {
@@ -2188,7 +2190,7 @@ const chatReadRouter = router({
       citations.push(...generalWebProjection.citations)
     const answerEvidence = buildGuestAnswerEvidenceBundle({
       assistantResponse,
-      staticSystemPrompt: `${staticPart}${directoryPrompt}`,
+      staticSystemPrompt: `${staticPart}${venueGuide.evidenceText}`,
       dynamicSystemPrompt: dynamicPart,
       ...(generationRouteConfigurationVersion
         ? { routeConfigurationVersion: generationRouteConfigurationVersion }

@@ -3783,7 +3783,7 @@ describe('chat router', () => {
       expect(concatenatedSystemPrompt).toContain('Elephants')
     })
 
-    it('sends the complete public directory as the cached block between static and dynamic', async () => {
+    it('sends the full public venue guide as the cached block between static and dynamic', async () => {
       setupHappyPath('ok')
       placeFindMany.mockResolvedValue(placeRows)
 
@@ -3798,9 +3798,12 @@ describe('chat router', () => {
       expect(systemBlocks).toHaveLength(3)
       expect(systemBlocks[0]?.cache_control).toBeUndefined()
       expect(systemBlocks[1]).toMatchObject({ cache_control: { type: 'ephemeral' } })
-      expect(systemBlocks[1]?.text).toContain('DIRECTORY: This directory lists every public place')
-      expect(systemBlocks[1]?.text).toContain('Elephants')
+      expect(systemBlocks[1]?.text).toContain('VENUE GUIDE: Every public place and topic')
+      expect(systemBlocks[1]?.text).toContain('<place name="Elephants"')
       expect(systemBlocks[2]?.cache_control).toBeUndefined()
+      // The guide carries the retrieved place in full, so the per-turn section only names it.
+      expect(systemBlocks[2]?.text).toContain('1. Elephants (')
+      expect(systemBlocks[2]?.text).not.toContain('Details:')
       expect(placeFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({

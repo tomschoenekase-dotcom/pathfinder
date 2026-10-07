@@ -68,7 +68,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v25')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v26')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -419,9 +419,41 @@ describe('guest ranking and comparison policy', () => {
     const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
     expect(prompt).toContain('Judgment is welcome')
     expect(prompt).toContain('never invent a number or feature')
-    expect(prompt).toContain('A detail missing from the entries is unknown, not a no')
+    expect(prompt).toContain('Something not mentioned is unknown, not a no')
     expect(prompt).toContain('a name, area, URL path or shared grouping never makes one')
-    expect(prompt).toContain('keep caution for allergies, safety, ride restrictions')
+    expect(prompt).toContain('keep that caution for allergies, safety, ride restrictions')
+  })
+})
+
+describe('full venue guide mode', () => {
+  it('names retrieved records the guide carries and keeps details for any it does not', () => {
+    const { dynamicPart } = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces: [
+        { ...relevantPlaces[0]!, id: 'in-guide', longDescription: 'GUIDE_PLACE_DETAIL' },
+        { ...relevantPlaces[1]!, id: 'not-in-guide', longDescription: 'RESOLVED_DUPLICATE_DETAIL' },
+      ],
+      knowledgeEntries: [
+        { id: 'k-in', title: 'Parking', category: 'Visit', content: 'GUIDE_TOPIC_DETAIL' },
+        {
+          id: 'k-out',
+          title: 'Spring Fest 2024',
+          category: 'Events',
+          content: 'NAMED_PAST_EVENT_DETAIL',
+        },
+      ],
+      userLat: null,
+      userLng: null,
+      venueGuideRecordIds: new Set(['place:in-guide', 'knowledge:k-in']),
+    })
+    expect(dynamicPart).toContain('1. Elephant Enclosure (attraction)')
+    expect(dynamicPart).not.toContain('GUIDE_PLACE_DETAIL')
+    expect(dynamicPart).toContain('RESOLVED_DUPLICATE_DETAIL')
+    expect(dynamicPart).toContain(
+      'MOST RELEVANT GUIDE TOPICS (full text is in the VENUE GUIDE): Parking',
+    )
+    expect(dynamicPart).not.toContain('GUIDE_TOPIC_DETAIL')
+    expect(dynamicPart).toContain('NAMED_PAST_EVENT_DETAIL')
   })
 })
 
@@ -456,7 +488,8 @@ describe('buildVenueSystemPrompt', () => {
   it('requires a graceful unknown instead of inferring missing venue facts', () => {
     const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
     expect(prompt).toContain('Never infer a missing policy, hour, location, accessibility detail')
-    expect(prompt).toContain("If a requested fact isn't supplied, say so briefly")
+    expect(prompt).toContain("If you truly can't know something, say so once, casually")
+    expect(prompt).toContain('double-check at the counter')
     expect(prompt).toContain('Never fabricate')
   })
 
