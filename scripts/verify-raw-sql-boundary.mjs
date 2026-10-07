@@ -1177,11 +1177,12 @@ const approvedOperations = [
     policy: 'public-venue-id',
   },
   // Public chat bootstrap is exact-venue scoped; slug and presentation/photo toggles do not grant
-  // tenant discovery or media approval authority.
+  // tenant discovery or media approval authority. chat_appearance is read only for the venue's
+  // optional guide time zone.
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: '0ff40061b6629a12113dd50a970a6a4188af21409137ff429984df9c2ed2bd2d',
+    hash: '23d888d021bad55be568fc30e8524b2f20aa2f4491d39bae84b70b649da8655f',
     policy: 'public-venue-id',
   },
   {
