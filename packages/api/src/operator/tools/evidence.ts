@@ -1,5 +1,6 @@
 import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { projectGuestGuideCoverage } from '../../lib/guest-guide-coverage'
 
 import { operatorUntrustedText, redactAddresses } from '../crm-projection'
 import { assertVenueInGrant, OperatorNotFoundError } from '../grants'
@@ -390,6 +391,10 @@ const getAnswerEvidence: OperatorReadTool = {
           answerHash: bundle?.answerHash ?? null,
           routeConfigurationVersion: bundle?.routeConfigurationVersion ?? null,
           sourceCount: bundle?.sources.length ?? 0,
+          ...projectGuestGuideCoverage({
+            evidence: bundle,
+            assistantResponse: messages.find((message) => message.id === turn.assistantMessageId)?.content ?? null,
+          }),
           sourcesShown: shown.length,
           sources: shown.map((source) => {
             const published = source.sourceId.startsWith('published-content:')

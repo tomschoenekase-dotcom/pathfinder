@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { GuestGuideCoverageSchema } from './guest-answer-attribution'
 
 import { GuestActionCatalog } from './guest-action-links'
 
@@ -2638,6 +2639,8 @@ const OperatorTurnEvidence = z
         routeConfigurationVersion: z.string().max(191).nullable(),
         sourceCount: Count,
         sourcesShown: Count,
+        guideCoverageState: z.enum(['KNOWN', 'UNKNOWN']).optional(),
+        guideCoverage: GuestGuideCoverageSchema.nullable().optional(),
         sources: z.array(OperatorEvidenceSource).max(25),
       })
       .strict(),

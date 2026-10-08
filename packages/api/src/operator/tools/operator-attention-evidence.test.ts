@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- loose fakes for the Prisma delegate surface */
 import { describe, expect, it } from 'vitest'
+import { buildGuestAnswerEvidenceBundle } from '../../lib/guest-answer-evidence'
 
 import {
   OPERATOR_MCP_INPUTS,
@@ -582,6 +583,8 @@ describe('venues.get_answer_evidence', () => {
     const { database, calls } = fakeDb(handlers(turn()))
     const output = await call('venues.get_answer_evidence', args, context(database))
     expect(output.turn.evidence.state).toBe('stored')
+    expect(output.turn.evidence.guideCoverageState).toBe('UNKNOWN')
+    expect(output.turn.evidence.guideCoverage).toBeNull()
     expect(output.turn.evidence.sources[0]).toMatchObject({
       moduleId: 'mod1',
       revisionId: 'rev9',
@@ -600,6 +603,31 @@ describe('venues.get_answer_evidence', () => {
     expectEveryQueryScopedTo(calls, TENANT, ['tenant', 'venue', 'aiUsageEvent'])
     const usage = calls.find((entry) => entry.model === 'aiUsageEvent')
     expect(JSON.stringify(usage?.args.where)).toContain(TENANT)
+  })
+
+  it.each(['valid', 'stale-overall', 'disposed'] as const)('projects %s stored coverage through the strict operator output contract', async (caseName) => {
+    const guideCoverage = {
+      schemaVersion: 'guest-guide-coverage-v1', mode: 'FULL', loadStatus: 'READY',
+      projectionPath: 'LEGACY', incomplete: false, placeCount: 2, knowledgeCount: 1,
+      includedDetailCount: 3, promptChars: 900, promptSha256: sha, detailIdSetSha256: sha,
+    }
+    const withCoverage = buildGuestAnswerEvidenceBundle({
+      assistantResponse: 'The desk opens at nine.', staticSystemPrompt: 'Static fictional rules.',
+      dynamicSystemPrompt: 'Current fictional facts.',
+      sources: [{ sourceId: 'venue:fictional', kind: 'VENUE_PROFILE', label: 'Fictional park',
+        snapshot: { guideCoverage } }],
+    })
+    const retained = caseName === 'stale-overall' ? { ...withCoverage, evidenceSetHash: sha } : withCoverage
+    const overrides = caseName === 'disposed' ? {
+      visitorSession: { findFirst: () => ({ id: 's1', experienceScope: 'PUBLIC', dispositionOperationId: 'fictional-disposition' }) },
+    } : {}
+    const { database, calls } = fakeDb(handlers(turn({ replayMetadata: {
+      places: [], citations: [], answerEvidence: retained,
+    } }), overrides))
+    const output = await call('venues.get_answer_evidence', args, context(database))
+    expect(output.turn.evidence.guideCoverageState).toBe(caseName === 'valid' ? 'KNOWN' : 'UNKNOWN')
+    expect(output.turn.evidence.guideCoverage).toEqual(caseName === 'valid' ? guideCoverage : null)
+    if (caseName === 'disposed') expect(calls.some((entry) => entry.model === 'message')).toBe(false)
   })
 
   it('says unavailable, not zero or fine, when nothing was stored', async () => {

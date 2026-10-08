@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 import { GuestChatTurnActionError } from '@pathfinder/db'
+import { verifyGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 
 import {
   setOpenAiEmbeddingsClientForTesting,
@@ -47,6 +48,12 @@ vi.mock('../lib/guest-place-media', () => ({ readApprovedGuestPlaceMedia }))
 const searchGuestWebWithAccounting = vi.hoisted(() => vi.fn())
 vi.mock('@pathfinder/ai/guest-web-search-accounting', () => ({ searchGuestWebWithAccounting }))
 
+const coverageReadControls = vi.hoisted(() => ({ fail: false, mismatch: false, projections: 0 }))
+vi.mock('../lib/guest-venue-directory', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/guest-venue-directory')>()
+  return { ...original, loadGuestVenueDirectoryCached: (...args: Parameters<typeof original.loadGuestVenueDirectoryCached>) =>
+    coverageReadControls.fail ? Promise.reject(new Error('fictional directory unavailable')) : original.loadGuestVenueDirectoryCached(...args) }
+})
 const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
 const guestTurnActions = vi.hoisted(() => ({
   reserve: vi.fn(),
@@ -65,8 +72,16 @@ const isGuestConversationDisposed = vi.hoisted(() => vi.fn())
 const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
 const recordConversationLearningCandidate = vi.hoisted(() => vi.fn())
 vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }))
-vi.mock('@pathfinder/db', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@pathfinder/db')>()),
+vi.mock('@pathfinder/db', async (importOriginal) => {
+  const originalDb = await importOriginal<typeof import('@pathfinder/db')>()
+  return {
+  ...originalDb,
+  applyNativeGuestContentRead: (input: Parameters<typeof import('@pathfinder/db').applyNativeGuestContentRead>[0]) => {
+    const original = originalDb.applyNativeGuestContentRead(input)
+    coverageReadControls.projections += 1
+    return coverageReadControls.mismatch && coverageReadControls.projections === 2
+      ? { ...original, path: 'NATIVE' as const } : original
+  },
   searchPlacesByEmbedding: semanticSearch.places,
   searchKnowledgeByEmbedding: semanticSearch.knowledge,
   reserveGuestChatTurnAction: guestTurnActions.reserve,
@@ -82,7 +97,8 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   readActiveUnhealthyAiProviders,
   isGuestConversationDisposed,
   recordConversationLearningCandidate,
-}))
+  }
+})
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -240,6 +256,7 @@ const placeRows = [
 describe('chat router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    Object.assign(coverageReadControls, { fail: false, mismatch: false, projections: 0 })
     _setAnthropicClientForTesting(mockAnthropicClient)
     setOpenAiEmbeddingsClientForTesting(mockOpenAiClient)
     embeddingCreate.mockResolvedValue({
@@ -1551,6 +1568,22 @@ describe('chat router', () => {
       messageCreate.mockResolvedValue({})
     }
 
+    it.each([
+      { fail: false, mismatch: false, loadStatus: 'READY' },
+      { fail: true, mismatch: false, loadStatus: 'LOAD_FAILED' },
+      { fail: false, mismatch: true, loadStatus: 'PROJECTION_MISMATCH' },
+    ])('persists actual guide load status $loadStatus without failing generation', async ({ fail, mismatch, loadStatus }) => {
+      setupHappyPath('The fictional gallery is open.')
+      Object.assign(coverageReadControls, { fail, mismatch })
+      const result = await caller.chat.send(sendInput)
+      expect(result.response).toBe('The fictional gallery is open.')
+      const finalization = guestTurnActions.finalize.mock.calls[0]?.[0]
+      const evidence = finalization.input.replayMetadata.answerEvidence
+      const profile = evidence.sources.find((source: { kind: string }) => source.kind === 'VENUE_PROFILE')
+      expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({ mode: 'NONE', loadStatus })
+      expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+    })
+
     function getConcatenatedSystemPrompt() {
       const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
       const systemBlocks = callArgs.system as Array<{ type: string; text: string }>
@@ -1611,8 +1644,8 @@ describe('chat router', () => {
     function expectCaseTwelveClarificationPrompt() {
       const prompt = getConcatenatedSystemPrompt()
       expect(prompt).toContain('IDENTITY CLARIFICATION DATA')
-      expect(prompt).toContain('Case 12 — First floor')
-      expect(prompt).toContain('Case 12 — Second floor')
+      expect(prompt).toContain('Case 12 â€” First floor')
+      expect(prompt).toContain('Case 12 â€” Second floor')
     }
 
     it('binds a valid public QR item to its exact duplicate-name exhibit', async () => {
@@ -1938,7 +1971,7 @@ describe('chat router', () => {
 
       expect(getConcatenatedSystemPrompt()).toContain('IDENTITY CLARIFICATION DATA')
       expect(getConcatenatedSystemPrompt()).toContain(
-        'Case 12 — Second floor - Second floor west gallery',
+        'Case 12 â€” Second floor - Second floor west gallery',
       )
       expect(getConcatenatedSystemPrompt()).toContain('New west case.')
       expect(guestTurnActions.finalize).toHaveBeenCalledWith(
@@ -2279,7 +2312,7 @@ describe('chat router', () => {
         }),
       ])
       expect(getConcatenatedSystemPrompt()).toContain(
-        'GENERAL BACKGROUND ONLY — NOT VENUE AUTHORITY',
+        'GENERAL BACKGROUND ONLY â€” NOT VENUE AUTHORITY',
       )
       expect(getConcatenatedSystemPrompt()).toContain(generalWebResult.text)
       expect(result.citations).toContainEqual({
@@ -3659,7 +3692,7 @@ describe('chat router', () => {
     })
 
     it('loads history in correct chronological order (oldest first for Claude)', async () => {
-      // DB returns newest first — router must reverse before sending to Claude
+      // DB returns newest first â€” router must reverse before sending to Claude
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
       placeFindMany.mockResolvedValueOnce([])

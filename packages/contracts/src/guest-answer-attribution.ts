@@ -8,6 +8,22 @@ export const GUEST_ANSWER_ATTRIBUTION_VERSION = 'guest-answer-attribution-v1' as
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/u)
 const sourceId = z.string().trim().min(1).max(240)
 
+// Observations of the actual guide projection; never instructions or a completeness verdict.
+export const GuestGuideCoverageSchema = z.object({
+  schemaVersion: z.literal('guest-guide-coverage-v1'),
+  mode: z.enum(['FULL', 'DIRECTORY', 'NONE']),
+  loadStatus: z.enum(['READY', 'LOAD_FAILED', 'PROJECTION_MISMATCH']),
+  projectionPath: z.enum(['LEGACY', 'DARK', 'NATIVE']),
+  incomplete: z.boolean(),
+  placeCount: z.number().int().min(0).max(1_000_000),
+  knowledgeCount: z.number().int().min(0).max(1_000_000),
+  includedDetailCount: z.number().int().min(0).max(1_000_000),
+  promptChars: z.number().int().min(0).max(1_000_000),
+  promptSha256: sha256,
+  detailIdSetSha256: sha256,
+}).strict()
+export type GuestGuideCoverage = z.infer<typeof GuestGuideCoverageSchema>
+
 // Evidence was introduced with v5. Retained answers keep their original prompt
 // identity; deploying a new prompt must not invalidate immutable replay data.
 const evidencePromptVersion = z.union([
