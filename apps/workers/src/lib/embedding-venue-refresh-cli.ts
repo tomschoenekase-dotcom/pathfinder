@@ -55,8 +55,8 @@ export function parseVenueRefreshArgs(
   }
   if (args.get('--apply') !== 'yes') throw new VenueRefreshError('--apply must be yes')
   const max = Number(args.get('--max'))
-  if (!Number.isInteger(max) || max < 1 || max > VENUE_REFRESH_MAX) {
-    throw new VenueRefreshError(`--max must be an integer from 1 to ${VENUE_REFRESH_MAX}`)
+  if (!args.has('--max') || !Number.isInteger(max) || max < 0 || max > VENUE_REFRESH_MAX) {
+    throw new VenueRefreshError(`--max must be an integer from 0 to ${VENUE_REFRESH_MAX}`)
   }
   const receipts = args.get('--receipts')
   if (!receipts)

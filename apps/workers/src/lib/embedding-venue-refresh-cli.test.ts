@@ -32,6 +32,20 @@ const audit = (candidates: ReturnType<typeof candidate>[]) => ({
 })
 
 describe('embedding:refresh-venue arguments', () => {
+  it('accepts a zero bound for the all-current plan while rejecting negative bounds', () => {
+    expect(
+      parseVenueRefreshArgs(
+        [...base, '--apply', 'yes', '--max', '0', '--receipts', 'new.jsonl'],
+        off,
+      ),
+    ).toMatchObject({ mode: 'apply', max: 0 })
+    expect(() =>
+      parseVenueRefreshArgs(
+        [...base, '--apply', 'yes', '--max', '-1', '--receipts', 'new.jsonl'],
+        off,
+      ),
+    ).toThrow('--max')
+  })
   it('defaults to a read-only plan', () => {
     expect(parseVenueRefreshArgs(base, off)).toEqual({
       mode: 'plan',
@@ -56,6 +70,22 @@ describe('embedding:refresh-venue arguments', () => {
 })
 
 describe('embedding:refresh-venue run', () => {
+  it('records a zero-bound no-op without calling a provider', async () => {
+    const receipts = join(mkdtempSync(join(tmpdir(), 'venue-refresh-')), 'receipts.jsonl')
+    const place = vi.fn()
+    const knowledge = vi.fn()
+    const result = await runVenueRefreshCommand(
+      { mode: 'apply', tenantId: 'tenant-a', venueId: 'venue-a', max: 0, receipts },
+      {
+        audit: vi.fn().mockResolvedValue(audit([])) as never,
+        processors: { place, knowledge } as never,
+      },
+    )
+    expect(result).toMatchObject({ refreshed: 0, remaining: { places: 0, knowledgeEntries: 0 } })
+    expect(place).not.toHaveBeenCalled()
+    expect(knowledge).not.toHaveBeenCalled()
+    expect(readFileSync(receipts, 'utf8')).toContain('refresh.complete')
+  })
   it.each([
     'truncated',
     'dispatch-leased',
