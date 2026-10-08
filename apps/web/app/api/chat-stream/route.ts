@@ -1,5 +1,7 @@
 import { getTRPCErrorFromUnknown } from '@trpc/server'
 
+import { logger } from '@pathfinder/config'
+
 import {
   ChatSendInput,
   createTRPCContext,
@@ -68,6 +70,15 @@ export async function POST(request: Request): Promise<Response> {
       } catch (cause) {
         const error = getTRPCErrorFromUnknown(cause)
         const publicCode = getPublicTRPCErrorCode(error)
+        if (error.code === 'INTERNAL_SERVER_ERROR') {
+          // Stream responses already have HTTP 200; retain a bounded signal without visitor data.
+          logger.error({
+            action: 'guest_chat.stream_failed',
+            error: 'guest-chat-stream-failed',
+            errorCode: error.code,
+            publicCode: publicCode ?? null,
+          })
+        }
         controller.enqueue(
           encoder.encode(
             `${JSON.stringify({ type: 'error', code: error.code, ...(publicCode ? { publicCode } : {}) })}\n`,

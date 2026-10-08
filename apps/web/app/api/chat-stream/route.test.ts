@@ -5,7 +5,10 @@ const mocks = vi.hoisted(() => ({
   stream: vi.fn(),
   safeParse: vi.fn(),
   publicCode: vi.fn(),
+  logError: vi.fn(),
 }))
+
+vi.mock('@pathfinder/config', () => ({ logger: { error: mocks.logError } }))
 
 vi.mock('@pathfinder/api', () => ({
   ChatSendInput: { safeParse: mocks.safeParse },
@@ -132,5 +135,13 @@ describe('private-body chat streaming route', () => {
     const body = await response.text()
     expect(body).toContain('OUTCOME_AMBIGUOUS')
     expect(body).not.toContain('private provider details')
+    expect(mocks.logError).toHaveBeenCalledExactlyOnceWith({
+      action: 'guest_chat.stream_failed',
+      error: 'guest-chat-stream-failed',
+      errorCode: 'INTERNAL_SERVER_ERROR',
+      publicCode: 'OUTCOME_AMBIGUOUS',
+    })
+    expect(JSON.stringify(mocks.logError.mock.calls)).not.toContain('private provider details')
+    expect(JSON.stringify(mocks.logError.mock.calls)).not.toContain(input.message)
   })
 })

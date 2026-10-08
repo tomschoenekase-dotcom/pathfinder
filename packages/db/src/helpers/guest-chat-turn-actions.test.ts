@@ -6,6 +6,7 @@ vi.mock('./guest-conversation-disposition', () => ({
 
 import { GUEST_ANSWER_EVIDENCE_VERSION } from '@pathfinder/contracts'
 import { GUEST_CHAT_PROMPT_VERSION } from '@pathfinder/contracts/prompt-contract'
+import { isGuestConversationDisposed } from './guest-conversation-disposition'
 
 import {
   GuestPlaceIdentityPending,
@@ -42,6 +43,133 @@ function transactionClient(tx: Record<string, unknown>) {
 }
 
 describe('guest chat turn actions', () => {
+  function admissionFixture() {
+    const session = {
+      id: 'session-1', tenantId: request.tenantId, venueId: request.venueId,
+      nextTurnSequence: 7, nextMessageSequence: 20,
+      pendingEngagementQuestionId: null, pendingEngagementIsInvented: false,
+      pendingEngagementAskedMessageId: null, pendingEngagementAskedAt: null,
+    }
+    const tx = {
+      $executeRaw: vi.fn(),
+      visitorSession: {
+        findFirst: vi.fn().mockResolvedValue(session),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockImplementation(({ data }) => ({
+          ...data, id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          providerOperations: data.providerOperations.create,
+        })),
+      },
+      guestChatProviderOperation: { updateMany: vi.fn() },
+      message: { findFirst: vi.fn() },
+    }
+    const transaction = vi.fn(async (callback: (value: unknown) => unknown, options?: unknown) => {
+      void options
+      return callback(tx)
+    })
+    return { tx, session, transaction, client: { $transaction: transaction } as never }
+  }
+
+  it('retries a rolled-back admission conflict with fresh sequences while an independent session succeeds', async () => {
+    const first = admissionFixture()
+    const second = admissionFixture()
+    second.tx.visitorSession.findFirst.mockResolvedValue({ ...second.session, id: 'session-2' })
+    first.tx.visitorSession.updateMany.mockRejectedValueOnce({ code: 'P2034' })
+    first.tx.visitorSession.findFirst
+      .mockResolvedValueOnce(first.session)
+      .mockResolvedValue({ ...first.session, nextTurnSequence: 9, nextMessageSequence: 24 })
+    const otherRequest = { ...request, anonymousToken: '33333333-3333-4333-8333-333333333333', requestId: '44444444-4444-4444-8444-444444444444' }
+    const results = await Promise.all([
+      reserveGuestChatTurnAction({ client: first.client, request }),
+      reserveGuestChatTurnAction({ client: second.client, request: otherRequest }),
+    ])
+    expect(results.map((result) => result.state)).toEqual(['RESERVED', 'RESERVED'])
+    expect(results.map((result) => result.sessionId)).toEqual(['session-1', 'session-2'])
+    expect(first.transaction).toHaveBeenCalledTimes(2)
+    expect(second.transaction).toHaveBeenCalledTimes(1)
+    expect(first.tx.guestChatTurn.create).toHaveBeenCalledOnce()
+    expect(first.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data).toMatchObject({
+      requestId: request.requestId, requestHash: guestChatRequestHash(request),
+      turnSequence: 10, userMessageSequence: 25, assistantMessageSequence: 26,
+    })
+    expect(second.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.requestId).toBe(otherRequest.requestId)
+    for (const fixture of [first, second]) {
+      for (const call of fixture.transaction.mock.calls) expect(call[1]).toEqual({ isolationLevel: 'Serializable' })
+      expect(fixture.tx.guestChatProviderOperation.updateMany).not.toHaveBeenCalled()
+      expect(fixture.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.providerOperations.create).toHaveLength(2)
+    }
+  })
+
+  it.each([['P2002', 'P2034'], ['P2034', 'P2002']])('preserves winner replay after %s then %s', async (firstCode, secondCode) => {
+    const fixture = admissionFixture()
+    fixture.transaction.mockRejectedValueOnce({ code: firstCode }).mockRejectedValueOnce({ code: secondCode })
+    fixture.tx.guestChatTurn.findFirst.mockResolvedValue({
+      id: 'winner-turn', sessionId: fixture.session.id, requestHash: guestChatRequestHash(request),
+      status: 'RESERVED', providerOperations: [],
+    })
+    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
+      .resolves.toMatchObject({ state: 'RESERVED', turnId: 'winner-turn', replayed: true })
+    expect(fixture.transaction).toHaveBeenCalledTimes(3)
+    expect(fixture.tx.visitorSession.updateMany).not.toHaveBeenCalled()
+    expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
+  })
+
+  it('bounds serialization retries and returns a safe conflict when admission keeps rolling back', async () => {
+    const fixture = admissionFixture()
+    fixture.tx.visitorSession.updateMany.mockRejectedValue({ code: 'P2034', message: 'private database detail' })
+    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
+      .rejects.toMatchObject({ code: 'CONFLICT', message: 'Session state changed concurrently.' })
+    expect(fixture.transaction).toHaveBeenCalledTimes(3)
+    expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
+  })
+
+  it.each([{ code: 'P2028' }, new Error('unclassified transaction failure')])('does not retry an unclassified transaction failure', async (error) => {
+    const fixture = admissionFixture()
+    fixture.transaction.mockRejectedValue(error)
+    await expect(reserveGuestChatTurnAction({ client: fixture.client, request })).rejects.toBe(error)
+    expect(fixture.transaction).toHaveBeenCalledOnce()
+  })
+
+  it('does not retry a business conflict after rereading concurrent session state', async () => {
+    const fixture = admissionFixture()
+    fixture.tx.visitorSession.updateMany.mockRejectedValueOnce({ code: 'P2034' }).mockResolvedValue({ count: 0 })
+    await expect(reserveGuestChatTurnAction({ client: fixture.client, request })).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(fixture.transaction).toHaveBeenCalledTimes(2)
+    expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
+  })
+
+  it('rechecks disposition authority before a rolled-back admission can create a turn', async () => {
+    const fixture = admissionFixture()
+    fixture.tx.visitorSession.updateMany.mockRejectedValueOnce({ code: 'P2034' })
+    vi.mocked(isGuestConversationDisposed)
+      .mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
+      .rejects.toMatchObject({ code: 'SESSION_DISPOSED' })
+    expect(fixture.transaction).toHaveBeenCalledTimes(2)
+    expect(fixture.tx.visitorSession.updateMany).toHaveBeenCalledOnce()
+    expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
+  })
+
+  it('does not create or redispatch a turn when retry observes an already dispatched operation', async () => {
+    const fixture = admissionFixture()
+    fixture.transaction.mockRejectedValueOnce({ code: 'P2034' })
+    fixture.tx.guestChatTurn.findFirst.mockResolvedValue({
+      id: 'dispatched-turn', sessionId: fixture.session.id,
+      requestHash: guestChatRequestHash(request), status: 'GENERATING',
+      leaseExpiresAt: new Date('2999-01-01T00:00:00Z'),
+      providerOperations: [{ dispatchedAt: new Date(), status: 'DISPATCHED' }],
+    })
+    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
+      .rejects.toMatchObject({ code: 'UNKNOWN_PROVIDER_OUTCOME' })
+    expect(fixture.transaction).toHaveBeenCalledTimes(2)
+    expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
+    expect(fixture.tx.visitorSession.updateMany).not.toHaveBeenCalled()
+    expect(fixture.tx.guestChatProviderOperation.updateMany).not.toHaveBeenCalled()
+  })
+
   it('stores entrySurface only when the turn action creates a public session', async () => {
     const createdSession = {
       id: 'session-1',

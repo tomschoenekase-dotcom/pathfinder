@@ -236,6 +236,10 @@ function isP2002(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
 
+function isP2034(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2034')
+}
+
 function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>): string {
   const visitContext = value.visitContext
   const visitedPlaceIds = visitContext?.visitedPlaceIds ?? []
@@ -839,11 +843,22 @@ export async function reserveGuestChatTurnAction(args: {
       { isolationLevel: 'Serializable' },
     )
 
-  try {
-    return await run(false)
-  } catch (error) {
-    if (!isP2002(error)) throw error
-    return run(true)
+  // Only this admission transaction is retried: P2034 rolls it back before any
+  // provider dispatch. Each attempt rereads authority, session state and replay
+  // evidence under the same Serializable isolation and exact request identity.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      try {
+        return await run(false)
+      } catch (error) {
+        if (!isP2002(error)) throw error
+        return await run(true)
+      }
+    } catch (error) {
+      if (!isP2034(error)) throw error
+      if (attempt >= 3)
+        throw new GuestChatTurnActionError('CONFLICT', 'Session state changed concurrently.')
+    }
   }
 }
 
