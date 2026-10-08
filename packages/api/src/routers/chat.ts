@@ -594,12 +594,12 @@ const admittedChatSendProcedure = publicProcedure
 // Backend-only content-gap detection (no guest-facing change, no extra model call).
 // If even the best-matching place is semantically far from the question, the venue
 // probably has no content for it. Reuses the retrieval distance we already compute.
-// Cosine distance: 0 = identical, ~1 = orthogonal; ~0.55 â‰ˆ similarity < ~0.45 for
+// Cosine distance: 0 = identical, ~1 = orthogonal; ~0.55 ≈ similarity < ~0.45 for
 // normalized OpenAI embeddings. NEEDS TUNING on real data before trusting the counts.
 const LOW_CONFIDENCE_DISTANCE_THRESHOLD = 0.55
 
 // Fallback heuristic for the geo/importance path, where there is no semantic score.
-// Zero tokens â€” just pattern-matches the assistant reply for "no info" phrasing.
+// Zero tokens — just pattern-matches the assistant reply for "no info" phrasing.
 const NO_INFO_REPLY_PATTERN =
   /I don'?t have|I'?m not sure|check with (the )?(staff|front desk|reception)|couldn'?t find|don'?t have (that |any )?information|no information/i
 
@@ -640,7 +640,7 @@ const chatSessionRouter = router({
       throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
     }
 
-    // $queryRaw used here because this is a public cross-tenant lookup â€” the caller
+    // $queryRaw used here because this is a public cross-tenant lookup — the caller
     // only knows the venueId, not the tenantId. No tenant_id bind needed in the
     // WHERE because we are resolving the tenant FROM this row, not filtering by it.
     const [venue] = await ctx.db.$queryRaw<
@@ -895,7 +895,7 @@ const chatReadRouter = router({
     }
 
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
-    //    Embedding may fail (e.g. no OPENAI_API_KEY) â€” null triggers geo fallback.
+    //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
     const embeddingStartedAt = performance.now()
     turnSetupMs = elapsedMilliseconds(requestStartedAt)
     const embeddingAccounting = createApiAiUsageRecorder({
@@ -1663,7 +1663,7 @@ const chatReadRouter = router({
       }
     }
 
-    // 5. Build context â€” history arrives newest-first, reverse to oldest-first for Claude
+    // 5. Build context — history arrives newest-first, reverse to oldest-first for Claude
     const engagementMode = tenantEngagement?.engagementMode ?? 'STOIC'
     const engagementGatePassed =
       ctx.experienceScope === 'PUBLIC' && rollEngagementGate(engagementMode)
@@ -2523,7 +2523,7 @@ const chatReadRouter = router({
         }
       }
 
-      // Backend-only low-confidence detection (decision E). Invisible to the guest â€”
+      // Backend-only low-confidence detection (decision E). Invisible to the guest —
       // the reply above already projected confidence; this only feeds content-gap
       // analytics. No extra model call: reuse the retrieval distance, or fall back to
       // a zero-token reply heuristic when the geo path ran (no semantic score).
@@ -2648,7 +2648,7 @@ const chatReadRouter = router({
   /**
    * Load the message history for an existing session by anonymous token.
    * Returns messages oldest-first. Returns an empty array if no session exists
-   * yet â€” the chat page treats that as a fresh conversation.
+   * yet — the chat page treats that as a fresh conversation.
    */
   history: publicProcedure.input(ChatHistoryInput).query(async ({ ctx, input }) => {
     const deniedLimit = await checkRateLimitsOrdered([
@@ -2720,7 +2720,7 @@ const chatReadRouter = router({
       select: { id: true, experienceScope: true },
     })
 
-    // No session yet â€” fresh visitor, return empty history.
+    // No session yet — fresh visitor, return empty history.
     if (!session) {
       return { messages: [] }
     }

@@ -1644,8 +1644,8 @@ describe('chat router', () => {
     function expectCaseTwelveClarificationPrompt() {
       const prompt = getConcatenatedSystemPrompt()
       expect(prompt).toContain('IDENTITY CLARIFICATION DATA')
-      expect(prompt).toContain('Case 12 â€” First floor')
-      expect(prompt).toContain('Case 12 â€” Second floor')
+      expect(prompt).toContain('Case 12 — First floor')
+      expect(prompt).toContain('Case 12 — Second floor')
     }
 
     it('binds a valid public QR item to its exact duplicate-name exhibit', async () => {
@@ -1971,7 +1971,7 @@ describe('chat router', () => {
 
       expect(getConcatenatedSystemPrompt()).toContain('IDENTITY CLARIFICATION DATA')
       expect(getConcatenatedSystemPrompt()).toContain(
-        'Case 12 â€” Second floor - Second floor west gallery',
+        'Case 12 — Second floor - Second floor west gallery',
       )
       expect(getConcatenatedSystemPrompt()).toContain('New west case.')
       expect(guestTurnActions.finalize).toHaveBeenCalledWith(
@@ -2312,7 +2312,7 @@ describe('chat router', () => {
         }),
       ])
       expect(getConcatenatedSystemPrompt()).toContain(
-        'GENERAL BACKGROUND ONLY â€” NOT VENUE AUTHORITY',
+        'GENERAL BACKGROUND ONLY — NOT VENUE AUTHORITY',
       )
       expect(getConcatenatedSystemPrompt()).toContain(generalWebResult.text)
       expect(result.citations).toContainEqual({
@@ -3692,7 +3692,7 @@ describe('chat router', () => {
     })
 
     it('loads history in correct chronological order (oldest first for Claude)', async () => {
-      // DB returns newest first â€” router must reverse before sending to Claude
+      // DB returns newest first — router must reverse before sending to Claude
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
       placeFindMany.mockResolvedValueOnce([])
