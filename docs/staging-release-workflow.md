@@ -42,6 +42,12 @@ endpoint. The final source still requires exact-head CI, three-service staging h
 post-drain backups, restore rehearsal and preservation proof before protected production promotion.
 Existing provider switches remain at their observed values.
 
+The separately [approved October 10 exception](production-cutover-20261010.md) covers the guide
+context fidelity application candidate at `483e6ac9f5d30d9076b17149bd38014f60e9d9eb` and no
+schema or migration change. The final documentation-bearing SHA still requires exact-head CI,
+three-service staging admission, and protected production promotion. It authorizes no hosted
+database migration or data repair; the production incident remains ACTIVE.
+
 The current staging database may contain restored production lineage, so the historical
 synthetic-only exception does not by itself admit a preserved-data migration. Use the current guarded
 release-specific record and retain the incident's ACTIVE default. Preserve each environment's

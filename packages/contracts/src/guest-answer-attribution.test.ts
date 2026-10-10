@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createGuestAnswerAttribution,
   GUEST_ANSWER_EVIDENCE_VERSION,
+  GuestAnswerEvidenceBundleSchema,
   type GuestAnswerEvidenceBundle,
 } from './guest-answer-attribution'
 import { GUEST_CHAT_PROMPT_VERSION } from './prompt-contract'
@@ -27,6 +28,39 @@ const evidence: GuestAnswerEvidenceBundle = {
     },
   ],
 }
+
+describe('retained answer evidence prompt versions', () => {
+  it('keeps evidence from every earlier prompt version valid after a new prompt ships', () => {
+    for (const version of [
+      'guest-chat-prompt-v5',
+      'guest-chat-prompt-v14',
+      'guest-chat-prompt-v23',
+      'guest-chat-prompt-v27',
+      GUEST_CHAT_PROMPT_VERSION,
+    ])
+      expect(
+        GuestAnswerEvidenceBundleSchema.safeParse({ ...evidence, promptContractVersion: version })
+          .success,
+        version,
+      ).toBe(true)
+  })
+
+  it('rejects versions before evidence existed, after the current prompt, or malformed', () => {
+    const next = `guest-chat-prompt-v${Number(GUEST_CHAT_PROMPT_VERSION.replace('guest-chat-prompt-v', '')) + 1}`
+    for (const version of [
+      'guest-chat-prompt-v4',
+      next,
+      'guest-chat-prompt-v05',
+      'guest-chat-prompt-vX',
+      'other-v27',
+    ])
+      expect(
+        GuestAnswerEvidenceBundleSchema.safeParse({ ...evidence, promptContractVersion: version })
+          .success,
+        version,
+      ).toBe(false)
+  })
+})
 
 describe('guest answer claim attribution', () => {
   it('binds exact spans and frozen sources while reporting threshold-free metrics', () => {

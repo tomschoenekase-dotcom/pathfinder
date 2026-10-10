@@ -22,7 +22,9 @@ import {
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
-import { buildVenueSystemPromptParts } from '../lib/venue-context'
+import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
+
+import { buildVenueSystemPromptParts, guestVenueClock } from '../lib/venue-context'
 import {
   buildVoiceGroundingContext,
   type VoiceGroundingReader,
@@ -86,6 +88,7 @@ type PublicVoiceScope = {
   tonePresetVersion: number | null
   aiGuideName: string | null
   guideMode: string | null
+  chatAppearance: unknown
 }
 
 async function resolvePublicVoiceScope(
@@ -112,7 +115,8 @@ async function resolvePublicVoiceScope(
            v.tone_preset AS "tonePreset",
            v.tone_preset_version AS "tonePresetVersion",
            v.ai_guide_name AS "aiGuideName",
-           v.guide_mode AS "guideMode"
+           v.guide_mode AS "guideMode",
+           v.chat_appearance AS "chatAppearance"
       FROM visitor_sessions s
       JOIN venues v ON v.id = s.venue_id AND v.tenant_id = s.tenant_id
      WHERE s.anonymous_token = ${input.anonymousToken}
@@ -258,7 +262,7 @@ export function composeVoiceInstructions(input: {
   const boundedStatic = input.staticPart.slice(
     0,
     Math.min(
-      10_000,
+      10_500,
       contentBudget - Math.min(input.dynamicPart.length, Math.floor(contentBudget / 2)),
     ),
   )
@@ -274,7 +278,14 @@ function voiceInstructions(
   locale: string,
   visitContext?: VoiceSessionStartInput['visitContext'],
 ): string {
+  // The same venue-local date and time a text turn gets, so the voice guide knows what today is.
+  const clock = guestVenueClock(new Date(), parseChatAppearance(scope.chatAppearance).timeZone)
   const prompt = buildVenueSystemPromptParts({
+    currentDate: clock.date,
+    // A voice session can run for an hour on these instructions, so the time is marked as its start.
+    ...(clock.localTime
+      ? { currentLocalTime: `${clock.localTime} when this voice session started` }
+      : {}),
     venue: {
       ...scope,
       description: scope.description?.slice(0, 1_000) ?? null,

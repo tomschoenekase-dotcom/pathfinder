@@ -2,6 +2,17 @@
 
 > **Production incident state: ACTIVE. Staging exception state: APPROVED.**
 
+## Restricted guide context fidelity release — approved 2026-10-10
+
+Tom directly authorized the code-only guide context fidelity release on October 10, 2026.
+The [release-specific record](production-cutover-20261010.md) binds the reviewed application
+candidate `483e6ac9f5d30d9076b17149bd38014f60e9d9eb` and its source tree
+`c3b40b11dea1b7922d0756e65eb522ecaed1608e` to the unchanged production base
+`bfd0a8e427e44dce46219084e8ab5fefc728fdfe`. Its final documentation-bearing SHA must
+pass exact-head CI and three-service staging admission before production promotion. The
+production incident remains ACTIVE by default. This exception admits no hosted database
+migration, data repair, seed, reset, restore, worker flag change, customer send, or deletion.
+
 The September 27 distribution and appearance source endpoint is 252 migrations. Source admission
 does not extend either hosted exception. The recorded staging exception below is synthetic-only,
 while the current staging database may contain restored production lineage; treat that database as

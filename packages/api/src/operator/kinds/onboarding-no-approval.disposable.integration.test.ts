@@ -38,7 +38,7 @@ import { venuePackageRouter } from '../../routers/venue-package'
 
 import { resolveOperatorConfig } from '../config'
 import type { VerifiedOperatorGrant } from '../oauth'
-import { createKindRegistry, createProposal } from '../proposals'
+import { createKindRegistry, createProposal, createRevertProposal } from '../proposals'
 import { setCustomerProviderForTests, type CustomerProvider } from './customers'
 import { OPERATOR_PROPOSAL_KINDS } from './index'
 
@@ -275,6 +275,47 @@ describe.skipIf(!enabled)(
         }),
       )
       expect(titles.map((row) => row.title)).toEqual(['Accessibility', 'Hours'])
+    })
+
+    it('reverts an imported package through the operator in one call', async () => {
+      const fixture = await importFixtureVenue()
+      const view = await propose('venues.propose_package_import', {
+        tenantId,
+        venueId: fixture.id,
+        payload: {
+          schemaVersion: 1,
+          places: [],
+          knowledgeEntries: [
+            {
+              title: 'Parking',
+              category: 'Visiting',
+              content: 'Lot A opens at 9 AM.',
+              isEnabled: true,
+            },
+          ],
+        },
+      })
+      expect(view.status).toBe('APPLIED')
+      const packageId = (view.result as { packageId: string }).packageId
+      const count = () =>
+        withTenantIsolationBypass(() =>
+          db.venueKnowledgeEntry.count({ where: { tenantId, venueId: fixture.id } }),
+        )
+      expect(await count()).toBe(1)
+
+      const revert = await createRevertProposal(
+        { proposalId: view.proposalId, operationId: randomUUID() },
+        (raw) => raw as { proposalId: string; operationId: string },
+        { config, database: db, grant, kinds, now: new Date(), requestId: randomUUID() },
+      )
+
+      expect(revert.status).toBe('APPLIED')
+      expect(revert.result).toMatchObject({ packageId, status: 'REVERTED' })
+      expect(await count()).toBe(0)
+      const pkg = await withTenantIsolationBypass(() =>
+        db.venuePackage.findFirstOrThrow({ where: { id: packageId }, select: { status: true } }),
+      )
+      expect(pkg.status).toBe('REVERTED')
     })
 
     function fullPackage() {

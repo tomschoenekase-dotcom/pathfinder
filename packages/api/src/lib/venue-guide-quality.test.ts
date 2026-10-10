@@ -44,6 +44,8 @@ describe('guide-quality warnings', () => {
     expect(codes(warnings)).toEqual([
       'GUIDE_QUALITY_FIRST_SENTENCE',
       'GUIDE_QUALITY_HEIGHT_LINE',
+      'GUIDE_QUALITY_HIDDEN_SENTENCE',
+      'GUIDE_QUALITY_HIDDEN_SENTENCE',
       'GUIDE_QUALITY_NAME_LABEL',
       'GUIDE_QUALITY_RESEARCH_TEXT',
       'GUIDE_QUALITY_RESEARCH_TEXT',

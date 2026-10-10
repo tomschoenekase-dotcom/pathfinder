@@ -1648,6 +1648,48 @@ describe('chat router', () => {
       expect(prompt).toContain('Case 12 — Second floor')
     }
 
+    it('does not mark a guide place as updated because identity adds its floor', async () => {
+      setupHappyPath('It is on the first floor.')
+      // Separate full guide records, but one identity label, so identity adds each one's floor.
+      const upper = {
+        ...placeRows[0],
+        id: 'ember-cafe-upper',
+        name: 'Ember Café',
+        shortDescription: 'Ember Café is a coffee counter.',
+        areaName: 'East gallery',
+      }
+      const lower = {
+        ...placeRows[0],
+        id: 'ember-cafe-lower',
+        name: 'Ember-Café',
+        shortDescription: 'Ember-Café is a snack bar.',
+        areaName: 'West gallery',
+      }
+      semanticSearch.places.mockResolvedValueOnce([upper, lower])
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValue([upper, lower])
+      venueLocationFindMany.mockResolvedValueOnce([
+        {
+          primaryPlaceId: upper.id,
+          displayName: 'First floor east gallery',
+          floor: { name: 'First floor', stableKey: 'first-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+        },
+        {
+          primaryPlaceId: lower.id,
+          displayName: 'Second floor west gallery',
+          floor: { name: 'Second floor', stableKey: 'second-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+        },
+      ])
+
+      await caller.chat.send({ ...sendInput, message: 'Tell me about Ember Cafe on the First floor' })
+
+      expect(venueLocationFindMany).toHaveBeenCalled()
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).toContain('<place name="Ember Café"')
+      expect(prompt).toContain('First floor')
+      expect(prompt).not.toContain('Updated since the VENUE GUIDE was loaded')
+    })
+
     it('binds a valid public QR item to its exact duplicate-name exhibit', async () => {
       setupHappyPath('This is the second-floor case.')
       const fixture = caseTwelveRankingFixture()
@@ -1791,8 +1833,14 @@ describe('chat router', () => {
       expect(prompt).not.toContain('Second-floor case.')
       expect(prompt).not.toContain('Second floor west gallery')
       expect(prompt).toContain('First-floor case.')
-      expect(configLogger.info).toHaveBeenLastCalledWith(
-        expect.objectContaining({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' }),
+      const infoActions = configLogger.info.mock.calls.map(
+        ([entry]) => (entry as { action?: string }).action,
+      )
+      const readLog = configLogger.info.mock.calls[infoActions.lastIndexOf('guest-chat.native-content-read')]
+      expect(readLog?.[0]).toMatchObject({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' })
+      // No other native read is logged after it, before the context-ready diagnostic.
+      expect(infoActions.slice(infoActions.lastIndexOf('guest-chat.native-content-read') + 1)).toEqual(
+        infoActions.includes('guest-chat.context-ready') ? ['guest-chat.context-ready'] : [],
       )
     })
 
@@ -3814,6 +3862,64 @@ describe('chat router', () => {
       const concatenatedSystemPrompt = `${systemBlocks[0]?.text}${systemBlocks[1]?.text}`
       expect(concatenatedSystemPrompt).toContain('City Zoo')
       expect(concatenatedSystemPrompt).toContain('Elephants')
+    })
+
+    it('logs the context an answer was built from as hashes and counts only', async () => {
+      setupHappyPath('ok')
+      placeFindMany.mockResolvedValue(placeRows)
+
+      await caller.chat.send(sendInput)
+
+      const call = configLogger.info.mock.calls.find(
+        ([entry]) => (entry as { action?: string }).action === 'guest-chat.context-ready',
+      )?.[0] as Record<string, unknown>
+      expect(call).toMatchObject({
+        venueId: VENUE_ID,
+        guideMode: 'FULL',
+        guideRendererTruncated: false,
+        guideUpdatedRecordCount: 0,
+        staticSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        guideSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        dynamicSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        historyCount: 0,
+        tenantId: TENANT_ID,
+        turnId: expect.any(String),
+        contentReadPath: 'LEGACY',
+        placesInContextCount: 1,
+      })
+      expect(JSON.stringify(call)).not.toContain(sendInput.message)
+      expect(JSON.stringify(call)).not.toContain('"p1"')
+      expect(JSON.stringify(call)).not.toContain('Elephants')
+    })
+
+    it('still answers when the diagnostic logger fails', async () => {
+      setupHappyPath('The elephants are north.')
+      configLogger.info.mockImplementation((entry: { action?: string }) => {
+        if (entry.action === 'guest-chat.context-ready') throw new Error('logger down')
+      })
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result).toMatchObject({ response: 'The elephants are north.' })
+    })
+
+    it('keeps a place edited after the cached guide loaded in full and marks it current', async () => {
+      setupHappyPath('ok')
+      placeFindMany.mockReset()
+      // The directory read (take 400) still holds the old hours; retrieval reads the edit.
+      placeFindMany.mockImplementation(async (args: { take?: number }) =>
+        args.take === 400
+          ? [{ ...placeRows[0]!, hours: '9am-5pm' }]
+          : [{ ...placeRows[0]!, hours: '9am-3pm' }],
+      )
+
+      await caller.chat.send(sendInput)
+
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+      const systemBlocks = callArgs.system as Array<{ type: string; text: string }>
+      expect(systemBlocks[1]?.text).toContain('hours="9am-5pm"')
+      expect(systemBlocks[2]?.text).toContain('Hours: 9am-3pm')
+      expect(systemBlocks[2]?.text).toContain('Updated since the VENUE GUIDE was loaded')
     })
 
     it('sends the full public venue guide as the cached block between static and dynamic', async () => {

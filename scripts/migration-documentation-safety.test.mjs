@@ -18,7 +18,26 @@ const restrictedProductionRecords = new Set([
   'production-cutover-20260930.md',
   'production-cutover-20261001.md',
   'production-cutover-20261003.md',
+  'production-cutover-20261010.md',
 ])
+
+test('October 10 code-only exception binds the candidate without lifting the incident', async () => {
+  const approval = await readFile(new URL('production-cutover-20261010.md', docsRoot), 'utf8')
+  const stop = await readFile(new URL('database-incident-stop.md', docsRoot), 'utf8')
+  const workflow = await readFile(new URL('staging-release-workflow.md', docsRoot), 'utf8')
+  assert.equal(hasLeadingMarker(approval, restrictedProductionMarker), true)
+  assert.match(approval, /483e6ac9f5d30d9076b17149bd38014f60e9d9eb/)
+  assert.match(approval, /c3b40b11dea1b7922d0756e65eb522ecaed1608e/)
+  assert.match(approval, /bfd0a8e427e44dce46219084e8ab5fefc728fdfe/)
+  assert.match(approval, /no diff\s+against that base/)
+  assert.match(approval, /final documentation-bearing SHA/)
+  assert.match(approval, /incident remains ACTIVE by default/)
+  assert.match(approval, /No hosted database migration, data repair, seed, reset/)
+  assert.match(approval, /three-service admission/)
+  assert.match(stop, /production-cutover-20261010\.md/)
+  assert.match(workflow, /production-cutover-20261010\.md/)
+  assert.deepEqual(findUnsafeInstructions(approval), [])
+})
 
 test('October 3 PR40 exception retains exact suffix, preservation and protected promotion gates', async () => {
   const approval = await readFile(new URL('production-cutover-20261003.md', docsRoot), 'utf8')

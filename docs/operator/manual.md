@@ -41,7 +41,7 @@ Give every venue these topics as well as one record per place:
 
 ### Check before you import
 
-Run `venues.check_package` with the same `payload` or attached `file` you would import. It saves nothing and calls no model. It returns the import `plan`, validation `errors`, and `guideQuality`: `total` and up to 40 `shown` findings, each with the record path and what to fix (research or pin notes, record-voice phrases, research labels in names, source links in text, a first sentence that does not say what the thing is, a ride without a `Height:` line, question-style titles). Fix the named records and check again until `ready` is true; then import once with `venues.propose_package_import`.
+Run `venues.check_package` with the same `payload` or attached `file` you would import. It saves nothing and calls no model. It returns the import `plan`, validation `errors`, and `guideQuality`: `total` and up to 40 `shown` findings, each with the record path and what to fix (research or pin notes, record-voice phrases, research labels in names, source links in text, a first sentence that does not say what the thing is, a ride without a `Height:` line, question-style titles, and each sentence the full guide leaves out entirely, quoted with its path). A left-out sentence takes every fact in it along, so restate that fact in its own plain sentence. Fix the named records and check again until `ready` is true; then import once with `venues.propose_package_import`.
 
 Also fix `otherWarnings` such as `DUPLICATE_IN_PACKAGE` (two records with the same title): give each record its own clear title or merge them. The import itself adds a semantic duplicate scan whose warnings never block it.
 

@@ -22,6 +22,7 @@ export function buildGuestGuideCoverage(input: {
     loadStatus: input.loadStatus,
     projectionPath: input.projectionPath,
     incomplete: input.directory.incomplete,
+    ...(input.guide.rendererTruncated ? { rendererTruncated: true } : {}),
     placeCount: input.directory.places.length,
     knowledgeCount: input.directory.knowledge.length,
     includedDetailCount: input.guide.recordIds.size,

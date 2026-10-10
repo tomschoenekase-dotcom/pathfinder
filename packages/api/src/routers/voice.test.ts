@@ -370,6 +370,25 @@ describe('voice router', () => {
     )
   })
 
+  it('gives voice startup the venue-local date and time a text turn gets', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-10T01:00:00Z'))
+    try {
+      dbMocks.queryRaw.mockResolvedValueOnce([
+        { ...scope, chatAppearance: { timeZone: 'America/Chicago' } },
+      ])
+      await caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en-US' })
+    } finally {
+      vi.useRealTimers()
+    }
+    const authorization = vi.mocked(provider.authorizeSession).mock.calls[0]?.[0] as {
+      instructions: string
+    }
+    expect(authorization.instructions).toContain(
+      'At the venue it is Friday, October 9, 2026 at 8:00 PM when this voice session started (2026-10-09)',
+    )
+  })
+
   it('passes bounded visit preferences to voice startup without exposing unresolved place IDs as venue facts', async () => {
     await caller.voice.start({
       venueId: VENUE_ID,
@@ -636,11 +655,19 @@ describe('voice router', () => {
   })
 
   it('keeps the shared venue and safety instruction fingerprint aligned with text chat', async () => {
-    await caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en-US' })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-10T01:00:00Z'))
+    try {
+      await caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en-US' })
+    } finally {
+      vi.useRealTimers()
+    }
     const authorization = vi.mocked(provider.authorizeSession).mock.calls[0]?.[0] as {
       instructions: string
     }
+    // Without a venue time zone, text chat uses the UTC date and no local time; so does voice.
     const common = buildVenueSystemPromptParts({
+      currentDate: '2026-10-10',
       venue: { ...scope, guideNotes: null, aiGuideNotes: null },
       relevantPlaces: [],
       knowledgeEntries: [],
@@ -664,8 +691,10 @@ describe('voice router', () => {
   it('keeps the whole shared static guide prompt within the voice budget at maximum description length', () => {
     for (const guideMode of ['location_aware', 'non_location']) {
       const prompt = buildVenueSystemPromptParts({
+        // The longest venue name, guide name and description the venue settings accept.
         venue: {
-          name: 'N'.repeat(60),
+          name: 'N'.repeat(200),
+          aiGuideName: 'G'.repeat(80),
           description: 'D'.repeat(1_000),
           category: 'theme park',
           guideMode,

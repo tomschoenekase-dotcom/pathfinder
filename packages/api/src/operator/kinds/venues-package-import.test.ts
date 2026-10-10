@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   draft: vi.fn(),
   approve: vi.fn(),
   apply: vi.fn(),
+  revert: vi.fn(),
   preview: vi.fn(),
   assertVenueInGrant: vi.fn(),
 }))
@@ -13,6 +14,7 @@ vi.mock('../../routers/venue-package', () => ({ createVenuePackageDraftService: 
 vi.mock('../../lib/venue-package-core', () => ({
   approveVenuePackageLifecycle: mocks.approve,
   applyVenuePackageLifecycle: mocks.apply,
+  revertVenuePackageLifecycle: mocks.revert,
   buildVenuePackagePreview: mocks.preview,
 }))
 vi.mock('../grants', async (importOriginal) => ({
@@ -102,6 +104,73 @@ describe('venues.propose_package_import apply', () => {
       'The approve step failed (CONFLICT): Venue package changed. Nothing was applied. Retry with a new operationId; the saved draft stays unapplied.',
     )
     expect(mocks.apply).not.toHaveBeenCalled()
+  })
+})
+
+describe('venues.propose_package_import revert', () => {
+  const packageUpdatedAt = new Date('2026-10-07T12:05:00.000Z')
+  const original = (afterSnapshot: unknown = { packageId: 'pkg-1', status: 'APPLIED' }) =>
+    ({
+      id: 'proposal-0',
+      kind: 'venues.package-import',
+      status: 'APPLIED',
+      targetTenantId: TENANT,
+      targetVenueId: VENUE,
+      afterSnapshot,
+    }) as any
+  const revertContext = (found: unknown) => ({
+    ...context,
+    operationId: '9b2e2d1f-3a98-4c6f-8e68-7b3c7e8b0e21',
+    database: {
+      ...context.database,
+      venuePackage: { findFirst: vi.fn().mockResolvedValue(found) },
+    },
+  })
+
+  it('reverts the applied package through the package lifecycle in one transaction', async () => {
+    mocks.revert.mockResolvedValue({ id: 'pkg-1', status: 'REVERTED' })
+    const ctx = revertContext({ id: 'pkg-1', updatedAt: packageUpdatedAt })
+    const outcome = await venuesPackageImportKind.revert!(original(), ctx)
+
+    expect(ctx.database.venuePackage.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'pkg-1', tenantId: TENANT, venueId: VENUE } }),
+    )
+    expect(mocks.revert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT,
+        venueId: VENUE,
+        command: expect.objectContaining({ id: 'pkg-1', expectedUpdatedAt: packageUpdatedAt }),
+      }),
+    )
+    expect(outcome).toEqual({
+      result: { venueId: VENUE, packageId: 'pkg-1', status: 'REVERTED' },
+      after: { packageId: 'pkg-1', status: 'REVERTED' },
+    })
+  })
+
+  it('uses a stable command key so a retried revert replays instead of reverting twice', async () => {
+    mocks.revert.mockResolvedValue({ id: 'pkg-1', status: 'REVERTED' })
+    const ctx = revertContext({ id: 'pkg-1', updatedAt: packageUpdatedAt })
+    await venuesPackageImportKind.revert!(original(), ctx)
+    await venuesPackageImportKind.revert!(original(), ctx)
+    const keys = mocks.revert.mock.calls.map(([request]) => request.command.commandKey)
+    expect(keys[0]).toBe(keys[1])
+  })
+
+  it('reports a stale revert with the step and reason, and refuses an import with no package', async () => {
+    mocks.revert.mockRejectedValue(
+      new TRPCError({ code: 'CONFLICT', message: 'A newer venue package was applied' }),
+    )
+    const failure = await venuesPackageImportKind.revert!(
+      original(),
+      revertContext({ id: 'pkg-1', updatedAt: packageUpdatedAt }),
+    ).catch((error) => error)
+    expect(failure.summary).toContain('The revert step failed (CONFLICT): A newer venue package')
+
+    await expect(
+      venuesPackageImportKind.revert!(original(null), revertContext(null)),
+    ).rejects.toThrow('no applied package')
+    await expect(venuesPackageImportKind.revert!(original(), revertContext(null))).rejects.toThrow()
   })
 })
 
