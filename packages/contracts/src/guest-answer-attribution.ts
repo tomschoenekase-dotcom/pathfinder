@@ -28,22 +28,16 @@ export const GuestGuideCoverageSchema = z.object({
 export type GuestGuideCoverage = z.infer<typeof GuestGuideCoverageSchema>
 
 // Evidence was introduced with v5. Retained answers keep their original prompt
-// identity; deploying a new prompt must not invalidate immutable replay data.
-const evidencePromptVersion = z.union([
-  z.literal(GUEST_CHAT_PROMPT_VERSION),
-  z.enum([
-    'guest-chat-prompt-v5',
-    'guest-chat-prompt-v6',
-    'guest-chat-prompt-v7',
-    'guest-chat-prompt-v8',
-    'guest-chat-prompt-v9',
-    'guest-chat-prompt-v10',
-    'guest-chat-prompt-v11',
-    'guest-chat-prompt-v12',
-    'guest-chat-prompt-v13',
-    'guest-chat-prompt-v14',
-  ]),
-])
+// identity; deploying a new prompt must not invalidate immutable replay data, so
+// every version from v5 up to the current one stays valid.
+const CURRENT_PROMPT_NUMBER = Number(GUEST_CHAT_PROMPT_VERSION.replace('guest-chat-prompt-v', ''))
+const evidencePromptVersion = z
+  .string()
+  .regex(/^guest-chat-prompt-v[1-9]\d{0,3}$/u)
+  .refine((value) => {
+    const number = Number(value.replace('guest-chat-prompt-v', ''))
+    return number >= 5 && number <= CURRENT_PROMPT_NUMBER
+  }, 'Unknown guest prompt version')
 
 export const GuestAnswerEvidenceSourceSchema = z
   .object({
