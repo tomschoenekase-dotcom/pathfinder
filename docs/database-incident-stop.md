@@ -2,6 +2,15 @@
 
 > **Production incident state: ACTIVE. Staging exception state: APPROVED.**
 
+## Restricted guest grounding correction — approved 2026-10-10
+
+Tom's later continued-release instruction authorizes the [code-only correction record](production-guide-grounding-20261010.md)
+for candidate `f1b12684b5ce0d96208a6d361ec4d65a32390dce` and tree
+`998c3e2fe40f85dfa21c05155f8dfbf8e16bc555`. The final documentation-bearing SHA requires
+full exact-head CI, staging three-service admission, protected promotion, production health and
+visitor acceptance. The incident remains ACTIVE; no hosted database migration, data repair,
+package mutation, provider flag change, customer send, or deletion is admitted.
+
 ## Restricted guide context fidelity release — approved 2026-10-10
 
 Tom directly authorized the code-only guide context fidelity release on October 10, 2026.

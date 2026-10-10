@@ -19,7 +19,26 @@ const restrictedProductionRecords = new Set([
   'production-cutover-20261001.md',
   'production-cutover-20261003.md',
   'production-cutover-20261010.md',
+  'production-guide-grounding-20261010.md',
 ])
+
+test('October 10 grounding correction remains code-only and incident-bound', async () => {
+  const approval = await readFile(new URL('production-guide-grounding-20261010.md', docsRoot), 'utf8')
+  const stop = await readFile(new URL('database-incident-stop.md', docsRoot), 'utf8')
+  const workflow = await readFile(new URL('staging-release-workflow.md', docsRoot), 'utf8')
+  assert.equal(hasLeadingMarker(approval, restrictedProductionMarker), true)
+  assert.match(approval, /f1b12684b5ce0d96208a6d361ec4d65a32390dce/)
+  assert.match(approval, /998c3e2fe40f85dfa21c05155f8dfbf8e16bc555/)
+  assert.match(approval, /bfd0a8e427e44dce46219084e8ab5fefc728fdfe/)
+  assert.match(approval, /schema and migration paths have no diff/)
+  assert.match(approval, /final documentation-bearing source/)
+  assert.match(approval, /incident remains ACTIVE by\s+default/)
+  assert.match(approval, /no hosted database migration or data repair/)
+  assert.match(approval, /three-service staging admission/)
+  assert.match(stop, /production-guide-grounding-20261010\.md/)
+  assert.match(workflow, /production-guide-grounding-20261010\.md/)
+  assert.deepEqual(findUnsafeInstructions(approval), [])
+})
 
 test('October 10 code-only exception binds the candidate without lifting the incident', async () => {
   const approval = await readFile(new URL('production-cutover-20261010.md', docsRoot), 'utf8')
