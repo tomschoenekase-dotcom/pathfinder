@@ -140,6 +140,21 @@ describe('authoring checks match what the guide drops', () => {
     ).toEqual([])
   })
 
+  it('caps hidden-sentence warnings per package and keeps each message within 600 characters', () => {
+    const records = Array.from({ length: 60 }, (_, i) => ({
+      kind: 'knowledge' as const,
+      path: `knowledgeEntries.${i}`,
+      title: `Notes ${'x'.repeat(200)}`,
+      category: 'Visit',
+      content: `This pin a ${'y'.repeat(300)}. This pin b. This pin c.`,
+    }))
+    const hidden = guideQualityWarnings(records).filter(
+      (w) => w.code === 'GUIDE_QUALITY_HIDDEN_SENTENCE',
+    )
+    expect(hidden).toHaveLength(100)
+    expect(Math.max(...hidden.map((w) => w.message.length))).toBeLessThanOrEqual(600)
+  })
+
   it('caps hidden-sentence warnings per field', () => {
     const warnings = guideQualityWarnings([
       {
@@ -406,6 +421,15 @@ describe('a cached guide never hides a newer retrieved version', () => {
         places: [{ ...cachedPlace }],
         knowledgeEntries: [excerpt, { id: 'k-height' }, { id: 'k-not-in-guide', updatedAt: t1 }],
       }).size,
+    ).toBe(0)
+  })
+
+  it('never labels an older retrieved copy as replacing a newer guide', () => {
+    const directory = directoryOf([], [{ ...cachedTopic, updatedAt: t1 }])
+    const guide = buildGuestVenueGuidePrompt(directory, { currentDate })
+    const older = { ...cachedTopic, updatedAt: t0 }
+    expect(
+      staleGuestGuideRecordIds({ guide, directory, places: [], knowledgeEntries: [older] }).size,
     ).toBe(0)
   })
 

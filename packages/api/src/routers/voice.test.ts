@@ -691,8 +691,10 @@ describe('voice router', () => {
   it('keeps the whole shared static guide prompt within the voice budget at maximum description length', () => {
     for (const guideMode of ['location_aware', 'non_location']) {
       const prompt = buildVenueSystemPromptParts({
+        // The longest venue name, guide name and description the venue settings accept.
         venue: {
-          name: 'N'.repeat(60),
+          name: 'N'.repeat(200),
+          aiGuideName: 'G'.repeat(80),
           description: 'D'.repeat(1_000),
           category: 'theme park',
           guideMode,

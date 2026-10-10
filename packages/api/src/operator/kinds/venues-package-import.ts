@@ -7,11 +7,18 @@ import { VENUE_PACKAGE_TRANSACTION_OPTIONS } from '@pathfinder/db'
 import {
   applyVenuePackageLifecycle,
   approveVenuePackageLifecycle,
+  revertVenuePackageLifecycle,
 } from '../../lib/venue-package-core'
 import { createVenuePackageDraftService } from '../../routers/venue-package'
 import { VenuePackagePayload } from '../../schemas/venue-package'
-import { assertGrantCapability, assertVenueInGrant } from '../grants'
-import type { OperatorApplyContext, OperatorKindContext, OperatorProposalKind } from '../proposals'
+import { assertGrantCapability, assertVenueInGrant, OperatorNotFoundError } from '../grants'
+import {
+  OperatorStaleError,
+  type OperatorApplyContext,
+  type OperatorKindContext,
+  type OperatorProposalKind,
+  type StoredOperatorProposal,
+} from '../proposals'
 import { downloadAttachment } from '../tools/crm-csv-import'
 
 const input = OPERATOR_MCP_INPUTS['venues.propose_package_import']
@@ -85,7 +92,7 @@ export async function resolvePackageAttachment(
 }
 
 /** Stable UUIDs per operation and step, so a retried apply replays instead of importing twice. */
-function stepKey(operationId: string, step: 'draft' | 'approve' | 'apply') {
+function stepKey(operationId: string, step: 'draft' | 'approve' | 'apply' | 'revert') {
   const hex = createHash('sha256').update(`operator-package:${operationId}:${step}`).digest('hex')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
 }
@@ -119,7 +126,10 @@ function failure(message: string, extra: Record<string, unknown> = {}) {
  * Runs one import step and keeps its reason on the receipt. Without a summary the operator records
  * only the code (for example CONFLICT), and the caller cannot tell which step failed or what to do.
  */
-async function step<T>(name: 'draft' | 'approve' | 'apply', run: () => Promise<T>): Promise<T> {
+async function step<T>(
+  name: 'draft' | 'approve' | 'apply' | 'revert',
+  run: () => Promise<T>,
+): Promise<T> {
   try {
     return await run()
   } catch (error) {
@@ -265,6 +275,47 @@ export const venuesPackageImportKind: OperatorProposalKind<ImportArgs> = {
         replayed: false,
       },
       after: { packageId: applied.id, status: applied.status } as JsonValue,
+    }
+  },
+  /**
+   * Undo through the dashboard's own package revert: every record the package created, updated or
+   * removed returns to its state before the import. A newer package applied since is refused as
+   * stale by the package lifecycle, never silently overwritten.
+   */
+  revert: async (original: StoredOperatorProposal, context: OperatorApplyContext) => {
+    const after = original.afterSnapshot as { packageId?: unknown } | null
+    const tenantId = original.targetTenantId
+    const venueId = original.targetVenueId
+    if (typeof after?.packageId !== 'string' || !tenantId || !venueId) {
+      throw new OperatorStaleError('The original import has no applied package to revert.')
+    }
+    const database = context.database
+    const pkg = await database.venuePackage.findFirst({
+      where: { id: after.packageId, tenantId, venueId },
+      select: { id: true, updatedAt: true },
+    })
+    if (!pkg) throw new OperatorNotFoundError()
+    const actor = { type: 'HUMAN' as const, id: context.actor.id, role: 'PLATFORM_ADMIN' as const }
+    const reverted = await step('revert', () =>
+      database.$transaction(
+        async (tx) =>
+          revertVenuePackageLifecycle({
+            db: tx as never,
+            tenantId,
+            venueId,
+            actor,
+            command: {
+              id: pkg.id,
+              expectedUpdatedAt: pkg.updatedAt,
+              commandKey: stepKey(context.operationId, 'revert'),
+            },
+          }),
+        VENUE_PACKAGE_TRANSACTION_OPTIONS,
+      ),
+    )
+    return {
+      result: { venueId, packageId: reverted.id, status: reverted.status },
+      after: { packageId: reverted.id, status: reverted.status } as JsonValue,
     }
   },
   /** The package row is the receipt: applied means the import landed. */

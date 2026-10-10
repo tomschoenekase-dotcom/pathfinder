@@ -448,7 +448,8 @@ export function staleGuestGuideRecordIds(params: {
     if (
       cached instanceof Date &&
       entry.updatedAt instanceof Date &&
-      cached.getTime() !== entry.updatedAt.getTime()
+      // Only a newer retrieved version replaces the guide's; an older one means the guide reloaded.
+      entry.updatedAt.getTime() > cached.getTime()
     )
       stale.add(key)
   }

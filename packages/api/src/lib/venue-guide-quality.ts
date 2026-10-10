@@ -25,7 +25,11 @@ export type GuideQualityWarning = { code: string; path: string; message: string 
 const MANUAL = 'See the operator manual, "Writing guide records".'
 // Enough to show an author the pattern without flooding a research-heavy package.
 const MAX_HIDDEN_SENTENCE_WARNINGS_PER_FIELD = 3
-const QUOTE_CHARS = 200
+const MAX_HIDDEN_SENTENCE_WARNINGS_PER_PACKAGE = 100
+const QUOTE_CHARS = 150
+const LABEL_CHARS = 80
+const clip = (text: string, max: number) =>
+  text.length > max ? `${text.slice(0, max - 1)}…` : text
 
 // Research bookkeeping, location-pin notes and record-talk that the guide would repeat to visitors.
 const RESEARCH_TEXT =
@@ -54,6 +58,7 @@ export function guideQualityWarnings(
   records: readonly GuideQualityRecord[],
 ): GuideQualityWarning[] {
   const warnings: GuideQualityWarning[] = []
+  let hiddenSentenceWarnings = 0
   for (const record of records) {
     const label = record.kind === 'place' ? record.name : record.title
     const fields = textOf(record)
@@ -80,12 +85,13 @@ export function guideQualityWarnings(
         0,
         MAX_HIDDEN_SENTENCE_WARNINGS_PER_FIELD,
       )) {
-        const quote =
-          sentence.length > QUOTE_CHARS ? `${sentence.slice(0, QUOTE_CHARS - 1)}…` : sentence
+        if (hiddenSentenceWarnings >= MAX_HIDDEN_SENTENCE_WARNINGS_PER_PACKAGE) break
+        hiddenSentenceWarnings += 1
+        const quote = clip(sentence, QUOTE_CHARS)
         warnings.push({
           code: 'GUIDE_QUALITY_HIDDEN_SENTENCE',
           path: `${record.path}.${field.field}`,
-          message: `“${label}”: the full venue guide leaves this sentence out, because it drops whole sentences that read as research notes or source lists: “${quote}”. Any fact in it is lost too. Restate the fact in its own sentence, as staff would say it. ${MANUAL}`,
+          message: `“${clip(label, LABEL_CHARS)}”: the full venue guide leaves this sentence out, because it drops whole sentences that read as research notes or source lists: “${quote}”. Any fact in it is lost too. Restate the fact in its own sentence, as staff would say it. ${MANUAL}`,
         })
       }
     }
