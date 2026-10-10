@@ -2,6 +2,15 @@
 
 > **Production incident state: ACTIVE. Staging exception state: APPROVED.**
 
+## Restricted guest source-link correction — approved 2026-10-10
+
+Tom's continued-repair instruction authorizes the [code-only source-link correction record](production-guide-source-links-20261010.md)
+for candidate `d750f8be59ec01a3653a5701b6deaae0cd02cade` and tree
+`882e939ad7fc98668853f560ad12a88c0554c6d0`. Its final documentation-bearing SHA requires
+full exact-head CI, staging three-service admission, protected promotion, production health and
+visitor acceptance. The incident remains ACTIVE; no hosted migration, data repair, package
+mutation, provider flag change, customer send or deletion is admitted.
+
 ## Restricted guest grounding correction — approved 2026-10-10
 
 Tom's later continued-release instruction authorizes the [code-only correction record](production-guide-grounding-20261010.md)
