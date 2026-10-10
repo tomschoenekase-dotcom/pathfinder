@@ -282,7 +282,10 @@ function voiceInstructions(
   const clock = guestVenueClock(new Date(), parseChatAppearance(scope.chatAppearance).timeZone)
   const prompt = buildVenueSystemPromptParts({
     currentDate: clock.date,
-    ...(clock.localTime ? { currentLocalTime: clock.localTime } : {}),
+    // A voice session can run for an hour on these instructions, so the time is marked as its start.
+    ...(clock.localTime
+      ? { currentLocalTime: `${clock.localTime} when this voice session started` }
+      : {}),
     venue: {
       ...scope,
       description: scope.description?.slice(0, 1_000) ?? null,

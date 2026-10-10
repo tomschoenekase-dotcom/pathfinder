@@ -1833,8 +1833,14 @@ describe('chat router', () => {
       expect(prompt).not.toContain('Second-floor case.')
       expect(prompt).not.toContain('Second floor west gallery')
       expect(prompt).toContain('First-floor case.')
-      expect(configLogger.info).toHaveBeenCalledWith(
-        expect.objectContaining({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' }),
+      const infoActions = configLogger.info.mock.calls.map(
+        ([entry]) => (entry as { action?: string }).action,
+      )
+      const readLog = configLogger.info.mock.calls[infoActions.lastIndexOf('guest-chat.native-content-read')]
+      expect(readLog?.[0]).toMatchObject({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' })
+      // No other native read is logged after it, before the context-ready diagnostic.
+      expect(infoActions.slice(infoActions.lastIndexOf('guest-chat.native-content-read') + 1)).toEqual(
+        infoActions.includes('guest-chat.context-ready') ? ['guest-chat.context-ready'] : [],
       )
     })
 
@@ -3876,8 +3882,13 @@ describe('chat router', () => {
         guideSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
         dynamicSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
         historyCount: 0,
+        tenantId: TENANT_ID,
+        turnId: expect.any(String),
+        contentReadPath: 'LEGACY',
+        placesInContextCount: 1,
       })
       expect(JSON.stringify(call)).not.toContain(sendInput.message)
+      expect(JSON.stringify(call)).not.toContain('"p1"')
       expect(JSON.stringify(call)).not.toContain('Elephants')
     })
 

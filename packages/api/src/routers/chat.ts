@@ -2058,6 +2058,10 @@ const chatReadRouter = router({
           dynamicSha256: sha(dynamicPart),
           historyCount: history.length,
           historySha256: sha(JSON.stringify(history.map((m) => [m.role, m.content]))),
+          contentReadPath: nativeRead.path,
+          knowledgeInContextCount: relevantKnowledgeEntries.length,
+          placesInContextCount: relevantPlaces.length,
+          // The trace describes the legacy retrieval; a native read replaces its entries.
           retrievalPath: retrievalTrace?.path ?? null,
           retrievedCount: retrievalTrace?.retrievedSourceIds.length ?? null,
           excludedCount: retrievalTrace?.excludedSourceIds.length ?? null,

@@ -385,7 +385,7 @@ describe('voice router', () => {
       instructions: string
     }
     expect(authorization.instructions).toContain(
-      'At the venue it is Friday, October 9, 2026 at 8:00 PM (2026-10-09)',
+      'At the venue it is Friday, October 9, 2026 at 8:00 PM when this voice session started (2026-10-09)',
     )
   })
 
