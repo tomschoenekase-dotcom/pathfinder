@@ -667,6 +667,7 @@ describe('voice router', () => {
     }
     // Without a venue time zone, text chat uses the UTC date and no local time; so does voice.
     const common = buildVenueSystemPromptParts({
+      responseSurface: 'voice',
       currentDate: '2026-10-10',
       venue: { ...scope, guideNotes: null, aiGuideNotes: null },
       relevantPlaces: [],
@@ -691,6 +692,7 @@ describe('voice router', () => {
   it('keeps the whole shared static guide prompt within the voice budget at maximum description length', () => {
     for (const guideMode of ['location_aware', 'non_location']) {
       const prompt = buildVenueSystemPromptParts({
+        responseSurface: 'voice',
         // The longest venue name, guide name and description the venue settings accept.
         venue: {
           name: 'N'.repeat(200),

@@ -67,6 +67,15 @@ describe('canonical client account actions', () => {
       client as never,
     )
     expect(result).toMatchObject({ replayed: false, tenant: { id: 'tenant-1' } })
+    expect(tx.venue.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          venueBotConfiguration: expect.objectContaining({
+            create: expect.objectContaining({ responseDepth: 'BRIEF' }),
+          }),
+        }),
+      }),
+    )
     expect(tx.$executeRaw).toHaveBeenCalledTimes(7)
     expect(tx.$executeRaw.mock.invocationCallOrder.at(-1)).toBeLessThan(
       tx.venue.create.mock.invocationCallOrder[0]!,

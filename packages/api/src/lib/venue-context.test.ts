@@ -78,7 +78,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v31')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v32')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -385,7 +385,7 @@ describe('guest chat prompt provenance', () => {
 describe('guest response-depth policy', () => {
   it('uses a balanced central default and bounded per-venue expansion limits', () => {
     expect(guestResponseWordLimit(undefined)).toBe(90)
-    expect(guestResponseWordLimit('BRIEF')).toBe(60)
+    expect(guestResponseWordLimit('BRIEF')).toBe(45)
     expect(guestResponseWordLimit('DETAILED')).toBe(130)
     expect(guestResponseWordLimit('BRIEF', 'EXPAND')).toBe(100)
     expect(guestResponseWordLimit('BALANCED', 'EXPAND')).toBe(150)
@@ -407,6 +407,19 @@ describe('guest response-depth policy', () => {
     expect(staticPart).toContain('Use fewer words whenever the answer is already complete')
     expect(staticPart).toContain('Normally keep this reply within 200 words')
     expect(staticPart).toContain('Preserve any restriction, exception, or uncertainty')
+  })
+
+  it('keeps ordinary written replies in one short paragraph and asks only useful follow-ups', () => {
+    const { staticPart } = buildVenueSystemPromptParts({
+      venue: { ...venue, responseDepth: 'BRIEF' },
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+    })
+    expect(staticPart).toContain('Normally keep this reply within 45 words')
+    expect(staticPart).toContain('one short paragraph without extra line breaks')
+    expect(staticPart).toContain('Ask only when the missing detail would materially improve')
+    expect(staticPart).toContain('rather than ending with a scripted bare question')
   })
 })
 

@@ -513,6 +513,7 @@ export async function createVenueAction(
             personalityMode: 'PRESET',
             tonePreset: 'friendly',
             tonePresetVersion: 1,
+            responseDepth: 'BRIEF',
             createdBy: actorId,
             updatedBy: actorId,
           },

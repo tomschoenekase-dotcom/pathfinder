@@ -303,6 +303,7 @@ async function createClientAccountTransaction(
                 personalityMode: 'PRESET',
                 tonePreset: 'friendly',
                 tonePresetVersion: 1,
+                responseDepth: 'BRIEF',
                 createdBy: input.actor.id,
                 updatedBy: input.actor.id,
               },

@@ -807,6 +807,9 @@ describe('canonical venue actions', () => {
       },
       client as never,
     )
+    expect(
+      tx.venue.create.mock.calls[0]?.[0]?.data.venueBotConfiguration.create.responseDepth,
+    ).toBe('BRIEF')
     expect(tx.auditLog.create).toHaveBeenCalledOnce()
     const audit = JSON.stringify(tx.auditLog.create.mock.calls)
     expect(audit).not.toContain('private body')

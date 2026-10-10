@@ -872,6 +872,7 @@ describe('venue router', () => {
               personalityMode: 'PRESET',
               tonePreset: 'friendly',
               tonePresetVersion: 1,
+              responseDepth: 'BRIEF',
               createdBy: 'user_1',
               updatedBy: 'user_1',
             },

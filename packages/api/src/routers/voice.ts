@@ -281,6 +281,7 @@ function voiceInstructions(
   // The same venue-local date and time a text turn gets, so the voice guide knows what today is.
   const clock = guestVenueClock(new Date(), parseChatAppearance(scope.chatAppearance).timeZone)
   const prompt = buildVenueSystemPromptParts({
+    responseSurface: 'voice',
     currentDate: clock.date,
     // A voice session can run for an hour on these instructions, so the time is marked as its start.
     ...(clock.localTime
