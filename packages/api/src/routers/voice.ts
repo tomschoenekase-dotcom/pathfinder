@@ -262,7 +262,7 @@ export function composeVoiceInstructions(input: {
   const boundedStatic = input.staticPart.slice(
     0,
     Math.min(
-      10_500,
+      11_000,
       contentBudget - Math.min(input.dynamicPart.length, Math.floor(contentBudget / 2)),
     ),
   )

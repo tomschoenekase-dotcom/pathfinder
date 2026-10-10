@@ -14,10 +14,7 @@ import {
 import { GUEST_CHAT_PROMPT_CONTRACT_HASH } from '@pathfinder/contracts/prompt-contract'
 import { hashGuestChatPromptManifest } from './guest-chat-prompt-contract'
 import { buildGuestVenueGuidePrompt, type GuestVenueDirectory } from './guest-venue-directory'
-import {
-  THEME_PARK_KNOWLEDGE,
-  THEME_PARK_PLACES,
-} from './evaluation/guest-answer-quality-corpus'
+import { THEME_PARK_KNOWLEDGE, THEME_PARK_PLACES } from './evaluation/guest-answer-quality-corpus'
 import {
   mergeGuestConversationEntries,
   projectGuestModelHistory,
@@ -81,7 +78,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v30')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v31')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -452,6 +449,40 @@ describe('guest ranking and comparison policy', () => {
 })
 
 describe('full venue guide mode', () => {
+  it('gives retrieved records safe source links in directory fallback without leaking private URLs', () => {
+    const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces: [
+        { ...relevantPlaces[0]!, sourceUrl: 'https://museum.example/shuttle/' },
+        { ...relevantPlaces[1]!, sourceUrl: 'https://museum.example/visit?auth=private' },
+      ],
+      knowledgeEntries: [
+        {
+          id: 'hours',
+          title: 'Hours and Events',
+          category: 'Visit',
+          content: 'Check next season on the official page.',
+          sourceUrl: 'https://museum.example/hours-events/',
+        },
+        {
+          id: 'unsafe',
+          title: 'Bad metadata',
+          category: 'Visit',
+          content: 'No URL is known.',
+          sourceUrl: 'javascript:alert(1)',
+        },
+      ],
+      userLat: null,
+      userLng: null,
+      venueGuideRecordIds: new Set(),
+    })
+    expect(dynamicPart).toContain('Source URL: https://museum.example/shuttle/')
+    expect(dynamicPart).toContain('Source URL: https://museum.example/hours-events/')
+    expect(dynamicPart).not.toContain('auth=private')
+    expect(dynamicPart).not.toContain('javascript:')
+    expect(staticPart).toContain('do not print a URL unless the visitor explicitly asks')
+  })
+
   it('names retrieved records the guide carries and keeps details for any it does not', () => {
     const { dynamicPart } = buildVenueSystemPromptParts({
       venue,

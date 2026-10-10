@@ -61,6 +61,47 @@ describe('guest citations', () => {
       }),
     ).toEqual([{ label: 'Venue handbook', detail: 'Venue knowledge: Accessibility' }])
   })
+
+  it('attributes an exact official URL even when the answer uses only the address', () => {
+    const hours = {
+      ...candidate,
+      entityId: 'hours',
+      entityKind: 'knowledge' as const,
+      entityLabel: 'Hours and season',
+      sourceUrl: 'https://museum.example/visit/hours-events/',
+    }
+    const citations = buildGuestCitations({
+      assistantResponse: 'https://museum.example/visit/hours-events/',
+      candidates: [hours, candidate],
+    })
+    expect(
+      selectGuestVisibleCitations({
+        visitorMessage: 'Please give me the official Hours and Events page link.',
+        citations,
+      }),
+    ).toEqual({
+      heading: 'links',
+      citations: [
+        {
+          label: 'Hours and season',
+          href: hours.sourceUrl,
+          detail: 'Venue knowledge: Hours and season',
+        },
+      ],
+    })
+    expect(
+      selectGuestVisibleCitations({
+        visitorMessage: 'When do you announce next season?',
+        citations,
+      }),
+    ).toBeNull()
+    expect(
+      buildGuestCitations({
+        assistantResponse: 'https://museum.example/visit/other/',
+        candidates: [hours],
+      }),
+    ).toEqual([])
+  })
 })
 
 describe('selectGuestVisibleCitations', () => {

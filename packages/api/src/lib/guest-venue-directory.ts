@@ -12,6 +12,7 @@ import {
   type GuestKnowledgeRow,
 } from './guest-knowledge-retrieval'
 import { guestFacingText, guestFacingTitle } from './guest-facing-text'
+import { safeGuestSourceUrl } from './guest-citations'
 import { escapeUntrustedPromptData, guestPlaceKindLabel } from './venue-context'
 
 export { guestFacingText, guestFacingTitle } from './guest-facing-text'
@@ -388,7 +389,8 @@ export function buildGuestVenueGuidePrompt(
     const short = guestFacingText(place.shortDescription)
     const long = guestFacingText(place.longDescription)
     const body = long.includes(short) ? long : [short, long].filter(Boolean).join('\n')
-    return `${open}\n${escapeUntrustedPromptData(body)}\n</place>`
+    const sourceUrl = safeGuestSourceUrl(place.sourceUrl)
+    return `${open}\n${escapeUntrustedPromptData(body)}${sourceUrl ? `\nSource URL: ${escapeUntrustedPromptData(sourceUrl)}` : ''}\n</place>`
   })
   const past: string[] = []
   const topicRecords: string[] = []
@@ -398,8 +400,9 @@ export function buildGuestVenueGuidePrompt(
       continue
     }
     fullRecordIds.add(`knowledge:${entry.id}`)
+    const sourceUrl = safeGuestSourceUrl(entry.sourceUrl)
     topicRecords.push(
-      `<topic title="${quotedAttribute(guestFacingTitle(entry.title))}" category="${quotedAttribute(entry.category)}">\n${escapeUntrustedPromptData(guestFacingText(entry.content))}\n</topic>`,
+      `<topic title="${quotedAttribute(guestFacingTitle(entry.title))}" category="${quotedAttribute(entry.category)}">\n${escapeUntrustedPromptData(guestFacingText(entry.content))}${sourceUrl ? `\nSource URL: ${escapeUntrustedPromptData(sourceUrl)}` : ''}\n</topic>`,
     )
   }
   const body = [
