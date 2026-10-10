@@ -101,7 +101,7 @@ describe('selectGuestVisibleCitations', () => {
       }
       expect(selectGuestVisibleCitations({ visitorMessage, citations: [ticket] })).toEqual({
         heading: 'links',
-        citations: [{ label: 'Tickets', ...ticket }],
+        citations: [ticket],
       })
     },
   )
