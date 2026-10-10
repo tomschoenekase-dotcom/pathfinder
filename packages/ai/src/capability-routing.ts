@@ -37,6 +37,7 @@ export const AI_WORKLOAD_CAPABILITIES = Object.freeze({
   'guest-chat-deepseek-flash': ['STANDARD', 'PREMIUM_CONVERSATION'],
   'guest-chat-deepseek-pro': ['STANDARD', 'PREMIUM_CONVERSATION'],
   'guest-chat-luna': ['STANDARD', 'PREMIUM_CONVERSATION'],
+  'guest-chat-sol': ['STANDARD', 'PREMIUM_CONVERSATION'],
   'guest-chat-openai': ['STANDARD', 'PREMIUM_CONVERSATION'],
   'weekly-digest': ['BACKGROUND_ANALYSIS'],
   'weekly-report': ['BACKGROUND_ANALYSIS'],
@@ -50,6 +51,7 @@ export const AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS = [
   'guest-chat',
   'guest-chat-openai',
   'guest-chat-luna',
+  'guest-chat-sol',
   'guest-chat-deepseek-flash',
   'guest-chat-deepseek-pro',
 ] as const satisfies readonly AiWorkloadId[]

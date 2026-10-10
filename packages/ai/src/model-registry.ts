@@ -10,6 +10,7 @@ export const AI_MODEL_KEYS = {
   GUEST_CHAT_DEEPSEEK_FLASH: 'guest-chat-deepseek-flash',
   GUEST_CHAT_DEEPSEEK_PRO: 'guest-chat-deepseek-pro',
   GUEST_CHAT_LUNA: 'guest-chat-luna',
+  GUEST_CHAT_SOL: 'guest-chat-sol',
   GUEST_CHAT_OPENAI: 'guest-chat-openai',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -73,6 +74,29 @@ function openAiLunaSpec(maxOutputTokens: number): AiModelSpec {
       output: 0.5,
       cacheWrite: 0.125,
       cacheRead: 0.01,
+    },
+  }
+}
+
+// A stronger visitor-chat route: in a blind 186-turn test it was the only model with no factual
+// errors, including opening-time reasoning ("11 AM, opens at noon") that Luna gets wrong.
+// Pricing is the public list price; cache writes are billed at the input rate.
+function openAiSolSpec(maxOutputTokens: number): AiModelSpec {
+  return {
+    provider: 'openai',
+    model: 'gpt-6.1-sol',
+    costTier: 'STANDARD',
+    maxOutputTokens,
+    timeoutMs: 20_000,
+    maxAttempts: 2,
+    maxInputUtf8Bytes: 180_000,
+    maxBillableInputTokens: 200_000,
+    pricingVersion: 'openai-standard-public-2026-10-10',
+    pricingUsdPerMillionTokens: {
+      input: 2,
+      output: 10,
+      cacheWrite: 2,
+      cacheRead: 0.2,
     },
   }
 }
@@ -191,6 +215,8 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   // A ranking across a large venue (a reason per ride) can exceed 512 tokens; an incomplete
   // response becomes a fallback reply, so the guest route leaves room. Billing is per token used.
   [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaSpec(1_024),
+  // Reasoning tokens count against the output cap, so Sol gets more room than Luna.
+  [AI_MODEL_KEYS.GUEST_CHAT_SOL]: openAiSolSpec(2_048),
   [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),

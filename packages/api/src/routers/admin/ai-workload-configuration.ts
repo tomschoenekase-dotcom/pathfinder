@@ -106,8 +106,9 @@ export const adminAiWorkloadConfigurationRouter = router({
     const effective = resolveAiWorkloadConfiguration({
       workloadId,
       ...(workloadId === 'guest-chat' &&
-      process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna'
-        ? { defaultPrimaryModelKey: 'guest-chat-luna' as const }
+      (process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna' ||
+        process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol')
+        ? { defaultPrimaryModelKey: process.env.GUEST_CHAT_DEFAULT_MODEL_KEY }
         : {}),
       overrides,
     })

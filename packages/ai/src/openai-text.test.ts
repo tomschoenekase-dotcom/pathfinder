@@ -76,6 +76,17 @@ describe('OpenAI Responses prompt cache accounting', () => {
     },
   )
 
+  it.each([
+    ['gpt-6-luna', 'none'],
+    ['gpt-6.1-sol', 'low'],
+    ['gpt-5.6', 'minimal'],
+  ])('asks %s for the reasoning effort it supports (%s)', async (model, effort) => {
+    const create = vi.fn().mockResolvedValue({ output_text: 'Done', usage })
+    setOpenAiResponsesClientForTesting({ responses: { create } })
+    await createOpenAiTextResponse(request(model, [stable]))
+    expect(create.mock.calls[0]?.[0].reasoning).toEqual({ effort })
+  })
+
   it('turns off implicit caching when a supported model has no marked stable prefix', async () => {
     const create = vi.fn().mockResolvedValue({
       output_text: 'Done',

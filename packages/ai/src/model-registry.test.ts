@@ -37,6 +37,15 @@ describe('text model registry', () => {
     })
   })
 
+  it('pins the Sol guest-chat route to GPT-6.1 Sol list pricing with room for reasoning', () => {
+    expect(getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_SOL)).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-6.1-sol',
+      maxOutputTokens: 2_048,
+      pricingUsdPerMillionTokens: { input: 2, output: 10, cacheWrite: 2, cacheRead: 0.2 },
+    })
+  })
+
   it('pins direct DeepSeek visitor-chat canaries to conservative peak rates', () => {
     expect(getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_DEEPSEEK_FLASH)).toMatchObject({
       provider: 'deepseek',

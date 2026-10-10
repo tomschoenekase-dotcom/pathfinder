@@ -68,7 +68,7 @@ export type OpenAiResponsesClient = {
         >
         prompt_cache_options?: { mode: 'explicit' }
         max_output_tokens: number
-        reasoning: { effort: 'none' | 'minimal' }
+        reasoning: { effort: 'none' | 'minimal' | 'low' }
         store: false
         stream?: boolean
       },
@@ -90,8 +90,11 @@ const openAiStreamEventSchema = z.discriminatedUnion('type', [
 
 type OpenAiResponsesProviderId = Extract<AiTextProviderId, 'openai' | 'deepseek'>
 
-function reasoningEffort(model: string): 'none' | 'minimal' {
-  return model === 'gpt-6-luna' ? 'none' : 'minimal'
+// gpt-6.1-sol rejects minimal; low is its cheapest level and the one that was measured.
+function reasoningEffort(model: string): 'none' | 'minimal' | 'low' {
+  if (model === 'gpt-6-luna') return 'none'
+  if (model === 'gpt-6.1-sol') return 'low'
+  return 'minimal'
 }
 
 function promptInput(
