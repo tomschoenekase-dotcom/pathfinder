@@ -3398,6 +3398,8 @@ export const OPERATOR_MCP_OUTPUTS = {
         .strict(),
       otherWarnings: z.array(PackageCheckIssue).max(40),
       otherWarningCount: z.number().int().nonnegative(),
+      /** Venue settings to fix before testing; absent when the package shape is invalid. */
+      venueSetup: z.array(PackageCheckIssue).max(2).optional(),
       note: z.string().max(500),
     })
     .strict(),

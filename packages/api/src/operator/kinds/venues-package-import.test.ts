@@ -23,6 +23,7 @@ vi.mock('../grants', async (importOriginal) => ({
 }))
 
 import { TRPCError } from '@trpc/server'
+import { OPERATOR_MCP_OUTPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { venuesCheckPackage } from '../tools/venue-package-check'
 import { venuesPackageImportKind } from './venues-package-import'
@@ -231,6 +232,7 @@ describe('venues.check_package', () => {
       'VENUE_SETUP_TIME_ZONE',
       'VENUE_SETUP_GUIDE_MODE',
     ])
+    expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
     const configured: any = await venuesCheckPackage.handler(
       { tenantId: TENANT, venueId: VENUE, payload },
       context,
@@ -246,6 +248,7 @@ describe('venues.check_package', () => {
     expect(result.importable).toBe(false)
     expect(result.errorCount).toBeGreaterThan(0)
     expect(result.errors[0].code).toBe('INVALID_PACKAGE')
+    expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
     expect(mocks.preview).not.toHaveBeenCalled()
   })
 })
