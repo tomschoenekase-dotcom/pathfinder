@@ -459,6 +459,8 @@ describe('operator MCP inputs', () => {
       update.safeParse({ ...base, chatBannerUrl: 'http://cdn.example.com/a.jpg' }).success,
     ).toBe(false)
     expect(update.safeParse({ ...base, surprise: true }).success).toBe(false)
+    expect(update.safeParse({ ...base, guideMode: 'non_location' }).success).toBe(true)
+    expect(update.safeParse({ ...base, guideMode: 'indoor' }).success).toBe(false)
     const pkg = OPERATOR_MCP_INPUTS['venues.propose_package_import']
     expect(pkg.safeParse({ ...base, payload: { schemaVersion: 1, places: [] } }).success).toBe(true)
     expect(pkg.safeParse(base).success).toBe(false)

@@ -22,7 +22,7 @@ import { venueActor } from './shared'
 const input = OPERATOR_MCP_INPUTS['venues.propose_update']
 type UpdateArgs = ReturnType<typeof input.parse>
 
-const DETAIL_FIELDS = ['name', 'description', 'guideNotes', 'category'] as const
+const DETAIL_FIELDS = ['name', 'description', 'guideNotes', 'category', 'guideMode'] as const
 const AI_FIELDS = ['aiGuideName', 'aiGuideNotes', 'aiTone', 'tonePreset'] as const
 const DESIGN_FIELDS = ['chatBannerUrl', 'chatLogoUrl', 'chatShowPhotos', 'chatShowLinks'] as const
 const BOT_FIELDS = ['responseDepth', 'greeting', 'publicDisplayName'] as const
@@ -45,6 +45,7 @@ async function readVenue(database: OperatorDatabase, tenantId: string, venueId: 
       description: true,
       guideNotes: true,
       category: true,
+      guideMode: true,
       aiGuideName: true,
       aiGuideNotes: true,
       aiTone: true,

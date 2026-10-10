@@ -1095,6 +1095,8 @@ export const OPERATOR_MCP_INPUTS = {
     description: z.string().max(1000).optional(),
     guideNotes: z.string().max(2000).optional(),
     category: z.string().max(100).optional(),
+    /** non_location for a guide without mapped places; location_aware uses the visitor position. */
+    guideMode: z.enum(['location_aware', 'non_location']).optional(),
     aiGuideName: z.string().trim().max(80).nullable().optional(),
     aiGuideNotes: z.string().max(2000).nullable().optional(),
     aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).optional(),

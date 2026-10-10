@@ -111,7 +111,7 @@ async function revert(proposalId: string) {
 async function venueRow(id = venueId) {
   return (await db.venue.findFirst({
     where: { id, tenantId },
-    select: { isActive: true, updatedAt: true },
+    select: { isActive: true, updatedAt: true, guideMode: true },
   }))!
 }
 
@@ -751,6 +751,25 @@ describe.skipIf(!enabled)(
         await expect(
           propose('venues.propose_create', { tenantId: 'other-tenant', name: 'Nope' }),
         ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      })
+
+      it('venues.propose_update switches a guide without places to non_location', async () => {
+        const human = { type: 'HUMAN', id: 'user_owner', role: 'OWNER' } as const
+        const venue = await createVenueAction({
+          tenantId,
+          actor: human,
+          name: 'Example Mode',
+          baseSlug: `mode-${randomUUID().slice(0, 8)}`,
+          callerSuppliedSlug: true,
+          guideMode: 'location_aware',
+        })
+        const view = await propose('venues.propose_update', {
+          tenantId,
+          venueId: venue.record.id,
+          guideMode: 'non_location',
+        })
+        expect((await approve(view)).status).toBe('APPLIED')
+        expect((await venueRow(venue.record.id)).guideMode).toBe('non_location')
       })
 
       it('never adopts or deactivates a live venue that already holds the slug', async () => {
