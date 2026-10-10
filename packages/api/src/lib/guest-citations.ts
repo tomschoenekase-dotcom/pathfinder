@@ -79,10 +79,11 @@ export const GENERAL_BACKGROUND_CITATION_DETAIL = 'General background'
 
 const MAX_REQUESTED_VENUE_LINKS = 2
 
-// The visitor asked for somewhere to go next: a page, a booking or purchase, or a ticket. Ordering
-// is left to the venue's approved guest actions: a dining page is not a way to order.
+// The visitor asked for somewhere to go next: a page, a booking or purchase, or a ticket destination.
+// Mentioning an existing ticket in a policy question is not a link request. Ordering is left to the
+// venue's approved guest actions: a dining page is not a way to order.
 const VISITOR_LINK_REQUEST =
-  /\b(?:links?|urls?|websites?|web ?pages?|web ?sites?|official (?:site|page)|(?:the|its|their|a) (?:site|page)|book(?:ing)?|reserv(?:e|ations?)|buy(?:ing)?|purchas(?:e|ing)|tickets?|sign ?up|register)\b/iu
+  /\b(?:links?|urls?|websites?|web ?pages?|web ?sites?|official (?:site|page)|(?:the|its|their|a) (?:site|page)|book(?:ing)?|reserv(?:e|ations?)|buy(?:ing)?|purchas(?:e|ing)|(?:get|find)\s+(?:(?:a|the|my|our)\s+)?tickets?|tickets?\s+(?:link|url|website|web ?page|web ?site)|sign ?up|register)\b/iu
 
 export type GuestVisibleCitations = {
   heading: 'sources' | 'links'

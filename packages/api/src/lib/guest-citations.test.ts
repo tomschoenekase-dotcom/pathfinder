@@ -85,9 +85,26 @@ describe('selectGuestVisibleCitations', () => {
     'Rank the coasters in order of intensity',
     'Which rides are best for kids?',
     'Can I order food ahead on my phone?',
+    'Can we drive the wildlife loop more than once on the same ticket?',
+    'Does my ticket include parking?',
   ])('hides routine venue sources for %j', (visitorMessage) => {
     expect(selectGuestVisibleCitations({ visitorMessage, citations: stored })).toBeNull()
   })
+
+  it.each(['Where can I get tickets?', 'Can you send me the ticket link?'])(
+    'shows a ticket destination only when the visitor asks for one (%j)',
+    (visitorMessage) => {
+      const ticket = {
+        label: 'Tickets',
+        href: 'https://park.example/tickets/',
+        detail: 'Venue knowledge: Tickets',
+      }
+      expect(selectGuestVisibleCitations({ visitorMessage, citations: [ticket] })).toEqual({
+        heading: 'links',
+        citations: [{ label: 'Tickets', ...ticket }],
+      })
+    },
+  )
 
   it('shows at most two distinct linked destinations when the visitor asks for a page', () => {
     expect(

@@ -446,9 +446,33 @@ describe('full venue guide', () => {
       expect(result.prompt).toContain('explicitly says so or expressly gives an exhaustive list')
       expect(result.prompt).not.toContain('that is not in it is not here')
     }
-    const withoutNegative = buildGuestVenueGuidePrompt(guide, { currentDate: '2026-10-06' })
-    expect(withoutNegative.prompt).not.toMatch(/cabins|hotels/iu)
-    expect(withoutNegative.prompt).toContain('Otherwise say naturally that you are not sure')
+    const withPositive: GuestVenueDirectory = {
+      ...guide,
+      knowledge: [
+        ...guide.knowledge,
+        {
+          id: 'k-lodging-positive',
+          title: 'Cabin lodging',
+          category: 'Visit',
+          content: 'The park offers six reservable overnight cabins.',
+          sourceType: 'website_research',
+          sourceName: null,
+          sourceUrl: null,
+        },
+      ],
+    }
+    for (const options of [
+      { currentDate: '2026-10-06' },
+      { currentDate: '2026-10-06', maxFullChars: 200 },
+    ]) {
+      const withoutLodging = buildGuestVenueGuidePrompt(guide, options)
+      const positive = buildGuestVenueGuidePrompt(withPositive, options)
+      expect(withoutLodging.prompt).not.toMatch(/cabins|hotels/iu)
+      expect(withoutLodging.prompt).toContain('Otherwise say naturally that you are not sure')
+      expect(positive.prompt).toContain('six reservable overnight cabins')
+      expect(positive.prompt).toContain('Ember Swing')
+      expect(positive.prompt).toContain('Cinder Grill')
+    }
   })
 
   it('records the guide in evidence by hash and record IDs, not by its text', () => {
