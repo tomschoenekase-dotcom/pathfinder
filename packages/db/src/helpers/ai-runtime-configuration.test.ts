@@ -53,6 +53,25 @@ describe('runtime AI configuration resolution', () => {
     }
   })
 
+  it('selects the Sol default when production names it', async () => {
+    const previous = process.env.GUEST_CHAT_DEFAULT_MODEL_KEY
+    process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-sol'
+    try {
+      const result = await resolveRuntimeAiWorkloadConfiguration(
+        { workloadId: 'guest-chat' },
+        {} as never,
+      )
+      expect(result).toMatchObject({
+        workloadId: 'guest-chat',
+        primaryModelKey: 'guest-chat-sol',
+        model: { provider: 'openai', model: 'gpt-6.1-sol' },
+      })
+    } finally {
+      if (previous === undefined) delete process.env.GUEST_CHAT_DEFAULT_MODEL_KEY
+      else process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = previous
+    }
+  })
+
   it('loads scoped rows with tenant predicates and applies venue precedence', async () => {
     const platform = vi.fn().mockResolvedValue(row({ timeoutMs: 9_000, timeoutMsSet: true }))
     const scoped = vi
