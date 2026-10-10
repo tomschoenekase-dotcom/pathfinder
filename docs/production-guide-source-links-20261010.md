@@ -17,8 +17,9 @@ only safe, public source URLs into matching untrusted guest guide records; limit
 to explicit visitor link requests; binds URL-only answers to the exact matching citation; and
 keeps sensory answers from promising unsupported exit or route logistics. The unchanged total
 voice instruction budget retains the shared static grounding rules. Schema and migration paths
-have no diff against this base. Only this reviewed code candidate plus this scoped documentation
-and incident safety-test binding may enter the final documentation-bearing source. Record that
+have no diff against this base. Only this reviewed code candidate, this scoped documentation and
+incident safety-test binding, and the test-only evaluation identity assertion synchronized to
+prompt v31 may enter the final documentation-bearing source. Record that
 final SHA in private release evidence and require every exact-head gate on it.
 
 This exception admits **no hosted database migration or data repair**, seed, reset, restore,
