@@ -315,7 +315,7 @@ describe('a large directory says what it actually lists', () => {
     expect(guide.prompt).toContain('- [Rides] Fictional Ride 0: Hydraulic Launch Coaster')
     expect(guide.prompt).not.toContain('a long ride with a long description')
     expect(guide.prompt).toMatch(/Past dated events[^\n]*\n- Fictional Lantern Festival 2024/u)
-    expect(guide.prompt).toContain('This directory lists every public place and topic')
+    expect(guide.prompt).toContain('This directory lists every loaded public place and topic record')
     expect(guide.rendererTruncated).toBe(false)
   })
 
@@ -325,7 +325,7 @@ describe('a large directory says what it actually lists', () => {
     )
     const directory = directoryOf([], knowledge)
     const guide = buildGuestVenueGuidePrompt(directory, { currentDate, maxFullChars: 1 })
-    expect(guide.prompt).toContain('may not list every record')
+    expect(guide.prompt).toContain('may not list every loaded record')
     expect(guide.prompt).not.toContain(longTitle(398).trim())
     expect(guide.rendererTruncated).toBe(true)
     const coverage = buildGuestGuideCoverage({

@@ -13,6 +13,11 @@ import {
 } from './venue-context'
 import { GUEST_CHAT_PROMPT_CONTRACT_HASH } from '@pathfinder/contracts/prompt-contract'
 import { hashGuestChatPromptManifest } from './guest-chat-prompt-contract'
+import { buildGuestVenueGuidePrompt, type GuestVenueDirectory } from './guest-venue-directory'
+import {
+  THEME_PARK_KNOWLEDGE,
+  THEME_PARK_PLACES,
+} from './evaluation/guest-answer-quality-corpus'
 import {
   mergeGuestConversationEntries,
   projectGuestModelHistory,
@@ -48,6 +53,12 @@ const relevantPlaces = [
   },
 ]
 
+const guideManifestDirectory: GuestVenueDirectory = {
+  places: THEME_PARK_PLACES.slice(0, 2),
+  knowledge: THEME_PARK_KNOWLEDGE.slice(0, 2),
+  incomplete: false,
+}
+
 describe('guest chat prompt provenance', () => {
   it.each(['English', 'Spanish', 'Chinese', 'Arabic', null])(
     'allows explicit and conversational switches from preference %s while retaining on-site labels',
@@ -70,7 +81,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v29')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v30')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -329,6 +340,19 @@ describe('guest chat prompt provenance', () => {
           userLng: null,
           adjacentPlaceIdentityRequestedName: 'Case 12',
         }),
+      },
+      {
+        id: 'full-venue-guide',
+        prompt: buildGuestVenueGuidePrompt(guideManifestDirectory, {
+          currentDate: '2026-10-06',
+        }).prompt,
+      },
+      {
+        id: 'bounded-venue-directory',
+        prompt: buildGuestVenueGuidePrompt(guideManifestDirectory, {
+          currentDate: '2026-10-06',
+          maxFullChars: 200,
+        }).prompt,
       },
     ]
     expect(hashGuestChatPromptManifest(prompts)).toBe(GUEST_CHAT_PROMPT_CONTRACT_HASH)

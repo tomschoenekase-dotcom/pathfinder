@@ -3937,7 +3937,7 @@ describe('chat router', () => {
       expect(systemBlocks).toHaveLength(3)
       expect(systemBlocks[0]?.cache_control).toBeUndefined()
       expect(systemBlocks[1]).toMatchObject({ cache_control: { type: 'ephemeral' } })
-      expect(systemBlocks[1]?.text).toContain('VENUE GUIDE: Every public place and topic')
+      expect(systemBlocks[1]?.text).toContain('VENUE GUIDE: All loaded public places and topics')
       expect(systemBlocks[1]?.text).toContain('<place name="Elephants"')
       expect(systemBlocks[2]?.cache_control).toBeUndefined()
       // The guide carries the retrieved place in full, so the per-turn section only names it.
