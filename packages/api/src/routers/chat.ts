@@ -101,7 +101,10 @@ import {
   mergeGuestConversationEntries,
   projectGuestModelHistory,
 } from '../lib/guest-conversation-history'
-import { retrieveGuestKnowledge } from '../lib/guest-knowledge-retrieval'
+import {
+  retrieveGuestKnowledge,
+  type GuestKnowledgeRetrievalTrace,
+} from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
   buildGuestVenueGuidePrompt,
@@ -1308,6 +1311,7 @@ const chatReadRouter = router({
         : Promise.resolve(null)
     let relevantPlaces: Awaited<ReturnType<typeof searchPlacesByEmbedding>>
     let relevantKnowledgeEntries: Awaited<ReturnType<typeof searchKnowledgeByEmbedding>>
+    let retrievalTrace: GuestKnowledgeRetrievalTrace | null = null
     // Lexical follow-up context only; the embedding still represents the current message.
     const previousGuestQuery =
       [...historyDesc]
@@ -1370,19 +1374,20 @@ const chatReadRouter = router({
             return place
           })
       relevantKnowledgeEntries = knowledge.entries
+      retrievalTrace = knowledge.trace
     } else {
-      relevantKnowledgeEntries = (
-        await retrieveGuestKnowledge({
-          reader: ctx.db,
-          query: retrievalQuery,
-          previousQuery: previousGuestQuery,
-          queryEmbedding: null,
-          venueId: input.venueId,
-          tenantId: venue.tenantId,
-          includeSecondLayer,
-          asOf: operationalNow,
-        })
-      ).entries
+      const knowledge = await retrieveGuestKnowledge({
+        reader: ctx.db,
+        query: retrievalQuery,
+        previousQuery: previousGuestQuery,
+        queryEmbedding: null,
+        venueId: input.venueId,
+        tenantId: venue.tenantId,
+        includeSecondLayer,
+        asOf: operationalNow,
+      })
+      relevantKnowledgeEntries = knowledge.entries
+      retrievalTrace = knowledge.trace
       const fallbackPlaces = await ctx.db.place.findMany({
         where: {
           venueId: input.venueId,
@@ -1780,6 +1785,7 @@ const chatReadRouter = router({
       }
     }
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
+    let updatedGuideRecordCount = 0
     const prepareVenuePrompt = () => {
       // Retrieval is live while the guide's directory may be up to a minute old.
       // A released entry place compared with a fallback legacy guide would differ every turn.
@@ -1797,6 +1803,7 @@ const chatReadRouter = router({
           ),
         knowledgeEntries: relevantKnowledgeEntries,
       })
+      updatedGuideRecordCount = updatedGuideRecordIds.size
       return buildVenueSystemPromptParts({
         currentDate,
         ...(venueClock.localTime ? { currentLocalTime: venueClock.localTime } : {}),
@@ -2034,6 +2041,34 @@ const chatReadRouter = router({
           if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
           logger.warn({ action: 'guest-general-web-unavailable', venueId: venue.id })
         }
+      }
+      // Best-effort diagnostic: what context this answer was built from, as hashes and counts only.
+      try {
+        const sha = (value: string) => createHash('sha256').update(value).digest('hex')
+        logger.info({
+          action: 'guest-chat.context-ready',
+          tenantId: venue.tenantId,
+          venueId: venue.id,
+          turnId: reservation.turnId,
+          guideMode: venueGuide.mode,
+          guideRendererTruncated: venueGuide.rendererTruncated,
+          guideUpdatedRecordCount: updatedGuideRecordCount,
+          staticSha256: sha(staticPart),
+          guideSha256: sha(directoryPrompt),
+          dynamicSha256: sha(dynamicPart),
+          historyCount: history.length,
+          historySha256: sha(JSON.stringify(history.map((m) => [m.role, m.content]))),
+          retrievalPath: retrievalTrace?.path ?? null,
+          retrievedCount: retrievalTrace?.retrievedSourceIds.length ?? null,
+          excludedCount: retrievalTrace?.excludedSourceIds.length ?? null,
+          truncatedCount: retrievalTrace?.truncatedSourceIds.length ?? null,
+          partialCoverage: retrievalTrace?.partialCoverage ?? null,
+          retrievedVersionSetSha256: retrievalTrace
+            ? sha(JSON.stringify(retrievalTrace.retrievedSources))
+            : null,
+        })
+      } catch {
+        // Diagnostics never affect the answer.
       }
       const result = await generateTextForCapability({
         route,

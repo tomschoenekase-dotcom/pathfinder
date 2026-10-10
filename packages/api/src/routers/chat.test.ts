@@ -1833,7 +1833,7 @@ describe('chat router', () => {
       expect(prompt).not.toContain('Second-floor case.')
       expect(prompt).not.toContain('Second floor west gallery')
       expect(prompt).toContain('First-floor case.')
-      expect(configLogger.info).toHaveBeenLastCalledWith(
+      expect(configLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' }),
       )
     })
@@ -3856,6 +3856,40 @@ describe('chat router', () => {
       const concatenatedSystemPrompt = `${systemBlocks[0]?.text}${systemBlocks[1]?.text}`
       expect(concatenatedSystemPrompt).toContain('City Zoo')
       expect(concatenatedSystemPrompt).toContain('Elephants')
+    })
+
+    it('logs the context an answer was built from as hashes and counts only', async () => {
+      setupHappyPath('ok')
+      placeFindMany.mockResolvedValue(placeRows)
+
+      await caller.chat.send(sendInput)
+
+      const call = configLogger.info.mock.calls.find(
+        ([entry]) => (entry as { action?: string }).action === 'guest-chat.context-ready',
+      )?.[0] as Record<string, unknown>
+      expect(call).toMatchObject({
+        venueId: VENUE_ID,
+        guideMode: 'FULL',
+        guideRendererTruncated: false,
+        guideUpdatedRecordCount: 0,
+        staticSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        guideSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        dynamicSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        historyCount: 0,
+      })
+      expect(JSON.stringify(call)).not.toContain(sendInput.message)
+      expect(JSON.stringify(call)).not.toContain('Elephants')
+    })
+
+    it('still answers when the diagnostic logger fails', async () => {
+      setupHappyPath('The elephants are north.')
+      configLogger.info.mockImplementation((entry: { action?: string }) => {
+        if (entry.action === 'guest-chat.context-ready') throw new Error('logger down')
+      })
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result).toMatchObject({ response: 'The elephants are north.' })
     })
 
     it('keeps a place edited after the cached guide loaded in full and marks it current', async () => {
