@@ -123,7 +123,7 @@ describe('EvaluationRuntimeGateControl', () => {
         expectedTenantEnabled: true,
       }),
     )
-    expect(screen.getByText(/New evaluation execution is closed/)).toBeTruthy()
+    expect(await screen.findByText(/New evaluation execution is closed/)).toBeTruthy()
   })
 
   it('does not present a stale flag as enabled under another tenant authorization', () => {

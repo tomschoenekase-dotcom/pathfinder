@@ -17,8 +17,10 @@ acceptance. The correction prevents inferring that an unrecorded amenity is abse
 link intent, and runs the previously skipped no-approval onboarding integration case in CI. The
 schema and migration paths have no diff against the current production application revision.
 Only this reviewed code candidate plus this documentation and the incident safety-test binding may
-enter the final documentation-bearing source. The resulting final SHA must be recorded in release
-evidence and must itself pass every exact-head gate; the code tree above must remain unchanged.
+enter the final documentation-bearing source, except for a test-only synchronization correction
+to `EvaluationRuntimeGateControl.test.tsx` after exact-head CI exposed an existing async assertion
+race. The resulting final SHA must be recorded in release evidence and must itself pass every
+exact-head gate; application behavior and the reviewed integration-test scope must remain unchanged.
 
 This exception admits **no hosted database migration or data repair**, seed, reset, restore,
 deletion, package application, provider or worker flag change, customer send, or credential change.
