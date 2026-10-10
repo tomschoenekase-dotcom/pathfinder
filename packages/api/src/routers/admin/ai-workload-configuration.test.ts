@@ -140,6 +140,7 @@ describe('admin AI workload configuration', () => {
       'guest-chat-deepseek-pro',
       'guest-chat-luna',
       'guest-chat-openai',
+      'guest-chat-sol',
     ])
     expect(
       guestChat?.modelOptions.find((option) => option.key === 'guest-chat-openai')?.available,
