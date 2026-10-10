@@ -48,6 +48,13 @@ schema or migration change. The final documentation-bearing SHA still requires e
 three-service staging admission, and protected production promotion. It authorizes no hosted
 database migration or data repair; the production incident remains ACTIVE.
 
+The later [guest grounding correction exception](production-guide-grounding-20261010.md) binds
+corrected code candidate `f1b12684b5ce0d96208a6d361ec4d65a32390dce` after the prior
+application release was rolled back. Its final documentation-bearing SHA must pass full CI,
+staging three-service admission, protected promotion, production exact-revision health, and
+grounded visitor acceptance. It authorizes no hosted migration or data repair and leaves the
+incident ACTIVE. The prior exception and its earlier visitor-testing limit remain historical.
+
 The current staging database may contain restored production lineage, so the historical
 synthetic-only exception does not by itself admit a preserved-data migration. Use the current guarded
 release-specific record and retain the incident's ACTIVE default. Preserve each environment's

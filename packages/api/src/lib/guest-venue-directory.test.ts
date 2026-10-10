@@ -86,7 +86,7 @@ describe('guest venue directory', () => {
       const entry = THEME_PARK_KNOWLEDGE.find((item) => item.id === id)!
       expect(prompt).toContain(guestDirectoryName(entry.title))
     }
-    expect(prompt).toContain('lists every public place and topic')
+    expect(prompt).toContain('lists every loaded public place and topic record')
     // Compact enough to send every turn inside the cached prompt prefix.
     expect(prompt.length).toBeLessThan(32_000 + 600)
   })
@@ -140,7 +140,7 @@ describe('guest venue directory', () => {
       { ...directory, incomplete: true },
       { currentDate: '2026-10-06' },
     )
-    expect(prompt).toContain('may not list every record')
+    expect(prompt).toContain('may not list every loaded record')
   })
 
   it('escapes untrusted record text', () => {
@@ -418,6 +418,63 @@ describe('full venue guide', () => {
     expect([...result.recordIds].sort()).toEqual(['knowledge:k-food', 'place:p-swing'])
   })
 
+  it('separates complete guide records from unrecorded offerings in full and directory modes', () => {
+    const withNegative: GuestVenueDirectory = {
+      ...guide,
+      knowledge: [
+        ...guide.knowledge,
+        {
+          id: 'k-lodging-policy',
+          title: 'Overnight lodging policy',
+          category: 'Visit',
+          content: 'There are no on-site cabins or hotels.',
+          sourceType: 'website_research',
+          sourceName: null,
+          sourceUrl: null,
+        },
+      ],
+    }
+    for (const options of [
+      { currentDate: '2026-10-06' },
+      { currentDate: '2026-10-06', maxFullChars: 200 },
+    ]) {
+      const result = buildGuestVenueGuidePrompt(withNegative, options)
+      expect(result.prompt).toContain('Ember Swing')
+      expect(result.prompt).toContain('Cinder Grill')
+      expect(result.prompt).toContain('There are no on-site cabins or hotels.')
+      expect(result.prompt).toContain('do not infer a real-world absence from an omitted entry')
+      expect(result.prompt).toContain('explicitly says so or expressly gives an exhaustive list')
+      expect(result.prompt).not.toContain('that is not in it is not here')
+    }
+    const withPositive: GuestVenueDirectory = {
+      ...guide,
+      knowledge: [
+        ...guide.knowledge,
+        {
+          id: 'k-lodging-positive',
+          title: 'Cabin lodging',
+          category: 'Visit',
+          content: 'The park offers six reservable overnight cabins.',
+          sourceType: 'website_research',
+          sourceName: null,
+          sourceUrl: null,
+        },
+      ],
+    }
+    for (const options of [
+      { currentDate: '2026-10-06' },
+      { currentDate: '2026-10-06', maxFullChars: 200 },
+    ]) {
+      const withoutLodging = buildGuestVenueGuidePrompt(guide, options)
+      const positive = buildGuestVenueGuidePrompt(withPositive, options)
+      expect(withoutLodging.prompt).not.toMatch(/cabins|hotels/iu)
+      expect(withoutLodging.prompt).toContain('Otherwise say naturally that you are not sure')
+      expect(positive.prompt).toContain('six reservable overnight cabins')
+      expect(positive.prompt).toContain('Ember Swing')
+      expect(positive.prompt).toContain('Cinder Grill')
+    }
+  })
+
   it('records the guide in evidence by hash and record IDs, not by its text', () => {
     const result = buildGuestVenueGuidePrompt(guide, { currentDate: '2026-10-06' })
     expect(result.evidenceText).toMatch(
@@ -451,12 +508,14 @@ describe('full venue guide', () => {
       maxFullChars: 200,
     })
     expect(small.mode).toBe('DIRECTORY')
-    expect(small.prompt).toContain('DIRECTORY: This directory lists every public place')
+    expect(small.prompt).toContain('DIRECTORY: This directory lists every loaded public place')
     expect(small.recordIds.size).toBe(0)
-    expect(
-      buildGuestVenueGuidePrompt({ ...guide, incomplete: true }, { currentDate: '2026-10-06' })
-        .mode,
-    ).toBe('DIRECTORY')
+    const incomplete = buildGuestVenueGuidePrompt(
+      { ...guide, incomplete: true },
+      { currentDate: '2026-10-06' },
+    )
+    expect(incomplete.mode).toBe('DIRECTORY')
+    expect(incomplete.prompt).toContain('say "at least" for counts')
     expect(
       buildGuestVenueGuidePrompt(
         { places: [], knowledge: [], incomplete: false },
