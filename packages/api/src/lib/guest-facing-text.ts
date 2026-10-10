@@ -8,7 +8,7 @@
 // reference photo, which entry to cross-check, when a source was read or that sources disagree.
 // Left in, they read to a model like a database talking, and it talks back the same way.
 const GUIDE_NOISE =
-  /\b(?:approach anchors?|feature anchors?|this pin|doorway coordinates?|exact doors?|walking[- ]routes?|research locations?|for testing|step-free access have not|signed public queues?|landmark appearances?|visitor photos?|ground photos?|matching visitor-information entry|source caveats?|source conflicts?|summary charts?|checked (?:on )?(?:January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}(?:st|nd|rd|th)?)\b/iu
+  /\b(?:approach anchor(?:s|ed)?|feature anchor(?:s|ed)?|this pin|doorway coordinates?|exact doors?|walking[- ]routes?|research locations?|for testing|step-free access have not|signed public queues?|landmark appearances?|visitor photo(?:s|graphs?)?|ground photo(?:s|graphs?|graphy)?|matching visitor-information entry|source caveats?|source conflicts?|summary charts?|checked (?:on )?(?:January|February|March|April|May|June|July|August|September|October|November|December) \d{1,4}(?:st|nd|rd|th)?)\b/iu
 // A sentence carrying several links is a list of research sources (and leaks page taxonomy such
 // as a ride filed under a coasters path); one link in a sentence is something a visitor can use.
 const LINK = /https?:\/\/\S+/gu

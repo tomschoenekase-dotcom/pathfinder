@@ -104,24 +104,25 @@ describe('authoring checks match what the guide drops', () => {
     ])
   })
 
-  it('warns exactly when the guide drops a sentence', () => {
-    const sentences = [
-      'See the summary charts for ride heights.',
-      'Two source conflicts remain for the coaster.',
-      'Visitor photos show the queue entrance.',
-      'Exact doors open at 10 AM.',
-      'Sources: https://park.example/a and https://park.example/b.',
-      'Checked October 4th against the park site.',
-      'Thunderbolt is a launched roller coaster in the Ember realm.',
-      'Buy tickets online at https://park.example/tickets/.',
-      'This pinball arcade is open late.',
-      'Riders must be 48 inches tall.',
-    ]
-    for (const sentence of sentences) {
-      const dropped = !guestFacingText(sentence).includes(sentence.slice(0, 12))
-      expect(isHiddenGuideSentence(sentence), sentence).toBe(dropped)
-      expect(hiddenGuideSentences(sentence).length > 0, sentence).toBe(dropped)
-    }
+  it.each([
+    ['See the summary charts for ride heights.', true],
+    ['Two source conflicts remain for the coaster.', true],
+    ['Visitor photos show the queue entrance.', true],
+    ['Visitor photographs show the queue entrance.', true],
+    ['The queue is approach anchored at the gate.', true],
+    ['Exact doors open at 10 AM.', true],
+    ['Sources: https://park.example/a and https://park.example/b.', true],
+    ['Checked October 4th against the park site.', true],
+    ['Checked October 2025 against the park site.', true],
+    ['Thunderbolt is a launched roller coaster in the Ember realm.', false],
+    ['Buy tickets online at https://park.example/tickets/.', false],
+    ['This pinball arcade is open late.', false],
+    ['Visitor photography is allowed everywhere.', false],
+    ['Riders must be 48 inches tall.', false],
+  ] as const)('warns exactly when the guide drops %j', (sentence, dropped) => {
+    expect(guestFacingText(sentence) === '').toBe(dropped)
+    expect(isHiddenGuideSentence(sentence)).toBe(dropped)
+    expect(hiddenGuideSentences(sentence).length > 0).toBe(dropped)
   })
 
   it('keeps staff-voice facts and a single usable link without a hidden-sentence warning', () => {

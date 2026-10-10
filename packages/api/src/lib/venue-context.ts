@@ -162,7 +162,7 @@ const MAX_PUBLISHED_CONTENT_PROMPT_BYTES = 24_000
 const MAX_PUBLISHED_CONTENT_PROMPT_MODULES = 25
 // A record edited after the cached venue guide was loaded: the guide still shows the old version.
 const UPDATED_GUIDE_RECORD =
-  '(Updated since the VENUE GUIDE was loaded: this version replaces the guide entry with this name.)'
+  '(Updated since the VENUE GUIDE was loaded: where this differs from the guide entry for the same record, this version is current.)'
 const UNTRUSTED_DATA_OPEN = '<untrusted_venue_data>'
 const UNTRUSTED_DATA_CLOSE = '</untrusted_venue_data>'
 

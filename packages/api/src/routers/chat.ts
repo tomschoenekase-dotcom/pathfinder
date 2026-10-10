@@ -1778,10 +1778,15 @@ const chatReadRouter = router({
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     const prepareVenuePrompt = () => {
       // Retrieval is live while the guide's directory may be up to a minute old.
+      // A released entry place compared with a fallback legacy guide would differ every turn.
+      const entryPlaceFromOtherSource =
+        entryPlace && nativeReadSnapshot.path === 'NATIVE' && directoryRead.path !== 'NATIVE'
       const updatedGuideRecordIds = staleGuestGuideRecordIds({
         guide: venueGuide,
         directory: guestDirectory,
-        places: relevantPlaces,
+        places: entryPlaceFromOtherSource
+          ? relevantPlaces.filter((place) => place.id !== entryPlace.id)
+          : relevantPlaces,
         knowledgeEntries: relevantKnowledgeEntries,
       })
       return buildVenueSystemPromptParts({

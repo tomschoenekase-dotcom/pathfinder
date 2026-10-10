@@ -3816,6 +3816,25 @@ describe('chat router', () => {
       expect(concatenatedSystemPrompt).toContain('Elephants')
     })
 
+    it('keeps a place edited after the cached guide loaded in full and marks it current', async () => {
+      setupHappyPath('ok')
+      placeFindMany.mockReset()
+      // The directory read (take 400) still holds the old hours; retrieval reads the edit.
+      placeFindMany.mockImplementation(async (args: { take?: number }) =>
+        args.take === 400
+          ? [{ ...placeRows[0]!, hours: '9am-5pm' }]
+          : [{ ...placeRows[0]!, hours: '9am-3pm' }],
+      )
+
+      await caller.chat.send(sendInput)
+
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+      const systemBlocks = callArgs.system as Array<{ type: string; text: string }>
+      expect(systemBlocks[1]?.text).toContain('hours="9am-5pm"')
+      expect(systemBlocks[2]?.text).toContain('Hours: 9am-3pm')
+      expect(systemBlocks[2]?.text).toContain('Updated since the VENUE GUIDE was loaded')
+    })
+
     it('sends the full public venue guide as the cached block between static and dynamic', async () => {
       setupHappyPath('ok')
       placeFindMany.mockResolvedValue(placeRows)

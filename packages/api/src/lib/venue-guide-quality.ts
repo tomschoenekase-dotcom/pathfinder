@@ -85,7 +85,7 @@ export function guideQualityWarnings(
         warnings.push({
           code: 'GUIDE_QUALITY_HIDDEN_SENTENCE',
           path: `${record.path}.${field.field}`,
-          message: `“${label}”: visitors will not see this sentence, because the guide drops whole sentences that read as research notes or source lists: “${quote}”. Any fact in it is lost too. Restate the fact in its own sentence, as staff would say it. ${MANUAL}`,
+          message: `“${label}”: the full venue guide leaves this sentence out, because it drops whole sentences that read as research notes or source lists: “${quote}”. Any fact in it is lost too. Restate the fact in its own sentence, as staff would say it. ${MANUAL}`,
         })
       }
     }
