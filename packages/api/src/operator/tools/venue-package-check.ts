@@ -1,3 +1,4 @@
+import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { buildVenuePackagePreview } from '../../lib/venue-package-core'
@@ -11,6 +12,46 @@ import {
 import type { OperatorReadTool } from '../registry'
 
 const SHOWN = 40
+
+type SetupReader = {
+  venue: {
+    findFirst(args: unknown): Promise<{ guideMode: string | null; chatAppearance: unknown } | null>
+  }
+  place: { count(args: unknown): Promise<number> }
+}
+
+/**
+ * Venue settings that change answers as much as the records do: without a time zone the guide gets
+ * only a UTC date (no weekday or local time, and tomorrow's date in the venue's evening), and a
+ * location-aware guide with no places adds a rule limiting suggestions to three.
+ */
+export async function venueSetupFindings(
+  database: unknown,
+  params: { tenantId: string; venueId: string; placesAfterImport: number },
+): Promise<Issue[]> {
+  const reader = database as SetupReader
+  const venue = await reader.venue.findFirst({
+    where: { id: params.venueId, tenantId: params.tenantId },
+    select: { guideMode: true, chatAppearance: true },
+  })
+  if (!venue) return []
+  const findings: Issue[] = []
+  if (!parseChatAppearance(venue.chatAppearance).timeZone)
+    findings.push({
+      code: 'VENUE_SETUP_TIME_ZONE',
+      path: 'chatAppearance.timeZone',
+      message:
+        'The venue has no time zone, so the guide gets only the UTC date: no weekday or local time, and the next day in the venue evening. Hours and open-now answers will be unreliable. Set chatAppearance.timeZone (an IANA zone such as America/New_York) with appearance.propose_update.',
+    })
+  if ((venue.guideMode ?? 'location_aware') === 'location_aware' && params.placesAfterImport === 0)
+    findings.push({
+      code: 'VENUE_SETUP_GUIDE_MODE',
+      path: 'guideMode',
+      message:
+        'The venue is location-aware but has no places, so the guide is told to suggest at most three options even when a visitor asks for every one. Use guideMode non_location for a guide without mapped places.',
+    })
+  return findings
+}
 type Issue = { code: string; path: string; message: string }
 const trim = ({ code, path, message }: Issue): Issue => ({
   code: code.slice(0, 80),
@@ -56,12 +97,21 @@ export const venuesCheckPackage: OperatorReadTool = {
     )
     const { errors, warnings } = preview.report
     const quality = guideQualityFindings(warnings)
+    const plan = counts(parsed.data)
+    const activePlaces = await (context.database as unknown as SetupReader).place.count({
+      where: { tenantId: input.tenantId, venueId: input.venueId, isActive: true },
+    })
+    const venueSetup = await venueSetupFindings(context.database, {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      placesAfterImport: Math.max(0, activePlaces + plan.places.create - plan.places.remove),
+    })
     const other = warnings.filter((warning) => !warning.code.startsWith('GUIDE_QUALITY_'))
     return {
       venueId: input.venueId,
       importable: errors.length === 0,
       ready: errors.length === 0 && quality.total === 0,
-      plan: counts(parsed.data),
+      plan,
       errors: errors.slice(0, SHOWN).map(trim),
       errorCount: errors.length,
       guideQuality: {
@@ -74,6 +124,8 @@ export const venuesCheckPackage: OperatorReadTool = {
       },
       otherWarnings: other.slice(0, SHOWN).map(trim),
       otherWarningCount: other.length,
+      // Settings, not package content: they never change ready, but fix them before testing answers.
+      venueSetup,
       note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block an import.',
     }
   },

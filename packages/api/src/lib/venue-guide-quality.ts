@@ -40,10 +40,54 @@ const URL = /https?:\/\/\S+/giu
 const LINK_TOPIC = /\b(?:tickets?|admission|passes|booking|book|reserv|buy|gift cards?)\b/iu
 const RIDE_KIND = /\b(?:ride|coaster|attraction|slide)\b/iu
 const HEIGHT_MENTION = /\b\d{2}(?:\.\d)?\s*(?:"|”|in\b|inch(?:es)?\b)/iu
-const KIND_SENTENCE = /^[^.!?]{0,160}?\b(?:is|are|was|offers|serves|has)\b/iu
+// An initial such as the "F." and "D." in "H.R. Marlow" is part of a name, not a sentence end.
+const KIND_SENTENCE =
+  /^(?:[^.!?]|(?<=\b\p{Lu})\.){0,160}?\b(?:is|are|was|were|offers|serves|has|have)\b/u
+const SENTENCE_END = /(?<=[.!?])(?<!\b\p{Lu}\.)\s+/u
 
 const firstSentence = (text: string | null | undefined) =>
-  (text ?? '').trim().split(/(?<=[.!?])\s+/u)[0] ?? ''
+  (text ?? '').trim().split(SENTENCE_END)[0] ?? ''
+
+// A Knowledge record about one thing (an exhibit, vessel, ride, outlet, program or amenity), by its
+// category, as opposed to a policy, planning, list or overview topic. Only these must open by kind.
+const ENTITY_CATEGORY =
+  /\b(?:exhibits?|exhibitions?|galleries|gallery|vessels?|boats?|rides?|attractions?|coasters?|dining|restaurants?|food outlets?|shops?|shopping|programs?|programmes?|animals?|gardens?|facilities|amenities|shows?|experiences?)\b/iu
+const NON_ENTITY_TITLE =
+  /\b(?:overview|by\b|list|heights|prices|hours|calendar|planning|plan your|map|finding|policy|policies|rules|faq)\b|n['’]t\b/iu
+// A sentence that talks about a source instead of the place: an account, report, panel, photo,
+// website or catalog as its subject, or a claim that a source does or does not prove something.
+const SOURCE_NARRATION =
+  /\b(?:(?:do|does|did) not (?:establish|prove)|(?:is|are|was) not (?:proof|evidence)|not (?:proof|evidence) (?:of|that)|(?:was|were) reported\b|reported that|an? (?:\d{4} |historical |dated |undated )?(?:account|report|appeal|panel|photo(?:graph)?|plaque) (?:connects|describes|recalls|shows|showed|dates|names|suggests)|photographed|(?:the|its) (?:website|web page|blog|catalog record) (?:separately )?(?:describes|says|lists|shows|does not)|recovered (?:date )?list|(?:museum|restoration|historical) (?:account|blog) (?:describes|recalls|leaves)|dated display report|(?:the )?sources? (?:do|does) not)\b/iu
+// Safety cautions keep their wording even when it sounds like a disclaimer.
+const SAFETY_SENTENCE =
+  /\b(?:allerg\w*|cross-contact|gluten|peanuts?|tree nuts?|height|restraints?|medical|pregnan\w*|weight limits?)\b/iu
+const MAX_SOURCE_NARRATION_PER_RECORD = 3
+const OVERVIEW_TITLE = /\boverview\b/iu
+const ENTITY_SUFFIX = /\s+(?:indoor |outdoor )?(?:exhibit|display|exhibition)$/iu
+const matchText = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[’']s\b/gu, '')
+    .replace(/[’']/gu, "'")
+    .replace(/[^\p{L}\p{N}' ]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+/** The part of a title an overview should name: "Workboats: Models" -> "workboats". */
+const overviewName = (title: string) =>
+  matchText(
+    title
+      .split(/\s*(?::| - | – | — |\()\s*/u)[0]!
+      .replace(ENTITY_SUFFIX, '')
+      .replace(/^the\s+/iu, ''),
+  )
+
+const sentencesOfText = (text: string) =>
+  text
+    .replace(/\r/gu, '')
+    .split('\n')
+    .flatMap((line) => line.split(SENTENCE_END))
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
 
 function textOf(record: GuideQualityRecord): Array<{ field: string; text: string }> {
   return record.kind === 'place'
@@ -78,6 +122,24 @@ export function guideQualityWarnings(
         path: `${record.path}.${talk.field}`,
         message: `“${label}” talks about its own information (“${talk.m[0]}”). State the fact directly, as staff would. ${MANUAL}`,
       })
+    }
+    // Source narration the phrase list misses ("The photographed panel dates…", "these plans do not
+    // prove…"): the fact belongs in the record with its date, the source in sourceName/sourceUrl.
+    for (const field of fields) {
+      const narrated = sentencesOfText(field.text).filter(
+        (sentence) =>
+          SOURCE_NARRATION.test(sentence) &&
+          !SAFETY_SENTENCE.test(sentence) &&
+          // Already reported as research text, which names the same fix.
+          !RESEARCH_TEXT.test(sentence),
+      )
+      for (const sentence of narrated.slice(0, MAX_SOURCE_NARRATION_PER_RECORD)) {
+        warnings.push({
+          code: 'GUIDE_QUALITY_SOURCE_NARRATION',
+          path: `${record.path}.${field.field}`,
+          message: `“${clip(label, LABEL_CHARS)}” talks about a source instead of the place: “${clip(sentence, QUOTE_CHARS)}”. State the fact itself, with its date when it is dated (“The Marlows began collecting in 1970”), and keep one plain visitor caution only where something is really unknown. Do not drop the fact or a safety caution to silence this. ${MANUAL}`,
+        })
+      }
     }
     // The exact sentences the visitor guide leaves out, so no fact disappears without notice.
     for (const field of fields) {
@@ -123,6 +185,17 @@ export function guideQualityWarnings(
         })
       }
     } else {
+      if (
+        ENTITY_CATEGORY.test(record.category) &&
+        !NON_ENTITY_TITLE.test(record.title) &&
+        !KIND_SENTENCE.test(firstSentence(record.content))
+      ) {
+        warnings.push({
+          code: 'GUIDE_QUALITY_FIRST_SENTENCE',
+          path: `${record.path}.content`,
+          message: `“${clip(record.title, LABEL_CHARS)}” should open with a full sentence saying what it is (“${clip(record.title, LABEL_CHARS)} is a … in …”, for example “Pond Boats is an indoor exhibit of miniature sailing boats.”), then a detail a visitor can use. A fragment such as “Recreated workshop.” cannot answer a follow-up. ${MANUAL}`,
+        })
+      }
       if (/\?\s*$|:\s*visitor information$/iu.test(record.title)) {
         warnings.push({
           code: 'GUIDE_QUALITY_TITLE',
@@ -145,7 +218,43 @@ export function guideQualityWarnings(
       }
     }
   }
-  return warnings
+  return [...warnings, ...overviewCoverageWarnings(records)]
+}
+
+/**
+ * An overview topic is how the guide answers "what is there" and "how many", so it must name every
+ * other record in its category. Checked among the records in this package only.
+ */
+function overviewCoverageWarnings(records: readonly GuideQualityRecord[]): GuideQualityWarning[] {
+  const knowledge = records.filter(
+    (record): record is Extract<GuideQualityRecord, { kind: 'knowledge' }> =>
+      record.kind === 'knowledge',
+  )
+  return knowledge.flatMap((overview) => {
+    if (!OVERVIEW_TITLE.test(overview.title)) return []
+    const text = ` ${matchText(overview.content)} `
+    const missing = knowledge
+      .filter(
+        (member) =>
+          member !== overview &&
+          member.category === overview.category &&
+          !OVERVIEW_TITLE.test(member.title),
+      )
+      .map((member) => member.title)
+      .filter((title) => {
+        const name = overviewName(title)
+        return name.length > 0 && !text.includes(` ${name} `)
+      })
+    if (missing.length === 0) return []
+    const shown = missing.slice(0, 12).map((title) => `“${clip(title, LABEL_CHARS)}”`)
+    return [
+      {
+        code: 'GUIDE_QUALITY_OVERVIEW_COVERAGE',
+        path: `${overview.path}.content`,
+        message: `“${clip(overview.title, LABEL_CHARS)}” does not name ${missing.length} other “${clip(overview.category, LABEL_CHARS)}” record(s): ${shown.join(', ')}${missing.length > shown.length ? ', …' : ''}. The guide answers “what is there” from this overview, so name every one with a few words of what it is. ${MANUAL}`,
+      },
+    ]
+  })
 }
 
 type PayloadLike =

@@ -43,6 +43,8 @@ describe('guide-quality warnings', () => {
     ])
     expect(codes(warnings)).toEqual([
       'GUIDE_QUALITY_FIRST_SENTENCE',
+      // The ride topic opens with its source, not with what Thunderbolt is.
+      'GUIDE_QUALITY_FIRST_SENTENCE',
       'GUIDE_QUALITY_HEIGHT_LINE',
       'GUIDE_QUALITY_HIDDEN_SENTENCE',
       'GUIDE_QUALITY_HIDDEN_SENTENCE',
@@ -102,5 +104,90 @@ describe('guide-quality warnings', () => {
       'places.update.0.value.shortDescription',
       'places.update.0.value.shortDescription',
     ])
+  })
+})
+
+describe('contract v3 guide-quality warnings', () => {
+  const exhibit = (title: string, content: string, category = 'Indoor exhibits') =>
+    topic({ title, category, content, path: `knowledgeEntries.${title}` })
+
+  it('asks a Knowledge record about one thing to open by saying what it is', () => {
+    const warnings = guideQualityWarnings([
+      exhibit('Rigging Loft', 'Recreated workshop.'),
+      exhibit('Tide Clock', 'Brass clock models.'),
+    ])
+    expect(codes(warnings)).toEqual([
+      'GUIDE_QUALITY_FIRST_SENTENCE',
+      'GUIDE_QUALITY_FIRST_SENTENCE',
+    ])
+  })
+
+  it('treats initials as part of a name, not a sentence end', () => {
+    expect(
+      guideQualityWarnings([
+        exhibit('H.R. Marlow', 'H.R. Marlow is a powered oyster boat built in 1931.', 'Vessels'),
+        place({ name: 'J.T. Pier', shortDescription: 'J.T. Pier is the main fishing pier.' }),
+      ]),
+    ).toEqual([])
+  })
+
+  it('leaves policy, planning, list and overview topics to their own shape', () => {
+    expect(
+      guideQualityWarnings([
+        exhibit('Ride heights', 'Height requirements for every ride.', 'Rides'),
+        exhibit('Garden rules', 'Stay on the paths.', 'Gardens'),
+        exhibit('Exhibits overview', 'Rigging Loft, Tide Clock.'),
+        exhibit('Parking', 'Park in the main lot.', 'Visit planning'),
+      ]),
+    ).toEqual([])
+  })
+
+  it('flags sentences that narrate a source and quotes each one', () => {
+    const warnings = guideQualityWarnings([
+      exhibit(
+        'Model Yachts',
+        'Model Yachts is an indoor exhibit of pond yachts. The photographed panel dates the gift to 2011. These plans do not prove installation. A 2009 account connects the yachts to a local club.',
+      ),
+    ])
+    expect(codes(warnings)).toEqual([
+      'GUIDE_QUALITY_SOURCE_NARRATION',
+      'GUIDE_QUALITY_SOURCE_NARRATION',
+      'GUIDE_QUALITY_SOURCE_NARRATION',
+    ])
+    expect(warnings[0]!.message).toContain('The photographed panel dates the gift to 2011.')
+  })
+
+  it('keeps visitor cautions and safety wording without a warning', () => {
+    expect(
+      guideQualityWarnings([
+        exhibit(
+          'Harbor Cruise',
+          'Harbor Cruise is a 30-minute boat trip. A museum visit does not guarantee a departure. Joining the waitlist does not guarantee a place.',
+          'Programs',
+        ),
+        exhibit(
+          'Galley Grill',
+          'Galley Grill is a counter-service grill. An item in the allergy binder does not prove it is on today’s menu.',
+          'Dining',
+        ),
+      ]),
+    ).toEqual([])
+  })
+
+  it('asks an overview to name every other record in its category', () => {
+    const warnings = guideQualityWarnings([
+      exhibit('Exhibits overview', 'The indoor exhibits are the Rigging Loft and the Tide Clock.'),
+      exhibit('Rigging Loft', 'Rigging Loft is a recreated sail loft.'),
+      exhibit(
+        'Tide Clock indoor exhibit',
+        'The Tide Clock indoor exhibit is a brass clock display.',
+      ),
+      exhibit('Workboats: Models', 'Workboats: Models is a display of workboat models.'),
+      exhibit('Signal Flags', 'Signal Flags is a flag display.', 'Outdoor exhibits'),
+    ])
+    expect(codes(warnings)).toEqual(['GUIDE_QUALITY_OVERVIEW_COVERAGE'])
+    expect(warnings[0]!.message).toContain('“Workboats: Models”')
+    expect(warnings[0]!.message).not.toContain('Signal Flags')
+    expect(warnings[0]!.message).not.toContain('“Tide Clock')
   })
 })

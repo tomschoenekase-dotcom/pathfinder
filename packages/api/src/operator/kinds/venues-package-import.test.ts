@@ -54,7 +54,16 @@ const report = (warnings: Array<{ code: string; path: string; message: string }>
   semanticDuplicateScan: { status: 'COMPLETE' },
 })
 const context = {
-  database: { $transaction: (run: (tx: unknown) => unknown) => run({}) },
+  database: {
+    $transaction: (run: (tx: unknown) => unknown) => run({}),
+    venue: {
+      findFirst: async () => ({
+        guideMode: 'non_location',
+        chatAppearance: { timeZone: 'America/Chicago' },
+      }),
+    },
+    place: { count: async () => 0 },
+  },
   grant: {},
   now: new Date('2026-10-07T12:00:00.000Z'),
   actor: { type: 'HUMAN', id: 'user-1', role: 'PLATFORM_ADMIN' },
@@ -204,6 +213,29 @@ describe('venues.check_package', () => {
     })
     expect(mocks.draft).not.toHaveBeenCalled()
     expect(mocks.approve).not.toHaveBeenCalled()
+  })
+
+  it('names venue settings that change answers: missing time zone, location mode with no places', async () => {
+    mocks.preview.mockResolvedValue({ report: report() })
+    const database = {
+      ...context.database,
+      venue: { findFirst: async () => ({ guideMode: null, chatAppearance: {} }) },
+      place: { count: async () => 0 },
+    }
+    const result: any = await venuesCheckPackage.handler(
+      { tenantId: TENANT, venueId: VENUE, payload },
+      { ...context, database },
+    )
+    expect(result.ready).toBe(true)
+    expect(result.venueSetup.map((f: { code: string }) => f.code)).toEqual([
+      'VENUE_SETUP_TIME_ZONE',
+      'VENUE_SETUP_GUIDE_MODE',
+    ])
+    const configured: any = await venuesCheckPackage.handler(
+      { tenantId: TENANT, venueId: VENUE, payload },
+      context,
+    )
+    expect(configured.venueSetup).toEqual([])
   })
 
   it('names schema problems instead of throwing', async () => {
