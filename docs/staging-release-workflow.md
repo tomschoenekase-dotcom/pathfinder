@@ -48,7 +48,11 @@ schema or migration change. The final documentation-bearing SHA still requires e
 three-service staging admission, and protected production promotion. It authorizes no hosted
 database migration or data repair; the production incident remains ACTIVE.
 
-The later [guest grounding correction exception](production-guide-grounding-20261010.md) binds
+The later [guest source-link correction exception](production-guide-source-links-20261010.md) binds
+the reviewed code-only follow-up to the current production application. The active incident is
+not resolved, and the final docs-bearing source still needs every exact-head gate.
+
+The earlier [guest grounding correction exception](production-guide-grounding-20261010.md) binds
 corrected code candidate `f1b12684b5ce0d96208a6d361ec4d65a32390dce` after the prior
 application release was rolled back. Its final documentation-bearing SHA must pass full CI,
 staging three-service admission, protected promotion, production exact-revision health, and

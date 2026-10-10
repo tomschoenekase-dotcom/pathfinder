@@ -11,7 +11,7 @@ export type GuestCitation = { label: string; href?: string; detail: string }
 
 const secretKey = /(?:token|key|secret|signature|credential|auth|password|^sig$|^x-amz-|^x-goog-)/iu
 
-function safeSourceUrl(value: string | null | undefined): string | undefined {
+export function safeGuestSourceUrl(value: string | null | undefined): string | undefined {
   if (!value) return undefined
   try {
     const url = new URL(value)
@@ -42,9 +42,9 @@ function explicitlyNames(answer: string, entityLabel: string): boolean {
 }
 
 /**
- * Projects provenance only for retrieved entities explicitly named in the visible answer. This is
- * deterministic evidence, not a claim-level semantic attribution: unmentioned or unproven sources
- * are omitted, and unsafe source URLs are never returned.
+ * Projects provenance only for retrieved entities explicitly named in the visible answer or whose
+ * exact safe URL the answer gives. This is deterministic evidence, not claim-level attribution:
+ * unmentioned sources are omitted, and unsafe source URLs are never returned.
  */
 export function buildGuestCitations(input: {
   assistantResponse: string
@@ -52,14 +52,20 @@ export function buildGuestCitations(input: {
   maximum?: number
 }): GuestCitation[] {
   const answer = normalized(input.assistantResponse)
+  const answerUrls = new Set(
+    (input.assistantResponse.match(/https?:\/\/[^\s<>"')\]]+/gu) ?? [])
+      .map((value) => safeGuestSourceUrl(value.replace(/[.,!?;:]+$/u, '')))
+      .filter((value): value is string => Boolean(value)),
+  )
   const maximum = Math.max(0, Math.min(12, Math.floor(input.maximum ?? 6)))
   const citations = new Map<string, GuestCitation>()
   for (const candidate of input.candidates) {
     if (citations.size >= maximum) break
     const entityLabel = candidate.entityLabel.trim()
-    if (!entityLabel || !explicitlyNames(answer, entityLabel)) continue
+    if (!entityLabel) continue
     const sourceName = candidate.sourceName?.trim() || null
-    const href = safeSourceUrl(candidate.sourceUrl)
+    const href = safeGuestSourceUrl(candidate.sourceUrl)
+    if (!explicitlyNames(answer, entityLabel) && !(href && answerUrls.has(href))) continue
     if (
       !sourceName &&
       !href &&
