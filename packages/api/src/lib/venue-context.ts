@@ -160,6 +160,9 @@ type PublishedUniversalContent = {
 
 const MAX_PUBLISHED_CONTENT_PROMPT_BYTES = 24_000
 const MAX_PUBLISHED_CONTENT_PROMPT_MODULES = 25
+// A record edited after the cached venue guide was loaded: the guide still shows the old version.
+const UPDATED_GUIDE_RECORD =
+  '(Updated since the VENUE GUIDE was loaded: this version replaces the guide entry with this name.)'
 const UNTRUSTED_DATA_OPEN = '<untrusted_venue_data>'
 const UNTRUSTED_DATA_CLOSE = '</untrusted_venue_data>'
 
@@ -300,6 +303,11 @@ export function buildVenueSystemPromptParts(params: {
    * details, such as a disambiguated same-name exhibit or a past event the visitor named.
    */
   venueGuideRecordIds?: ReadonlySet<string>
+  /**
+   * Guide records that retrieval found in a newer version than the cached guide carries. They
+   * keep their details here, marked as replacing the guide's version.
+   */
+  venueGuideUpdatedRecordIds?: ReadonlySet<string>
   /** The visitor asked whether a child of a stated height or age can ride something. */
   heightOrAgeRideQuestion?: boolean
 }): { staticPart: string; dynamicPart: string } {
@@ -380,8 +388,12 @@ export function buildVenueSystemPromptParts(params: {
             const detail = p.longDescription ? `\n   Details: ${p.longDescription}` : ''
             const tags = p.tags.length > 0 ? `\n   Tags: ${p.tags.join(', ')}` : ''
             const hours = `\n   Hours: ${p.hours ?? 'not specified'}`
+            const updated =
+              p.id && params.venueGuideUpdatedRecordIds?.has(`place:${p.id}`)
+                ? `\n   ${UPDATED_GUIDE_RECORD}`
+                : ''
             return escapeUntrustedPromptData(
-              `${i + 1}. ${p.name} (${typeLabel})${distance}${area}${desc}${detail}${tags}${hours}`,
+              `${i + 1}. ${p.name} (${typeLabel})${distance}${area}${updated}${desc}${detail}${tags}${hours}`,
             )
           })
           .join('\n\n')
@@ -413,7 +425,13 @@ export function buildVenueSystemPromptParts(params: {
     detailedEntries.length
       ? `\n\nKNOWLEDGE BASE:\n${detailedEntries
           .map((entry) =>
-            escapeUntrustedPromptData(`[${entry.category}] ${entry.title}\n${entry.content}`),
+            escapeUntrustedPromptData(
+              `[${entry.category}] ${entry.title}\n${
+                entry.id && params.venueGuideUpdatedRecordIds?.has(`knowledge:${entry.id}`)
+                  ? `${UPDATED_GUIDE_RECORD}\n`
+                  : ''
+              }${entry.content}`,
+            ),
           )
           .join('\n\n')}`
       : ''

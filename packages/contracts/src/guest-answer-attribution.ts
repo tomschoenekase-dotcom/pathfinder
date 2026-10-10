@@ -15,6 +15,9 @@ export const GuestGuideCoverageSchema = z.object({
   loadStatus: z.enum(['READY', 'LOAD_FAILED', 'PROJECTION_MISMATCH']),
   projectionPath: z.enum(['LEGACY', 'DARK', 'NATIVE']),
   incomplete: z.boolean(),
+  // Present only when the rendered directory was cut at its size bound although the loader
+  // returned every record; incomplete keeps its original meaning (a load bound was reached).
+  rendererTruncated: z.literal(true).optional(),
   placeCount: z.number().int().min(0).max(1_000_000),
   knowledgeCount: z.number().int().min(0).max(1_000_000),
   includedDetailCount: z.number().int().min(0).max(1_000_000),

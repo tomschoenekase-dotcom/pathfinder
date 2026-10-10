@@ -6,6 +6,8 @@
  * records").
  */
 
+import { hiddenGuideSentences } from './guest-facing-text'
+
 export type GuideQualityRecord =
   | {
       kind: 'place'
@@ -21,6 +23,9 @@ export type GuideQualityRecord =
 export type GuideQualityWarning = { code: string; path: string; message: string }
 
 const MANUAL = 'See the operator manual, "Writing guide records".'
+// Enough to show an author the pattern without flooding a research-heavy package.
+const MAX_HIDDEN_SENTENCE_WARNINGS_PER_FIELD = 3
+const QUOTE_CHARS = 200
 
 // Research bookkeeping, location-pin notes and record-talk that the guide would repeat to visitors.
 const RESEARCH_TEXT =
@@ -68,6 +73,21 @@ export function guideQualityWarnings(
         path: `${record.path}.${talk.field}`,
         message: `“${label}” talks about its own information (“${talk.m[0]}”). State the fact directly, as staff would. ${MANUAL}`,
       })
+    }
+    // The exact sentences the visitor guide leaves out, so no fact disappears without notice.
+    for (const field of fields) {
+      for (const sentence of hiddenGuideSentences(field.text).slice(
+        0,
+        MAX_HIDDEN_SENTENCE_WARNINGS_PER_FIELD,
+      )) {
+        const quote =
+          sentence.length > QUOTE_CHARS ? `${sentence.slice(0, QUOTE_CHARS - 1)}…` : sentence
+        warnings.push({
+          code: 'GUIDE_QUALITY_HIDDEN_SENTENCE',
+          path: `${record.path}.${field.field}`,
+          message: `“${label}”: visitors will not see this sentence, because the guide drops whole sentences that read as research notes or source lists: “${quote}”. Any fact in it is lost too. Restate the fact in its own sentence, as staff would say it. ${MANUAL}`,
+        })
+      }
     }
     const urls = fields.flatMap((f) => f.text.match(URL) ?? [])
     const linkTopic =

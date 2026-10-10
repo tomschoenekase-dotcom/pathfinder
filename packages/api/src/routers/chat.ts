@@ -108,6 +108,7 @@ import {
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
   loadGuestVenueDirectoryCached,
+  staleGuestGuideRecordIds,
   type GuestVenueDirectory,
 } from '../lib/guest-venue-directory'
 import {
@@ -1775,11 +1776,21 @@ const chatReadRouter = router({
       }
     }
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
-    const prepareVenuePrompt = () =>
-      buildVenueSystemPromptParts({
+    const prepareVenuePrompt = () => {
+      // Retrieval is live while the guide's directory may be up to a minute old.
+      const updatedGuideRecordIds = staleGuestGuideRecordIds({
+        guide: venueGuide,
+        directory: guestDirectory,
+        places: relevantPlaces,
+        knowledgeEntries: relevantKnowledgeEntries,
+      })
+      return buildVenueSystemPromptParts({
         currentDate,
         ...(venueClock.localTime ? { currentLocalTime: venueClock.localTime } : {}),
-        venueGuideRecordIds: venueGuide.recordIds,
+        venueGuideRecordIds: updatedGuideRecordIds.size
+          ? new Set([...venueGuide.recordIds].filter((id) => !updatedGuideRecordIds.has(id)))
+          : venueGuide.recordIds,
+        venueGuideUpdatedRecordIds: updatedGuideRecordIds,
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {
@@ -1819,6 +1830,7 @@ const chatReadRouter = router({
             }
           : {}),
       })
+    }
     const preparePrompt = () => {
       const parts = prepareVenuePrompt()
       return guestActionPrompt
