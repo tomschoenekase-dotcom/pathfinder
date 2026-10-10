@@ -1648,6 +1648,48 @@ describe('chat router', () => {
       expect(prompt).toContain('Case 12 — Second floor')
     }
 
+    it('does not mark a guide place as updated because identity adds its floor', async () => {
+      setupHappyPath('It is on the first floor.')
+      // Separate full guide records, but one identity label, so identity adds each one's floor.
+      const upper = {
+        ...placeRows[0],
+        id: 'ember-cafe-upper',
+        name: 'Ember Café',
+        shortDescription: 'Ember Café is a coffee counter.',
+        areaName: 'East gallery',
+      }
+      const lower = {
+        ...placeRows[0],
+        id: 'ember-cafe-lower',
+        name: 'Ember-Café',
+        shortDescription: 'Ember-Café is a snack bar.',
+        areaName: 'West gallery',
+      }
+      semanticSearch.places.mockResolvedValueOnce([upper, lower])
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValue([upper, lower])
+      venueLocationFindMany.mockResolvedValueOnce([
+        {
+          primaryPlaceId: upper.id,
+          displayName: 'First floor east gallery',
+          floor: { name: 'First floor', stableKey: 'first-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+        },
+        {
+          primaryPlaceId: lower.id,
+          displayName: 'Second floor west gallery',
+          floor: { name: 'Second floor', stableKey: 'second-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+        },
+      ])
+
+      await caller.chat.send({ ...sendInput, message: 'Tell me about Ember Cafe on the First floor' })
+
+      expect(venueLocationFindMany).toHaveBeenCalled()
+      const prompt = getConcatenatedSystemPrompt()
+      expect(prompt).toContain('<place name="Ember Café"')
+      expect(prompt).toContain('First floor')
+      expect(prompt).not.toContain('Updated since the VENUE GUIDE was loaded')
+    })
+
     it('binds a valid public QR item to its exact duplicate-name exhibit', async () => {
       setupHappyPath('This is the second-floor case.')
       const fixture = caseTwelveRankingFixture()

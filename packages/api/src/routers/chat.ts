@@ -1588,6 +1588,8 @@ const chatReadRouter = router({
       identityUnresolved: Boolean(placeIdentity.ambiguity) || placeIdentityDiscoveryIncomplete,
     })
     relevantPlaces = recommendationSelection.places
+    // Stored areas of places whose area is replaced by an identity floor or location below.
+    const identityAreaOriginals = new Map<string, string | null>()
     // Resolve over every authorized candidate before preserving the existing fact budget.
     relevantPlaces = selectGuestPlaceIdentityContext({
       query: effectiveIdentityQuery,
@@ -1599,7 +1601,9 @@ const chatReadRouter = router({
       const knownLocation = [
         ...new Set([identity?.floor, identity?.location].filter(Boolean)),
       ].join(' - ')
-      return knownLocation ? { ...place, areaName: knownLocation } : place
+      if (!knownLocation) return place
+      identityAreaOriginals.set(place.id, place.areaName)
+      return { ...place, areaName: knownLocation }
     })
     if (nativeReadSnapshot.reason !== 'SERVER_DISABLED')
       logger.info({
@@ -1784,9 +1788,13 @@ const chatReadRouter = router({
       const updatedGuideRecordIds = staleGuestGuideRecordIds({
         guide: venueGuide,
         directory: guestDirectory,
-        places: entryPlaceFromOtherSource
-          ? relevantPlaces.filter((place) => place.id !== entryPlace.id)
-          : relevantPlaces,
+        places: relevantPlaces
+          .filter((place) => !(entryPlaceFromOtherSource && place.id === entryPlace.id))
+          .map((place) =>
+            identityAreaOriginals.has(place.id)
+              ? { ...place, areaName: identityAreaOriginals.get(place.id) ?? null }
+              : place,
+          ),
         knowledgeEntries: relevantKnowledgeEntries,
       })
       return buildVenueSystemPromptParts({
