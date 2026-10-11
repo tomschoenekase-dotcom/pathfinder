@@ -57,12 +57,12 @@ describe('evaluation run identity', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('preserves the exact v2 identity shape and current prompt identity hash', async () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v32')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v33')
     expect(GUEST_CHAT_PROMPT_CONTRACT_HASH).toBe(
-      '037ddb0c0e2fc7c386de7e9b83e7a2b1e42b9a83387f6b1a56babacae102b49f',
+      'c2c83f561e52944c960297fde6ad135c0c7ca3b7d5dec5fff0414fd3d443ef90',
     )
     expect(evaluationRunIdentityHash(identity())).toBe(
-      'f04b838eb65bfee3dcad0f5d99c111529a6d203d401de8373d5101533e5886ef',
+      'e79648e5bc14ecdf41bdc316a00d26a8356a27462b44436abfc04e91a7fd383b',
     )
     // New evaluation requests cannot silently use the retired prompt contract.
     expect(() =>

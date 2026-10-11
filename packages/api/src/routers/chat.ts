@@ -74,6 +74,7 @@ import { resolveSystemCharacterProjection } from '../lib/character-registry'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
+import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -1530,7 +1531,9 @@ const chatReadRouter = router({
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, { currentDate })
     const directoryPrompt = venueGuide.prompt
     const guideCoverage = buildGuestGuideCoverage({
-      guide: venueGuide, directory: guestDirectory, loadStatus: guideLoadStatus,
+      guide: venueGuide,
+      directory: guestDirectory,
+      loadStatus: guideLoadStatus,
       projectionPath: directoryRead.path,
     })
     let placeIdentity = await projectGuestPlaceIdentity({
@@ -1807,6 +1810,16 @@ const chatReadRouter = router({
       return buildVenueSystemPromptParts({
         currentDate,
         ...(venueClock.localTime ? { currentLocalTime: venueClock.localTime } : {}),
+        beforeOpeningStatusCue:
+          guideLoadStatus === 'READY' && !guestDirectory.incomplete
+            ? guestBeforeOpeningCue({
+                question: trimmedInput,
+                now: operationalNow,
+                timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
+                knowledge: guestDirectory.knowledge,
+                activeUpdates,
+              })
+            : null,
         venueGuideRecordIds: updatedGuideRecordIds.size
           ? new Set([...venueGuide.recordIds].filter((id) => !updatedGuideRecordIds.has(id)))
           : venueGuide.recordIds,

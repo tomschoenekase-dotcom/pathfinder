@@ -301,6 +301,8 @@ export function buildVenueSystemPromptParts(params: {
   currentDate?: string
   /** The venue's local day and time ("Tuesday, October 6, 2026 at 6:42 PM") when its time zone is known. */
   currentLocalTime?: string
+  /** A conservative server calculation that a posted regular opening time is still ahead. */
+  beforeOpeningStatusCue?: string | null
   /**
    * Records the cached full venue guide already carries in full ("place:<id>", "knowledge:<id>").
    * Retrieved records in this set are named rather than repeated; any other record keeps its
@@ -572,10 +574,13 @@ ${placesSection}${featuredPlaceSection}${identityAmbiguityData}${knowledgeSectio
 
 DATE: ${params.currentLocalTime ? `At the venue it is ${params.currentLocalTime} (${params.currentDate}). For "open now", "how late today" or "what's on today", first find today's weekday and date in the hours, seasons and operating days you know: if today is not an operating day, say so and when it next opens; if it is before opening or after closing, say it is closed now and when it opens. Never assume daily hours when the hours name specific days or dates.` : `Today is ${params.currentDate}.`} Treat dated events or seasons that have already ended as past; never present them as upcoming or current.`
     : ''
+  const beforeOpeningStatusCue = params.beforeOpeningStatusCue
+    ? `\n\n${escapeUntrustedPromptData(params.beforeOpeningStatusCue)}`
+    : ''
   const heightRule = params.heightOrAgeRideQuestion
     ? 'HEIGHT QUESTION: Begin the reply with the child\'s height or age compared with the ride\'s rule ("At 50 inches, she\'s 2 inches short of..."), then the verdict. Never begin with "Yes" or "No".\n\n'
     : ''
-  const dynamicPart = `${heightRule}${writingRule}${identityEvidenceRule}${dateRule}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
+  const dynamicPart = `${heightRule}${writingRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
 
 ${dynamicVenueData}
 

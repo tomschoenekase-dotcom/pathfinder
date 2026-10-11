@@ -78,7 +78,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v32')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v33')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -118,6 +118,19 @@ describe('guest chat prompt provenance', () => {
           userLat: null,
           userLng: null,
           generalWebContext: 'GENERAL BACKGROUND ONLY: A nebula is a cloud of gas and dust.',
+        }),
+      },
+      {
+        id: 'before-opening-hours-check',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces: [],
+          userLat: null,
+          userLng: null,
+          currentDate: '2026-10-11',
+          currentLocalTime: 'Sunday, October 11, 2026 at 11:00 AM',
+          beforeOpeningStatusCue:
+            "CURRENT POSTED HOURS CHECK: It is Sunday before Museum's regular noon opening time, so Museum is closed now according to its posted hours.",
         }),
       },
       {
