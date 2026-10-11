@@ -287,6 +287,7 @@ describe.skipIf(!enabled)(
           'customers.propose_onboarding_questions',
           'customers.propose_create',
           'customers.propose_invite',
+          'customers.propose_link_existing',
           'offboarding.propose_execution',
           'support.propose_information_request',
           'support.propose_internal_note',
