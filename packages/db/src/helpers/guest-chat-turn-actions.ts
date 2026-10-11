@@ -1494,10 +1494,16 @@ export async function finalizeGuestChatTurnAction(args: {
       { isolationLevel: 'Serializable' },
     )
 
-  try {
-    return await run()
-  } catch (error) {
-    if (!isP2002(error)) throw error
-    return run()
+  // A serialization failure rolls back this database-only transaction. Reuse the
+  // already observed provider result; never restart generation or change request identity.
+  // Every attempt rechecks disposition, ownership, receipts and authoritative replay.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run()
+    } catch (error) {
+      if (!isP2002(error) && !isP2034(error)) throw error
+      if (attempt >= 3)
+        throw new GuestChatTurnActionError('CONFLICT', 'Chat turn changed during finalization.')
+    }
   }
 }

@@ -261,10 +261,7 @@ export function composeVoiceInstructions(input: {
   // configuration still keeps at least half.
   const boundedStatic = input.staticPart.slice(
     0,
-    Math.min(
-      11_000,
-      contentBudget - Math.min(input.dynamicPart.length, Math.floor(contentBudget / 2)),
-    ),
+    contentBudget - Math.min(input.dynamicPart.length, Math.floor(contentBudget / 2)),
   )
   const boundedDynamic = input.dynamicPart.slice(
     0,

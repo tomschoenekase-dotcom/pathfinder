@@ -42,6 +42,8 @@ function venueLocalDayAndMinute(now: Date, timeZone: string) {
 export function guestBeforeOpeningCue(params: {
   question: string
   now: Date
+  /** Time at which the operational notices and calendar were read. */
+  observedAt?: Date
   timeZone: string | undefined
   knowledge: ReadonlyArray<HoursTopic>
   activeUpdates?: ReadonlyArray<ActiveUpdate>
@@ -54,6 +56,20 @@ export function guestBeforeOpeningCue(params: {
   let local: ReturnType<typeof venueLocalDayAndMinute>
   try {
     local = venueLocalDayAndMinute(params.now, params.timeZone)
+    if (params.observedAt) {
+      const age = params.now.getTime() - params.observedAt.getTime()
+      const observed = venueLocalDayAndMinute(params.observedAt, params.timeZone)
+      // Do not combine a fresh clock with a stale operational snapshot, especially across
+      // opening, midnight or a DST transition. The ordinary sourced answer path remains.
+      if (
+        !Number.isFinite(age) ||
+        age < 0 ||
+        age >= 60_000 ||
+        observed.weekday !== local.weekday ||
+        observed.minute !== local.minute
+      )
+        return null
+    }
   } catch {
     return null
   }
@@ -77,7 +93,10 @@ export function guestBeforeOpeningCue(params: {
   const subjectSchedules = hoursTopic.content
     .split(/\r?\n/u)
     .filter((line) => /^Hours:\s*[^,]+,/iu.test(line))
-    .filter((line) => /^Hours:\s*([^,]+),/iu.exec(line)?.[1]?.trim() === subject)
+    .filter(
+      (line) =>
+        /^Hours:\s*([^,]+),/iu.exec(line)?.[1]?.trim().toLowerCase() === subject.toLowerCase(),
+    )
   if (subjectSchedules.length !== 1) return null
 
   const namedSubjects = hoursTopic.content.split(/\r?\n/u).flatMap((line) => {

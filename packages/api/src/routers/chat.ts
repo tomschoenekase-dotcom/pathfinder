@@ -1816,7 +1816,8 @@ const chatReadRouter = router({
           updatedGuideRecordIds.size === 0
             ? guestBeforeOpeningCue({
                 question: trimmedInput,
-                now: operationalNow,
+                now: new Date(),
+                observedAt: operationalNow,
                 timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
                 knowledge: guestDirectory.knowledge,
                 activeUpdates,
