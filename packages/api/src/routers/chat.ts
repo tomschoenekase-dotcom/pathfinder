@@ -1811,7 +1811,9 @@ const chatReadRouter = router({
         currentDate,
         ...(venueClock.localTime ? { currentLocalTime: venueClock.localTime } : {}),
         beforeOpeningStatusCue:
-          guideLoadStatus === 'READY' && !guestDirectory.incomplete
+          guideLoadStatus === 'READY' &&
+          !guestDirectory.incomplete &&
+          updatedGuideRecordIds.size === 0
             ? guestBeforeOpeningCue({
                 question: trimmedInput,
                 now: operationalNow,

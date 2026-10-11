@@ -44,6 +44,39 @@ describe('guestBeforeOpeningCue', () => {
     ).toBeNull()
   })
 
+  it('abstains on a venue-wide question when named areas have separate hours', () => {
+    expect(
+      guestBeforeOpeningCue({
+        question: 'Are you open now?',
+        now: new Date('2026-10-11T15:00:00Z'),
+        timeZone: 'America/New_York',
+        knowledge,
+      }),
+    ).toBeNull()
+    expect(
+      guestBeforeOpeningCue({
+        question: 'Are the museum and park open now?',
+        now: new Date('2026-10-11T15:00:00Z'),
+        timeZone: 'America/New_York',
+        knowledge,
+      }),
+    ).toBeNull()
+  })
+
+  it("abstains when separate records describe different areas' hours", () => {
+    expect(
+      guestBeforeOpeningCue({
+        question: 'Are you open now?',
+        now: new Date('2026-10-11T15:00:00Z'),
+        timeZone: 'America/New_York',
+        knowledge: [
+          { title: 'Museum hours', content: 'Hours: Museum, noon-4pm Sunday' },
+          { title: 'Park hours', content: 'Hours: Park, dawn to dusk Sunday' },
+        ],
+      }),
+    ).toBeNull()
+  })
+
   it('abstains without a zone or when a live update may override hours', () => {
     const base = {
       question: 'Are you open now?',
@@ -56,6 +89,14 @@ describe('guestBeforeOpeningCue', () => {
         ...base,
         timeZone: 'America/New_York',
         activeUpdates: [{ title: 'Special opening hours', body: 'Open early today' }],
+      }),
+    ).toBeNull()
+    expect(
+      guestBeforeOpeningCue({
+        ...base,
+        question: 'Is the museum open now?',
+        timeZone: 'America/New_York',
+        activeUpdates: [{ title: 'Member early entry', body: 'Doors at 10am today' }],
       }),
     ).toBeNull()
   })
@@ -79,6 +120,16 @@ describe('guestBeforeOpeningCue', () => {
             title: 'Hours',
             content: 'Hours: Museum, noon-4pm Sunday; 9am-1pm Sunday',
           },
+        ],
+      }),
+    ).toBeNull()
+    expect(
+      guestBeforeOpeningCue({
+        question: 'Is the museum open now?',
+        now: new Date('2026-10-11T15:00:00Z'),
+        timeZone: 'America/New_York',
+        knowledge: [
+          { title: 'Museum hours', content: 'Hours: Museum, noon-4pm Sunday May-September' },
         ],
       }),
     ).toBeNull()

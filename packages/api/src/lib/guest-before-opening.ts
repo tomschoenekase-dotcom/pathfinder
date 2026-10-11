@@ -4,6 +4,8 @@ type HoursTopic = { title: string; content: string }
 type ActiveUpdate = { title?: string | null; body?: string | null }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const
+const DAY_LIST =
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?:\s*(?:,|and|&|[-–]|to|through)\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))*$/iu
 
 function minutesOf(clock: string): number | null {
   const normalized = clock.trim().toLowerCase()
@@ -46,12 +48,8 @@ export function guestBeforeOpeningCue(params: {
 }): string | null {
   if (!params.timeZone || !/\b(?:open|closed)\b/iu.test(params.question)) return null
   if (!/\b(?:now|currently|yet|today|at the moment)\b/iu.test(params.question)) return null
-  if (
-    params.activeUpdates?.some((update) =>
-      /\b(?:hours?|open|closed|schedule)\b/iu.test(`${update.title ?? ''} ${update.body ?? ''}`),
-    )
-  )
-    return null
+  // Any live operational notice may alter normal entry, even without using the word "hours".
+  if (params.activeUpdates?.length) return null
 
   let local: ReturnType<typeof venueLocalDayAndMinute>
   try {
@@ -61,9 +59,11 @@ export function guestBeforeOpeningCue(params: {
   }
   if (!DAYS.some((day) => day === local.weekday)) return null
 
-  const hoursTopic = params.knowledge.find(
+  const hoursTopics = params.knowledge.filter(
     (entry) => /\bhours?\b/iu.test(entry.title) && /^Hours:/imu.test(entry.content),
   )
+  if (hoursTopics.length !== 1) return null
+  const hoursTopic = hoursTopics[0]
   if (!hoursTopic) return null
   const posted = hoursTopic.content.split(/\r?\n/u).find((line) => /^Hours:\s*[^,]+,/iu.test(line))
   if (!posted) return null
@@ -87,6 +87,7 @@ export function guestBeforeOpeningCue(params: {
   const mentionedSubjects = namedSubjects.filter((name) =>
     params.question.toLowerCase().includes(name.toLowerCase()),
   )
+  if (new Set(namedSubjects).size > 1 && new Set(mentionedSubjects).size !== 1) return null
   if (mentionedSubjects.length && !mentionedSubjects.includes(subject)) return null
 
   const todaySegments = schedule
@@ -101,6 +102,8 @@ export function guestBeforeOpeningCue(params: {
     if (!match) continue
     const dayList = match[3]
     if (!dayList || !new RegExp(`\\b${local.weekday}\\b`, 'iu').test(dayList)) continue
+    // A date or season qualifier requires its own calendar calculation.
+    if (!DAY_LIST.test(dayList.trim())) return null
     const openingMinute = minutesOf(match[1] ?? '')
     const closingMinute = minutesOf(match[2] ?? '')
     if (
