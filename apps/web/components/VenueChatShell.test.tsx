@@ -285,4 +285,54 @@ describe('VenueChatShell venue scoped voice captions', () => {
     expect(screen.queryByRole('link', { name: /back/i })).toBeNull()
     expect(screen.getByRole('heading', { level: 1 })).toBeTruthy()
   })
+
+  it('renders the configured classic greeting, then resets copy when the venue changes', () => {
+    const greeting = 'Welcome to the river garden. Ask about paths or your visit.'
+    const props = shellProps('river-garden')
+    const { rerender } = render(
+      <VenueChatShell
+        {...props}
+        venue={{
+          ...props.venue,
+          venueBotPresentation: {
+            mode: 'CLASSIC',
+            displayName: null,
+            greeting,
+            personalityPreset: 'friendly',
+            character: null,
+          },
+        }}
+      />,
+    )
+    expect(screen.getByText(greeting)).toBeTruthy()
+    expect(screen.queryByText(props.venue.description)).toBeNull()
+    rerender(<VenueChatShell {...shellProps('other-garden')} />)
+    expect(screen.queryByText(greeting)).toBeNull()
+    expect(screen.getByText(props.venue.description)).toBeTruthy()
+  })
+
+  it('keeps the greeting out of the transcript and hides it after a visitor starts chatting', () => {
+    const props = shellProps('river-garden')
+    render(
+      <VenueChatShell
+        {...props}
+        venue={{
+          ...props.venue,
+          venueBotPresentation: {
+            mode: 'CLASSIC',
+            displayName: null,
+            greeting: 'A configured welcome.',
+            personalityPreset: 'friendly',
+            character: null,
+          },
+        }}
+        messages={[
+          { role: 'user', content: 'What is here?' },
+          { role: 'assistant', content: 'A garden.' },
+        ]}
+      />,
+    )
+    expect(screen.queryByText('A configured welcome.')).toBeNull()
+    expect(screen.getByText('A garden.')).toBeTruthy()
+  })
 })

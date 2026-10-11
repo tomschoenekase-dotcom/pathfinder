@@ -152,6 +152,33 @@ async function readCreated(database: OperatorDatabase, tenantId: string, venueId
   return tenant && venue ? { tenant, venue } : null
 }
 
+async function requestedCrmLinkExists(
+  database: OperatorDatabase,
+  args: CreateArgs,
+  tenantId: string,
+  venueId: string,
+) {
+  if (!args.prospectOrganizationId) return true
+  const relationship = await database.prospectCustomerRelationship.findFirst({
+    where: { organizationId: args.prospectOrganizationId, tenantId, status: 'ACTIVE' },
+    select: { id: true },
+  })
+  if (!relationship) return false
+  if (!args.prospectVenueId) return true
+  return Boolean(
+    await database.prospectLocationConversion.findFirst({
+      where: {
+        tenantId,
+        relationshipId: relationship.id,
+        prospectVenueId: args.prospectVenueId,
+        venueId,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    }),
+  )
+}
+
 function createdOutcome(
   made: {
     tenant: { id: string; slug: string }
@@ -217,6 +244,13 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
         select: { id: true },
       })
       if (!organization) throw new OperatorNotFoundError()
+      if (args.prospectVenueId) {
+        const location = await context.database.prospectVenue.findFirst({
+          where: { id: args.prospectVenueId, organizationId: args.prospectOrganizationId },
+          select: { id: true },
+        })
+        if (!location) throw new OperatorNotFoundError()
+      }
     }
     // A chosen venue slug is the public visitor link; one another customer holds is refused here,
     // before the identity provider is called. A retry of this same operation is not refused by
@@ -290,6 +324,10 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
       if (intent.state === 'COMPLETED') {
         const made = await readCreated(database, intent.tenantId, intent.venueId)
         if (!made) throw new OperatorStaleError('The completed customer is unavailable.')
+        if (!(await requestedCrmLinkExists(database, args, made.tenant.id, made.venue.id))) {
+          phase = 'finalize'
+          throw new Error('The completed customer is missing its requested CRM relationship.')
+        }
         return createdOutcome(made, true)
       }
       if (intent.state === 'RECONCILIATION_REQUIRED') {
@@ -383,15 +421,18 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
       phase = 'finalize'
       if (!created.venue) throw new Error('The draft venue was not created.')
       if (args.prospectOrganizationId) {
-        await linkProspectConversionAction({
-          organizationId: args.prospectOrganizationId,
-          ...(args.prospectVenueId
-            ? { prospectVenueId: args.prospectVenueId, venueId: created.venue.id }
-            : {}),
-          tenantId: created.tenant.id,
-          evidence: { clientCreateRequestId: context.operationId },
-          actor,
-        })
+        await linkProspectConversionAction(
+          {
+            organizationId: args.prospectOrganizationId,
+            ...(args.prospectVenueId
+              ? { prospectVenueId: args.prospectVenueId, venueId: created.venue.id }
+              : {}),
+            tenantId: created.tenant.id,
+            evidence: { clientCreateRequestId: context.operationId },
+            actor,
+          },
+          database,
+        )
       }
       await completeClientCreateIntentAction(
         {
@@ -424,7 +465,7 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
    * The intent row is the receipt. Completed means the customer exists; started but not completed
    * means the provider call may or may not have happened, which only a person can settle.
    */
-  reconcile: async (_args, context) => {
+  reconcile: async (args, context) => {
     const intent = await context.database.clientCreateIntent.findUnique({
       where: { requestId: context.operationId },
       select: { status: true, completedTenantId: true, completedVenueId: true },
@@ -436,7 +477,8 @@ export const customersCreateKind: OperatorProposalKind<CreateArgs> = {
         intent.completedTenantId,
         intent.completedVenueId,
       )
-      return made
+      return made &&
+        (await requestedCrmLinkExists(context.database, args, made.tenant.id, made.venue.id))
         ? { state: 'applied', outcome: createdOutcome(made, false) }
         : { state: 'unknown' }
     }
@@ -502,6 +544,20 @@ async function resolveCreateOutcome(
       })
     : null
   if (tenant && venue) {
+    if (!(await requestedCrmLinkExists(database, args, tenant.id, venue.id))) {
+      return {
+        state: 'partially_applied',
+        summary: CREATE_SUMMARY.finalizeFailed,
+        result: {
+          tenantId: tenant.id,
+          venueId: venue.id,
+          clientCreated: true,
+          venueCreated: true,
+          crmLinked: false,
+          invited: false,
+        },
+      }
+    }
     if (intent.status !== 'COMPLETED') {
       await completeClientCreateIntentAction(
         {

@@ -95,6 +95,44 @@ describe.skipIf(!enabled)('canonical CRM disposable safety', () => {
         venueId: liveVenueB.id,
         actor,
       })
+      // Repair operates on existing identities and replays without adding canonical rows.
+      const repairReplay = await linkProspectConversionAction({
+        organizationId: created.organization.id,
+        prospectVenueId: prospectVenueB.id,
+        tenantId: tenant.id,
+        venueId: liveVenueB.id,
+        existingLink: { expectedVersion: 1 },
+        actor,
+      })
+      expect(repairReplay.replayed).toBe(true)
+      expect(repairReplay.relationship.id).toBe(first.relationship.id)
+      await expect(
+        linkProspectConversionAction({
+          organizationId: created.organization.id,
+          prospectVenueId: prospectVenueB.id,
+          tenantId: tenant.id,
+          venueId: liveVenueA.id,
+          existingLink: { expectedVersion: 1 },
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const otherTenant = await db.tenant.create({
+        data: {
+          id: `crm-other-${suffix}`,
+          name: `Other Customer ${suffix}`,
+          slug: `other-${suffix}`,
+        },
+      })
+      await expect(
+        linkProspectConversionAction({
+          organizationId: created.organization.id,
+          prospectVenueId: prospectVenueB.id,
+          tenantId: otherTenant.id,
+          venueId: liveVenueB.id,
+          existingLink: { expectedVersion: 1 },
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
       expect(second.relationship.id).toBe(first.relationship.id)
       expect(replay.replayed).toBe(true)
       expect(

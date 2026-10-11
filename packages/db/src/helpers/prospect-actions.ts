@@ -840,178 +840,278 @@ export async function linkProspectConversionAction(
     tenantId: string
     venueId?: string | undefined
     evidence?: Record<string, unknown> | undefined
+    /** Existing-customer repair refuses reassignment and checks the reviewed CRM version. */
+    existingLink?: { expectedVersion: number } | undefined
     actor: ProspectActor
   },
   client: ProspectActionClient = db,
 ) {
   requireActor(input.actor)
-  return client.$transaction(async (tx) => {
-    if (Boolean(input.prospectVenueId) !== Boolean(input.venueId)) {
-      throw new ProspectActionError(
-        'INVALID_INPUT',
-        'A location conversion requires both prospectVenueId and venueId',
-      )
-    }
-    const [organization, tenant, venue, activeRelationship, relationshipHistory] =
-      await Promise.all([
-        tx.prospectOrganization.findUnique({
-          where: { id: input.organizationId },
-          include: { opportunity: true },
-        }),
-        tx.tenant.findUnique({ where: { id: input.tenantId }, select: { id: true, name: true } }),
-        input.venueId
-          ? tx.venue.findFirst({
-              where: { id: input.venueId, tenantId: input.tenantId },
-              select: { id: true, name: true },
-            })
-          : null,
-        tx.prospectCustomerRelationship.findFirst({
-          where: {
+  return client.$transaction(
+    async (tx) => {
+      if (input.existingLink && (!input.prospectVenueId || !input.venueId)) {
+        throw new ProspectActionError(
+          'INVALID_INPUT',
+          'Existing customer repair requires both location identities',
+        )
+      }
+      if (Boolean(input.prospectVenueId) !== Boolean(input.venueId)) {
+        throw new ProspectActionError(
+          'INVALID_INPUT',
+          'A location conversion requires both prospectVenueId and venueId',
+        )
+      }
+      const [organization, tenant, venue, activeRelationship, relationshipHistory] =
+        await Promise.all([
+          tx.prospectOrganization.findUnique({
+            where: { id: input.organizationId },
+            include: { opportunity: true },
+          }),
+          tx.tenant.findUnique({ where: { id: input.tenantId }, select: { id: true, name: true } }),
+          input.venueId
+            ? tx.venue.findFirst({
+                where: { id: input.venueId, tenantId: input.tenantId },
+                select: { id: true, name: true },
+              })
+            : null,
+          tx.prospectCustomerRelationship.findFirst({
+            where: {
+              organizationId: input.organizationId,
+              tenantId: input.tenantId,
+              status: 'ACTIVE',
+            },
+            orderBy: { relationshipVersion: 'desc' },
+          }),
+          tx.prospectCustomerRelationship.findMany({
+            where: { organizationId: input.organizationId, tenantId: input.tenantId },
+            select: { relationshipVersion: true },
+            orderBy: { relationshipVersion: 'desc' },
+            take: 1,
+          }),
+        ])
+      if (!organization) throw new ProspectActionError('NOT_FOUND', 'Prospect not found')
+      if (!tenant) throw new ProspectActionError('NOT_FOUND', 'Customer account not found')
+      if (input.venueId && !venue)
+        throw new ProspectActionError('INVALID_INPUT', 'Venue does not belong to the customer')
+      if (input.prospectVenueId) {
+        const prospectVenue = await tx.prospectVenue.findFirst({
+          where: { id: input.prospectVenueId, organizationId: input.organizationId },
+          select: { id: true },
+        })
+        if (!prospectVenue)
+          throw new ProspectActionError(
+            'INVALID_INPUT',
+            'Prospect venue does not belong to prospect',
+          )
+      }
+      if (input.existingLink && input.prospectVenueId && input.venueId) {
+        if (organization.archivedAt || organization.opportunity?.stage === 'DO_NOT_CONTACT') {
+          throw new ProspectActionError(
+            'CONFLICT',
+            'Archived or do-not-contact prospect cannot be converted',
+          )
+        }
+        const [otherRelationship, otherLocation, legacyConflict] = await Promise.all([
+          tx.prospectCustomerRelationship.findFirst({
+            where: {
+              status: 'ACTIVE',
+              OR: [
+                { organizationId: input.organizationId, tenantId: { not: input.tenantId } },
+                { tenantId: input.tenantId, organizationId: { not: input.organizationId } },
+              ],
+            },
+            select: { id: true },
+          }),
+          tx.prospectLocationConversion.findFirst({
+            where: {
+              tenantId: input.tenantId,
+              status: 'ACTIVE',
+              OR: [
+                { prospectVenueId: input.prospectVenueId, venueId: { not: input.venueId } },
+                { venueId: input.venueId, prospectVenueId: { not: input.prospectVenueId } },
+              ],
+            },
+            select: { id: true },
+          }),
+          tx.prospectConversion.findFirst({
+            where: {
+              OR: [
+                { organizationId: input.organizationId, tenantId: { not: input.tenantId } },
+                { tenantId: input.tenantId, organizationId: { not: input.organizationId } },
+                { prospectVenueId: input.prospectVenueId, venueId: { not: input.venueId } },
+                { venueId: input.venueId, prospectVenueId: { not: input.prospectVenueId } },
+              ],
+            },
+            select: { id: true },
+          }),
+        ])
+        if (otherRelationship || otherLocation || legacyConflict) {
+          throw new ProspectActionError(
+            'CONFLICT',
+            'Existing customer relationships cannot be reassigned',
+          )
+        }
+      }
+      if (input.existingLink) {
+        const exactLocation =
+          activeRelationship && input.prospectVenueId && input.venueId
+            ? await tx.prospectLocationConversion.findFirst({
+                where: {
+                  tenantId: input.tenantId,
+                  relationshipId: activeRelationship.id,
+                  prospectVenueId: input.prospectVenueId,
+                  venueId: input.venueId,
+                  status: 'ACTIVE',
+                },
+              })
+            : null
+        if (activeRelationship && exactLocation) {
+          return {
+            relationship: activeRelationship,
+            locationConversion: exactLocation,
+            replayed: true,
+          }
+        }
+        const version =
+          1 + (await tx.prospectActivity.count({ where: { organizationId: input.organizationId } }))
+        if (version !== input.existingLink.expectedVersion) {
+          throw new ProspectActionError(
+            'CONFLICT',
+            'Prospect changed since the relationship was reviewed',
+          )
+        }
+      }
+      const relationshipVersion = activeRelationship
+        ? activeRelationship.relationshipVersion
+        : (relationshipHistory[0]?.relationshipVersion ?? 0) + 1
+      const relationship =
+        activeRelationship ??
+        (await tx.prospectCustomerRelationship.create({
+          data: {
             organizationId: input.organizationId,
             tenantId: input.tenantId,
-            status: 'ACTIVE',
+            relationshipVersion,
+            idempotencyKey: `prospect-customer:${input.organizationId}:${input.tenantId}:${relationshipVersion}`,
+            evidence: jsonValue(input.evidence ?? {}),
+            createdBy: input.actor.id,
           },
-          orderBy: { relationshipVersion: 'desc' },
-        }),
-        tx.prospectCustomerRelationship.findMany({
-          where: { organizationId: input.organizationId, tenantId: input.tenantId },
-          select: { relationshipVersion: true },
-          orderBy: { relationshipVersion: 'desc' },
-          take: 1,
-        }),
-      ])
-    if (!organization) throw new ProspectActionError('NOT_FOUND', 'Prospect not found')
-    if (!tenant) throw new ProspectActionError('NOT_FOUND', 'Customer account not found')
-    if (input.venueId && !venue)
-      throw new ProspectActionError('INVALID_INPUT', 'Venue does not belong to the customer')
-    if (input.prospectVenueId) {
-      const prospectVenue = await tx.prospectVenue.findFirst({
-        where: { id: input.prospectVenueId, organizationId: input.organizationId },
-        select: { id: true },
-      })
-      if (!prospectVenue)
-        throw new ProspectActionError('INVALID_INPUT', 'Prospect venue does not belong to prospect')
-    }
-    const relationshipVersion = activeRelationship
-      ? activeRelationship.relationshipVersion
-      : (relationshipHistory[0]?.relationshipVersion ?? 0) + 1
-    const relationship =
-      activeRelationship ??
-      (await tx.prospectCustomerRelationship.create({
-        data: {
-          organizationId: input.organizationId,
-          tenantId: input.tenantId,
-          relationshipVersion,
-          idempotencyKey: `prospect-customer:${input.organizationId}:${input.tenantId}:${relationshipVersion}`,
-          evidence: jsonValue(input.evidence ?? {}),
-          createdBy: input.actor.id,
-        },
-      }))
-    let locationConversion = null
-    let locationReplayed = false
-    if (input.prospectVenueId && input.venueId) {
-      const existingLocation = await tx.prospectLocationConversion.findFirst({
-        where: {
-          relationshipId: relationship.id,
-          prospectVenueId: input.prospectVenueId,
-          venueId: input.venueId,
-          status: 'ACTIVE',
-        },
-        orderBy: { generation: 'desc' },
-      })
-      if (existingLocation) {
-        locationConversion = existingLocation
-        locationReplayed = true
-      } else {
-        const prior = await tx.prospectLocationConversion.findFirst({
+        }))
+      let locationConversion = null
+      let locationReplayed = false
+      if (input.prospectVenueId && input.venueId) {
+        const existingLocation = await tx.prospectLocationConversion.findFirst({
           where: {
-            relationshipId: relationship.id,
-            prospectVenueId: input.prospectVenueId,
-            venueId: input.venueId,
-          },
-          orderBy: { generation: 'desc' },
-          select: { generation: true },
-        })
-        const generation = (prior?.generation ?? 0) + 1
-        locationConversion = await tx.prospectLocationConversion.create({
-          data: {
             tenantId: input.tenantId,
             relationshipId: relationship.id,
             prospectVenueId: input.prospectVenueId,
             venueId: input.venueId,
-            generation,
-            idempotencyKey: `prospect-location:${relationship.id}:${input.prospectVenueId}:${input.venueId}:${generation}`,
-            evidence: jsonValue(input.evidence ?? {}),
-            convertedBy: input.actor.id,
+            status: 'ACTIVE',
+          },
+          orderBy: { generation: 'desc' },
+        })
+        if (existingLocation) {
+          locationConversion = existingLocation
+          locationReplayed = true
+        } else {
+          const prior = await tx.prospectLocationConversion.findFirst({
+            where: {
+              tenantId: input.tenantId,
+              relationshipId: relationship.id,
+              prospectVenueId: input.prospectVenueId,
+              venueId: input.venueId,
+            },
+            orderBy: { generation: 'desc' },
+            select: { generation: true },
+          })
+          const generation = (prior?.generation ?? 0) + 1
+          locationConversion = await tx.prospectLocationConversion.create({
+            data: {
+              tenantId: input.tenantId,
+              relationshipId: relationship.id,
+              prospectVenueId: input.prospectVenueId,
+              venueId: input.venueId,
+              generation,
+              idempotencyKey: `prospect-location:${relationship.id}:${input.prospectVenueId}:${input.venueId}:${generation}`,
+              evidence: jsonValue(input.evidence ?? {}),
+              convertedBy: input.actor.id,
+            },
+          })
+        }
+      }
+      if (activeRelationship && (!input.venueId || locationReplayed)) {
+        return { relationship, locationConversion, replayed: true }
+      }
+      const convertedAt = locationConversion?.convertedAt ?? relationship.startedAt
+      // Repairing a guide's missing identity link is not evidence of a won sale.
+      if (
+        !input.existingLink &&
+        organization.opportunity &&
+        organization.opportunity.stage !== 'WON'
+      ) {
+        await tx.prospectOpportunity.update({
+          where: { id: organization.opportunity.id },
+          data: {
+            stage: 'WON',
+            lastActivityAt: convertedAt,
+            updatedBy: input.actor.id,
+          },
+        })
+        await tx.prospectStageHistory.create({
+          data: {
+            opportunityId: organization.opportunity.id,
+            fromStage: organization.opportunity.stage,
+            toStage: 'WON',
+            reason: 'Converted to customer',
+            actorId: input.actor.id,
+            evidence: {
+              customerRelationshipId: relationship.id,
+              locationConversionId: locationConversion?.id ?? null,
+            },
           },
         })
       }
-    }
-    if (activeRelationship && (!input.venueId || locationReplayed)) {
-      return { relationship, locationConversion, replayed: true }
-    }
-    const convertedAt = locationConversion?.convertedAt ?? relationship.startedAt
-    if (organization.opportunity && organization.opportunity.stage !== 'WON') {
-      await tx.prospectOpportunity.update({
-        where: { id: organization.opportunity.id },
+      await tx.prospectActivity.create({
         data: {
-          stage: 'WON',
-          lastActivityAt: convertedAt,
-          updatedBy: input.actor.id,
-        },
-      })
-      await tx.prospectStageHistory.create({
-        data: {
-          opportunityId: organization.opportunity.id,
-          fromStage: organization.opportunity.stage,
-          toStage: 'WON',
-          reason: 'Converted to customer',
-          actorId: input.actor.id,
+          organizationId: input.organizationId,
+          venueId: input.prospectVenueId ?? null,
+          type: 'CONVERTED_TO_CUSTOMER',
+          summary: input.existingLink
+            ? `Linked existing customer ${tenant.name}`
+            : `Converted to customer ${tenant.name}`,
           evidence: {
             customerRelationshipId: relationship.id,
             locationConversionId: locationConversion?.id ?? null,
+            tenantId: input.tenantId,
+            venueId: input.venueId ?? null,
           },
+          actorId: input.actor.id,
+          occurredAt: convertedAt,
         },
       })
-    }
-    await tx.prospectActivity.create({
-      data: {
-        organizationId: input.organizationId,
-        venueId: input.prospectVenueId ?? null,
-        type: 'CONVERTED_TO_CUSTOMER',
-        summary: `Converted to customer ${tenant.name}`,
-        evidence: {
-          customerRelationshipId: relationship.id,
-          locationConversionId: locationConversion?.id ?? null,
+      await writeAuditLogStrict(
+        {
           tenantId: input.tenantId,
-          venueId: input.venueId ?? null,
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'admin.prospect.converted',
+          targetType: 'ProspectCustomerRelationship',
+          targetId: relationship.id,
+          afterState: {
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+            venueId: input.venueId ?? null,
+          },
         },
-        actorId: input.actor.id,
-        occurredAt: convertedAt,
-      },
-    })
-    await writeAuditLogStrict(
-      {
-        tenantId: input.tenantId,
-        actorId: input.actor.id,
-        actorRole: input.actor.role,
-        action: 'admin.prospect.converted',
-        targetType: 'ProspectCustomerRelationship',
-        targetId: relationship.id,
-        afterState: {
-          organizationId: input.organizationId,
-          tenantId: input.tenantId,
-          venueId: input.venueId ?? null,
-        },
-      },
-      tx,
-    )
-    return {
-      relationship,
-      locationConversion,
-      replayed: Boolean(activeRelationship) && (!locationConversion || locationReplayed),
-    }
-  })
+        tx,
+      )
+      return {
+        relationship,
+        locationConversion,
+        replayed: Boolean(activeRelationship) && (!locationConversion || locationReplayed),
+      }
+    },
+    { isolationLevel: 'Serializable' },
+  )
 }
 
 export type ProspectImportNormalizedRow = {

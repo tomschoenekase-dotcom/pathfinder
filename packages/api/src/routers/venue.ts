@@ -548,7 +548,26 @@ export const venueRouter = router({
       void _venueBotPublicDisplayName
       void _venueBotGreeting
 
-      let venueBotPresentation = null
+      // Classic guide copy is independent of the optional character rollout.
+      // Character drafts still use the gated publication path below.
+      let venueBotPresentation =
+        venue.venueBotConfigurationId && venue.venueBotPresentationMode === 'CLASSIC'
+          ? resolvePublicVenueBotPresentation({
+              configuration: {
+                presentationMode: 'CLASSIC',
+                tonePreset:
+                  venue.venueBotTonePreset === 'concise' ||
+                  venue.venueBotTonePreset === 'enthusiastic' ||
+                  venue.venueBotTonePreset === 'informative'
+                    ? venue.venueBotTonePreset
+                    : 'friendly',
+                characterKey: null,
+                publicDisplayName: venue.venueBotPublicDisplayName,
+                greeting: venue.venueBotGreeting,
+              },
+              rolloutEnabled: false,
+            })
+          : null
       if (isFeatureEnabled('venueCharacterMode') && isFeatureEnabled('characterRegistry')) {
         const configuredCharacterKey = venue.venueBotCharacterKey
         const enabledFlags = await ctx.db.tenantFeatureFlag.findMany({

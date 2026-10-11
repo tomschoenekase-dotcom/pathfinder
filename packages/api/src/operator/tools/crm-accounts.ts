@@ -14,8 +14,9 @@ import {
   redactAddresses,
   type SnapshotContactInput,
 } from '../crm-projection'
-import { grantCoversTenant, OperatorNotFoundError } from '../grants'
+import { OperatorNotFoundError } from '../grants'
 import type { OperatorCallContext, OperatorReadTool } from '../registry'
+import { projectCustomerLink } from './crm-customer-link'
 import { blockedAddressesAnywhere } from './crm'
 import { loadOutreach, organizationSelect, projectOrganization } from './crm-data'
 import {
@@ -214,8 +215,17 @@ const resolveAccount: OperatorReadTool = {
           customerRelationships: {
             where: { status: 'ACTIVE' },
             orderBy: { startedAt: 'desc' },
-            take: 1,
-            select: { tenantId: true, startedAt: true },
+            take: 2,
+            select: {
+              tenantId: true,
+              startedAt: true,
+              locationConversions: {
+                where: { status: 'ACTIVE' },
+                orderBy: { convertedAt: 'desc' },
+                take: 2,
+                select: { tenantId: true, venueId: true, venue: { select: { tenantId: true } } },
+              },
+            },
           },
         },
       }),
@@ -252,9 +262,6 @@ const resolveAccount: OperatorReadTool = {
       if (wantCity && !cities.some((city) => city?.toLowerCase().includes(wantCity))) return []
       if (wantRegion && !regions.some((region) => region?.toLowerCase() === wantRegion)) return []
       const found = evidence.get(row.id)!
-      const conversion = info.conversion
-      const relationship = info.customerRelationships[0]
-      const customerTenant = conversion?.tenantId ?? relationship?.tenantId ?? null
       return [
         {
           organizationId: row.id,
@@ -268,23 +275,7 @@ const resolveAccount: OperatorReadTool = {
           region: cut(row.headquartersRegion ?? row.venues[0]?.region ?? null, 120),
           stage: (row.opportunity?.stage ?? null) as never,
           contacted: record.outreach.everContacted,
-          customer:
-            conversion || relationship
-              ? {
-                  // A customer outside this connection's tenants is shown as linked, not named.
-                  tenantId:
-                    customerTenant !== null && grantCoversTenant(context.grant, customerTenant)
-                      ? customerTenant
-                      : null,
-                  venueId:
-                    conversion?.venueId &&
-                    customerTenant !== null &&
-                    grantCoversTenant(context.grant, customerTenant)
-                      ? conversion.venueId
-                      : null,
-                  convertedAt: (conversion?.convertedAt ?? relationship!.startedAt).toISOString(),
-                }
-              : null,
+          customer: projectCustomerLink(info.conversion, info.customerRelationships, context.grant),
           duplicateReview: record.outreach.duplicateReview,
           venues: row.venues.slice(0, 3).map((venue) => ({
             venueId: venue.id,
@@ -392,8 +383,17 @@ const getAccountContext: OperatorReadTool = {
         customerRelationships: {
           where: { status: 'ACTIVE' },
           orderBy: { startedAt: 'desc' },
-          take: 1,
-          select: { tenantId: true, startedAt: true },
+          take: 2,
+          select: {
+            tenantId: true,
+            startedAt: true,
+            locationConversions: {
+              where: { status: 'ACTIVE' },
+              orderBy: { convertedAt: 'desc' },
+              take: 2,
+              select: { tenantId: true, venueId: true, venue: { select: { tenantId: true } } },
+            },
+          },
         },
         venues: {
           orderBy: { id: 'asc' },
@@ -529,10 +529,6 @@ const getAccountContext: OperatorReadTool = {
       (contact) => operatorContactView(contact as SnapshotContactInput, blocked).contactable,
     ).length
     const thread = outreach.get(organizationId)!
-    const conversion = row.conversion
-    const relationship = row.customerRelationships[0]
-    const customerTenant = conversion?.tenantId ?? relationship?.tenantId ?? null
-    const covered = customerTenant !== null && grantCoversTenant(context.grant, customerTenant)
     const aliases = (Array.isArray(row.aliases) ? row.aliases : [])
       .filter((alias): alias is string => typeof alias === 'string')
       .slice(0, 25)
@@ -577,14 +573,7 @@ const getAccountContext: OperatorReadTool = {
         nextActionAt: iso(row.opportunity?.nextActionAt),
         lastActivityAt: iso(row.opportunity?.lastActivityAt),
       },
-      customer:
-        conversion || relationship
-          ? {
-              tenantId: covered ? customerTenant : null,
-              venueId: covered ? (conversion?.venueId ?? null) : null,
-              convertedAt: (conversion?.convertedAt ?? relationship!.startedAt).toISOString(),
-            }
-          : null,
+      customer: projectCustomerLink(row.conversion, row.customerRelationships, context.grant),
       venues: row.venues.slice(0, CONTEXT_VENUES).map((venue) => ({
         venueId: venue.id,
         name: cut(redactAddresses(venue.name), 200)!,

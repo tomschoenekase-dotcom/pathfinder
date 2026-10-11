@@ -224,6 +224,7 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'customers.propose_invite',
   // Creates a real organization at the identity provider, so a person decides each time.
   'customers.propose_create',
+  'customers.propose_link_existing',
   // Switches off a whole customer's public access, schedules, connections and member access.
   'offboarding.propose_execution',
   'operator.propose_revert',
@@ -412,6 +413,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'appearance.propose_guest_actions',
   'customers.propose_invite',
   'customers.propose_create',
+  'customers.propose_link_existing',
   'offboarding.propose_execution',
   'support.propose_triage',
   'operator.propose_plan',
@@ -1608,6 +1610,12 @@ export const OPERATOR_MCP_INPUTS = {
       message: 'A CRM venue link needs the CRM account too',
     },
   ),
+  'customers.propose_link_existing': writeInput({
+    ...venueScope,
+    organizationId: Identifier,
+    prospectVenueId: Identifier,
+    expectedVersion: z.number().int().positive(),
+  }),
   'customers.propose_invite': writeInput({
     ...tenantScope,
     email: Email,
@@ -3028,6 +3036,39 @@ const OperatorOutreachContext = z
   })
   .strict()
 
+const GuestLinkOutput = z
+  .object({
+    venueId: Identifier,
+    slug: z.string().max(200),
+    isActive: z.boolean(),
+    /** The public visitor chat link, or null when the deployment has no guest web origin. */
+    publicUrl: z.string().url().max(2000).nullable(),
+    /** The same link tagged for QR codes. */
+    qrUrl: z.string().url().max(2000).nullable(),
+    /** True only when the link opens this venue's live chatbot with content to answer from. */
+    usable: z.boolean(),
+    blockers: z
+      .array(
+        z
+          .object({
+            code: z.string().max(64),
+            detail: z.string().max(500),
+            nextAction: z.string().max(500),
+          })
+          .strict(),
+      )
+      .max(10),
+  })
+  .strict()
+
+const ReadinessChecks = z
+  .array(
+    z
+      .object({ key: z.string().max(80), passed: z.boolean(), detail: z.string().max(500) })
+      .strict(),
+  )
+  .max(50)
+
 export const OPERATOR_MCP_OUTPUTS = {
   'crm.search_organizations': Page(OperatorOrganization),
   'crm.get_organization': z
@@ -3296,13 +3337,10 @@ export const OPERATOR_MCP_OUTPUTS = {
     .object({
       venueId: Identifier,
       ready: z.boolean(),
-      checks: z
-        .array(
-          z
-            .object({ key: z.string().max(80), passed: z.boolean(), detail: z.string().max(500) })
-            .strict(),
-        )
-        .max(50),
+      readinessScope: z.literal('public_guide'),
+      publicGuide: GuestLinkOutput,
+      nativeRelease: z.object({ ready: z.boolean(), checks: ReadinessChecks }).strict(),
+      checks: ReadinessChecks,
     })
     .strict(),
   'venues.list_sources': VenueSourceListOutput,
@@ -3408,30 +3446,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.get_effective_guest_version': VenueEffectiveGuestVersionOutput,
   'venues.get_release_preflight': VenueReleasePreflightOutput,
   'venues.get_preview_link': VenuePreviewLinkOutput,
-  'venues.get_guest_link': z
-    .object({
-      venueId: Identifier,
-      slug: z.string().max(200),
-      isActive: z.boolean(),
-      /** The public visitor chat link, or null when the deployment has no guest web origin. */
-      publicUrl: z.string().url().max(2000).nullable(),
-      /** The same link tagged for QR codes. */
-      qrUrl: z.string().url().max(2000).nullable(),
-      /** True only when the link opens this venue's live chatbot with content to answer from. */
-      usable: z.boolean(),
-      blockers: z
-        .array(
-          z
-            .object({
-              code: z.string().max(64),
-              detail: z.string().max(500),
-              nextAction: z.string().max(500),
-            })
-            .strict(),
-        )
-        .max(10),
-    })
-    .strict(),
+  'venues.get_guest_link': GuestLinkOutput,
   'appearance.get': z
     .object({
       venueId: Identifier,
@@ -4264,6 +4279,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'appearance.propose_update': OperatorWriteResult,
   'appearance.propose_guest_actions': OperatorWriteResult,
   'customers.propose_create': OperatorWriteResult,
+  'customers.propose_link_existing': OperatorWriteResult,
   'customers.propose_invite': OperatorWriteResult,
   'offboarding.propose_execution': OperatorWriteResult,
   'support.propose_triage': OperatorWriteResult,
@@ -4471,7 +4487,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.get_readiness',
     'Get venue readiness',
-    `Read launch readiness checks for one venue.${READ}`,
+    `Read public-guide usability (ready and publicGuide) separately from nativeRelease convergence checks. A package-imported public guide can be ready while nativeRelease.ready is false.${READ}`,
     'venues:read',
     'venue',
   ],
@@ -5364,6 +5380,14 @@ const seeds: readonly Seed[] = [
     'customers:propose',
     'platform',
     'customers.create',
+  ],
+  [
+    'customers.propose_link_existing',
+    'Link existing customer',
+    `Link an existing CRM account and prospect venue to an existing customer and its venue. Requires exact IDs, the CRM expectedVersion and a connection that reaches every customer. Refuses conflicting active relationships and venues from another tenant. Creates no customer, venue, invitation or billing record.${PROPOSE}`,
+    'customers:propose',
+    'venue',
+    'customers.link-existing',
   ],
   [
     'customers.propose_invite',

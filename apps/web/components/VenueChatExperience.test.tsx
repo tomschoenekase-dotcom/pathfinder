@@ -647,6 +647,71 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
+  it.each(['error', 'incomplete-end'] as const)(
+    'removes uncommitted assistant text after %s and retries the same operation',
+    async (failure) => {
+      mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+      mocks.sessionId = 'session-1'
+      window.sessionStorage.setItem(`pathfinder_session_${activeVenue.id}`, mocks.anonymousToken)
+      mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+      mocks.client.chat.history.query.mockResolvedValueOnce({
+        messages: [
+          { role: 'user', content: 'When does the museum open?' },
+          { role: 'assistant', content: 'The museum opens at 10am.' },
+        ],
+      })
+      let handlers:
+        | {
+            onData: (event: unknown) => void
+            onError: (error: unknown) => void
+            onComplete: () => void
+          }
+        | undefined
+      const subscribe = vi.fn((_input: unknown, nextHandlers: typeof handlers) => {
+        handlers = nextHandlers
+        return { unsubscribe: vi.fn() }
+      })
+      mocks.client.chat.stream = { subscribe }
+      render(<VenueChatExperience venueSlug="museum" />)
+      await screen.findByText('Latest: The museum opens at 10am.')
+      fireEvent.click(screen.getByText('Send test message'))
+      await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
+      const firstInput = subscribe.mock.calls[0]![0]
+      act(() => handlers?.onData({ type: 'delta', delta: 'Uncommitted visitor advice' }))
+      expect(screen.getByText('Latest: Uncommitted visitor advice')).toBeTruthy()
+      act(() => {
+        if (failure === 'error') {
+          handlers?.onError(
+            Object.assign(new Error('stream failed'), { data: { code: 'INTERNAL_SERVER_ERROR' } }),
+          )
+        } else handlers?.onComplete()
+      })
+      await screen.findByText(/outcome of this message is not confirmed/u)
+      expect(screen.queryByText('Latest: Uncommitted visitor advice')).toBeNull()
+      expect(screen.getByText('Messages: 3')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Retry same message' }))
+      await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(2))
+      expect(subscribe.mock.calls[1]![0]).toEqual(firstInput)
+      act(() => {
+        handlers?.onData({
+          type: 'complete',
+          result: {
+            response: 'Confirmed visitor advice.',
+            assistantMessageId: 'assistant-replay',
+            sessionId: 'session-1',
+            places: [],
+            citations: [],
+            replayed: true,
+          },
+        })
+        handlers?.onComplete()
+      })
+      await screen.findByText('Latest: Confirmed visitor advice.')
+      expect(screen.getByText('Messages: 4')).toBeTruthy()
+      expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
+    },
+  )
+
   it('uses server-composed action blocks from a completed turn', async () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174097'
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)

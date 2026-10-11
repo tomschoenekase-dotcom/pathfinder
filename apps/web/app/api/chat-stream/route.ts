@@ -63,8 +63,10 @@ export async function POST(request: Request): Promise<Response> {
   const context = await createTRPCContext({ req: request })
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let hadTextDelta = false
       try {
         for await (const event of streamChatTurn(context, parsed.data)) {
+          if (event.type === 'delta' && event.delta.length > 0) hadTextDelta = true
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
         }
       } catch (cause) {
@@ -77,6 +79,8 @@ export async function POST(request: Request): Promise<Response> {
             error: 'guest-chat-stream-failed',
             errorCode: error.code,
             publicCode: publicCode ?? null,
+            operationId: parsed.data.operationId ?? null,
+            hadTextDelta,
           })
         }
         controller.enqueue(

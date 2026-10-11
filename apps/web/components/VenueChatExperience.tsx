@@ -699,6 +699,14 @@ export function VenueChatExperience({
     } catch (error) {
       if (stoppedOperationsRef.current.has(turn.operationId)) return
       if (!turnIsCurrent(turn)) return
+      // Streamed text is provisional until the server commits a complete turn.
+      // Keep the question and operation identity for recovery, not the failed draft.
+      setMessages((current) =>
+        current.filter(
+          (message) =>
+            !(message.role === 'assistant' && message.pendingOperationId === turn.operationId),
+        ),
+      )
       const code = trpcErrorCode(error)
       const publicCode = publicGuestErrorCode(error)
       if (

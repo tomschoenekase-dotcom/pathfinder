@@ -3,7 +3,13 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { OPERATOR_MCP_OUTPUTS, OperatorCapability } from '@pathfinder/contracts/operator-mcp'
-import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  createProspectAction,
+  createVenueAction,
+  db,
+  linkProspectConversionAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { resolveOperatorConfig } from '../config'
 import { OperatorNotFoundError } from '../grants'
@@ -134,6 +140,35 @@ describe.skipIf(!enabled)(
       const result = await dossier(tenantA)
       expect(result.support).toEqual({ open: 0, waitingForCustomer: 1 })
       expect(result.gaps).toContain('1 support request(s) wait on the customer.')
+    })
+
+    it('reads canonical customer and location links without a legacy conversion row', async () => {
+      const actor = { type: 'HUMAN', id: 'user_owner', role: 'PLATFORM_ADMIN' } as const
+      const linked = await withTenantIsolationBypass(async () => {
+        const prospect = await createProspectAction({
+          organization: { canonicalName: `Example Prospect ${suffix}`, source: 'onboarding-test' },
+          venue: { name: `Example Location ${suffix}` },
+          actor,
+        })
+        await linkProspectConversionAction({
+          organizationId: prospect.organization.id,
+          prospectVenueId: prospect.venue!.id,
+          tenantId: tenantA,
+          venueId,
+          actor,
+        })
+        expect(await db.prospectConversion.count({ where: { tenantId: tenantA } })).toBe(0)
+        return prospect
+      })
+      const result = await dossier(tenantA)
+      expect(result.prospectConversion).toMatchObject({
+        organizationId: linked.organization.id,
+        prospectVenueId: linked.venue!.id,
+        venueId,
+      })
+      expect(result.gaps).not.toContain('This account is not linked to a CRM account.')
+      const unrelated = await dossier(tenantB, [tenantB])
+      expect(unrelated.prospectConversion).toBeNull()
     })
 
     it('never reveals a tenant outside the grant', async () => {

@@ -2,6 +2,7 @@ import type { AnyOperatorProposalKind } from '../proposals'
 import { appearanceUpdateKind } from './appearance'
 import { appearanceGuestActionsKind } from './appearance-guest-actions'
 import { CUSTOMER_KINDS } from './customers'
+import { customersLinkExistingKind } from './customers-link-existing'
 import { OPERATIONAL_UPDATE_KINDS } from './operational-updates'
 import { CRM_CAMPAIGN_KINDS } from './crm-campaigns'
 import { CRM_MAINTENANCE_KINDS } from './crm-maintenance'
@@ -51,6 +52,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   ...CRM_CAMPAIGN_KINDS,
   ...SUPPORT_KINDS,
   ...CUSTOMER_KINDS,
+  customersLinkExistingKind,
   ...OFFBOARDING_KINDS,
   ...OPERATIONAL_UPDATE_KINDS,
   ...REPORT_KINDS,

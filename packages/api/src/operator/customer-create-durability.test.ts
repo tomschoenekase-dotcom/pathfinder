@@ -143,6 +143,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
   }
 })
 
+import { linkProspectConversionAction } from '@pathfinder/db'
 import { setCustomerProviderForTests } from './kinds/customers'
 import { resolveOperatorConfig } from './config'
 import { errorBody, errorCode } from './http'
@@ -643,6 +644,31 @@ describe('customers.propose_create durable operation contract', () => {
       venueCreated: false,
       invited: false,
     })
+  })
+
+  it('does not report a customer APPLIED while its requested CRM relationship is missing', async () => {
+    const database: any = fakeDatabase()
+    database.prospectOrganization.findFirst = async () => ({ id: 'prospect-a' })
+    database.prospectCustomerRelationship = { findFirst: async () => null }
+    const operationId = randomUUID()
+    vi.mocked(linkProspectConversionAction).mockRejectedValueOnce(new Error('CRM unavailable'))
+    await approve(
+      database,
+      await propose(database, createArgs(operationId, { prospectOrganizationId: 'prospect-a' })),
+    )
+    const settled = await recover(database, operationId)
+    expect(settled).toMatchObject({
+      status: 'FAILED',
+      effect: 'partial',
+      failureCode: 'PARTIALLY_APPLIED',
+      result: { crmLinked: false },
+    })
+    expect(world.calls.createOrganization).toBe(1)
+    expect(world.intents.get(operationId)?.status).not.toBe('COMPLETED')
+    expect(vi.mocked(linkProspectConversionAction)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ organizationId: 'prospect-a' }),
+      database,
+    )
   })
 
   it('everything landed but completion was not recorded: reconcile moves it to APPLIED with no second identity', async () => {

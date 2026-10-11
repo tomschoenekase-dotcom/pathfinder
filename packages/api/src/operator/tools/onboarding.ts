@@ -27,7 +27,8 @@ const customersGetOnboarding: OperatorReadTool = {
     if (!tenant) throw new OperatorNotFoundError()
 
     const [
-      conversion,
+      legacyConversion,
+      relationships,
       activeMembers,
       allMembers,
       venues,
@@ -43,6 +44,21 @@ const customersGetOnboarding: OperatorReadTool = {
       database.prospectConversion.findFirst({
         where: { tenantId },
         select: { organizationId: true, prospectVenueId: true, venueId: true, convertedAt: true },
+      }),
+      database.prospectCustomerRelationship.findMany({
+        where: { tenantId, status: 'ACTIVE' },
+        orderBy: [{ startedAt: 'desc' }, { id: 'asc' }],
+        take: 2,
+        select: {
+          organizationId: true,
+          startedAt: true,
+          locationConversions: {
+            where: { tenantId, status: 'ACTIVE', venue: { tenantId } },
+            orderBy: [{ convertedAt: 'desc' }, { id: 'asc' }],
+            take: 2,
+            select: { prospectVenueId: true, venueId: true, convertedAt: true },
+          },
+        },
       }),
       database.tenantMembership.count({ where: { tenantId, status: 'ACTIVE' } }),
       database.tenantMembership.count({ where: { tenantId } }),
@@ -77,6 +93,24 @@ const customersGetOnboarding: OperatorReadTool = {
       database.supportRequest.count({ where: { tenantId, status: 'WAITING_FOR_CLIENT' } }),
     ])
 
+    // Canonical relationships supersede the old single conversion table. Never select an
+    // arbitrary account or location when multiple active links exist.
+    const relationship = relationships.length === 1 ? relationships[0] : undefined
+    const location =
+      relationship?.locationConversions.length === 1
+        ? relationship.locationConversions[0]
+        : undefined
+    const conversion = relationship
+      ? {
+          organizationId: relationship.organizationId,
+          prospectVenueId: location?.prospectVenueId ?? null,
+          venueId: location?.venueId ?? null,
+          convertedAt: location?.convertedAt ?? relationship.startedAt,
+        }
+      : relationships.length === 0
+        ? legacyConversion
+        : null
+
     const packageCount = (status: string) =>
       packageGroups.find((group) => group.status === status)?._count._all ?? 0
     const packages = {
@@ -102,7 +136,8 @@ const customersGetOnboarding: OperatorReadTool = {
     if (routedUnanswered > 0)
       gaps.push(`${routedUnanswered} question(s) sent to the customer are unanswered.`)
     if (supportWaiting > 0) gaps.push(`${supportWaiting} support request(s) wait on the customer.`)
-    if (!conversion) gaps.push('This account is not linked to a CRM account.')
+    if (relationships.length > 1) gaps.push('Multiple active CRM account links require review.')
+    else if (!conversion) gaps.push('This account is not linked to a CRM account.')
 
     return {
       tenantId: tenant.id,

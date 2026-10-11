@@ -91,6 +91,7 @@ export default async function VisitorChatVisualFixture({
     look?: string | string[]
     appearance?: string | string[]
     venueName?: string | string[]
+    greeting?: string | string[]
     textSize?: string | string[]
     contrast?: string | string[]
     placeAction?: string | string[]
@@ -196,6 +197,9 @@ export default async function VisitorChatVisualFixture({
           ? { backgroundUrl: '/dev-fixtures/visitor-backdrop-space.svg' }
           : {})}
         {...(venueName ? { venueName } : {})}
+        {...(first(params.greeting) !== undefined
+          ? { greeting: first(params.greeting)!.slice(0, 500) }
+          : {})}
         preferences={{
           textSize: oneOf(params.textSize, ['standard', 'large', 'larger'] as const, 'standard'),
           language: 'auto',

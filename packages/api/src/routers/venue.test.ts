@@ -572,6 +572,66 @@ describe('venue router', () => {
     },
   )
 
+  it('serves classic greeting with character flags off without exposing configuration internals', async () => {
+    vi.mocked(isFeatureEnabled).mockReturnValue(false)
+    dbQueryRaw.mockResolvedValueOnce([
+      {
+        ...venueRow,
+        isActive: true,
+        tenantId: 'tenant_1',
+        venueBotConfigurationId: 'private-config',
+        venueBotPresentationMode: 'CLASSIC',
+        venueBotTonePreset: 'friendly',
+        venueBotCharacterKey: null,
+        venueBotPublicDisplayName: 'Garden guide',
+        venueBotGreeting: 'Welcome to the river garden.',
+      },
+    ])
+    const result = await testRouter
+      .createCaller({
+        ...baseCtx,
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      })
+      .venue.getBySlug({ slug: 'river-garden' })
+    expect(result).toMatchObject({
+      venueBotPresentation: {
+        mode: 'CLASSIC',
+        displayName: 'Garden guide',
+        greeting: 'Welcome to the river garden.',
+        personalityPreset: 'friendly',
+        character: null,
+      },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/private-config|tenant_1/)
+    expect(result).not.toHaveProperty('venueBotGreeting')
+    expect(tenantFeatureFlagFindMany).not.toHaveBeenCalled()
+  })
+
+  it('does not expose a character draft greeting while character flags are off', async () => {
+    vi.mocked(isFeatureEnabled).mockReturnValue(false)
+    dbQueryRaw.mockResolvedValueOnce([
+      {
+        ...venueRow,
+        isActive: true,
+        tenantId: 'tenant_1',
+        venueBotConfigurationId: 'private-config',
+        venueBotPresentationMode: 'CHARACTER',
+        venueBotTonePreset: 'friendly',
+        venueBotCharacterKey: 'tochi',
+        venueBotPublicDisplayName: 'Draft name',
+        venueBotGreeting: 'Unpublished greeting',
+      },
+    ])
+    const result = await testRouter
+      .createCaller({
+        ...baseCtx,
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      })
+      .venue.getBySlug({ slug: 'river-garden' })
+    expect(JSON.stringify(result)).not.toMatch(/Unpublished|Draft name|private-config|tenant_1/)
+    expect(result).not.toHaveProperty('venueBotPresentation')
+  })
+
   it('venue.getBySlug throws NOT_FOUND when slug is missing', async () => {
     dbQueryRaw.mockResolvedValueOnce([])
 

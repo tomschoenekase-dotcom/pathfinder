@@ -438,6 +438,7 @@ export function VenueChatFixture({
   backgroundUrl,
   logoUrl,
   venueName,
+  greeting,
   preferences = DEFAULT_VISITOR_PREFERENCES,
 }: {
   mode: VisitorFixtureMode
@@ -464,6 +465,7 @@ export function VenueChatFixture({
   /** Same-origin reviewed logo, or a local draft image in the portal's preview. */
   logoUrl?: string
   venueName?: string
+  greeting?: string
   preferences?: VisitorPreferences
 }) {
   const [fixturePreferences, setFixturePreferences] = useState(preferences)
@@ -506,6 +508,14 @@ export function VenueChatFixture({
             ...(logoUrl ? { chatLogoUrl: logoUrl } : {}),
             ...(appearance ? { chatAppearance: appearance } : {}),
             ...(venueName ? { name: venueName } : {}),
+            ...(greeting !== undefined
+              ? {
+                  venueBotPresentation: {
+                    ...fixtureVenue(mode, asset, guideMode).venueBotPresentation!,
+                    greeting,
+                  },
+                }
+              : {}),
           }}
           preferences={fixturePreferences}
           onPreferencesChange={(change) =>

@@ -27,6 +27,8 @@ export function operatorApprovalMode(
 export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'customers.invite',
   'customers.create',
+  // Canonical CRM relationships also establish tenant ownership of correspondence.
+  'customers.link-existing',
   // Switches off a whole customer's access and schedules; a person decides each time.
   'offboarding.execution',
   'operator.revert',

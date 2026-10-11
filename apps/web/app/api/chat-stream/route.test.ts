@@ -140,8 +140,49 @@ describe('private-body chat streaming route', () => {
       error: 'guest-chat-stream-failed',
       errorCode: 'INTERNAL_SERVER_ERROR',
       publicCode: 'OUTCOME_AMBIGUOUS',
+      operationId: null,
+      hadTextDelta: false,
     })
     expect(JSON.stringify(mocks.logError.mock.calls)).not.toContain('private provider details')
     expect(JSON.stringify(mocks.logError.mock.calls)).not.toContain(input.message)
+  })
+
+  it('correlates a failure after text without logging content or claiming completion', async () => {
+    const operationId = 'ed39d30b-3799-4d2f-a0f4-a866566e590e'
+    mocks.safeParse.mockReturnValue({ success: true, data: { ...input, operationId } })
+    mocks.stream.mockImplementation(async function* () {
+      yield { type: 'delta', delta: 'Provisional private answer' }
+      throw new Error('private database details')
+    })
+    const response = await POST(
+      new Request('https://guide.example/api/chat-stream', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, operationId }),
+      }),
+    )
+    const events = (await response.text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    expect(events.map((event) => event.type)).toEqual(['delta', 'error'])
+    expect(events[1]).toEqual({ type: 'error', code: 'INTERNAL_SERVER_ERROR' })
+    expect(mocks.logError).toHaveBeenCalledExactlyOnceWith({
+      action: 'guest_chat.stream_failed',
+      error: 'guest-chat-stream-failed',
+      errorCode: 'INTERNAL_SERVER_ERROR',
+      publicCode: null,
+      operationId,
+      hadTextDelta: true,
+    })
+    const log = JSON.stringify(mocks.logError.mock.calls)
+    for (const privateValue of [
+      input.message,
+      input.anonymousToken,
+      input.venueId,
+      'Provisional private answer',
+      'private database details',
+    ])
+      expect(log).not.toContain(privateValue)
   })
 })

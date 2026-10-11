@@ -326,6 +326,11 @@ export function VenueChatShell(props: {
       ? { ...venue.venueBotPresentation, character: publicCharacter }
       : null
   const characterExpanded = messages.length === 0
+  // Character mode already renders its greeting in the stage. Classic guides
+  // use the same approved public copy in the welcome area.
+  const welcomeCopy = !characterPresentation
+    ? venue.venueBotPresentation?.greeting?.trim() || venue.description
+    : venue.description
 
   return (
     <>
@@ -550,10 +555,10 @@ export function VenueChatShell(props: {
                     </h2>
                     <p
                       className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]"
-                      lang={venue.description ? '' : languagePresentation.code}
-                      dir={venue.description ? 'auto' : languagePresentation.direction}
+                      lang={welcomeCopy ? '' : languagePresentation.code}
+                      dir={welcomeCopy ? 'auto' : languagePresentation.direction}
                     >
-                      {venue.description ??
+                      {welcomeCopy ??
                         LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
                         LANGUAGE_FALLBACK_DESCRIPTIONS.English}
                     </p>
