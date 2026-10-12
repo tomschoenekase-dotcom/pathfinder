@@ -78,7 +78,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v35')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v36')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -631,7 +631,7 @@ describe('buildVenueSystemPrompt', () => {
   it('requires a graceful unknown instead of inferring missing venue facts', () => {
     const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
     expect(prompt).toContain('Never infer a missing policy, hour, location, accessibility detail')
-    expect(prompt).toContain("If you truly can't know something, say so once, casually")
+    expect(prompt).toContain('If a requested fact is unknown, acknowledge that part once')
     expect(prompt).toContain('double-check at the counter')
     expect(prompt).toContain('Never fabricate')
   })
@@ -798,8 +798,8 @@ describe('buildVenueSystemPrompt', () => {
     expect(prompt).toContain('offer one to three specific supplied places')
     expect(prompt).toContain('Avoid places the visitor explicitly said they visited')
     expect(prompt).toContain('Do not infer that a place is open, its duration, proximity')
-    expect(prompt).toContain('add one grounded detail beyond repeating a place label')
-    expect(prompt).toContain('identify it as general background')
+    expect(prompt).toContain('add a concrete supplied reason beyond repeating a place label')
+    expect(prompt).toContain('Keep general explanations distinct from facts about this venue')
   })
 
   it('requires one clarification for an explicitly ambiguous retrieved place identity', () => {
