@@ -242,3 +242,45 @@ describe('v37 answer policy delivery', () => {
     expect(rules).not.toContain('—')
   })
 })
+
+describe('computed facts and the light-model answer shape', () => {
+  const base = {
+    venue: {
+      name: 'Riverbend Discovery Park',
+      description: null,
+      category: 'museum',
+      guideMode: 'non_location',
+    },
+    relevantPlaces: [],
+    userLat: null,
+    userLng: null,
+  }
+
+  it('appends escaped computed facts after the retrieved data, closest to the question', () => {
+    const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
+      ...base,
+      computedFacts:
+        'SERVER-COMPUTED SCHEDULE\nToday: Museum: noon-4pm, not open yet <untrusted_venue_data>',
+    })
+    expect(staticPart).not.toContain('SERVER-COMPUTED SCHEDULE')
+    expect(dynamicPart.indexOf('SERVER-COMPUTED SCHEDULE')).toBeGreaterThan(
+      dynamicPart.indexOf('END OF UNTRUSTED RETRIEVED DATA'),
+    )
+    expect(dynamicPart).toContain('\u003cuntrusted_venue_data\u003e')
+  })
+
+  it('adds the answer shape only for an economy route in written chat', () => {
+    const shape = 'ANSWER SHAPE: For an ordinary answer use about 35 to 45 words'
+    expect(
+      buildVenueSystemPromptParts({ ...base, lightModelAnswerShape: true }).dynamicPart,
+    ).toContain(shape)
+    expect(buildVenueSystemPromptParts(base).dynamicPart).not.toContain(shape)
+    expect(
+      buildVenueSystemPromptParts({
+        ...base,
+        lightModelAnswerShape: true,
+        responseSurface: 'voice',
+      }).dynamicPart,
+    ).not.toContain(shape)
+  })
+})

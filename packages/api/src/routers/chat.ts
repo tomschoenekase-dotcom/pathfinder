@@ -75,6 +75,7 @@ import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-qu
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
+import { buildGuestComputedFacts } from '../lib/guest-computed-facts'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -1791,6 +1792,8 @@ const chatReadRouter = router({
     }
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     let updatedGuideRecordCount = 0
+    // Set once the route is known: an economy-tier primary model gets the explicit answer shape.
+    let lightModelAnswerShape = false
     const prepareVenuePrompt = () => {
       // Retrieval is live while the guide's directory may be up to a minute old.
       // A released entry place compared with a fallback legacy guide would differ every turn.
@@ -1825,6 +1828,21 @@ const chatReadRouter = router({
                 activeUpdates,
               })
             : null,
+        // Same guards as the opening cue: a complete, current guide and no live alert that
+        // could override the schedule or a ride's status.
+        computedFacts:
+          guideLoadStatus === 'READY' &&
+          !guestDirectory.incomplete &&
+          updatedGuideRecordIds.size === 0 &&
+          activeUpdates.length === 0
+            ? buildGuestComputedFacts({
+                question: trimmedInput,
+                directory: guestDirectory,
+                now: operationalNow,
+                timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
+              }) || null
+            : null,
+        lightModelAnswerShape,
         venueGuideRecordIds: updatedGuideRecordIds.size
           ? new Set([...venueGuide.recordIds].filter((id) => !updatedGuideRecordIds.has(id)))
           : venueGuide.recordIds,
@@ -1935,6 +1953,10 @@ const chatReadRouter = router({
         unhealthyProviders,
       })
       generationRouteConfigurationVersion = route.configurationVersion
+      if (route.candidates[0]?.costTier === 'ECONOMY') {
+        lightModelAnswerShape = true
+        ;({ staticPart, dynamicPart } = preparePrompt())
+      }
       const configurationSnapshot = JSON.stringify(configuration)
       // Recheck on every admission, including after reservation and on retries.
       // The existing route and cumulative budget belong to this exact configuration.

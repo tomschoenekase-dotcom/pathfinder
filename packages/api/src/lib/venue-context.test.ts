@@ -78,7 +78,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v37')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v38')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -95,6 +95,18 @@ describe('guest chat prompt provenance', () => {
           userLng: null,
         }),
       })),
+      {
+        id: 'computed-facts-and-light-model-answer-shape',
+        prompt: buildVenueSystemPrompt({
+          venue: { ...venue, guideMode: 'non_location' },
+          relevantPlaces: [],
+          computedFacts:
+            'SERVER-COMPUTED SCHEDULE\nToday: Museum: noon-4pm, not open yet; opens at noon',
+          lightModelAnswerShape: true,
+          userLat: null,
+          userLng: null,
+        }),
+      },
       {
         id: 'recommendation-knowledge-only-guide',
         prompt: buildVenueSystemPrompt({
