@@ -203,6 +203,12 @@ describe('v37 answer policy delivery', () => {
     expect(staticPart).toContain('lead with two or three named attractions or activities')
     expect(staticPart).toContain('include a gentle or all-ages choice')
     expect(staticPart).toContain('Give these before any follow-up question')
+    expect(staticPart).toContain(
+      'name at least one specific gentle ride with its height or companion rule',
+    )
+    expect(staticPart).toContain(
+      'if which rides run that day is not stated, say so instead of promising one',
+    )
     expect(staticPart).toContain('leave out rules, fees and policies the visitor did not ask about')
     expect(staticPart).toContain(
       'If a total is unknown, say so in a few words and give supported examples',
