@@ -400,13 +400,114 @@ function normalizedWithOriginalOffsets(value: string) {
   return { text, offsets }
 }
 
+const CALENDAR_MONTHS = [
+  ['january', 'jan(?:uary)?'],
+  ['february', 'feb(?:ruary)?'],
+  ['march', 'mar(?:ch)?'],
+  ['april', 'apr(?:il)?'],
+  ['may', 'may'],
+  ['june', 'june?'],
+  ['july', 'july?'],
+  ['august', 'aug(?:ust)?'],
+  ['september', 'sep(?:t(?:ember)?)?'],
+  ['october', 'oct(?:ober)?'],
+  ['november', 'nov(?:ember)?'],
+  ['december', 'dec(?:ember)?'],
+] as const
+const MAX_REQUESTED_CALENDAR_DAYS = 14
+const DAY_TERM = '(\\d{1,2})(?:st|nd|rd|th)?(?!\\d)'
+const REQUESTED_DAYS = new RegExp(
+  `\\b(${CALENDAR_MONTHS.map(([, pattern]) => pattern).join('|')})\\.?\\s+${DAY_TERM}((?:\\s*(?:,|and|&|-|–|to|through|thru)\\s*${DAY_TERM})*)`,
+  'gu',
+)
+
+function calendarMonth(term: string) {
+  return (
+    CALENDAR_MONTHS.find(([, pattern]) => new RegExp(`^(?:${pattern})$`, 'u').test(term))?.[0] ??
+    null
+  )
+}
+
+/**
+ * Calendar days the visitor named ("October 11 and 12", "Oct 11-13"), plus "today" or
+ * "tomorrow" from the venue's own date, as "<month> <day>" anchors.
+ */
+export function guestRequestedCalendarDays(query: string, currentDate?: string): string[] {
+  const normalized = normalize(query)
+  const days: string[] = []
+  const add = (month: string, day: number) => {
+    const anchor = `${month} ${day}`
+    if (day >= 1 && day <= 31 && !days.includes(anchor)) days.push(anchor)
+  }
+  for (const match of normalized.matchAll(REQUESTED_DAYS)) {
+    const month = calendarMonth(match[1]!)
+    if (!month) continue
+    let previous = Number(match[2])
+    add(month, previous)
+    for (const part of (match[3] ?? '').matchAll(/(,|and|&|-|–|to|through|thru)\s*(\d{1,2})/gu)) {
+      const day = Number(part[2])
+      const range = !/^(,|and|&)$/u.test(part[1]!)
+      for (let next = range ? previous + 1 : day; next <= day; next += 1) {
+        if (days.length >= MAX_REQUESTED_CALENDAR_DAYS) break
+        add(month, next)
+      }
+      previous = day
+    }
+  }
+  const today = currentDate?.match(/^(\d{4})-(\d{2})-(\d{2})$/u)
+  if (today) {
+    const date = new Date(Date.UTC(Number(today[1]), Number(today[2]) - 1, Number(today[3])))
+    const dayAnchor = (value: Date) =>
+      add(CALENDAR_MONTHS[value.getUTCMonth()]![0], value.getUTCDate())
+    if (/\b(today|tonight)\b/u.test(normalized)) dayAnchor(date)
+    if (/\btomorrow\b/u.test(normalized)) dayAnchor(new Date(date.getTime() + 24 * 60 * 60 * 1000))
+  }
+  return days.slice(0, MAX_REQUESTED_CALENDAR_DAYS)
+}
+
+/**
+ * Keeps a long dated record's lines for the requested days, so a calendar is not cut off
+ * before the dates the visitor asked about. Returns null when no line names those days or
+ * the selected lines still exceed the budget.
+ */
+function calendarDayExcerpt(content: string, days: string[], maxChars: number): string | null {
+  const patterns = days.map((anchor) => {
+    const [month, day] = anchor.split(' ') as [string, string]
+    const monthPattern = CALENDAR_MONTHS.find(([full]) => full === month)![1]
+    return new RegExp(`\\b(?:${monthPattern})\\.?\\s+${day}(?!\\d)`, 'u')
+  })
+  const lines = content.split('\n')
+  const matched = lines
+    .map((line, index) => ({ line, index }))
+    .filter(
+      ({ line, index }) => index > 0 && patterns.some((pattern) => pattern.test(normalize(line))),
+    )
+  if (matched.length === 0) return null
+  const marker = '...[source excerpt]...'
+  const parts = [lines[0]!]
+  let previous = 0
+  for (const { line, index } of matched) {
+    if (index > previous + 1) parts.push(marker)
+    parts.push(line)
+    previous = index
+  }
+  if (previous < lines.length - 1) parts.push(marker)
+  const excerpt = parts.join('\n')
+  return excerpt.length <= maxChars ? excerpt : null
+}
+
 function boundedRelevantContent(
   content: string,
   concepts: string[][],
   maxChars = MAX_RESULT_CONTENT_CHARS,
+  calendarDays: string[] = [],
 ): string {
   const MAX_RESULT_CONTENT_CHARS = maxChars
   if (content.length <= MAX_RESULT_CONTENT_CHARS) return content
+  const calendarExcerpt = calendarDays.length
+    ? calendarDayExcerpt(content, calendarDays, MAX_RESULT_CONTENT_CHARS)
+    : null
+  if (calendarExcerpt) return calendarExcerpt
   const normalizedContent = normalizedWithOriginalOffsets(content)
   const matches = concepts
     .flat()
@@ -590,6 +691,8 @@ export async function retrieveGuestKnowledge(params: {
   }) => Promise<SemanticKnowledgeEntry[]>
   now?: () => number
   asOf?: Date
+  /** The venue's local date (YYYY-MM-DD), so "today" selects the right lines of a long calendar. */
+  currentDate?: string
 }): Promise<{ entries: SemanticKnowledgeEntry[]; trace: GuestKnowledgeRetrievalTrace }> {
   const reader = params.reader as GuestKnowledgeReader
   const started = (params.now ?? performance.now.bind(performance))()
@@ -805,9 +908,10 @@ export async function retrieveGuestKnowledge(params: {
       Math.floor(TOTAL_RESULT_CONTENT_CHARS / Math.max(1, selected.length)),
     ),
   )
+  const calendarDays = guestRequestedCalendarDays(params.query, params.currentDate)
   const entries = selected.map((entry) => ({
     ...entry,
-    content: boundedRelevantContent(entry.content, concepts, perEntryChars),
+    content: boundedRelevantContent(entry.content, concepts, perEntryChars, calendarDays),
   }))
   const lexicalVersions = new Map(
     [...lexical.map(({ row }) => row), ...semanticRows].map((row) => [

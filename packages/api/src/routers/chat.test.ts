@@ -1213,6 +1213,41 @@ describe('chat router', () => {
       expect(getConcatenatedSystemPrompt()).not.toContain('RECOMMENDATION SCOPE:')
     })
 
+    it.each([
+      { fail: false, knowledgeOnly: true },
+      { fail: true, knowledgeOnly: false },
+    ])(
+      'lets a fully loaded guide with no places recommend Knowledge activities (directory fails: $fail)',
+      async ({ fail, knowledgeOnly }) => {
+        setupHappyPath('Try the Lantern Carousel.')
+        coverageReadControls.fail = fail
+        placeFindMany.mockReset()
+        placeFindMany.mockResolvedValue([])
+        semanticSearch.places.mockResolvedValueOnce([])
+        venueKnowledgeEntryFindMany.mockResolvedValue([
+          {
+            id: 'knowledge-carousel',
+            title: 'Lantern Carousel',
+            category: 'Rides',
+            content: 'A gentle carousel for all ages.',
+            sourceType: 'FOUNDER_PROVIDED',
+            sourceName: 'Reviewed guide',
+            sourceUrl: null,
+            updatedAt: new Date('2026-08-01T00:00:00Z'),
+            lastReviewedAt: new Date('2026-08-01T00:00:00Z'),
+          },
+        ])
+
+        const result = await caller.chat.send({ ...sendInput, message: 'What should I do?' })
+
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).toContain('RECOMMENDATION SCOPE:')
+        expect(prompt.includes('This guide has no mapped place entries')).toBe(knowledgeOnly)
+        expect(prompt.includes('no new grounded option is available')).toBe(!knowledgeOnly)
+        expect(result.places).toEqual([])
+      },
+    )
+
     it('uses explicit interests in recommendation retrieval without changing the visitor message', async () => {
       setupHappyPath('Try the train exhibit.')
       const message = 'What should I see next?'

@@ -78,7 +78,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v36')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v37')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -95,6 +95,20 @@ describe('guest chat prompt provenance', () => {
           userLng: null,
         }),
       })),
+      {
+        id: 'recommendation-knowledge-only-guide',
+        prompt: buildVenueSystemPrompt({
+          venue: { ...venue, guideMode: 'non_location' },
+          relevantPlaces: [],
+          knowledgeEntries: [
+            { title: 'Lantern Carousel', category: 'Rides', content: 'A gentle carousel.' },
+          ],
+          recommendationOnly: true,
+          knowledgeOnlyGuide: true,
+          userLat: null,
+          userLng: null,
+        }),
+      },
 
       {
         id: 'bounded-explicit-visit-preferences',

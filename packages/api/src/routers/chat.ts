@@ -1357,6 +1357,7 @@ const chatReadRouter = router({
           tenantId: venue.tenantId,
           includeSecondLayer,
           asOf: operationalNow,
+          currentDate,
           semanticSearch: () =>
             searchKnowledgeByEmbedding({
               queryEmbedding,
@@ -1386,6 +1387,7 @@ const chatReadRouter = router({
         tenantId: venue.tenantId,
         includeSecondLayer,
         asOf: operationalNow,
+        currentDate,
       })
       relevantKnowledgeEntries = knowledge.entries
       retrievalTrace = knowledge.trace
@@ -1837,6 +1839,12 @@ const chatReadRouter = router({
         ...(input.visitContext ? { visitContext: input.visitContext } : {}),
         authorizedVisitPlaces: recommendationSelection.authorizedVisitPlaces,
         recommendationOnly: recommendationSelection.recommendationOnly,
+        // Only a completely loaded guide can establish that the venue has no Place records.
+        knowledgeOnlyGuide:
+          guideLoadStatus === 'READY' &&
+          !guestDirectory.incomplete &&
+          guestDirectory.places.length === 0 &&
+          guestDirectory.knowledge.length > 0,
         placeIdentityAmbiguity: placeIdentity.ambiguity,
         placeIdentityDiscoveryIncomplete,
         adjacentPlaceIdentityRequestedName: acceptedAdjacentIdentityName,
