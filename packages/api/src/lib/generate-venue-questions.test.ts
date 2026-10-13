@@ -49,6 +49,21 @@ function expectedFor(question: string, source = input) {
 }
 
 describe('venue question generator', () => {
+  it('does not remove an operating coaster because a queue is planned', () => {
+    expect(
+      expectedFor('How many coasters are here?', {
+        slug: 'emberwild',
+        knowledge: [
+          {
+            title: 'Comet',
+            category: 'Rides',
+            content:
+              'Comet is a steel roller coaster. It is open now. A new queue is planned for next season.\nMade by: Ember Works',
+          },
+        ],
+      }),
+    ).toContain('1 documented')
+  })
   it('keeps a current coaster when its narrative documents a former name', () => {
     expect(
       expectedFor('How many coasters are here?', {

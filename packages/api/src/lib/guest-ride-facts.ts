@@ -79,6 +79,19 @@ function firstSentence(text: string): string {
   return sentence.length > 160 ? `${sentence.slice(0, 157)}...` : sentence
 }
 
+/** Lifecycle wording describes the ride, rather than plans for its queue or surroundings. */
+export function hasUnavailableRideStatus(content: string): boolean {
+  const lead = content.split(/\r?\n|(?<=[.!?])\s/)[0] ?? ''
+  if (/\b(future|coming|planned|former|retired)\b/i.test(lead)) return true
+  const lifecycle =
+    /\b(not open yet|not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed|(?:future|planned|former|retired) (?:\w+ )*(?:coaster|ride))\b/i
+  return content.split(/\r?\n/).some((line) => {
+    if (/^\s*status:/i.test(line))
+      return /\b(future|coming|planned|former|retired|closed)\b/i.test(line) || lifecycle.test(line)
+    return !/^\s*[\w ]+:/.test(line) && lifecycle.test(line)
+  })
+}
+
 /** Each record's labelled fact lines, keyed by the record title. */
 export function collectRideFacts(directory: DirectoryLike): RideFact[] {
   const facts: RideFact[] = []
@@ -108,12 +121,7 @@ export function collectRideFacts(directory: DirectoryLike): RideFact[] {
     const isCoaster =
       /\bis an? [^.]*\bcoaster\b/i.test(kind) &&
       !/not an? (roller )?coaster/i.test(kind) &&
-      !/\b(future|coming|not open yet|not (?:yet )?open|has not opened|will open|scheduled to open|planned|former (?:\w+ )*(?:coaster|ride)|retired|permanently closed)\b/i.test(
-        record.content
-          .split(/\r?\n/)
-          .filter((line) => !/^\s*[\w ]+:/.test(line) || /^\s*status:/i.test(line))
-          .join(' '),
-      )
+      !hasUnavailableRideStatus(record.content)
     const aliases = record.content.split(/\r?\n/).flatMap((line) => {
       const match = /^\s*(?:also called|aliases?)\s*:\s*(.+)$/i.exec(line)
       return match

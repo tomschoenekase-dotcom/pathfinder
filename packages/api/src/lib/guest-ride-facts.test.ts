@@ -65,6 +65,23 @@ describe('guest ride facts', () => {
       })[0]!.isCoaster,
     ).toBe(true)
   })
+  it('does not mistake queue plans or future expansion for ride closure', () => {
+    for (const plan of [
+      'A new queue is planned for next season.',
+      'A future expansion will add a queue.',
+    ]) {
+      expect(
+        collectRideFacts({
+          knowledge: [
+            record(
+              'Comet',
+              `Comet is a steel roller coaster. It is open now. ${plan}\nMade by: Ember Works`,
+            ),
+          ],
+        })[0]!.isCoaster,
+      ).toBe(true)
+    }
+  })
   it('retains both records for a colliding alias without choosing a maker', () => {
     const directory = {
       knowledge: [
