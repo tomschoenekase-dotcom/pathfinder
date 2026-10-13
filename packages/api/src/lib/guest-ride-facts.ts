@@ -19,7 +19,7 @@ type DirectoryLike = { knowledge: ReadonlyArray<FactRecord>; places?: ReadonlyAr
 
 // Labelled lines that carry ride facts. "Height:" is the rider requirement and is handled elsewhere.
 const FACT_LABEL =
-  /^(made by|built by|designed by|designers?|designed and built by|manufacturer|maker|model|size and speed|size|speed|top speed|track|length|drop|inversions|opened|history|status)\s*:\s*(.+)$/i
+  /^(made by|built by|designed by|designers?|designed and built by|manufacturer|maker|model|size and speed|size|speed|top speed|track|length|drop|inversions|opened|history|(?:operating |ride )?status)\s*:\s*(.+)$/i
 const MAKER_LABEL =
   /^(made by|built by|designed by|designers?|designed and built by|manufacturer|maker)$/i
 
@@ -87,7 +87,7 @@ export function hasUnavailableRideStatus(content: string): boolean {
   const lifecycle =
     /\b(not open yet|not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed|(?:future|planned|former|retired) (?:\w+ )*(?:coaster|ride))\b/i
   return content.split(/\r?\n/).some((line) => {
-    if (/^\s*status:/i.test(line))
+    if (/^\s*(?:operating |ride )?status:/i.test(line))
       return /\b(future|coming|planned|former|retired|closed)\b/i.test(line) || lifecycle.test(line)
     return !/^\s*[\w ]+:/.test(line) && lifecycle.test(line)
   })

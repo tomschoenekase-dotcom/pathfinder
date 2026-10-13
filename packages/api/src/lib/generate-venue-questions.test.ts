@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { largeGuestVenueFixture } from './evaluation/guest-large-venue-fixture'
 import {
   generateVenueQuestions,
   runVenueQuestionCli,
@@ -49,6 +50,20 @@ function expectedFor(question: string, source = input) {
 }
 
 describe('venue question generator', () => {
+  it('counts 71 current coasters in a 72-ride fixture with an operating-status closure', () => {
+    const fixture = largeGuestVenueFixture(72)
+    const source = {
+      slug: 'emberwild',
+      knowledge: fixture.knowledge.map((entry) => ({
+        ...entry,
+        content: entry.content.replace(
+          /is a (?:junior|family|steel|wooden) [^.]*\./,
+          'is a steel roller coaster.',
+        ),
+      })),
+    }
+    expect(expectedFor('How many coasters are here?', source)).toContain('71 documented')
+  })
   it('treats negated maker wording as unknown rather than maker presence', () => {
     const source = {
       slug: 'emberwild',

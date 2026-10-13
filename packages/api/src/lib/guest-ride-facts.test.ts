@@ -26,6 +26,20 @@ const emberwild = {
 }
 
 describe('guest ride facts', () => {
+  it('preserves and excludes known operating status labels from current coasters', () => {
+    for (const label of ['Operating status', 'Ride status']) {
+      const facts = collectRideFacts({
+        knowledge: [
+          record(
+            'Comet',
+            `Comet is a steel coaster.\n${label}: Permanently closed.\nMade by: Ember Works`,
+          ),
+        ],
+      })
+      expect(facts[0]!.isCoaster).toBe(false)
+      expect(facts[0]!.lines).toContain(`${label}: Permanently closed.`)
+    }
+  })
   it('withholds a maker verdict for negated or unknown maker wording', () => {
     const directory = {
       knowledge: [
