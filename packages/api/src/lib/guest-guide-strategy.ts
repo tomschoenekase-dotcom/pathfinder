@@ -93,10 +93,26 @@ export function addExplicitGuestGuideRecords(params: {
     ]),
   )
   const namedPlaceNames = new Set(namedPlaces.map((place) => normalizeGuestText(place.name)))
+  const topicMatchesSelectedLocation = (title: string): boolean => {
+    const base = guestDirectoryName(title)
+    const group = params.directory.places.filter((place) =>
+      normalizeGuestText(guestDirectoryName(place.name)) === normalizeGuestText(base),
+    )
+    if (group.length < 2) return true
+    const selected = group.filter((place) => params.places.some((hit) => hit.id === place.id))
+    if (selected.length === 0 || selected.length === group.length) return true
+    const areas = group.flatMap((place) => place.areaName ? [place.areaName] : [])
+    const qualifiers = namedKeys(title.slice(base.length), areas)
+    // Only an explicit area qualifier in the title establishes this association.
+    // Shared topics and topics with unknown associations remain available.
+    if (qualifiers.size === 0 || selected.some((place) => !place.areaName)) return true
+    return selected.some((place) => qualifiers.has(normalizeGuestText(place.areaName!.trim())))
+  }
   const knowledge = params.directory.knowledge.filter(
     (entry) =>
-      mentioned([entry.title, guestDirectoryName(entry.title), ...aliases(entry.content)]) ||
-      namedPlaceNames.has(normalizeGuestText(guestDirectoryName(entry.title))),
+      (mentioned([entry.title, guestDirectoryName(entry.title), ...aliases(entry.content)]) ||
+      namedPlaceNames.has(normalizeGuestText(guestDirectoryName(entry.title)))) &&
+      topicMatchesSelectedLocation(entry.title),
   )
   const linkedNames = new Set(
     knowledge.map((entry) => normalizeGuestText(guestDirectoryName(entry.title))),
@@ -118,10 +134,11 @@ export function addExplicitGuestGuideRecords(params: {
       ...params.places.map((place) => {
         const full = places.find((candidate) => candidate.id === place.id)
         if (!full) return place
-        // Place retrieval normally carries the entire body. Fill missing details only when
-        // its identifying description still agrees, preserving live operator edits.
+        // Place retrieval carries the entire body, including an authoritative null when
+        // an operator clears it. Only an omitted projection field may be filled.
         if (full.name !== place.name || full.shortDescription !== place.shortDescription) return place
-        return { ...place, longDescription: place.longDescription ?? full.longDescription }
+        return place.longDescription === undefined
+          ? { ...place, longDescription: full.longDescription } : place
       }),
       // Identity resolution runs before expansion. A selected same-name place must not
       // regain another cached candidate that the location/floor resolver excluded.

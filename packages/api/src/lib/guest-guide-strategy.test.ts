@@ -166,6 +166,22 @@ describe('guest guide strategy', () => {
     })
     expect(result.places.map((place) => place.id)).toEqual(['North', 'South'])
   })
+  it('does not add an excluded same-name location topic after identity resolution', () => {
+    const places = ['North', 'South'].map((areaName) => ({ ...directory.places[0]!, id: areaName,
+      name: 'Lantern Loop', areaName, sourceUrl: `https://lantern.example/${areaName.toLowerCase()}/`,
+    }))
+    const knowledge = ['North', 'South'].map((areaName) => ({ ...directory.knowledge[0]!, id: `${areaName}-rules`,
+      title: `Lantern Loop: ${areaName} rider rules`, content: `Height: ${areaName === 'North' ? 36 : 52} inches minimum`,
+      sourceUrl: `https://lantern.example/${areaName.toLowerCase()}/`,
+    }))
+    knowledge.push({ ...knowledge[0]!, id: 'shared-facts', title: 'Lantern Loop: ride facts', content: 'Made by: Fictional Works' })
+    const result = addExplicitGuestGuideRecords({ directory: { incomplete: false, places, knowledge },
+      question: 'Can my 40 inch child ride Lantern Loop in North?', places: [places[0]!],
+      knowledgeEntries: [{ ...knowledge[0]!, distance: 0.1 }],
+    })
+    expect(result.knowledgeEntries.map((entry) => entry.id)).toEqual(['North-rules', 'shared-facts'])
+    expect(result.knowledgeEntries[0]).toMatchObject({ content: knowledge[0]!.content, sourceUrl: knowledge[0]!.sourceUrl })
+  })
   it('expands retrieved excerpts without duplicating records', () => {
     const entry = { ...directory.knowledge[0]!, content: 'excerpt', distance: 0.2 }
     const result = addExplicitGuestGuideRecords({
@@ -179,11 +195,18 @@ describe('guest guide strategy', () => {
     expect(result.knowledgeEntries[0]?.content).toBe(directory.knowledge[0]!.content)
     expect(result.knowledgeEntries[0]?.distance).toBe(0.2)
   })
-  it('fills a named retrieved place missing its long description', () => {
+  it('preserves an intentionally cleared live long description', () => {
     const result = addExplicitGuestGuideRecords({
       directory,
       question: 'Thunderbolt',
       places: [{ ...directory.places[0]!, longDescription: null }],
+      knowledgeEntries: [],
+    })
+    expect(result.places[0]?.longDescription).toBeNull()
+  })
+  it('fills an omitted long description without treating null as omission', () => {
+    const result = addExplicitGuestGuideRecords({ directory, question: 'Thunderbolt',
+      places: [{ ...directory.places[0]!, longDescription: undefined } as unknown as (typeof directory.places)[number]],
       knowledgeEntries: [],
     })
     expect(result.places[0]?.longDescription).toBe(directory.places[0]!.longDescription)
