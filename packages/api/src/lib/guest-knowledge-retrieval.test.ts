@@ -23,6 +23,49 @@ function row(
 }
 
 describe('retrieveGuestKnowledge', () => {
+  it('revalidates colliding venue names in their own tenant and venue scope', async () => {
+    const sources = [row('ride-a', 'Thunderbolt', 'Made by: North Works'), row('ride-b', 'Thunderbolt', 'Made by: South Works')]
+    const findMany = vi.fn(async (args: Record<string, unknown>) => {
+      const where = args.where as { tenantId: string; venueId: string; id?: { in: string[] } }
+      expect(where.tenantId).toBe(where.venueId === 'venue-a' ? 'tenant-a' : 'tenant-b')
+      const selected = sources[where.venueId === 'venue-a' ? 0 : 1]!
+      return !where.id || where.id.in.includes(selected.id) ? [selected] : []
+    })
+    const results = await Promise.all(['a', 'b'].map((suffix) => retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany } }, query: 'Who made Thunderbolt?',
+      tenantId: `tenant-${suffix}`, venueId: `venue-${suffix}`, includeSecondLayer: false, queryEmbedding: [1],
+      semanticSearch: async (scope) => {
+        expect(scope).toMatchObject({ tenantId: `tenant-${suffix}`, venueId: `venue-${suffix}` })
+        return sources.map((source) => ({ ...source, distance: 0.1 }))
+      },
+    })))
+    for (const [index, result] of results.entries()) {
+      expect(result.entries.map((entry) => entry.id)).toEqual([sources[index]!.id])
+      expect(result.trace.retrievedSources).toEqual([{ id: sources[index]!.id, version: sources[index]!.updatedAt.toISOString() }])
+      expect(result.trace.excludedSourceIds).toContain(sources[1 - index]!.id)
+    }
+  })
+  it('keeps the newer lexical observation when concurrent lanes see different versions', async () => {
+    const current = row('hours', 'Opening hours', 'Open until 6 PM.', { updatedAt: new Date('2026-10-13') })
+    const stale = { ...current, content: 'Open until 10 PM.', updatedAt: new Date('2026-01-01') }
+    const result = await retrieveGuestKnowledge({ reader: { venueKnowledgeEntry: { findMany: vi.fn()
+      .mockResolvedValueOnce([current]).mockResolvedValueOnce([stale]) } },
+      query: 'Opening hours?', tenantId: 'tenant-a', venueId: 'venue-a', includeSecondLayer: false, queryEmbedding: null,
+    })
+    expect(result.entries[0]?.content).toBe(current.content)
+    expect(result.trace.retrievedSources).toEqual([{ id: current.id, version: current.updatedAt.toISOString() }])
+  })
+  it('reports result-budget omissions even when query bounds and excerpt bounds are not reached', async () => {
+    const sources = Array.from({ length: 13 }, (_, index) => row(`ride-${index}`, `Coaster ${index}`, 'Made by: Fictional Works'))
+    const result = await retrieveGuestKnowledge({ reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue(sources) } },
+      query: 'Which coasters are made by Fictional Works?', tenantId: 'tenant-a', venueId: 'venue-a',
+      includeSecondLayer: false, queryEmbedding: null,
+    })
+    expect(result.entries).toHaveLength(12)
+    expect(result.trace.truncatedSourceIds).toEqual([])
+    expect(result.trace.excludedSourceIds).toHaveLength(1)
+    expect(result.trace.partialCoverage).toBe(true)
+  })
   it('never lets connected-source lexical or semantic hits bypass cached freshness admission', async () => {
     const source = row('source-record', 'Daily show schedule', 'Today the show starts at noon.', {
       sourceType: 'UNIVERSAL_CONTENT',
@@ -522,6 +565,10 @@ describe('retrieveGuestKnowledge', () => {
     const ids = result.entries.map(({ id }) => id)
     expect(ids).toHaveLength(8)
     expect(ids).toEqual(expect.arrayContaining(semanticRows.map(({ id }) => id)))
+    expect(result.trace.excludedSourceIds.filter((id) => ids.includes(id))).toEqual([])
+    expect(result.trace.excludedSourceIds).toEqual(
+      expect.arrayContaining(lexicalRows.filter((source) => !ids.includes(source.id)).map((source) => source.id)),
+    )
   })
 
   it('bounds semantic source readback and reports candidates outside the bound', async () => {

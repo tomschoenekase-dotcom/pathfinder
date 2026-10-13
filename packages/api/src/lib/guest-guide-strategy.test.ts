@@ -111,8 +111,61 @@ describe('guest guide strategy', () => {
     expect(expand('Who made it?', 'How fast is Lightning?').knowledgeEntries[0]?.id).toBe(
       'ride-facts',
     ))
+  it('does not carry the previous ride into a new explicitly named topic', () => {
+    const result = expand('Where is Parking?', 'How fast is Lightning?')
+    expect(result.places).toEqual([])
+    expect(result.knowledgeEntries.map((entry) => entry.id)).toEqual(['parking'])
+  })
+  it('switches subjects on an explicitly named what-about follow-up', () => {
+    expect(expand('What about Parking?', 'Lightning?').knowledgeEntries.map((entry) => entry.id)).toEqual(['parking'])
+  })
+  it('keeps the previous subject in an explicit pronoun comparison', () => {
+    expect(expand('Compare it with Parking?', 'Lightning?').knowledgeEntries.map((entry) => entry.id)).toEqual(['ride-facts', 'parking'])
+  })
+  it('keeps both explicitly named subjects in a compound maker question', () => {
+    const result = expand('Who made Lightning, and where is the Car park?')
+    expect(result.knowledgeEntries.map((entry) => entry.id)).toEqual(['ride-facts', 'parking'])
+  })
+  it('retains an explicitly negated subject as evidence without interpreting the negation', () => {
+    expect(expand('Is Lightning not made by Fictional Works?').knowledgeEntries[0]?.id).toBe('ride-facts')
+  })
+  it('links facts to a place whose own name has a directory suffix', () => {
+    const result = addExplicitGuestGuideRecords({
+      directory: { ...directory, places: [{ ...directory.places[0]!, name: 'Thunderbolt: attraction' }] },
+      question: 'Tell me about Thunderbolt?', places: [], knowledgeEntries: [],
+    })
+    expect(result.places.map((place) => place.id)).toEqual(['ride'])
+    expect(result.knowledgeEntries.map((entry) => entry.id)).toEqual(['ride-facts'])
+  })
+  it.each([
+    ['Who made Thunderbolt Falls?', ['falls-facts']],
+    ['Compare Thunderbolt and Thunderbolt Falls', ['ride-facts', 'falls-facts']],
+  ])('resolves overlapping proper names in %s', (question, expectedIds) => {
+    const result = addExplicitGuestGuideRecords({
+      directory: { ...directory, knowledge: [...directory.knowledge, {
+        ...directory.knowledge[0]!, id: 'falls-facts', title: 'Thunderbolt Falls: ride facts',
+        content: 'Made by: Water Works',
+      }] }, question, places: [], knowledgeEntries: [],
+    })
+    expect(result.knowledgeEntries.map((entry) => entry.id)).toEqual(expectedIds)
+  })
   it('does not match a name inside another word', () =>
     expect(expand('Thunderbolts and Lightningbug').knowledgeEntries).toEqual([]))
+  it('preserves the selected ID after upstream same-name location resolution', () => {
+    const north = { ...directory.places[0]!, id: 'north-restroom', name: 'Restroom', areaName: 'North' }
+    const south = { ...north, id: 'south-restroom', areaName: 'South' }
+    const result = addExplicitGuestGuideRecords({ directory: { incomplete: false, knowledge: [], places: [north, south] },
+      question: 'Where is the South Restroom?', places: [south], knowledgeEntries: [],
+    })
+    expect(result.places.map((place) => place.id)).toEqual(['south-restroom'])
+  })
+  it('keeps unresolved same-name places as distinct candidates', () => {
+    const places = ['North', 'South'].map((areaName) => ({ ...directory.places[0]!, id: areaName, name: 'Restroom', areaName }))
+    const result = addExplicitGuestGuideRecords({ directory: { incomplete: false, knowledge: [], places },
+      question: 'Where is the Restroom?', places: [], knowledgeEntries: [],
+    })
+    expect(result.places.map((place) => place.id)).toEqual(['North', 'South'])
+  })
   it('expands retrieved excerpts without duplicating records', () => {
     const entry = { ...directory.knowledge[0]!, content: 'excerpt', distance: 0.2 }
     const result = addExplicitGuestGuideRecords({
@@ -134,6 +187,15 @@ describe('guest guide strategy', () => {
       knowledgeEntries: [],
     })
     expect(result.places[0]?.longDescription).toBe(directory.places[0]!.longDescription)
+  })
+  it.each([
+    { shortDescription: null },
+    { name: 'New operator name' },
+  ])('does not refill a changed live place from cached details (%j)', (change) => {
+    const result = addExplicitGuestGuideRecords({ directory, question: 'Thunderbolt',
+      places: [{ ...directory.places[0]!, ...change, longDescription: null }], knowledgeEntries: [],
+    })
+    expect(result.places[0]?.longDescription).toBeNull()
   })
   it('retrieves a matching topic through a place alias', () => {
     const aliased = {

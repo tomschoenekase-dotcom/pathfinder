@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { SemanticKnowledgeEntry, SemanticPlace } from '@pathfinder/db'
-import { normalizeGuestText } from './guest-knowledge-retrieval'
+import { guestQueryIsFollowup, normalizeGuestText } from './guest-knowledge-retrieval'
 import { renderGuestVenueIndex } from './guest-venue-index'
 import {
   buildGuestVenueGuidePrompt,
@@ -39,20 +39,27 @@ function aliases(text: string | null | undefined): string[] {
 }
 
 // Match both boundaries: a mention of Thunderbolt must not match Thunderbolts.
-function named(text: string, names: string[]): boolean {
+function namedKeys(text: string, names: string[]): Set<string> {
   const normalized = normalizeGuestText(text)
-  return names.some((name) => {
+  const matches: Array<{ key: string; start: number; end: number }> = []
+  for (const name of names) {
     const key = normalizeGuestText(name.trim())
-    if (!key) return false
+    if (!key) continue
     let at = normalized.indexOf(key)
     while (at >= 0) {
       const before = normalized[at - 1] ?? ''
       const after = normalized[at + key.length] ?? ''
-      if (!/[\p{L}\p{N}]/u.test(before) && !/[\p{L}\p{N}]/u.test(after)) return true
+      if (!/[\p{L}\p{N}]/u.test(before) && !/[\p{L}\p{N}]/u.test(after)) {
+        matches.push({ key, start: at, end: at + key.length })
+      }
       at = normalized.indexOf(key, at + 1)
     }
-    return false
-  })
+  }
+  // A mention of Thunderbolt Falls does not also name Thunderbolt. An independent
+  // occurrence of the shorter name still counts, and identical names remain ambiguous.
+  return new Set(matches.filter((match) => !matches.some((other) =>
+    other.key.length > match.key.length && other.start <= match.start && other.end >= match.end,
+  )).map((match) => match.key))
 }
 
 /** Named records bypass ranking and excerpt budgets, while live retrieved versions win. */
@@ -63,8 +70,20 @@ export function addExplicitGuestGuideRecords(params: {
   places: SemanticPlace[]
   knowledgeEntries: SemanticKnowledgeEntry[]
 }): { places: SemanticPlace[]; knowledgeEntries: SemanticKnowledgeEntry[] } {
-  const questions = [params.question, params.previousQuestion ?? '']
-  const mentioned = (names: string[]) => questions.some((question) => named(question, names))
+  const allNames = [...new Set([
+    ...params.directory.places.flatMap((place) => [place.name, guestDirectoryName(place.name),
+      ...aliases(place.shortDescription), ...aliases(place.longDescription)]),
+    ...params.directory.knowledge.flatMap((entry) => [entry.title, guestDirectoryName(entry.title),
+      ...aliases(entry.content)]),
+  ])]
+  const currentNames = namedKeys(params.question, allNames)
+  const referential = /\b(it|its|them|those|they)\b/u.test(normalizeGuestText(params.question))
+  const previousNames = params.previousQuestion && guestQueryIsFollowup(params.question) &&
+    (currentNames.size === 0 || referential)
+    ? namedKeys(params.previousQuestion, allNames) : new Set<string>()
+  const mentioned = (names: string[]) => names.some((name) =>
+    currentNames.has(normalizeGuestText(name.trim())) || previousNames.has(normalizeGuestText(name.trim())),
+  )
   const namedPlaces = params.directory.places.filter((place) =>
     mentioned([
       place.name,
@@ -92,6 +111,7 @@ export function addExplicitGuestGuideRecords(params: {
       ]) || linkedNames.has(normalizeGuestText(place.name)),
   )
   const placeIds = new Set(params.places.map((place) => place.id))
+  const retrievedPlaceNames = new Set(params.places.map((place) => normalizeGuestText(place.name)))
   const knowledgeIds = new Set(params.knowledgeEntries.map((entry) => entry.id))
   return {
     places: [
@@ -100,10 +120,12 @@ export function addExplicitGuestGuideRecords(params: {
         if (!full) return place
         // Place retrieval normally carries the entire body. Fill missing details only when
         // its identifying description still agrees, preserving live operator edits.
-        if (place.shortDescription && full.shortDescription !== place.shortDescription) return place
+        if (full.name !== place.name || full.shortDescription !== place.shortDescription) return place
         return { ...place, longDescription: place.longDescription ?? full.longDescription }
       }),
-      ...places.filter((place) => !placeIds.has(place.id)),
+      // Identity resolution runs before expansion. A selected same-name place must not
+      // regain another cached candidate that the location/floor resolver excluded.
+      ...places.filter((place) => !placeIds.has(place.id) && !retrievedPlaceNames.has(normalizeGuestText(place.name))),
     ],
     knowledgeEntries: [
       ...params.knowledgeEntries.map((entry) => {

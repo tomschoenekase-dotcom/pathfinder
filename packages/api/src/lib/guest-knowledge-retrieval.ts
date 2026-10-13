@@ -808,13 +808,12 @@ export async function retrieveGuestKnowledge(params: {
   for (const entry of semanticCandidates) {
     if (!currentSemanticRows.has(entry.id)) authorityExcludedIds.add(entry.id)
   }
-  const lexicalPool = [
-    ...new Map(
-      [...strict, ...broad, ...semanticRows.filter((row) => changedSemanticIds.has(row.id))].map(
-        (row) => [row.id, row],
-      ),
-    ).values(),
-  ]
+  const lexicalById = new Map<string, GuestKnowledgeRow>()
+  for (const row of [...strict, ...broad, ...semanticRows.filter((row) => changedSemanticIds.has(row.id))]) {
+    const previous = lexicalById.get(row.id)
+    if (!previous || row.updatedAt.getTime() >= previous.updatedAt.getTime()) lexicalById.set(row.id, row)
+  }
+  const lexicalPool = [...lexicalById.values()]
     .filter((row) => !authorityExcludedIds.has(row.id))
     .filter((row) => !activatedLegacyIds.has(row.id))
   const weights = conceptWeights(lexicalPool, concepts)
@@ -913,6 +912,7 @@ export async function retrieveGuestKnowledge(params: {
     ...entry,
     content: boundedRelevantContent(entry.content, concepts, perEntryChars, calendarDays),
   }))
+  const selectedIds = new Set(entries.map((entry) => entry.id))
   const lexicalVersions = new Map(
     [...lexical.map(({ row }) => row), ...semanticRows].map((row) => [
       row.id,
@@ -940,14 +940,15 @@ export async function retrieveGuestKnowledge(params: {
           ...policyExcludedIds,
           ...activatedLegacyIds,
           ...semantic.slice(SEMANTIC_LIMIT).map((entry) => entry.id),
-          ...candidates.slice(resultLimit).map((entry) => entry.id),
+          ...candidates.filter((entry) => !selectedIds.has(entry.id)).map((entry) => entry.id),
         ]),
       ],
       candidateCounts: { strict: strict.length, broad: broad.length, semantic: semantic.length },
       limits: { strict: STRICT_LIMIT, broad: BROAD_LIMIT, result: resultLimit },
       partialCoverage:
+        candidates.length > selected.length ||
         strict.length === STRICT_LIMIT ||
-        broad.length === BROAD_LIMIT ||
+        broadAll.length >= BROAD_LIMIT ||
         semantic.length >= SEMANTIC_LIMIT ||
         truncatedSourceIds.length > 0,
       truncatedSourceIds,
