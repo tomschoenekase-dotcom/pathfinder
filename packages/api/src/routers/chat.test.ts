@@ -3899,6 +3899,28 @@ describe('chat router', () => {
       expect(concatenatedSystemPrompt).toContain('Elephants')
     })
 
+    it.each(['0', '1'])('routes the economy guide with tiered flag %s and retains its coverage hash', async (flag) => {
+      setupHappyPath('ok')
+      vi.stubEnv('GUEST_TIERED_GUIDE', flag)
+      placeFindMany.mockResolvedValue(placeRows)
+      await caller.chat.send(sendInput)
+      const args = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+      const blocks = args.system as Array<{ text: string; cache_control?: { type: string } }>
+      const index = blocks[1]!.text
+      const hash = createHash('sha256').update(index).digest('hex')
+      expect(index).toContain(flag === '1' ? 'VENUE INDEX:' : 'VENUE GUIDE:')
+      expect(blocks[1]!.cache_control).toEqual({ type: 'ephemeral' })
+      if (flag === '1') expect(blocks[2]!.text).toContain('Hours:')
+      const diagnostic = configLogger.info.mock.calls.find(
+        ([entry]) => (entry as { action?: string }).action === 'guest-chat.context-ready',
+      )?.[0] as Record<string, unknown>
+      expect(diagnostic).toMatchObject({ guideMode: flag === '1' ? 'TIERED' : 'FULL', guideSha256: hash })
+      if (flag === '1') expect(diagnostic.guideIndexSha256).toBe(hash)
+      const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+      const profile = evidence.sources.find((source: { kind: string }) => source.kind === 'VENUE_PROFILE')
+      expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({ mode: flag === '1' ? 'TIERED' : 'FULL', promptSha256: hash })
+    })
+
     it('logs the context an answer was built from as hashes and counts only', async () => {
       setupHappyPath('ok')
       placeFindMany.mockResolvedValue(placeRows)

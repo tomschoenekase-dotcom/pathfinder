@@ -4,11 +4,32 @@ import {
   createGuestAnswerAttribution,
   GUEST_ANSWER_EVIDENCE_VERSION,
   GuestAnswerEvidenceBundleSchema,
+  GuestGuideCoverageSchema,
   type GuestAnswerEvidenceBundle,
 } from './guest-answer-attribution'
 import { GUEST_CHAT_PROMPT_VERSION } from './prompt-contract'
 
 const hash = 'a'.repeat(64)
+describe('guest guide coverage modes', () => {
+  it.each(['FULL', 'DIRECTORY', 'TIERED', 'NONE'])('retains %s guide provenance', (mode) => {
+    expect(
+      GuestGuideCoverageSchema.parse({
+        schemaVersion: 'guest-guide-coverage-v1',
+        mode,
+        loadStatus: 'READY',
+        projectionPath: 'LEGACY',
+        incomplete: false,
+        placeCount: 1,
+        knowledgeCount: 1,
+        includedDetailCount: 0,
+        promptChars: 100,
+        promptSha256: hash,
+        detailIdSetSha256: hash,
+      }).mode,
+    ).toBe(mode)
+  })
+})
+
 const evidence: GuestAnswerEvidenceBundle = {
   schemaVersion: GUEST_ANSWER_EVIDENCE_VERSION,
   promptContractVersion: GUEST_CHAT_PROMPT_VERSION,

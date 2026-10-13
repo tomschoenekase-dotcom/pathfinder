@@ -335,7 +335,9 @@ const quotedAttribute = (value: string) => escapeUntrustedPromptData(value.repla
 export type GuestVenueGuidePrompt = {
   /** The cached prompt section: the full guide when it fits, otherwise the one-line directory. */
   prompt: string
-  mode: 'FULL' | 'DIRECTORY' | 'NONE'
+  mode: 'FULL' | 'DIRECTORY' | 'NONE' | 'TIERED'
+  /** Hash of the cached tier-1 index, when tiered mode is selected. */
+  indexSha256?: string
   /** What answer evidence stores: a full guide is recorded by content hash and record IDs. */
   evidenceText: string
   /** Records the full guide carries in full ("place:<id>", "knowledge:<id>"); empty otherwise. */
@@ -442,15 +444,27 @@ export function staleGuestGuideRecordIds(params: {
   guide: GuestVenueGuidePrompt
   directory: GuestVenueDirectory
   places: ReadonlyArray<Partial<GuestDirectoryPlace>>
-  knowledgeEntries: ReadonlyArray<{ id?: string; updatedAt?: unknown }>
+  knowledgeEntries: ReadonlyArray<{ id?: string; updatedAt?: unknown; content?: string }>
 }): Set<string> {
   const stale = new Set<string>()
-  if (params.guide.recordIds.size === 0) return stale
+  const comparisonIds = params.guide.mode === 'TIERED'
+    ? new Set([
+        ...params.directory.places.map((place) => `place:${place.id}`),
+        ...params.directory.knowledge.map((entry) => `knowledge:${entry.id}`),
+      ])
+    : params.guide.recordIds
+  if (comparisonIds.size === 0) return stale
   const guideKnowledge = new Map(params.directory.knowledge.map((entry) => [entry.id, entry]))
   for (const entry of params.knowledgeEntries) {
     const key = `knowledge:${entry.id}`
-    if (!entry.id || !params.guide.recordIds.has(key)) continue
-    const cached = guideKnowledge.get(entry.id)?.updatedAt
+    if (!entry.id || !comparisonIds.has(key)) continue
+    const cachedEntry = guideKnowledge.get(entry.id)
+    const cached = cachedEntry?.updatedAt
+    if (
+      params.guide.mode === 'TIERED' &&
+      !(cached instanceof Date && entry.updatedAt instanceof Date) &&
+      cachedEntry && entry.content !== undefined && entry.content !== cachedEntry.content
+    ) stale.add(key)
     if (
       cached instanceof Date &&
       entry.updatedAt instanceof Date &&
@@ -471,7 +485,7 @@ export function staleGuestGuideRecordIds(params: {
   ] as const
   for (const place of params.places) {
     const key = `place:${place.id}`
-    if (!place.id || !params.guide.recordIds.has(key)) continue
+    if (!place.id || !comparisonIds.has(key)) continue
     const cached = guidePlaces.get(place.id)
     if (
       cached &&

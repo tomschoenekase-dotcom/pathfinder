@@ -11,7 +11,7 @@ const sourceId = z.string().trim().min(1).max(240)
 // Observations of the actual guide projection; never instructions or a completeness verdict.
 export const GuestGuideCoverageSchema = z.object({
   schemaVersion: z.literal('guest-guide-coverage-v1'),
-  mode: z.enum(['FULL', 'DIRECTORY', 'NONE']),
+  mode: z.enum(['FULL', 'DIRECTORY', 'TIERED', 'NONE']),
   loadStatus: z.enum(['READY', 'LOAD_FAILED', 'PROJECTION_MISMATCH']),
   projectionPath: z.enum(['LEGACY', 'DARK', 'NATIVE']),
   incomplete: z.boolean(),

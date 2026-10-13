@@ -1,3 +1,4 @@
+import { addExplicitGuestGuideRecords, buildGuestGuideStrategy, useTieredGuestGuide } from '../lib/guest-guide-strategy'
 import {
   guestRecommendationRetrievalLimit,
   partitionGuestRecommendationPlaces,
@@ -109,7 +110,6 @@ import {
 } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
-  buildGuestVenueGuidePrompt,
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
   loadGuestVenueDirectoryCached,
@@ -1531,9 +1531,9 @@ const chatReadRouter = router({
       directory: guestDirectory,
       currentDate,
     })
-    const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, { currentDate })
-    const directoryPrompt = venueGuide.prompt
-    const guideCoverage = buildGuestGuideCoverage({
+    let venueGuide = buildGuestGuideStrategy(guestDirectory, { currentDate, tiered: false })
+    let directoryPrompt = venueGuide.prompt
+    let guideCoverage = buildGuestGuideCoverage({
       guide: venueGuide,
       directory: guestDirectory,
       loadStatus: guideLoadStatus,
@@ -1954,6 +1954,24 @@ const chatReadRouter = router({
         unhealthyProviders,
       })
       generationRouteConfigurationVersion = route.configurationVersion
+      if (useTieredGuestGuide(process.env.GUEST_TIERED_GUIDE, route.candidates[0]?.costTier)) {
+        venueGuide = buildGuestGuideStrategy(guestDirectory, { currentDate, tiered: true })
+        directoryPrompt = venueGuide.prompt
+        guideCoverage = buildGuestGuideCoverage({
+          guide: venueGuide,
+          directory: guestDirectory,
+          loadStatus: guideLoadStatus,
+          projectionPath: directoryRead.path,
+        })
+        ;({ places: relevantPlaces, knowledgeEntries: relevantKnowledgeEntries } =
+          addExplicitGuestGuideRecords({
+            directory: guestDirectory,
+            question: trimmedInput,
+            previousQuestion: previousGuestQuery,
+            places: relevantPlaces,
+            knowledgeEntries: relevantKnowledgeEntries,
+          }))
+      }
       if (route.candidates[0]?.costTier === 'ECONOMY') {
         lightModelAnswerShape = true
         ;({ staticPart, dynamicPart } = preparePrompt())
@@ -2098,6 +2116,7 @@ const chatReadRouter = router({
           venueId: venue.id,
           turnId: reservation.turnId,
           guideMode: venueGuide.mode,
+          ...(venueGuide.indexSha256 ? { guideIndexSha256: venueGuide.indexSha256 } : {}),
           guideRendererTruncated: venueGuide.rendererTruncated,
           guideUpdatedRecordCount: updatedGuideRecordCount,
           staticSha256: sha(staticPart),
