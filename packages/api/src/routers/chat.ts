@@ -114,6 +114,7 @@ import {
 } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import { guestPlacesNamedInReply } from '../lib/guest-reply-anchors'
+import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
 import {
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
@@ -267,7 +268,10 @@ export function createGuestStreamingProjection(options: {
       providerText += delta
       // Guest action markers stream as their visible link text; a marker still being
       // written is held back, so the guest never sees action syntax or an action ID.
-      const visibleText = projectGuestActionStreamText(providerText)
+      // Dashes are rewritten as in the stored answer, once the word after each is complete.
+      const visibleText = guestPlainDashes(
+        guestPlainDashesStablePrefix(projectGuestActionStreamText(providerText)),
+      )
       const markerIndex = visibleText.indexOf(ENGAGEMENT_ASKED_MARKER)
       let markerSafeLength = markerIndex >= 0 ? markerIndex : visibleText.length
       if (markerIndex < 0) {
@@ -286,7 +290,7 @@ export function createGuestStreamingProjection(options: {
       }
       // Generation is token-bounded by the gateway. A second word cutoff can
       // hide a later qualification, so project all marker-safe provider text.
-      const safePrefix = visibleText.slice(0, markerSafeLength)
+      const safePrefix = visibleText.slice(0, markerSafeLength).trimEnd()
       if (safePrefix.trim().length === 0) return
       providerFirstTextMs ??= timings.providerFirstTextMs
       requestFirstTextMs ??= timings.requestFirstTextMs
@@ -2223,7 +2227,7 @@ const chatReadRouter = router({
       // The model may only name approved action IDs; the server enforces the venue's
       // presentation switches and resolves every destination itself.
       const actionProjection = applyGuestActionMarkers({
-        text: strippedResponse.trim(),
+        text: guestPlainDashes(strippedResponse).trim(),
         actions: guestActions,
         settings: guestActionSettings,
       })

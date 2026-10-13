@@ -4027,6 +4027,17 @@ describe('chat router', () => {
       expect(systemBlocks[2]?.text).toContain('Updated since the VENUE GUIDE was loaded')
     })
 
+    it('stores and returns visitor answers without dashes used as punctuation', async () => {
+      setupHappyPath('The show is loud and bright\u2014not a ride. Open 9 am\u20135 pm.')
+      const result = await caller.chat.send(sendInput)
+      expect(result.response).toBe('The show is loud and bright, not a ride. Open 9 am to 5 pm.')
+      expect(messageCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'assistant', content: result.response }),
+        }),
+      )
+    })
+
     it.each([
       { reply: 'Start with the big Orbiter Station water tank fragment.', carried: true },
       { reply: 'Start with the elephants.', carried: false },
@@ -5230,7 +5241,8 @@ describe('chat router', () => {
       const text = 'You can [[link:burger-order|order ahead]] now. [[button:season-pass]]'
       for (const chunk of text.match(/.{1,3}/gsu)!)
         await projection.push(chunk, { providerFirstTextMs: 1, requestFirstTextMs: 1 })
-      expect(deltas.join('')).toBe('You can order ahead now. ')
+      // Trailing whitespace waits for a next word that never comes, as in the trimmed stored answer.
+      expect(deltas.join('')).toBe('You can order ahead now.')
       for (const delta of deltas) expect(delta).not.toMatch(/\[|\]|burger-order|season-pass/u)
     })
 

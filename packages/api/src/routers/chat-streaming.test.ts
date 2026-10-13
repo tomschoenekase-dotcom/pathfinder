@@ -13,6 +13,7 @@ describe('guest chat streaming projection', () => {
     })
   })
 
+  // Trailing whitespace is held until the next word, so a dash after it can still become a comma.
   it('withholds only actual marker prefixes across every split and releases a false prefix', async () => {
     const marker = '[[ENGAGEMENT_ASKED]]'
     for (let split = 1; split < marker.length; split += 1) {
@@ -22,12 +23,12 @@ describe('guest chat streaming projection', () => {
         providerFirstTextMs: 20,
         requestFirstTextMs: 30,
       })
-      expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('Go left. ')
+      expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('Go left.')
       await projection.push(marker.slice(split), {
         providerFirstTextMs: 40,
         requestFirstTextMs: 50,
       })
-      expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('Go left. ')
+      expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('Go left.')
     }
     const onTextDelta = vi.fn()
     const projection = createGuestStreamingProjection({ onTextDelta })
@@ -49,7 +50,7 @@ describe('guest chat streaming projection', () => {
       requestFirstTextMs: 240,
     })
 
-    expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('A useful answer. ')
+    expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('A useful answer.')
     expect(onTextDelta.mock.calls.flat().join('')).not.toContain('ENGAGEMENT_ASKED')
     expect(projection.providerFirstTextMs()).toBe(120)
     expect(projection.requestFirstTextMs()).toBe(220)
@@ -65,6 +66,6 @@ describe('guest chat streaming projection', () => {
       requestFirstTextMs: 180,
     })
 
-    expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe(answer + ' ')
+    expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe(answer)
   })
 })

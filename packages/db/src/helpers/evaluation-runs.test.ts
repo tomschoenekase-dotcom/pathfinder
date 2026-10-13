@@ -59,10 +59,10 @@ describe('evaluation run identity', () => {
   it('preserves the exact v2 identity shape and current prompt identity hash', async () => {
     expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v40')
     expect(GUEST_CHAT_PROMPT_CONTRACT_HASH).toBe(
-      '58fa3f648fc4cefc7a8b1d4f754b64d18b4fd38b6cd4c451b826022cf513a71c',
+      '01ad2038c39f413bc674fe1e20b1ab6667d3f4d5ed34ae7bd36d037777868859',
     )
     expect(evaluationRunIdentityHash(identity())).toBe(
-      '0519e8c536f84604f1b88927506953c2119c300a523154bd9d37faf33042eebc',
+      '0cb2f1941c88cd1d8f484a839a29cd4d628d0ce597365839988b3ba73bed243c',
     )
     // New evaluation requests cannot silently use the retired prompt contract.
     expect(() =>

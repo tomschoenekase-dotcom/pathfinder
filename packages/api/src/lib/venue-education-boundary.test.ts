@@ -294,6 +294,11 @@ describe('computed facts and the light-model answer shape', () => {
 
   // A follow-up turn retrieves different records; the guide once retracted an exhibit it had
   // correctly recommended because the next turn's context no longer carried that exhibit.
+  it('asks for plain punctuation instead of dashes', () => {
+    const { dynamicPart } = buildVenueSystemPromptParts({ ...base, lightModelAnswerShape: true })
+    expect(dynamicPart).toContain('Never use dashes as punctuation')
+  })
+
   it('keeps earlier supported answers unless this turn contradicts them', () => {
     for (const lightModelAnswerShape of [false, true]) {
       const { staticPart } = buildVenueSystemPromptParts({ ...base, lightModelAnswerShape })
