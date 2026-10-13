@@ -291,4 +291,19 @@ describe('computed facts and the light-model answer shape', () => {
     )
     expect(dynamicPart).toContain('"How tall" or "how big" about a ride means the ride itself')
   })
+
+  // A follow-up turn retrieves different records; the guide once retracted an exhibit it had
+  // correctly recommended because the next turn's context no longer carried that exhibit.
+  it('keeps earlier supported answers unless this turn contradicts them', () => {
+    for (const lightModelAnswerShape of [false, true]) {
+      const { staticPart } = buildVenueSystemPromptParts({ ...base, lightModelAnswerShape })
+      expect(staticPart).toContain('Stand by your earlier replies in this conversation.')
+      expect(staticPart).toContain(
+        'a fact missing from this turn is not evidence that an earlier reply was wrong',
+      )
+      expect(staticPart).toContain(
+        "only when this turn's information contradicts it or the visitor disputes it",
+      )
+    }
+  })
 })
