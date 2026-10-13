@@ -4027,6 +4027,32 @@ describe('chat router', () => {
       expect(systemBlocks[2]?.text).toContain('Updated since the VENUE GUIDE was loaded')
     })
 
+    it('tells a follow-up which notice an earlier reply already gave', async () => {
+      setupHappyPath('ok')
+      messageFindMany.mockReset().mockResolvedValueOnce([
+        {
+          id: 'a1',
+          role: 'assistant',
+          content: 'Try the Comet. The park is closed for the season and reopens in May.',
+          sessionSequence: 2,
+          createdAt: new Date(),
+        },
+        {
+          id: 'u1',
+          role: 'user',
+          content: 'Best coaster?',
+          sessionSequence: 1,
+          createdAt: new Date(),
+        },
+      ])
+
+      await caller.chat.send({ ...sendInput, message: 'Where should we eat after?' })
+
+      expect(getConcatenatedSystemPrompt()).toContain(
+        'ALREADY SAID: Earlier in this conversation you already told the visitor about the seasonal closure or reopening.',
+      )
+    })
+
     it('stores and returns visitor answers without dashes used as punctuation', async () => {
       setupHappyPath('The show is loud and bright\u2014not a ride. Open 9 am\u20135 pm.')
       const result = await caller.chat.send(sendInput)
