@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
-import { hasUnavailableRideStatus } from '../src/lib/guest-ride-facts'
+import { hasDocumentedRideMaker, hasUnavailableRideStatus } from '../src/lib/guest-ride-facts'
 
 const recordSchema = z.object({
   title: z.string().min(1),
@@ -99,13 +99,7 @@ export function generateVenueQuestions(raw: VenueQuestionInput): {
     )
     return {
       ride,
-      line:
-        line &&
-        !/^(?:unknown|not (?:known|documented|published|available)|unconfirmed|tbd|n\/?a)\.?$/i.test(
-          value(line),
-        )
-          ? line
-          : undefined,
+      line: line && hasDocumentedRideMaker(value(line)) ? line : undefined,
     }
   })
   const makerNames = makers.flatMap(({ line }) => (line ? [value(line)] : []))

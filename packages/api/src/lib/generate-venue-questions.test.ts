@@ -49,6 +49,22 @@ function expectedFor(question: string, source = input) {
 }
 
 describe('venue question generator', () => {
+  it('treats negated maker wording as unknown rather than maker presence', () => {
+    const source = {
+      slug: 'emberwild',
+      knowledge: [
+        {
+          title: 'Comet',
+          category: 'Rides',
+          content: 'Comet is a steel coaster.\nMade by: Not Intamin; maker unknown',
+        },
+      ],
+    }
+    expect(expectedFor('Who made Comet?', source)).toContain('not documented')
+    expect(
+      generateVenueQuestions(source).cases.some((entry) => entry.tags.includes('maker-presence')),
+    ).toBe(false)
+  })
   it('does not remove an operating coaster because a queue is planned', () => {
     expect(
       expectedFor('How many coasters are here?', {

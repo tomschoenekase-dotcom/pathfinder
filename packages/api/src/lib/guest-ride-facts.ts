@@ -72,6 +72,7 @@ export type RideFact = {
   makers: string[]
   isCoaster: boolean
   aliases: string[]
+  unavailable: boolean
 }
 
 function firstSentence(text: string): string {
@@ -92,6 +93,11 @@ export function hasUnavailableRideStatus(content: string): boolean {
   })
 }
 
+/** Unknown or negated maker wording is source evidence, but cannot prove a maker match. */
+export function hasDocumentedRideMaker(value: string): boolean {
+  return !/\b(?:not|unknown|unconfirmed|tbd)\b|^(?:n\/?a)\.?$/i.test(value.trim())
+}
+
 /** Each record's labelled fact lines, keyed by the record title. */
 export function collectRideFacts(directory: DirectoryLike): RideFact[] {
   const facts: RideFact[] = []
@@ -104,12 +110,7 @@ export function collectRideFacts(directory: DirectoryLike): RideFact[] {
       // A "Size" line without a measurement is a rider-fit note, not a ride statistic.
       if (/^size$/i.test(match[1]!) && !/\d/.test(match[2]!)) continue
       lines.push(`${match[1]}: ${match[2]!.trim()}`)
-      if (
-        MAKER_LABEL.test(match[1]!) &&
-        !/^(?:unknown|not (?:known|documented|published|available)|unconfirmed|tbd|n\/?a)\.?$/i.test(
-          match[2]!.trim(),
-        )
-      )
+      if (MAKER_LABEL.test(match[1]!) && hasDocumentedRideMaker(match[2]!))
         makers.push(match[2]!.trim())
     }
     const kind = firstSentence(record.content)
@@ -131,7 +132,15 @@ export function collectRideFacts(directory: DirectoryLike): RideFact[] {
             .filter(Boolean)
         : []
     })
-    facts.push({ ride: record.title, kind, lines, makers, isCoaster, aliases })
+    facts.push({
+      ride: record.title,
+      kind,
+      lines,
+      makers,
+      isCoaster,
+      aliases,
+      unavailable: hasUnavailableRideStatus(record.content),
+    })
   }
   return facts
 }
@@ -192,10 +201,12 @@ export function guestRideFacts(input: {
     )
     out.push(
       matches.length
-        ? `MAKER CHECK for ${maker}: ${matches.map((f) => f.ride).join(', ')} name ${maker} as maker or designer.`
+        ? `MAKER CHECK for ${maker}: ${matches.map((f) => `${f.ride}${f.unavailable ? ' (not currently available per its record)' : ''}`).join(', ')} name ${maker} as maker or designer.`
         : withoutMaker.length
           ? `MAKER CHECK for ${maker}: no ride record names ${maker}, but the coasters with no maker on record (${withoutMaker.join(', ')}) could be by anyone, so whether the park has a ${maker} coaster is unknown.`
-          : `MAKER CHECK for ${maker}: no ride record names ${maker}, and every roller coaster names a different maker, so none of the park's roller coasters are by ${maker}.`,
+          : coasters.length
+            ? `MAKER CHECK for ${maker}: no ride record names ${maker}, and every roller coaster names a different maker, so none of the park's roller coasters are by ${maker}.`
+            : `MAKER CHECK for ${maker}: no ride record names ${maker}; there are no current coaster records to establish complete maker coverage. Do not infer park-wide absence.`,
     )
   }
   return out.join('\n')

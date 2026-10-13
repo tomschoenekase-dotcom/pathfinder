@@ -26,6 +26,42 @@ const emberwild = {
 }
 
 describe('guest ride facts', () => {
+  it('withholds a maker verdict for negated or unknown maker wording', () => {
+    const directory = {
+      knowledge: [
+        record('Comet', 'Comet is a steel coaster.\nMade by: Not Intamin; maker unknown'),
+      ],
+    }
+    const block = guestRideFacts({ question: 'Any Intamin rides?', directory })!
+    expect(block).toContain('is unknown')
+    expect(block).not.toContain('name Intamin as maker')
+  })
+  it('does not infer complete coaster absence from an empty coaster inventory', () => {
+    const block = guestRideFacts({
+      question: 'Any Intamin rides?',
+      directory: {
+        knowledge: [
+          record('Spinwheel', 'Spinwheel is not a roller coaster.\nMade by: Fictional Works'),
+        ],
+      },
+    })!
+    expect(block).not.toContain('every roller coaster names a different maker')
+    expect(block).toContain('no current coaster records')
+  })
+  it('qualifies a closed ride maker match as unavailable', () => {
+    const block = guestRideFacts({
+      question: 'Any Intamin rides?',
+      directory: {
+        knowledge: [
+          record(
+            'Comet',
+            'Comet is a steel coaster.\nStatus: permanently closed\nMade by: Intamin',
+          ),
+        ],
+      },
+    })!
+    expect(block).toContain('Comet (not currently available per its record)')
+  })
   it('does not treat a placeholder maker as proof of a different maker', () => {
     const directory = {
       knowledge: [record('Comet', 'Comet is a steel coaster.\nMade by: Unknown')],
