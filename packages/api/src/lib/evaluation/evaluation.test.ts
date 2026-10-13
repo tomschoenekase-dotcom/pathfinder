@@ -169,14 +169,14 @@ describe('PathFinder deterministic lexical smoke evaluation', () => {
   })
 
   it('produces pinned, domain-separated SHA-256 identities', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v38')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v39')
     const caseHash = hashEvalCase(SYNTHETIC_LEXICAL_SMOKE_CASES[0]!)
     const observationHash = hashEvalObservation(
       createEvalObservation(SYNTHETIC_LEXICAL_BASELINE_INPUTS[0]!),
     )
 
     expect(caseHash).toBe('ff7807fad686cfd13f08f62f669a46e9e78d6a8c4c5f38113774dd3daa7bf896')
-    expect(observationHash).toBe('acc356491e7ae94437f519da9e2cc73ae9e21b6198a488db0d97e857df34b217')
+    expect(observationHash).toBe('7a1fe3d334836e833cc26e2072cad291f61c83e52712ba0b4362c211582fce68')
     expect(observationHash).not.toBe(caseHash)
   })
 

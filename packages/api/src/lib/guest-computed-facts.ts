@@ -5,6 +5,7 @@
  * do not cover is left out, and every line keeps the record's own wording beside the verdict.
  */
 import { guestRequestedCalendarDays } from './guest-knowledge-retrieval'
+import { guestRideFacts } from './guest-ride-facts'
 
 type HoursRecord = { title: string; category: string; content: string }
 type DirectoryLike = { knowledge: ReadonlyArray<HoursRecord> }
@@ -596,11 +597,25 @@ export function guestHeightFacts(directory: DirectoryLike, question: string): st
 /** The computed-facts block appended to the dynamic prompt, or '' when nothing applies. */
 export function buildGuestComputedFacts(input: {
   question: string
+  /** The visitor's previous message, so a follow-up such as "who made it" keeps its subject. */
+  previousQuestion?: string | null
   directory: DirectoryLike
   now: Date
   timeZone?: string | null | undefined
+  /** Research harnesses turn this off to measure the other facts alone. */
+  rideFacts?: boolean
 }): string {
-  return [guestScheduleFacts(input), guestHeightFacts(input.directory, input.question)]
+  return [
+    guestScheduleFacts(input),
+    guestHeightFacts(input.directory, input.question),
+    input.rideFacts !== false &&
+      guestRideFacts({
+        question: input.previousQuestion
+          ? `${input.previousQuestion}\n${input.question}`
+          : input.question,
+        directory: input.directory,
+      }),
+  ]
     .filter(Boolean)
     .join('\n\n')
 }

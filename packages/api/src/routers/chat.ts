@@ -1837,6 +1837,7 @@ const chatReadRouter = router({
           activeUpdates.length === 0
             ? buildGuestComputedFacts({
                 question: trimmedInput,
+                previousQuestion: previousGuestQuery,
                 directory: guestDirectory,
                 now: operationalNow,
                 timeZone: parseChatAppearance(venue.chatAppearance).timeZone,

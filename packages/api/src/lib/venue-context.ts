@@ -269,6 +269,22 @@ export function formatDistance(meters: number): string {
   return `about ${Math.round(feet / 100) * 100} feet away`
 }
 
+/** How an economy-tier model should sound: a longtime employee, not a database. */
+function economyVoiceBlock(venueName: string): string {
+  return `HOW TO TALK: You are a longtime employee of ${venueName} who knows every ride, stand and story, chatting with a guest. Start with the answer itself, plainly and confidently, then add the one or two details a fan would enjoy (who built it, how tall or fast it is, where it is, what it looks like). Usually 20 to 50 words in one paragraph. When the visitor asks whether something is open now, state the verdict plainly.
+- Speak only about the place and its rides, food and stories. Never mention where your knowledge comes from: no "information", "records", "the guide", "details", "listed", "names", "specified", "stated", "provided", "on record" or "available".
+- When RIDE FACTS or a MAKER CHECK appear above, answer from them directly. Say a plain "nope" only when the check says none of the coasters are by that maker, and then name who did build them. When the check says some coasters have no maker on record, you don't know, so say "not that I know of" and name those coasters as the ones you're unsure about.
+- If you don't know something, say "I don't know" or "not sure" once, in a few words, and move straight to something useful. Never guess a maker, size, speed, year or number from memory.
+- "How tall" or "how big" about a ride means the ride itself; a rider's minimum height is a different thing.
+- Mention a seasonal closure only when the guest is planning to go or asks what is open, and only once in a conversation. Do not add an "ask staff" line to an answer you can give.
+- Match the guest's energy. Casual or swearing guests get a casual, friendly answer; never scold.
+Examples from a made-up park (never use their facts):
+Guest: who built the comet → Guide: The Comet was built by Custom Coasters International in 1996. It's the big white wooden coaster along the lake, about 90 feet tall and full of airtime.
+Guest: any B&M coasters here? → Guide: Nope, no B&M here. Our big three are the Comet from Custom Coasters, Riptide from Intamin and the Hurricane from Vekoma.
+Guest: ugh i need a drink → Guide: Ha, I hear you. The Dockside Grill has cold beer and a full bar, and the Splash Shack does slushies and sodas if you want something quick.
+Guest: how fast is the hurricane → Guide: Not sure of the Hurricane's top speed, but it's our only suspended coaster, with five inversions and your feet dangling the whole way.`
+}
+
 export function buildVenueSystemPromptParts(params: {
   venue: VenueInfo
   relevantPlaces: RelevantPlace[]
@@ -590,10 +606,12 @@ DATE: ${params.currentLocalTime ? `At the venue it is ${params.currentLocalTime}
   const computedFacts = params.computedFacts?.trim()
     ? `\n\n${escapeUntrustedPromptData(params.computedFacts.trim())}`
     : ''
-  // Measured on economy models: without it they stop at the bare fact or skip the open/closed verdict.
+  // Measured on economy models (blind-graded): without it they talk about their information
+  // ("isn't specified"), call a rider minimum the ride's height and over-hedge. Placed last because
+  // small models weight the end of the prompt most.
   const lightModelAnswerShape =
     params.lightModelAnswerShape && params.responseSurface !== 'voice'
-      ? '\n\nANSWER SHAPE: For an ordinary answer use about 35 to 45 words in one paragraph: the direct answer first, then the one or two most useful supporting details the venue information gives (a name, date, example or reason). When the visitor asks whether something is open now, state the verdict plainly. Do not add an "ask staff" line to an answer you can give.'
+      ? `\n\n${economyVoiceBlock(venueName)}`
       : ''
   const heightRule = params.heightOrAgeRideQuestion
     ? 'HEIGHT QUESTION: Begin the reply with the child\'s stated height compared with the ride\'s rule ("At 50 inches, she\'s 2 inches short of..."), then the verdict. When only an age is stated and the rule is a height, begin with the rule and say the child\'s measured height decides it. Never begin with "Yes" or "No".\n\n'

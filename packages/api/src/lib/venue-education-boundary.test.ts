@@ -269,8 +269,8 @@ describe('computed facts and the light-model answer shape', () => {
     expect(dynamicPart).toContain('\u003cuntrusted_venue_data\u003e')
   })
 
-  it('adds the answer shape only for an economy route in written chat', () => {
-    const shape = 'ANSWER SHAPE: For an ordinary answer use about 35 to 45 words'
+  it('adds the employee voice only for an economy route in written chat', () => {
+    const shape = 'HOW TO TALK: You are a longtime employee of'
     expect(
       buildVenueSystemPromptParts({ ...base, lightModelAnswerShape: true }).dynamicPart,
     ).toContain(shape)
@@ -282,5 +282,13 @@ describe('computed facts and the light-model answer shape', () => {
         responseSurface: 'voice',
       }).dynamicPart,
     ).not.toContain(shape)
+  })
+
+  it('keeps an uncertain maker check from becoming a flat no', () => {
+    const { dynamicPart } = buildVenueSystemPromptParts({ ...base, lightModelAnswerShape: true })
+    expect(dynamicPart).toContain(
+      'Say a plain "nope" only when the check says none of the coasters',
+    )
+    expect(dynamicPart).toContain('"How tall" or "how big" about a ride means the ride itself')
   })
 })
