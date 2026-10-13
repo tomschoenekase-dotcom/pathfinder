@@ -36,9 +36,16 @@ function cardFacts(content: string): string[] {
   const facts: string[] = []
   for (const raw of content.split('\n')) {
     const match = CARD_LABELS.exec(raw.trim())
-    if (match) facts.push(`${match[1]}: ${match[2]!.trim()}`.slice(0, FACT_MAX))
+    if (match) facts.push(boundedFact(match[1]!, match[2]!.trim()))
   }
   return facts
+}
+
+function boundedFact(label: string, value: string): string {
+  const fact = `${label}: ${value}`
+  // A partial restriction can omit its maximum, exception or negation. Keep long facts in
+  // tier 2 rather than publishing a clipped claim that looks complete on the card.
+  return fact.length > FACT_MAX ? `${label}: [long fact; consult full record]` : fact
 }
 
 function card(name: string, lead: string, facts: string[]): string {
@@ -46,13 +53,15 @@ function card(name: string, lead: string, facts: string[]): string {
   return [`- ${name}: ${lead}`, ...facts].join(' | ')
 }
 
-function cardLead(content: string): string {
+function cardLead(content: string, statusContent = content): string {
   const lead = firstSentence(content)
   // A status sentence can follow the description; preserve it for future/closed rides.
-  const status = content
-    .split('\n')[0]!
-    .match(
-      /[^.!?]*(?:not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed)[^.!?]*[.!?]?/gi,
+  const status = statusContent
+    .split(/\n|(?<=[.!?])\s+/u)
+    .filter((sentence) =>
+      /\b(?:not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed)\b/iu.test(
+        sentence,
+      ),
     )
   return [lead, ...(status ?? []).map((sentence) => sentence.trim())]
     .filter((sentence, index, all) => sentence && all.indexOf(sentence) === index)
@@ -71,11 +80,11 @@ export function renderGuestVenueIndex(directory: IndexDirectory): string {
       `Places: ${place.type}`,
       card(
         `${place.name}${area}`,
-        cardLead(text),
+        cardLead(text, [text, place.longDescription ?? ''].join('\n')),
         [
           ...cardFacts(place.longDescription ?? ''),
           ...cardFacts(text),
-          ...(place.hours ? [`Hours: ${place.hours}`.slice(0, FACT_MAX)] : []),
+          ...(place.hours ? [boundedFact('Hours', place.hours)] : []),
         ].filter((fact, index, all) => all.indexOf(fact) === index),
       ),
     )

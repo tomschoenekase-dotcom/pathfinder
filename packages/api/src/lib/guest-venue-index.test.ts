@@ -89,7 +89,7 @@ describe('guest venue index fact fidelity', () => {
     ).toContain('Thunderbolt is a steel coaster. It is not yet open.')
   })
 
-  it('carries every labeled fact independently up to 400 characters', () => {
+  it('marks oversized facts independently instead of presenting clipped claims', () => {
     const labels = [
       'Made by',
       'Model',
@@ -106,9 +106,8 @@ describe('guest venue index fact fidelity', () => {
       ].join('\n'),
     )
     for (const label of labels) {
-      const fact = `${label}: ${'x'.repeat(450)}`.slice(0, 400)
-      expect(index).toContain(fact)
-      expect(index).not.toContain(`${fact}x`)
+      expect(index).toContain(`${label}: [long fact; consult full record]`)
+      expect(index).not.toContain(`${label}: x`)
     }
   })
 

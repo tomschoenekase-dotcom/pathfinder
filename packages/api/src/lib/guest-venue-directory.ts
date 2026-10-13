@@ -260,6 +260,10 @@ function renderGuestVenueDirectory(
     shortNameCounts.set(shortKey, (shortNameCounts.get(shortKey) ?? 0) + 1)
   }
   const mergedKnowledgeIds = new Set<string>()
+  const placeNameLines = directory.places.map(
+    (place) =>
+      `- ${place.name} (${guestPlaceKindLabel(place)}${place.areaName ? `, ${place.areaName}` : ''})`,
+  )
   const placeLines = directory.places.map((place) => {
     const kind = guestPlaceKindLabel(place)
     const area = place.areaName ? `, ${place.areaName}` : ''
@@ -308,7 +312,7 @@ function renderGuestVenueDirectory(
     // Keep every name before dropping any record: topic summaries go first. The short past list
     // goes before topic names so a cut never turns an ended event back into an unknown one.
     body = [
-      placeLines.length ? `Places:\n${placeLines.join('\n')}` : '',
+      placeNameLines.length ? `Places:\n${placeNameLines.join('\n')}` : '',
       pastSection,
       topics.length ? `Topics:\n${topics.map((topic) => topic.name).join('\n')}` : '',
     ]
@@ -447,12 +451,13 @@ export function staleGuestGuideRecordIds(params: {
   knowledgeEntries: ReadonlyArray<{ id?: string; updatedAt?: unknown; content?: string }>
 }): Set<string> {
   const stale = new Set<string>()
-  const comparisonIds = params.guide.mode === 'TIERED'
-    ? new Set([
-        ...params.directory.places.map((place) => `place:${place.id}`),
-        ...params.directory.knowledge.map((entry) => `knowledge:${entry.id}`),
-      ])
-    : params.guide.recordIds
+  const comparisonIds =
+    params.guide.mode === 'TIERED'
+      ? new Set([
+          ...params.directory.places.map((place) => `place:${place.id}`),
+          ...params.directory.knowledge.map((entry) => `knowledge:${entry.id}`),
+        ])
+      : params.guide.recordIds
   if (comparisonIds.size === 0) return stale
   const guideKnowledge = new Map(params.directory.knowledge.map((entry) => [entry.id, entry]))
   for (const entry of params.knowledgeEntries) {
@@ -463,13 +468,19 @@ export function staleGuestGuideRecordIds(params: {
     if (
       params.guide.mode === 'TIERED' &&
       !(cached instanceof Date && entry.updatedAt instanceof Date) &&
-      cachedEntry && entry.content !== undefined && entry.content !== cachedEntry.content
-    ) stale.add(key)
+      cachedEntry &&
+      entry.content !== undefined &&
+      entry.content !== cachedEntry.content
+    )
+      stale.add(key)
     if (
       cached instanceof Date &&
       entry.updatedAt instanceof Date &&
-      // Only a newer retrieved version replaces the guide's; an older one means the guide reloaded.
-      entry.updatedAt.getTime() > cached.getTime()
+      // FULL keeps its newer cached body. TIERED carries no full body, so either mismatch must
+      // exclude cached computed cues while the separately supplied retrieved record wins.
+      (params.guide.mode === 'TIERED'
+        ? entry.updatedAt.getTime() !== cached.getTime()
+        : entry.updatedAt.getTime() > cached.getTime())
     )
       stale.add(key)
   }
@@ -482,6 +493,7 @@ export function staleGuestGuideRecordIds(params: {
     'hours',
     'shortDescription',
     'longDescription',
+    'sourceUrl',
   ] as const
   for (const place of params.places) {
     const key = `place:${place.id}`
