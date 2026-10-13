@@ -260,6 +260,10 @@ function renderGuestVenueDirectory(
     shortNameCounts.set(shortKey, (shortNameCounts.get(shortKey) ?? 0) + 1)
   }
   const mergedKnowledgeIds = new Set<string>()
+  const placeNameLines = directory.places.map(
+    (place) =>
+      `- ${place.name} (${guestPlaceKindLabel(place)}${place.areaName ? `, ${place.areaName}` : ''})`,
+  )
   const placeLines = directory.places.map((place) => {
     const kind = guestPlaceKindLabel(place)
     const area = place.areaName ? `, ${place.areaName}` : ''
@@ -307,8 +311,10 @@ function renderGuestVenueDirectory(
   if (body.length > MAX_DIRECTORY_PROMPT_CHARS) {
     // Keep every name before dropping any record: topic summaries go first. The short past list
     // goes before topic names so a cut never turns an ended event back into an unknown one.
+    // Place descriptors go too: with them, a large museum's later galleries and every topic
+    // name fell past the cut.
     body = [
-      placeLines.length ? `Places:\n${placeLines.join('\n')}` : '',
+      placeNameLines.length ? `Places:\n${placeNameLines.join('\n')}` : '',
       pastSection,
       topics.length ? `Topics:\n${topics.map((topic) => topic.name).join('\n')}` : '',
     ]

@@ -143,6 +143,33 @@ describe('guest venue directory', () => {
     expect(prompt).toContain('may not list every loaded record')
   })
 
+  it('keeps every place and topic name when long descriptions overflow the directory', () => {
+    // A large museum: 210 exhibits with long descriptions, the last gallery added last.
+    const galleries = ['Early Rockets', 'Orbit', 'Moonshot', 'Station']
+    const places = Array.from({ length: 210 }, (_, index) => ({
+      ...THEME_PARK_PLACES[0]!,
+      id: `exhibit-${index}`,
+      name: `${galleries[Math.floor(index / 53)]} Exhibit ${index}`,
+      type: 'attraction',
+      areaName: galleries[Math.floor(index / 53)]!,
+      shortDescription: `A carefully restored artifact${', with a long label about its maker and journey'.repeat(4)}.`,
+      longDescription: null,
+    }))
+    const topics = ['Planning Your Visit', 'Flown Artifacts', 'Families and Children'].map(
+      (title, index) => ({ ...knowledge[0]!, id: `topic-${index}`, title, category: title }),
+    )
+    const prompt = buildGuestVenueDirectoryPrompt(
+      { places, knowledge: topics, incomplete: false },
+      { currentDate: '2026-10-13' },
+    )
+    expect(prompt).toContain('- Station Exhibit 209 (')
+    for (const title of ['Planning Your Visit', 'Flown Artifacts', 'Families and Children'])
+      expect(prompt).toContain(`] ${title}`)
+    expect(prompt).toContain('lists every loaded public place and topic record')
+    expect(prompt).not.toContain('carefully restored artifact')
+    expect(prompt.length).toBeLessThan(32_000 + 600)
+  })
+
   it('escapes untrusted record text', () => {
     const prompt = buildGuestVenueDirectoryPrompt(
       {
