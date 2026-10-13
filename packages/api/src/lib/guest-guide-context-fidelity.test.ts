@@ -73,6 +73,7 @@ describe('authoring checks match what the guide drops', () => {
         code: 'GUIDE_QUALITY_HIDDEN_SENTENCE',
         path: 'knowledgeEntries.create.0.value.content',
       }),
+      expect.objectContaining({ code: 'GUIDE_QUALITY_PARK_FACTS', path: 'knowledgeEntries' }),
     ])
     expect(warnings[0]!.message).toContain(boarding)
     expect(guestFacingText(`Thunderbolt boards from the Ember plaza. ${boarding}`)).toBe(
@@ -101,6 +102,7 @@ describe('authoring checks match what the guide drops', () => {
     })
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
       ['GUIDE_QUALITY_HIDDEN_SENTENCE', 'places.create.0.value.longDescription'],
+      ['GUIDE_QUALITY_PARK_FACTS', 'knowledgeEntries'],
     ])
   })
 
@@ -137,7 +139,9 @@ describe('authoring checks match what the guide drops', () => {
             'Thunderbolt is the tallest coaster at Emberwild Park.\nBuy tickets online at https://park.example/tickets/.',
         },
       ]),
-    ).toEqual([])
+    ).toEqual([
+      expect.objectContaining({ code: 'GUIDE_QUALITY_PARK_FACTS', path: 'knowledgeEntries' }),
+    ])
   })
 
   it('caps hidden-sentence warnings per package and keeps each message within 600 characters', () => {
@@ -315,7 +319,9 @@ describe('a large directory says what it actually lists', () => {
     expect(guide.prompt).toContain('- [Rides] Fictional Ride 0: Hydraulic Launch Coaster')
     expect(guide.prompt).not.toContain('a long ride with a long description')
     expect(guide.prompt).toMatch(/Past dated events[^\n]*\n- Fictional Lantern Festival 2024/u)
-    expect(guide.prompt).toContain('This directory lists every loaded public place and topic record')
+    expect(guide.prompt).toContain(
+      'This directory lists every loaded public place and topic record',
+    )
     expect(guide.rendererTruncated).toBe(false)
   })
 

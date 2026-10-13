@@ -77,6 +77,7 @@ import {
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
+import { venuePackageGuideQualityWarnings } from '../lib/venue-guide-quality'
 import { canonicalVenuePackagePayload } from '../schemas/venue-package'
 import { buildVenuePackagePreview as buildCoreVenuePackagePreview } from '../lib/venue-package-core'
 import {
@@ -335,7 +336,9 @@ function digest(value: unknown) {
 }
 
 const emptyBaseDigest = digest({ places: [], knowledgeEntries: [] })
-const emptyWarningDigest = digest([])
+// These partial packages intentionally omit Park facts; persist and acknowledge that finding.
+const authoringWarnings = venuePackageGuideQualityWarnings(payload)
+const authoringWarningDigest = digest(authoringWarnings)
 const completeSemanticScan = {
   status: 'COMPLETE' as const,
   similarityThreshold: 0.86,
@@ -356,13 +359,17 @@ const completeSemanticScan = {
     },
   },
 }
-const baseReport = { errors: [], warnings: [], semanticDuplicateScan: completeSemanticScan }
+const baseReport = {
+  errors: [],
+  warnings: authoringWarnings,
+  semanticDuplicateScan: completeSemanticScan,
+}
 const basePreview = {
   schemaVersion: 1 as const,
   payloadHash: digest(canonicalVenuePackagePayload(venueId, payload)),
   baseDigest: emptyBaseDigest,
   mode: 'ADDITIVE_V1' as const,
-  warningDigest: emptyWarningDigest,
+  warningDigest: authoringWarningDigest,
   report: baseReport,
   changes: {
     places: { add: [], change: [], remove: [], unchanged: 0 },
@@ -429,10 +436,10 @@ const basePreviewV2 = {
   payloadHash: digest(canonicalVenuePackagePayload(venueId, payloadV2)),
   baseDigest: digest({ venue: venueSnapshot, places: [], knowledgeEntries: [] }),
   mode: 'CONFIG_PATCH_AND_ADDITIVE_V2' as const,
-  warningDigest: emptyWarningDigest,
+  warningDigest: authoringWarningDigest,
   report: {
     errors: [],
-    warnings: [],
+    warnings: authoringWarnings,
     semanticDuplicateScan: completeVenueOnlySemanticScan,
   },
   changes: {
@@ -547,6 +554,7 @@ describe('venue package router', () => {
       report: {
         errors: [],
         warnings: [
+          ...authoringWarnings,
           expect.objectContaining({
             code: 'DUPLICATE_EXISTING_CONTENT',
             path: 'knowledgeEntries.0.title',
@@ -917,7 +925,7 @@ describe('venue package router', () => {
         id: packageId,
         expectedUpdatedAt: updatedAt,
         commandKey,
-        acknowledgedWarningDigest: emptyWarningDigest,
+        acknowledgedWarningDigest: authoringWarningDigest,
         acknowledgedPayloadHash: basePackage.payloadHash,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
@@ -957,7 +965,7 @@ describe('venue package router', () => {
         id: packageId,
         expectedUpdatedAt: updatedAt,
         commandKey,
-        acknowledgedWarningDigest: emptyWarningDigest,
+        acknowledgedWarningDigest: authoringWarningDigest,
         acknowledgedPayloadHash: '0'.repeat(64),
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
@@ -971,8 +979,8 @@ describe('venue package router', () => {
       approvedBy: 'user_manager',
       approvedAt: updatedAt,
       approvedCommandKey: commandKey,
-      approvalWarningDigest: emptyWarningDigest,
-      approvedWarningCodes: [],
+      approvalWarningDigest: authoringWarningDigest,
+      approvedWarningCodes: ['GUIDE_QUALITY_PARK_FACTS'],
     }
     const created = { id: 'cknowledgeabc123456789', ...payload.knowledgeEntries[0]! }
     const postState = { places: [], knowledgeEntries: [created] }
@@ -1026,8 +1034,8 @@ describe('venue package router', () => {
       approvedBy: 'user_owner',
       approvedAt: updatedAt,
       approvedCommandKey: commandKey,
-      approvalWarningDigest: emptyWarningDigest,
-      approvedWarningCodes: [],
+      approvalWarningDigest: authoringWarningDigest,
+      approvedWarningCodes: ['GUIDE_QUALITY_PARK_FACTS'],
     }
     const postApplyDigest = digest({
       venue: venueSnapshotAfterV2,
@@ -1106,8 +1114,8 @@ describe('venue package router', () => {
       approvedBy: 'user_owner',
       approvedAt: updatedAt,
       approvedCommandKey: commandKey,
-      approvalWarningDigest: emptyWarningDigest,
-      approvedWarningCodes: [],
+      approvalWarningDigest: authoringWarningDigest,
+      approvedWarningCodes: ['GUIDE_QUALITY_PARK_FACTS'],
       appliedBy: 'user_owner',
       appliedAt: updatedAt,
       appliedCommandKey: commandKey,

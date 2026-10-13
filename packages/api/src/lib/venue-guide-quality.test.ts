@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
-import { guideQualityWarnings, venuePackageGuideQualityWarnings } from './venue-guide-quality'
+import {
+  guideQualityWarnings as rawGuideQualityWarnings,
+  venuePackageGuideQualityWarnings,
+} from './venue-guide-quality'
+
+const parkFacts = {
+  kind: 'knowledge' as const,
+  path: 'knowledgeEntries.parkFacts',
+  title: 'Park facts',
+  category: 'Park facts',
+  content: 'Emberwild Park opened in 2000 and does not publish attendance.',
+}
+const guideQualityWarnings = (records: Parameters<typeof rawGuideQualityWarnings>[0]) =>
+  rawGuideQualityWarnings([...records, parkFacts])
 
 const place = (overrides: Record<string, unknown> = {}) => ({
   kind: 'place' as const,
@@ -10,7 +23,7 @@ const place = (overrides: Record<string, unknown> = {}) => ({
   itemType: 'activity',
   shortDescription: 'Thunderbolt is a launched roller coaster in the Ember realm.',
   longDescription:
-    'Thunderbolt is a launched roller coaster in the Ember realm. Look for the cave entrance under the THUNDERBOLT banner.',
+    'Thunderbolt is a launched roller coaster in the Ember realm. Look for the cave entrance under the THUNDERBOLT banner.\nMade by: Fictional Works\nSize and speed: 100 ft tall; 50 mph',
   ...overrides,
 })
 const topic = (overrides: Record<string, unknown> = {}) => ({
@@ -18,7 +31,8 @@ const topic = (overrides: Record<string, unknown> = {}) => ({
   path: 'knowledgeEntries.0',
   title: 'Thunderbolt',
   category: 'Ride information',
-  content: 'Thunderbolt is a launched roller coaster in the Ember realm.\n\nHeight: 48 in to ride',
+  content:
+    'Thunderbolt is a launched roller coaster in the Ember realm.\n\nHeight: 48 in to ride\nMade by: Fictional Works\nSize and speed: 100 ft tall; 50 mph',
   ...overrides,
 })
 const codes = (w: ReturnType<typeof guideQualityWarnings>) => w.map((x) => x.code).sort()
@@ -100,6 +114,7 @@ describe('guide-quality warnings', () => {
       },
     })
     expect(warnings.map((w) => w.path).sort()).toEqual([
+      'knowledgeEntries',
       'knowledgeEntries.create.0.value.title',
       'places.update.0.value.shortDescription',
       'places.update.0.value.shortDescription',
@@ -189,5 +204,94 @@ describe('contract v3 guide-quality warnings', () => {
     expect(warnings[0]!.message).toContain('“Workboats: Models”')
     expect(warnings[0]!.message).not.toContain('Signal Flags')
     expect(warnings[0]!.message).not.toContain('“Tide Clock')
+  })
+})
+
+describe('tiered guide authoring facts', () => {
+  it('flags missing coaster maker and size with exact record paths', () => {
+    const warnings = guideQualityWarnings([
+      topic({ content: 'Thunderbolt is a steel roller coaster.' }),
+    ])
+    expect(codes(warnings)).toEqual([
+      'GUIDE_QUALITY_COASTER_MAKER',
+      'GUIDE_QUALITY_COASTER_SIZE_SPEED',
+    ])
+    expect(warnings.every((warning) => warning.path === 'knowledgeEntries.0.content')).toBe(true)
+  })
+  it('accepts Designed by and requires nonempty labeled values', () => {
+    expect(
+      guideQualityWarnings([
+        topic({
+          content:
+            'Thunderbolt is a wooden coaster.\nDesigned by: Fictional Works\nSize and speed: 100 ft; 50 mph',
+        }),
+      ]),
+    ).toEqual([])
+    expect(
+      codes(
+        guideQualityWarnings([
+          topic({ content: 'Thunderbolt is a roller coaster.\nMade by: \nSize and speed: ' }),
+        ]),
+      ),
+    ).toEqual(['GUIDE_QUALITY_COASTER_MAKER', 'GUIDE_QUALITY_COASTER_SIZE_SPEED'])
+  })
+  it('does not treat a ride explicitly described as not a coaster as one', () => {
+    expect(
+      guideQualityWarnings([
+        topic({
+          title: 'Cinderswing',
+          content: 'Cinderswing is not a coaster; it is a swing ride.',
+        }),
+      ]),
+    ).toEqual([])
+  })
+  it('flags overview makers from labeled coaster records', () => {
+    const overview = topic({
+      title: 'Coaster overview',
+      category: 'Coasters',
+      content: 'Thunderbolt is a launched coaster.',
+    })
+    expect(codes(guideQualityWarnings([topic(), overview]))).toEqual([
+      'GUIDE_QUALITY_OVERVIEW_MAKER',
+    ])
+    expect(
+      guideQualityWarnings([
+        topic(),
+        { ...overview, content: 'Thunderbolt is a launched coaster made by Fictional Works.' },
+      ]),
+    ).toEqual([])
+  })
+  it('does not count another coaster maker as the missing coaster maker', () => {
+    const overview = topic({
+      title: 'Coaster overview',
+      category: 'Coasters',
+      content: 'Thunderbolt is a launched coaster. Cinderswing was made by Fictional Works.',
+    })
+    expect(codes(guideQualityWarnings([topic(), overview]))).toEqual([
+      'GUIDE_QUALITY_OVERVIEW_MAKER',
+    ])
+  })
+  it('checks labeled coaster facts on place descriptions as well as topics', () => {
+    const warnings = guideQualityWarnings([place({ longDescription: null })])
+    expect(codes(warnings)).toEqual([
+      'GUIDE_QUALITY_COASTER_MAKER',
+      'GUIDE_QUALITY_COASTER_SIZE_SPEED',
+    ])
+    expect(warnings.every((warning) => warning.path === 'places.0.longDescription')).toBe(true)
+  })
+  it('requires explicit alcohol lines even when dining serves no alcohol', () => {
+    const dining = topic({
+      title: 'Cinderswing',
+      category: 'Dining',
+      content: 'Cinderswing is a cafe. Beer and wine are not served.',
+    })
+    expect(codes(guideQualityWarnings([dining]))).toEqual(['GUIDE_QUALITY_ALCOHOL_LINE'])
+    expect(
+      guideQualityWarnings([{ ...dining, content: `${dining.content}\nAlcohol: None served` }]),
+    ).toEqual([])
+  })
+  it('flags missing Park facts and accepts a case-insensitive record title', () => {
+    expect(codes(rawGuideQualityWarnings([]))).toEqual(['GUIDE_QUALITY_PARK_FACTS'])
+    expect(rawGuideQualityWarnings([{ ...parkFacts, title: ' park FACTS ' }])).toEqual([])
   })
 })

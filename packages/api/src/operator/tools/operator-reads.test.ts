@@ -19,7 +19,7 @@ import {
 } from '../crm-projection'
 import { createOperatorRegistry, type OperatorCallContext } from '../registry'
 import { OPERATOR_READ_TOOLS } from './index'
-import { OPERATOR_MANUAL_TEXT } from './manual-text'
+import { OPERATOR_MANUAL_TEXT, OPERATOR_MANUAL_VERSION } from './manual-text'
 
 function contact(overrides: Partial<SnapshotContactInput> = {}): SnapshotContactInput {
   return {
@@ -159,6 +159,30 @@ describe('operator CRM projection', () => {
 })
 
 describe('operator.get_manual', () => {
+  it('versions the labeled fact authoring standard', () => {
+    expect(OPERATOR_MANUAL_VERSION).toBe('torchiko-operator-manual-v15')
+    for (const label of [
+      'Made by:',
+      'Designed by:',
+      'Model:',
+      'Opened:',
+      'Size and speed:',
+      'Look:',
+      'History:',
+      'Height:',
+      'Menu:',
+      'Alcohol:',
+      'Species:',
+      'Origin:',
+      'Diet:',
+      'Exhibit:',
+      'Park facts',
+    ]) {
+      expect(OPERATOR_MANUAL_TEXT).toContain(label)
+    }
+    expect(OPERATOR_MANUAL_TEXT).toContain('does not publish attendance')
+  })
+
   it('equals docs/operator/manual.md and parses with the output contract', async () => {
     const docs = readFileSync(
       path.resolve(__dirname, '../../../../../docs/operator/manual.md'),

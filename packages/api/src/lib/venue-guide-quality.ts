@@ -98,6 +98,22 @@ function textOf(record: GuideQualityRecord): Array<{ field: string; text: string
     : [{ field: 'content', text: record.content }]
 }
 
+const COASTER = /\b(?:roller )?coaster\b/iu
+const NOT_COASTER = /\b(?:not|isn't|is not|no longer) (?:a |an )?(?:roller )?coaster\b/iu
+const labeledFact = (text: string, label: string) =>
+  text.match(new RegExp(`^\\s*(?:${label}):[ \t]*(\\S[^\\r\\n]*)`, 'imu'))?.[1]?.trim()
+const isCoaster = (record: GuideQualityRecord) => {
+  const name = record.kind === 'place' ? record.name : record.title
+  if (NON_ENTITY_TITLE.test(name)) return false
+  if (record.kind === 'knowledge' && !ENTITY_CATEGORY.test(record.category)) return false
+  const opening = firstSentence(
+    textOf(record)
+      .map((field) => field.text)
+      .join(' '),
+  )
+  return !NOT_COASTER.test(opening) && COASTER.test(opening)
+}
+
 export function guideQualityWarnings(
   records: readonly GuideQualityRecord[],
 ): GuideQualityWarning[] {
@@ -106,6 +122,35 @@ export function guideQualityWarnings(
   for (const record of records) {
     const label = record.kind === 'place' ? record.name : record.title
     const fields = textOf(record)
+    const text = fields.map((field) => field.text).join('\n')
+    const contentPath = `${record.path}.${record.kind === 'place' ? 'longDescription' : 'content'}`
+    if (isCoaster(record)) {
+      for (const [fact, code] of [
+        ['Made by|Designed by', 'GUIDE_QUALITY_COASTER_MAKER'],
+        ['Size and speed', 'GUIDE_QUALITY_COASTER_SIZE_SPEED'],
+      ] as const) {
+        if (!labeledFact(text, fact)) {
+          warnings.push({
+            code,
+            path: contentPath,
+            message: `“${label}” is a roller coaster without a “${fact.replace('|', ':” or “')}:” line. Add verified facts on a labeled line; never guess missing facts. ${MANUAL}`,
+          })
+        }
+      }
+    }
+    const dining =
+      record.kind === 'knowledge'
+        ? /\b(?:dining|food|restaurant|cafe|bar)\b/iu.test(record.category)
+        : /\b(?:dining|food|restaurant|cafe|bar)\b/iu.test(
+            `${record.type} ${record.itemType} ${text}`,
+          )
+    if (dining && /\b(?:beer|wine|alcohol)\b/iu.test(text) && !labeledFact(text, 'Alcohol')) {
+      warnings.push({
+        code: 'GUIDE_QUALITY_ALCOHOL_LINE',
+        path: contentPath,
+        message: `“${label}” mentions beer, wine or alcohol without an “Alcohol:” line. State what is available or that none is served. ${MANUAL}`,
+      })
+    }
 
     const research = fields.map((f) => ({ ...f, m: f.text.match(RESEARCH_TEXT) })).find((f) => f.m)
     if (research?.m) {
@@ -218,7 +263,18 @@ export function guideQualityWarnings(
       }
     }
   }
-  return [...warnings, ...overviewCoverageWarnings(records)]
+  if (
+    !records.some(
+      (record) => record.kind === 'knowledge' && /^park facts$/iu.test(record.title.trim()),
+    )
+  ) {
+    warnings.push({
+      code: 'GUIDE_QUALITY_PARK_FACTS',
+      path: 'knowledgeEntries',
+      message: `This package has no “Park facts” record. Add owners, opening year, size, attendance (or “does not publish attendance”) and alcohol policy. For a partial update, confirm the venue already has this record. ${MANUAL}`,
+    })
+  }
+  return [...warnings, ...overviewCoverageWarnings(records), ...overviewMakerWarnings(records)]
 }
 
 /**
@@ -254,6 +310,49 @@ function overviewCoverageWarnings(records: readonly GuideQualityRecord[]): Guide
         message: `“${clip(overview.title, LABEL_CHARS)}” does not name ${missing.length} other “${clip(overview.category, LABEL_CHARS)}” record(s): ${shown.join(', ')}${missing.length > shown.length ? ', …' : ''}. The guide answers “what is there” from this overview, so name every one with a few words of what it is. ${MANUAL}`,
       },
     ]
+  })
+}
+
+function overviewMakerWarnings(records: readonly GuideQualityRecord[]): GuideQualityWarning[] {
+  return records.flatMap((overview) => {
+    if (
+      overview.kind !== 'knowledge' ||
+      !OVERVIEW_TITLE.test(overview.title) ||
+      !/\bcoasters?\b/iu.test(`${overview.title} ${overview.category}`)
+    )
+      return []
+    return records
+      .filter(isCoaster)
+      .flatMap((coaster) => {
+        const maker = labeledFact(
+          textOf(coaster)
+            .map((field) => field.text)
+            .join('\n'),
+          'Made by|Designed by',
+        )
+        if (!maker) return []
+        const name = coaster.kind === 'place' ? coaster.name : coaster.title
+        if (
+          sentencesOfText(overview.content).some((sentence) => {
+            const text = ` ${matchText(sentence)} `
+            return (
+              text.includes(` ${overviewName(name)} `) && text.includes(` ${matchText(maker)} `)
+            )
+          })
+        )
+          return []
+        return [
+          {
+            code: 'GUIDE_QUALITY_OVERVIEW_MAKER',
+            path: `${overview.path}.content`,
+            message: `“${overview.title}” omits the maker of “${name}”: “${maker}”. Include the coaster and its maker from the labeled record. ${MANUAL}`,
+          },
+        ]
+      })
+      .filter(
+        (warning, index, all) =>
+          all.findIndex((other) => other.message === warning.message) === index,
+      )
   })
 }
 
