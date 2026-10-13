@@ -19,7 +19,7 @@ type DirectoryLike = { knowledge: ReadonlyArray<FactRecord>; places?: ReadonlyAr
 
 // Labelled lines that carry ride facts. "Height:" is the rider requirement and is handled elsewhere.
 const FACT_LABEL =
-  /^(made by|built by|designed by|designers?|designed and built by|manufacturer|maker|model|size and speed|size|speed|top speed|track|length|drop|inversions|opened|history)\s*:\s*(.+)$/i
+  /^(made by|built by|designed by|designers?|designed and built by|manufacturer|maker|model|size and speed|size|speed|top speed|track|length|drop|inversions|opened|history|status)\s*:\s*(.+)$/i
 const MAKER_LABEL =
   /^(made by|built by|designed by|designers?|designed and built by|manufacturer|maker)$/i
 
@@ -90,7 +90,13 @@ export function collectRideFacts(directory: DirectoryLike): RideFact[] {
       // A "Size" line without a measurement is a rider-fit note, not a ride statistic.
       if (/^size$/i.test(match[1]!) && !/\d/.test(match[2]!)) continue
       lines.push(`${match[1]}: ${match[2]!.trim()}`)
-      if (MAKER_LABEL.test(match[1]!)) makers.push(match[2]!.trim())
+      if (
+        MAKER_LABEL.test(match[1]!) &&
+        !/^(?:unknown|not (?:known|documented|published|available)|unconfirmed|tbd|n\/?a)\.?$/i.test(
+          match[2]!.trim(),
+        )
+      )
+        makers.push(match[2]!.trim())
     }
     const kind = firstSentence(record.content)
     const isRide = RIDE_KIND.test(kind)
@@ -101,7 +107,12 @@ export function collectRideFacts(directory: DirectoryLike): RideFact[] {
     const isCoaster =
       /\bis an? [^.]*\bcoaster\b/i.test(kind) &&
       !/not an? (roller )?coaster/i.test(kind) &&
-      !/\b(future|coming|not open yet|planned|former|retired)\b/i.test(kind)
+      !/\b(future|coming|not open yet|not (?:yet )?open|has not opened|will open|scheduled to open|planned|former|retired|permanently closed)\b/i.test(
+        record.content
+          .split(/\r?\n/)
+          .filter((line) => !/^\s*[\w ]+:/.test(line) || /^\s*status:/i.test(line))
+          .join(' '),
+      )
     facts.push({ ride: record.title, kind, lines, makers, isCoaster })
   }
   return facts
@@ -136,7 +147,13 @@ export function guestRideFacts(input: {
   const out: string[] = [
     "RIDE FACTS (collected by the server from the park's own ride records; every value is the record's own wording):",
   ]
-  for (const fact of withLines.slice(0, 40))
+  // Keep an explicitly requested ride even when it falls beyond the compact block's budget.
+  const named = (fact: RideFact) => {
+    const escaped = fact.ride.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(^|[^\\w])${escaped}(?![\\w])`, 'i').test(input.question)
+  }
+  const selected = [...withLines.filter(named), ...withLines.filter((fact) => !named(fact))]
+  for (const fact of selected.slice(0, 40))
     out.push(`- ${fact.ride} (${fact.kind.replace(/\s+/g, ' ')}) ${fact.lines.join(' | ')}`)
   const coasters = facts.filter((f) => f.isCoaster)
   const withoutMaker = coasters.filter((f) => !f.makers.length).map((f) => f.ride)

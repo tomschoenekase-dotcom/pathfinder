@@ -49,6 +49,29 @@ function expectedFor(question: string, source = input) {
 }
 
 describe('venue question generator', () => {
+  it('treats unknown maker labels as missing and status closures as non-current', () => {
+    const generated = generateVenueQuestions({
+      slug: 'emberwild',
+      knowledge: [
+        {
+          title: 'Comet',
+          category: 'Rides',
+          content: 'Comet is a steel coaster.\nMade by: Unknown',
+        },
+        {
+          title: 'Yesterday',
+          category: 'Rides',
+          content: 'Yesterday is a steel coaster.\nStatus: permanently closed\nMade by: Ash Works',
+        },
+      ],
+    })
+    expect(
+      generated.truth[generated.cases.find((entry) => entry.tags.includes('maker-absence'))!.id],
+    ).toContain('maker unknown for Comet')
+    expect(
+      generated.truth[generated.cases.find((entry) => entry.tags.includes('coaster-count'))!.id],
+    ).toContain('1 documented')
+  })
   it('produces deterministic lab-compatible cases and truth in the requested bounds', () => {
     const generated = generateVenueQuestions(input)
     expect(generated).toEqual(
@@ -151,6 +174,15 @@ describe('venue question generator', () => {
     const turns = generated.cases.flatMap((entry) => entry.turns)
     expect(turns.filter((turn) => turn.startsWith('Who made '))).toHaveLength(50)
     expect(turns.filter((turn) => turn.startsWith('How tall and fast '))).toHaveLength(50)
+    for (const entry of generated.cases.filter((entry) => entry.turns.length > 1)) {
+      const lines = generated.truth[entry.id]!.split('\n')
+      expect(lines).toHaveLength(entry.turns.length)
+      entry.turns.forEach((turn, i) => {
+        expect(lines[i]).toMatch(new RegExp(`^Turn ${i + 1}:`))
+        if (turn.startsWith('Who made ')) expect(lines[i]).toContain('Made by: Ember Engineering')
+        else expect(lines[i]).toContain('Size and speed: 120 ft tall')
+      })
+    }
     expect(generated.cases.filter((entry) => entry.tags.includes('casual'))).toHaveLength(5)
   })
 

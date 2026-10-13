@@ -26,6 +26,41 @@ const emberwild = {
 }
 
 describe('guest ride facts', () => {
+  it('does not treat a placeholder maker as proof of a different maker', () => {
+    const directory = {
+      knowledge: [record('Comet', 'Comet is a steel coaster.\nMade by: Unknown')],
+    }
+    expect(guestRideFacts({ question: 'Any Intamin rides?', directory })).toContain('is unknown')
+  })
+  it('retains a named ride beyond the forty-record cue budget', () => {
+    const directory = {
+      knowledge: Array.from({ length: 55 }, (_, i) =>
+        record(
+          `Comet ${i}`,
+          `Comet ${i} is a steel coaster.\nMade by: Ember Works\nSpeed: ${i + 20} mph`,
+        ),
+      ),
+    }
+    expect(guestRideFacts({ question: 'How fast is Comet 54?', directory })).toContain(
+      'Speed: 74 mph',
+    )
+  })
+
+  it('does not call closed or unopened coasters current', () => {
+    const directory = {
+      knowledge: [
+        record(
+          'Tomorrow',
+          'Tomorrow is a steel coaster. It is not yet open.\nMade by: Ember Works',
+        ),
+        record(
+          'Yesterday',
+          'Yesterday is a wooden coaster.\nStatus: permanently closed\nMade by: Ember Works',
+        ),
+      ],
+    }
+    expect(collectRideFacts(directory).filter((f) => f.isCoaster)).toEqual([])
+  })
   it('collects labelled fact lines and skips rider-fit size notes', () => {
     const facts = collectRideFacts(emberwild)
     const thunderbolt = facts.find((f) => f.ride === 'Thunderbolt')!

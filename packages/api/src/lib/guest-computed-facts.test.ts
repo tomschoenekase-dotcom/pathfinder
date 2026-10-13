@@ -9,6 +9,41 @@ import {
 } from './guest-computed-facts'
 
 // Fictional venues only. Times are America/New_York; October 2031 starts on a Wednesday.
+describe('adversarial computed ride facts', () => {
+  const directory = {
+    knowledge: [
+      {
+        title: 'Comet',
+        category: 'Rides',
+        content:
+          'Comet is a steel coaster.\nHeight: 48 in to ride\nMade by: Ember Works\nSize and speed: 120 ft tall; 60 mph',
+      },
+    ],
+  }
+  it('does not interpret a structure height as a zero-foot rider', () => {
+    expect(guestHeightFacts(directory, 'Is Comet 120 ft tall?')).toBeNull()
+  })
+  it('does not carry a previous maker into a new food question', () => {
+    expect(
+      buildGuestComputedFacts({
+        directory,
+        question: 'Where can I eat?',
+        previousQuestion: 'Any Intamin rides?',
+        now: new Date('2031-10-01T12:00:00Z'),
+      }),
+    ).not.toContain('MAKER CHECK')
+  })
+  it('keeps a previous subject for a ride-fact follow-up', () => {
+    expect(
+      buildGuestComputedFacts({
+        directory,
+        question: 'Who made it?',
+        previousQuestion: 'Tell me about Comet',
+        now: new Date('2031-10-01T12:00:00Z'),
+      }),
+    ).toContain('Ember Works')
+  })
+})
 const museum = {
   knowledge: [
     {

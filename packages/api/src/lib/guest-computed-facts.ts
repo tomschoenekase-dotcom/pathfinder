@@ -610,9 +610,11 @@ export function buildGuestComputedFacts(input: {
     guestHeightFacts(input.directory, input.question),
     input.rideFacts !== false &&
       guestRideFacts({
-        question: input.previousQuestion
-          ? `${input.previousQuestion}\n${input.question}`
-          : input.question,
+        question:
+          input.previousQuestion &&
+          /\b(it|that|this|they|them|those|these|one)\b/i.test(input.question)
+            ? `${input.previousQuestion}\n${input.question}`
+            : input.question,
         directory: input.directory,
       }),
   ]

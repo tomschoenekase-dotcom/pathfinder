@@ -55,7 +55,10 @@ function isCoaster(record: RecordInput): boolean {
   return (
     /\bis an? [^.]*\bcoaster\b/i.test(lead) &&
     !/not (?:a |an )?(?:roller )?coaster|future|planned|coming|former|retired|not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed/i.test(
-      lead,
+      record.content
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*[\w ]+:/.test(line) || /^\s*status:/i.test(line))
+        .join(' '),
     )
   )
 }
@@ -92,19 +95,26 @@ export function generateVenueQuestions(raw: VenueQuestionInput): {
     .filter(
       (record, index, all) => all.findIndex((other) => other.title === record.title) === index,
     )
-  const makers = rides.map((ride) => ({
-    ride,
-    line: labeled(
+  const makers = rides.map((ride) => {
+    const line = labeled(
       ride,
       '(?:made by|built by|designed by|manufacturer|maker|designed and built by)',
-    ),
-  }))
-  const makerNames = makers.flatMap(({ line }) => (line ? [value(line)] : []))
-  let absent =
-    ['Intamin', 'Vekoma', 'Mack', 'Gerstlauer', 'Zierer', 'Maurer', 'Zamperla'].find(
-      (name) =>
-        !records.some((record) => record.content.toLowerCase().includes(name.toLowerCase())),
     )
+    return {
+      ride,
+      line:
+        line &&
+        !/^(?:unknown|not (?:known|documented|published|available)|unconfirmed|tbd|n\/?a)\.?$/i.test(
+          value(line),
+        )
+          ? line
+          : undefined,
+    }
+  })
+  const makerNames = makers.flatMap(({ line }) => (line ? [value(line)] : []))
+  let absent = ['Intamin', 'Vekoma', 'Mack', 'Gerstlauer', 'Zierer', 'Maurer', 'Zamperla'].find(
+    (name) => !records.some((record) => record.content.toLowerCase().includes(name.toLowerCase())),
+  )
   for (let suffix = 1; absent === undefined; suffix++) {
     const candidate = `Absent Maker ${suffix}`
     if (!records.some((record) => record.content.toLowerCase().includes(candidate.toLowerCase())))
