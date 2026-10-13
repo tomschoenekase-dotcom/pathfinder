@@ -205,7 +205,7 @@ describe('server-computed ride heights', () => {
     expect(text).toContain('Ridge Flyer: only with a qualifying companion (48 in to ride alone)')
     expect(text).toContain('Thunder Run: too short, 2 in under the 48-inch minimum')
     expect(text).toContain(
-      'Rain Raft (not currently operating per its record): meets the height rule',
+      'Rain Raft (not currently operating per its record): meets the 36-inch minimum',
     )
     expect(text).not.toContain('Ride guide')
   })
@@ -221,6 +221,102 @@ describe('server-computed ride heights', () => {
 
   it('stays silent without a height or age', () => {
     expect(guestHeightFacts(rides, 'What is the scariest coaster?')).toBeNull()
+  })
+
+  // A park whose coasters say only "48 in to ride" had every coaster left out, and a child tall
+  // enough to ride alone was told only "meets the height rule"; the model then said he needed an
+  // adult and did its own arithmetic wrong.
+  const plainPark = {
+    knowledge: [
+      {
+        title: 'Ember Racer',
+        category: 'Rides',
+        content: `A launched coaster.
+Height: 48 in to ride`,
+      },
+      {
+        title: 'Tall Fern',
+        category: 'Rides',
+        content: `A big coaster.
+Height: 52 inches`,
+      },
+      {
+        title: 'Inchworm Express',
+        category: 'Rides',
+        content: `A junior coaster.
+Height: 36 in with an adult; 48 in to ride alone`,
+      },
+      {
+        title: 'Cavern Drop',
+        category: 'Rides',
+        content: `A new coaster planned for summer 2032.
+Height: 39 in minimum rider height`,
+      },
+      {
+        title: 'Tea Cups',
+        category: 'Rides',
+        content: `Spinning cups.
+Height: under 42 in with an adult`,
+      },
+    ],
+  }
+
+  it('reads a plain minimum and says which rule a rider meets', () => {
+    expect(parseHeightRule(plainPark.knowledge[0]!.content)).toMatchObject({ minAlone: 48 })
+    expect(parseHeightRule(plainPark.knowledge[1]!.content)).toMatchObject({ minAlone: 52 })
+    expect(parseHeightRule(plainPark.knowledge[4]!.content)).toMatchObject({
+      minAlone: 42,
+      minWithCompanion: 0,
+    })
+    const text = guestHeightFacts(plainPark, 'my kid is 50 inches which coasters can he do', 2031)!
+    expect(text).toContain('Ember Racer: meets the 48-inch minimum')
+    expect(text).toContain('Tall Fern: too short, 2 in under the 52-inch minimum')
+    expect(text).toContain(
+      'Inchworm Express: can ride alone (meets the 48-inch minimum to ride alone)',
+    )
+    expect(text).toContain('Cavern Drop (not open yet per its record): meets the 39-inch minimum')
+    expect(text).toContain('Tea Cups: can ride alone (meets the 42-inch minimum to ride alone)')
+    expect(text).not.toContain('meets the height rule')
+  })
+
+  it('reads companion bands and leaves unsettled or unrelated rules unread', () => {
+    const rule = (line: string) =>
+      parseHeightRule(`A ride.
+Height: ${line}`)
+    expect(rule('54 in minimum alone; 36 inches with a supervising companion.')).toMatchObject({
+      minAlone: 54,
+      minWithCompanion: 36,
+    })
+    expect(
+      rule('44 in to ride alone; at least 36 but under 44 in only with a responsible adult'),
+    ).toMatchObject({ minAlone: 44, minWithCompanion: 36 })
+    expect(rule('45 in to ride with a qualifying companion; 54 in alone')).toMatchObject({
+      minAlone: 54,
+      minWithCompanion: 45,
+    })
+    expect(rule('48 in minimum; a companion exception is unconfirmed')).toMatchObject({
+      minAlone: 48,
+      minWithCompanion: null,
+    })
+    expect(rule('48 in minimum; no shorter-rider companion exception')).toMatchObject({
+      minAlone: 48,
+    })
+    expect(
+      rule('Under 38 in must be accompanied by a Responsible Person; 38 in to ride alone'),
+    ).toMatchObject({ minAlone: 38, minWithCompanion: 0 })
+    expect(rule('32-60 in')).toMatchObject({ minAlone: 32, max: 60 })
+    expect(
+      rule('the 52 versus 54 in minimum is unresolved; a 53 in rider must not assume eligibility'),
+    ).toBeNull()
+    expect(
+      rule('eligibility below 36 in needs confirmation; independent sitting is required'),
+    ).toBeNull()
+    expect(rule('Under 48 in must wear a life vest')).toBeNull()
+    expect(guestHeightFacts({ knowledge: [] }, 'Is Comet 120 ft tall?')).toBeNull()
+  })
+
+  it('treats a dated opening as future only while its year is ahead', () => {
+    expect(guestHeightFacts(plainPark, 'my kid is 50 inches', 2033)).not.toContain('not open yet')
   })
 })
 

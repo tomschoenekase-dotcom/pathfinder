@@ -508,34 +508,95 @@ type HeightRule = {
   max: number | null
   text: string
 }
-/** Reads one ride record's Height line; forms it cannot read return null rather than a guess. */
+/**
+ * Reads one ride record's Height line; forms it cannot read return null rather than a guess.
+ * Clauses the record marks as unsettled ("an adult exception is unconfirmed", "ask the attendant
+ * about...") are dropped first, so only settled rules become verdicts.
+ */
 export function parseHeightRule(content: string): HeightRule | null {
   const matches = [...content.matchAll(/height:\s*([^\n|]+)/giu)]
   if (matches.length !== 1) return null
   const text = matches[0]![1]!.trim()
-  const l = text.toLowerCase()
+  const clauses = text
+    .toLowerCase()
+    .split(';')
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+  const unsettled = (clause: string) =>
+    /confirm|unresolved|unclear|\bask\b|assume|\bversus\b|\bwhether\b|price/u.test(clause)
+  // An unsettled clause with its own inch figure puts the rule itself in doubt.
+  if (clauses.some((clause) => unsettled(clause) && /\d{2,3}\s*(?:in\b|inch|")/u.test(clause)))
+    return null
+  const settled = clauses.filter((clause) => !unsettled(clause))
+  if (settled.length === 0) return null
+  const l = settled.join('; ')
   const num = (re: RegExp) => {
     const m = re.exec(l)
     return m ? Number(m[1]) : null
   }
+  // "No shorter-rider companion exception" states there is none; it is not a companion rule.
+  const namesCompanion =
+    /adult|companion|supervis|accompan|parent|guardian|family member|responsible person/u.test(
+      l.replace(/no [\w-]*\s*(?:\w+ )?(?:companion|adult) exception/gu, ''),
+    )
   const noMinimum = /no (?:numerical )?minimum/u.test(l)
-  const max = num(/(\d{2,3})\s*(?:in|")\s*(?:child-rider\s+)?maximum/u)
-  let minAlone = num(/(\d{2,3})\s*(?:in|")\s*to ride alone/u)
-  let minWithCompanion = num(/(\d{2,3})\s*(?:in|")\s*(?:minimum\s*)?with (?:a|an) /u)
-  const minimum = num(/(\d{2,3})\s*(?:in|")\s*minimum/u)
+  const max = num(/(\d{2,3})\s*(?:in(?:ches)?|")\s*(?:child-rider\s+)?maximum/u)
+  let minAlone = num(
+    /(\d{2,3})\s*(?:in(?:ches)?|")\s*(?:minimum\s*)?(?:to (?:drive or )?ride\s*)?(?:alone|solo)/u,
+  )
+  // "Under 42 in with an adult" is a companion rule below 42 in, not a 42-inch minimum.
+  let minWithCompanion = num(
+    /(?<!(?:under|below)\s*)(\d{2,3})\s*(?:in(?:ches)?|")\s*(?:minimum\s*)?(?:to ride\s*)?with (?:a|an|the) /u,
+  )
+  const minimum = num(/(\d{2,3})\s*(?:in(?:ches)?|")\s*minimum/u)
   const companionUnder =
-    num(/(?:under|below)\s*(\d{2,3})\s*(?:in|")\s*(?:require|must|need|ride with|with)/u) ??
-    num(/between \d{2,3} and (\d{2,3})\s*(?:in|")\s*require/u)
+    num(
+      /(?:under|below)\s*(\d{2,3})\s*(?:in(?:ches)?|")\s*(?:require|must|need|ride with|with)/u,
+    ) ?? num(/between \d{2,3} and (\d{2,3})\s*(?:in(?:ches)?|")\s*require/u)
+  // "At least 40 but under 44 in with an adult": 40 with a companion, 44 alone.
+  const band =
+    /at least (\d{2,3})\s*(?:in|")?\s*(?:but|and) under (\d{2,3})\s*(?:in|")?\s*(?:only )?(?:with|require|must)/u.exec(
+      l,
+    )
+  if (band) {
+    minWithCompanion = Number(band[1])
+    minAlone ??= Number(band[2])
+  }
   if (minimum !== null && minWithCompanion === null) {
     if (companionUnder !== null && companionUnder > minimum) {
       minWithCompanion = minimum
       minAlone = companionUnder
     } else if (minAlone === null) minAlone = minimum
   }
-  if (minAlone !== null && minWithCompanion === null && /smaller riders?/u.test(l))
+  if (minAlone !== null && minWithCompanion === null && /(?:smaller|shorter) riders?/u.test(l))
     minWithCompanion = 0
   if (noMinimum && companionUnder !== null && minAlone === null) minAlone = companionUnder
+  // "Under 42 in with an adult" on its own: anyone may ride with a companion, 42 in alone.
+  // "Under 48 in must wear a life vest" names no companion and is not a height limit.
+  if (namesCompanion && companionUnder !== null && minWithCompanion === null && minimum === null) {
+    minAlone ??= companionUnder
+    minWithCompanion = 0
+  }
+  // "32 to 60 in": a minimum and a maximum.
+  const range = /\b(\d{2,3})\s*(?:in|")?\s*(?:-|\u2013|to)\s*(\d{2,3})\s*(?:in\b|inch|")/u.exec(l)
+  if (range && minAlone === null && minWithCompanion === null && !namesCompanion)
+    return {
+      minAlone: Number(range[1]),
+      minWithCompanion: null,
+      noMinimum: false,
+      max: Number(range[2]),
+      text,
+    }
+  // "48 in to ride", "48 inches", "at least 48 in": one figure and no other wording is a plain
+  // minimum.
+  if (minAlone === null && minWithCompanion === null && !noMinimum && !namesCompanion) {
+    const figures = [...l.matchAll(/(\d{2,3})\s*(?:in\b|inch(?:es)?\b|")/gu)]
+    if (figures.length === 1 && !/\b(?:maximum|under|below|between)\b/u.test(l))
+      minAlone = Number(figures[0]![1])
+  }
   if (minAlone === null && minWithCompanion === null && !noMinimum) return null
+  // A rule that names a companion is never stated without its companion part.
+  if (namesCompanion && minWithCompanion === null && !noMinimum) return null
   return {
     minAlone,
     minWithCompanion: minWithCompanion ?? (noMinimum ? 0 : null),
@@ -546,20 +607,44 @@ export function parseHeightRule(content: string): HeightRule | null {
 }
 const SEASON_CLOSED =
   /closed for (?:the )?(?:\d{4} )?season|season (?:has )?ended|not operating|reinstallation|no (?:confirmed )?reopening/iu
+const SEASON_WORD = '(?:(?:spring|summer|fall|autumn|winter) )?'
+const NOT_YET_OPEN = new RegExp(
+  String.raw`not (?:yet )?open|under construction|coming soon|(?:planned|scheduled|expected) (?:to (?:open|debut) )?(?:for |in )?${SEASON_WORD}(20\d\d)?|(?:opens?|opening|debuts?|arrives?) (?:in )?${SEASON_WORD}(20\d\d)`,
+  'iu',
+)
+/** A ride whose record says it has not opened yet ("planned for summer 2032", "opens in 2032"). */
+function notYetOpen(content: string, currentYear: number | null): boolean {
+  const match = NOT_YET_OPEN.exec(content)
+  if (!match) return false
+  // A dated opening counts only when its year is still ahead.
+  const year = match[1] ?? match[2]
+  return !year || currentYear === null || Number(year) > currentYear
+}
 function heightInInches(question: string): number | null {
   const q = question.toLowerCase()
-  const feet = /(\d)\s*(?:ft|feet|foot|')\s*(\d{1,2})?\s*(?:in\b|inches|")?/u.exec(q)
-  if (feet) return Number(feet[1]) * 12 + Number(feet[2] ?? 0)
-  const inches = /(\d{2,3})\s*(?:-?\s*inch(?:es)?\b|in\b|")/u.exec(q)
-  if (inches) return Number(inches[1])
-  const cm = /(\d{2,3})\s*cm\b/u.exec(q)
-  return cm ? Math.round(Number(cm[1]) / 2.54) : null
+  // Whole numbers only, so "120 ft" (a ride's size) is never read as a 0-foot rider.
+  const feet = /\b([2-7])\s*(?:ft|feet|foot|')\s*(\d{1,2})?\s*(?:in\b|inches|")?/u.exec(q)
+  const inches = /\b(\d{2,3})\s*(?:-?\s*inch(?:es)?\b|in\b|")/u.exec(q)
+  const cm = /\b(\d{2,3})\s*cm\b/u.exec(q)
+  const value = feet
+    ? Number(feet[1]) * 12 + Number(feet[2] ?? 0)
+    : inches
+      ? Number(inches[1])
+      : cm
+        ? Math.round(Number(cm[1]) / 2.54)
+        : null
+  // A rider is roughly two to seven feet tall; anything else is a ride statistic.
+  return value !== null && value >= 24 && value <= 84 ? value : null
 }
 const AGE_ONLY =
   /\b(\d{1,2})[- ]?(?:year|yr)s?[- ]?olds?\b|\b(?:is|turns?|aged?|age)\s+(\d{1,2})\b/iu
 
 /** Height comparisons for every ride with exactly one readable Height line. */
-export function guestHeightFacts(directory: DirectoryLike, question: string): string | null {
+export function guestHeightFacts(
+  directory: DirectoryLike,
+  question: string,
+  currentYear: number | null = null,
+): string | null {
   const h = heightInInches(question)
   if (h === null && !AGE_ONLY.test(question)) return null
   const rides = directory.knowledge
@@ -567,11 +652,16 @@ export function guestHeightFacts(directory: DirectoryLike, question: string): st
       title: k.title,
       rule: parseHeightRule(k.content),
       closed: SEASON_CLOSED.test(k.content),
+      future: notYetOpen(k.content, currentYear),
     }))
     .filter((r) => r.rule)
   if (!rides.length) return null
-  const tag = (r: { closed: boolean }) =>
-    r.closed ? ' (not currently operating per its record)' : ''
+  const tag = (r: { closed: boolean; future: boolean }) =>
+    r.future
+      ? ' (not open yet per its record)'
+      : r.closed
+        ? ' (not currently operating per its record)'
+        : ''
   if (h === null)
     return `SERVER-COMPUTED RIDE HEIGHTS: only an age was given, so no height comparison is possible. Rides with no minimum height (companion rules still apply): ${
       rides
@@ -589,6 +679,15 @@ export function guestHeightFacts(directory: DirectoryLike, question: string): st
       return r.minWithCompanion !== null
         ? `${name}: only with a qualifying companion (${r.minAlone} in to ride alone)`
         : `${name}: too short, ${r.minAlone - h} in under the ${r.minAlone}-inch minimum`
+    // Say which rule is met: "meets the height rule" left economy models guessing whether a
+    // child tall enough to ride alone still needed an adult.
+    if (r.minAlone !== null)
+      return r.minWithCompanion !== null
+        ? `${name}: can ride alone (meets the ${r.minAlone}-inch minimum to ride alone)`
+        : `${name}: meets the ${r.minAlone}-inch minimum`
+    if (r.minWithCompanion !== null && r.minWithCompanion > 0)
+      return `${name}: meets the ${r.minWithCompanion}-inch minimum to ride with a companion (no solo minimum recorded)`
+    if (r.noMinimum) return `${name}: no minimum height`
     return `${name}: meets the height rule`
   })
   return `SERVER-COMPUTED RIDE HEIGHTS for a ${h}-inch rider (from each ride's Height line; age, companion and health rules still apply): ${lines.join('; ')}.`
@@ -607,7 +706,11 @@ export function buildGuestComputedFacts(input: {
 }): string {
   return [
     guestScheduleFacts(input),
-    guestHeightFacts(input.directory, input.question),
+    guestHeightFacts(
+      input.directory,
+      input.question,
+      input.timeZone ? localNow(input.now, input.timeZone).day.year : input.now.getUTCFullYear(),
+    ),
     input.rideFacts !== false &&
       guestRideFacts({
         question:
