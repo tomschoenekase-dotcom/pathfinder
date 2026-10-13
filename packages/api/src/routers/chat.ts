@@ -115,6 +115,7 @@ import {
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import { guestPlacesNamedInReply } from '../lib/guest-reply-anchors'
 import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
+import { guestAlreadySaidCue } from '../lib/guest-conversation-cues'
 import {
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
@@ -1872,6 +1873,13 @@ const chatReadRouter = router({
                 timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
               }) || null
             : null,
+        conversationCue:
+          guestAlreadySaidCue({
+            question: trimmedInput,
+            previousReplies: historyDesc
+              .filter((row) => row.role === 'assistant')
+              .map((row) => row.content),
+          }) || null,
         lightModelAnswerShape,
         venueGuideRecordIds: updatedGuideRecordIds.size
           ? new Set([...venueGuide.recordIds].filter((id) => !updatedGuideRecordIds.has(id)))
