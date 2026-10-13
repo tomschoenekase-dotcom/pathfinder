@@ -54,7 +54,7 @@ function isCoaster(record: RecordInput): boolean {
   const lead = record.content.split(/\r?\n/)[0] ?? ''
   return (
     /\bis an? [^.]*\bcoaster\b/i.test(lead) &&
-    !/not (?:a |an )?(?:roller )?coaster|future|planned|coming|former|retired|not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed/i.test(
+    !/not (?:a |an )?(?:roller )?coaster|future|planned|coming|former (?:\w+ )*(?:coaster|ride)|retired|not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed/i.test(
       record.content
         .split(/\r?\n/)
         .filter((line) => !/^\s*[\w ]+:/.test(line) || /^\s*status:/i.test(line))

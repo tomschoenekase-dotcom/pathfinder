@@ -49,6 +49,20 @@ function expectedFor(question: string, source = input) {
 }
 
 describe('venue question generator', () => {
+  it('keeps a current coaster when its narrative documents a former name', () => {
+    expect(
+      expectedFor('How many coasters are here?', {
+        slug: 'emberwild',
+        knowledge: [
+          {
+            title: 'Comet',
+            category: 'Rides',
+            content: 'Comet is a steel coaster. Its former name was Meteor.',
+          },
+        ],
+      }),
+    ).toContain('1 documented')
+  })
   it('treats unknown maker labels as missing and status closures as non-current', () => {
     const generated = generateVenueQuestions({
       slug: 'emberwild',

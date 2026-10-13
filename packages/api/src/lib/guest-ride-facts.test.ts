@@ -48,6 +48,34 @@ describe('guest ride facts', () => {
     expect(guestRideFacts({ question: 'How fast is Comet 54?', directory })).toContain(
       'Speed: 74 mph',
     )
+    directory.knowledge[54]!.content += '\nAlso called: Meteor'
+    expect(guestRideFacts({ question: 'How fast is Meteor?', directory })).toContain(
+      'Speed: 74 mph',
+    )
+  })
+  it('keeps a current coaster with a former name in its history', () => {
+    expect(
+      collectRideFacts({
+        knowledge: [
+          record(
+            'Comet',
+            'Comet is a steel roller coaster. Its former name was Meteor.\nMade by: Ember Works',
+          ),
+        ],
+      })[0]!.isCoaster,
+    ).toBe(true)
+  })
+  it('retains both records for a colliding alias without choosing a maker', () => {
+    const directory = {
+      knowledge: [
+        record('Comet', 'Comet is a steel coaster.\nAlso called: Meteor\nMade by: Ember Works'),
+        record('Orbit', 'Orbit is a wooden coaster.\nAlso called: Meteor\nMade by: Ash Works'),
+      ],
+    }
+    const block = guestRideFacts({ question: 'Who made Meteor?', directory })!
+    expect(block).toContain('Comet')
+    expect(block).toContain('Orbit')
+    expect(block).not.toContain('MAKER CHECK')
   })
 
   it('does not call closed or unopened coasters current', () => {

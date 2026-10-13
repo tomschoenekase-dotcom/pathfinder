@@ -71,6 +71,7 @@ export type RideFact = {
   lines: string[]
   makers: string[]
   isCoaster: boolean
+  aliases: string[]
 }
 
 function firstSentence(text: string): string {
@@ -107,13 +108,22 @@ export function collectRideFacts(directory: DirectoryLike): RideFact[] {
     const isCoaster =
       /\bis an? [^.]*\bcoaster\b/i.test(kind) &&
       !/not an? (roller )?coaster/i.test(kind) &&
-      !/\b(future|coming|not open yet|not (?:yet )?open|has not opened|will open|scheduled to open|planned|former|retired|permanently closed)\b/i.test(
+      !/\b(future|coming|not open yet|not (?:yet )?open|has not opened|will open|scheduled to open|planned|former (?:\w+ )*(?:coaster|ride)|retired|permanently closed)\b/i.test(
         record.content
           .split(/\r?\n/)
           .filter((line) => !/^\s*[\w ]+:/.test(line) || /^\s*status:/i.test(line))
           .join(' '),
       )
-    facts.push({ ride: record.title, kind, lines, makers, isCoaster })
+    const aliases = record.content.split(/\r?\n/).flatMap((line) => {
+      const match = /^\s*(?:also called|aliases?)\s*:\s*(.+)$/i.exec(line)
+      return match
+        ? match[1]!
+            .split(/[,;]/)
+            .map((alias) => alias.trim())
+            .filter(Boolean)
+        : []
+    })
+    facts.push({ ride: record.title, kind, lines, makers, isCoaster, aliases })
   }
   return facts
 }
@@ -152,8 +162,10 @@ export function guestRideFacts(input: {
     const title = fact.ride
       .replace(/\s*:\s*(?:ride facts|facts|ride details|details)\s*$/i, '')
       .trim()
-    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return new RegExp(`(^|[^\\w])${escaped}(?![\\w])`, 'i').test(input.question)
+    return [title, ...fact.aliases].some((name) => {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return new RegExp(`(^|[^\\w])${escaped}(?![\\w])`, 'i').test(input.question)
+    })
   }
   const selected = [...withLines.filter(named), ...withLines.filter((fact) => !named(fact))]
   for (const fact of selected.slice(0, 40))
