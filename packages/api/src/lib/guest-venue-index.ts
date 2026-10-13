@@ -23,31 +23,40 @@ type IndexDirectory = {
 
 // Labelled facts worth carrying on a card; the rest stays in the full record.
 const CARD_LABELS =
-  /^(height|made by|built by|designed by|designers?|size and speed|opened|thrill level|also called|price|hours|menu)\s*:\s*(.+)$/i
-const CARD_MAX = 300
+  /^(height|made by|built by|designed by|designers?|size and speed|opened|model|alcohol|thrill level|also called|price|hours|menu)\s*:\s*(.+)$/i
+const FACT_MAX = 400
 
 function firstSentence(text: string): string {
   const clean = text.replace(/\s+/g, ' ').trim()
   const match = /^(.+?[.!?])(\s|$)/.exec(clean)
-  return (match?.[1] ?? clean).slice(0, 180)
+  return match?.[1] ?? clean
 }
 
 function cardFacts(content: string): string[] {
   const facts: string[] = []
   for (const raw of content.split('\n')) {
     const match = CARD_LABELS.exec(raw.trim())
-    if (match) facts.push(`${match[1]}: ${match[2]!.trim()}`)
+    if (match) facts.push(`${match[1]}: ${match[2]!.trim()}`.slice(0, FACT_MAX))
   }
   return facts
 }
 
 function card(name: string, lead: string, facts: string[]): string {
-  let line = `- ${name}: ${lead}`
-  for (const fact of facts) {
-    if (line.length + fact.length + 3 > CARD_MAX) break
-    line += ` | ${fact}`
-  }
-  return line
+  // Each fact keeps its label and its own limit, so a long fact cannot hide later facts.
+  return [`- ${name}: ${lead}`, ...facts].join(' | ')
+}
+
+function cardLead(content: string): string {
+  const lead = firstSentence(content)
+  // A status sentence can follow the description; preserve it for future/closed rides.
+  const status = content
+    .split('\n')[0]!
+    .match(
+      /[^.!?]*(?:not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed)[^.!?]*[.!?]?/gi,
+    )
+  return [lead, ...(status ?? []).map((sentence) => sentence.trim())]
+    .filter((sentence, index, all) => sentence && all.indexOf(sentence) === index)
+    .join(' ')
 }
 
 /** Renders the tier-1 index, grouped by category so related things sit together. */
@@ -55,7 +64,6 @@ export function renderGuestVenueIndex(directory: IndexDirectory): string {
   const groups = new Map<string, string[]>()
   const add = (group: string, line: string) =>
     groups.set(group, [...(groups.get(group) ?? []), line])
-  const placeNames = new Set(directory.places.map((p) => p.name.trim().toLowerCase()))
   for (const place of directory.places) {
     const text = place.shortDescription || place.longDescription || ''
     const area = place.areaName ? ` (${place.areaName})` : ''
@@ -63,16 +71,18 @@ export function renderGuestVenueIndex(directory: IndexDirectory): string {
       `Places: ${place.type}`,
       card(
         `${place.name}${area}`,
-        firstSentence(text),
-        place.hours ? [`Hours: ${place.hours}`] : [],
+        cardLead(text),
+        [
+          ...cardFacts(place.longDescription ?? ''),
+          ...cardFacts(text),
+          ...(place.hours ? [`Hours: ${place.hours}`.slice(0, FACT_MAX)] : []),
+        ].filter((fact, index, all) => all.indexOf(fact) === index),
       ),
     )
   }
   for (const entry of directory.knowledge) {
-    // A topic about a place already carded keeps only its labelled facts.
-    const lead = placeNames.has(entry.title.trim().toLowerCase())
-      ? '(more about this place)'
-      : firstSentence(entry.content)
+    // Knowledge can carry kind/status details missing from the place description.
+    const lead = cardLead(entry.content)
     add(entry.category, card(entry.title, lead, cardFacts(entry.content)))
   }
   const sections = [...groups.entries()]

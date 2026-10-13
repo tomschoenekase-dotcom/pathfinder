@@ -50,7 +50,88 @@ describe('guest venue index', () => {
     expect(index).not.toContain('long medical text')
   })
 
-  it('points a topic about a carded place back to the place instead of repeating it', () => {
-    expect(index).toContain('- Thunderbolt: (more about this place) | Height: 48 in to ride')
+  it('preserves kind words in a topic even when the place has its own card', () => {
+    expect(index).toContain(
+      '- Thunderbolt: Thunderbolt is a wooden roller coaster. | Height: 48 in to ride',
+    )
+  })
+})
+
+describe('guest venue index fact fidelity', () => {
+  function render(content: string) {
+    return renderGuestVenueIndex({
+      places: [],
+      knowledge: [{ title: 'Thunderbolt', category: 'Rides', content }],
+    })
+  }
+
+  it('retains steel, launched and junior kind words and not-a-coaster descriptions', () => {
+    for (const kind of [
+      'steel launched coaster',
+      'wooden junior coaster',
+      'pendulum ride, not a coaster',
+    ]) {
+      expect(render(`Thunderbolt is a ${kind}.`)).toContain(`Thunderbolt is a ${kind}.`)
+    }
+  })
+
+  it('keeps a 111-degree drop separate from height and speed', () => {
+    expect(
+      render(
+        'Thunderbolt is a steel coaster.\nSize and speed: 111-degree drop; 60 mph\nHeight: 48 in to ride',
+      ),
+    ).toContain('Size and speed: 111-degree drop; 60 mph | Height: 48 in to ride')
+  })
+
+  it('preserves future ride status after the kind sentence', () => {
+    expect(
+      render('Thunderbolt is a steel coaster. It is not yet open.\nOpened: Planned for 2030'),
+    ).toContain('Thunderbolt is a steel coaster. It is not yet open.')
+  })
+
+  it('carries every labeled fact independently up to 400 characters', () => {
+    const labels = [
+      'Made by',
+      'Model',
+      'Opened',
+      'Size and speed',
+      'Height',
+      'Also called',
+      'Alcohol',
+    ]
+    const index = render(
+      [
+        'Thunderbolt is a steel coaster.',
+        ...labels.map((label) => `${label}: ${'x'.repeat(450)}`),
+      ].join('\n'),
+    )
+    for (const label of labels) {
+      const fact = `${label}: ${'x'.repeat(450)}`.slice(0, 400)
+      expect(index).toContain(fact)
+      expect(index).not.toContain(`${fact}x`)
+    }
+  })
+
+  it('keeps kinds late in a long first sentence', () => {
+    const sentence = `Thunderbolt, ${'with a sweeping route '.repeat(12)}, is a steel launched coaster.`
+    expect(render(sentence)).toContain(sentence)
+  })
+
+  it('carries labeled facts from place descriptions', () => {
+    const index = renderGuestVenueIndex({
+      knowledge: [],
+      places: [
+        {
+          name: 'Cinderswing',
+          type: 'ride',
+          areaName: null,
+          shortDescription: 'Cinderswing is a junior coaster.',
+          longDescription: 'Model: Junior\nMade by: Ember Engineering',
+        },
+      ],
+    })
+    expect(index).toContain(
+      'Cinderswing is a junior coaster. | Model: Junior | Made by: Ember Engineering',
+    )
   })
 })
