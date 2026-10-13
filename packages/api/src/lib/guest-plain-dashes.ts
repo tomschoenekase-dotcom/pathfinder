@@ -27,7 +27,7 @@ export function guestPlainDashes(text: string): string {
     const after = whole.slice(offset + match.length)
     if (!before.trim() || !after.trim()) return ''
     if (/^[,.;:!?)\]]/u.test(after)) return ''
-    if (/[,;:(\[]$/u.test(before.trimEnd())) return ' '
+    if (/[,;:([]$/u.test(before.trimEnd())) return ' '
     if (RANGE_END.test(before.trimEnd()) && RANGE_START.test(after)) return ' to '
     return ', '
   })

@@ -715,7 +715,7 @@ export function buildGuestComputedFacts(input: {
       guestRideFacts({
         question:
           input.previousQuestion &&
-          /\b(it|that|this|they|them|those|these|one)\b/i.test(input.question)
+          /\b(it|its|that|this|they|them|their|those|these|one)\b/i.test(input.question)
             ? `${input.previousQuestion}\n${input.question}`
             : input.question,
         directory: input.directory,

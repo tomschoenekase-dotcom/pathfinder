@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collectRideFacts, guestRideFacts } from './guest-ride-facts'
+import { collectRideFacts, guestRideFacts, hasDocumentedRideMaker } from './guest-ride-facts'
 
 const record = (title: string, content: string) => ({ title, category: 'Rides', content })
 
@@ -143,6 +143,33 @@ describe('guest ride facts', () => {
     expect(block).toContain('Comet')
     expect(block).toContain('Orbit')
     expect(block).not.toContain('MAKER CHECK')
+  })
+
+  // An operating coaster was dropped from coaster and maker answers because its record mentioned
+  // another, former ride or a weather pause.
+  it('keeps a current coaster whose record mentions other lifecycles', () => {
+    for (const content of [
+      `Pinwheel is a compact family steel coaster. It is distinct from the former Meteor Coaster.
+Made by: Ember Works`,
+      `Pinwheel is a steel coaster built on the former quarry floor.
+Made by: Ember Works`,
+      `Pinwheel is a steel coaster.
+The ride is not open during lightning.
+Made by: Ember Works`,
+      `Pinwheel is a steel coaster.
+Status: Open (closed during storms)
+Made by: Ember Works`,
+    ])
+      expect(collectRideFacts({ knowledge: [record('Pinwheel', content)] })[0]!.isCoaster).toBe(
+        true,
+      )
+  })
+  it('keeps a maker whose description contains "not"', () => {
+    expect(hasDocumentedRideMaker('Ember Works, a custom design, not an off-the-shelf model')).toBe(
+      true,
+    )
+    expect(hasDocumentedRideMaker('not recorded')).toBe(false)
+    expect(hasDocumentedRideMaker('Maker unknown')).toBe(false)
   })
 
   it('does not call closed or unopened coasters current', () => {

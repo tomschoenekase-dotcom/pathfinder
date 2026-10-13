@@ -80,22 +80,33 @@ function firstSentence(text: string): string {
   return sentence.length > 160 ? `${sentence.slice(0, 157)}...` : sentence
 }
 
+// The record's own ride is future or gone: "Skyfang is a future family coaster", "Former ride".
+const SUBJECT_LIFECYCLE =
+  /^(?:future|planned|upcoming|former|retired)\b|\b(?:is|was)\s+(?:a|an|the)?\s*(?:[\w'’-]+\s+)?(?:future|planned|upcoming|former|retired)\b|\bcoming soon\b/i
+// Phrases that only ever describe whether the ride itself runs. A bare "not open" ("not open
+// during lightning") or "the former Meteor coaster" (another ride) is not enough.
+const LIFECYCLE =
+  /\b(?:not yet open|not open yet|has not (?:yet )?opened|scheduled to open|will (?:open|debut) (?:in )?(?:(?:spring|summer|fall|autumn|winter) )?20\d\d|permanently closed|(?:is|was) (?:now )?(?:closed permanently|retired|removed|demolished))\b/i
+const STATUS_VALUE =
+  /status:\s*(?:currently |temporarily |permanently |seasonally )?(?:closed|not operating|retired|removed|demolished|future|coming|planned|under construction)\b/i
+
 /** Lifecycle wording describes the ride, rather than plans for its queue or surroundings. */
 export function hasUnavailableRideStatus(content: string): boolean {
   const lead = content.split(/\r?\n|(?<=[.!?])\s/)[0] ?? ''
-  if (/\b(future|coming|planned|former|retired)\b/i.test(lead)) return true
-  const lifecycle =
-    /\b(not open yet|not (?:yet )?open|has not opened|will open|scheduled to open|permanently closed|(?:future|planned|former|retired) (?:\w+ )*(?:coaster|ride))\b/i
+  if (SUBJECT_LIFECYCLE.test(lead)) return true
   return content.split(/\r?\n/).some((line) => {
     if (/^\s*(?:operating |ride )?status:/i.test(line))
-      return /\b(future|coming|planned|former|retired|closed)\b/i.test(line) || lifecycle.test(line)
-    return !/^\s*[\w ]+:/.test(line) && lifecycle.test(line)
+      return STATUS_VALUE.test(line) || LIFECYCLE.test(line)
+    return !/^\s*[\w ]+:/.test(line) && LIFECYCLE.test(line)
   })
 }
 
 /** Unknown or negated maker wording is source evidence, but cannot prove a maker match. */
 export function hasDocumentedRideMaker(value: string): boolean {
-  return !/\b(?:not|unknown|unconfirmed|tbd)\b|^(?:n\/?a)\.?$/i.test(value.trim())
+  // "Custom design, not an off-the-shelf model" still names its maker.
+  return !/^(?:not|unknown|unconfirmed|tbd|n\/?a)\b|\b(?:unknown|unconfirmed|not (?:known|documented|recorded|confirmed|identified))\b/i.test(
+    value.trim(),
+  )
 }
 
 /** Each record's labelled fact lines, keyed by the record title. */
