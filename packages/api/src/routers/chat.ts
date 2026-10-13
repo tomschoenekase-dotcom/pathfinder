@@ -1,4 +1,8 @@
-import { addExplicitGuestGuideRecords, buildGuestGuideStrategy, useTieredGuestGuide } from '../lib/guest-guide-strategy'
+import {
+  addExplicitGuestGuideRecords,
+  buildGuestGuideStrategy,
+  useTieredGuestGuide,
+} from '../lib/guest-guide-strategy'
 import {
   guestRecommendationRetrievalLimit,
   partitionGuestRecommendationPlaces,
@@ -109,6 +113,7 @@ import {
   type GuestKnowledgeRetrievalTrace,
 } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
+import { guestPlacesNamedInReply } from '../lib/guest-reply-anchors'
 import {
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
@@ -1616,6 +1621,26 @@ const chatReadRouter = router({
       identityAreaOriginals.set(place.id, place.areaName)
       return { ...place, areaName: knownLocation }
     })
+    // A follow-up retrieves for its own wording, so the places the previous reply named would
+    // otherwise drop out and the guide could no longer support, or even recognise, its own
+    // recommendation. Carry a few of them forward. Recommendation turns are excluded: their
+    // place list is the set of eligible new choices. Unresolved identity turns are excluded too.
+    if (
+      !recommendationSelection.recommendationOnly &&
+      !placeIdentity.ambiguity &&
+      !placeIdentityDiscoveryIncomplete
+    ) {
+      const previousReply =
+        [...historyDesc]
+          .sort((left, right) => right.sessionSequence - left.sessionSequence)
+          .find((row) => row.role === 'assistant')?.content ?? null
+      const present = new Set(relevantPlaces.map((place) => place.id))
+      const anchored = guestPlacesNamedInReply(
+        previousReply,
+        guestDirectory.places.filter((place) => !present.has(place.id)),
+      )
+      if (anchored.length > 0) relevantPlaces = [...relevantPlaces, ...anchored]
+    }
     if (nativeReadSnapshot.reason !== 'SERVER_DISABLED')
       logger.info({
         action: 'guest-chat.native-content-read',

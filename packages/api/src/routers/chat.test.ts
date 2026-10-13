@@ -51,8 +51,15 @@ vi.mock('@pathfinder/ai/guest-web-search-accounting', () => ({ searchGuestWebWit
 const coverageReadControls = vi.hoisted(() => ({ fail: false, mismatch: false, projections: 0 }))
 vi.mock('../lib/guest-venue-directory', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/guest-venue-directory')>()
-  return { ...original, loadGuestVenueDirectoryCached: (...args: Parameters<typeof original.loadGuestVenueDirectoryCached>) =>
-    coverageReadControls.fail ? Promise.reject(new Error('fictional directory unavailable')) : original.loadGuestVenueDirectoryCached(...args) }
+  return {
+    ...original,
+    loadGuestVenueDirectoryCached: (
+      ...args: Parameters<typeof original.loadGuestVenueDirectoryCached>
+    ) =>
+      coverageReadControls.fail
+        ? Promise.reject(new Error('fictional directory unavailable'))
+        : original.loadGuestVenueDirectoryCached(...args),
+  }
 })
 const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
 const guestTurnActions = vi.hoisted(() => ({
@@ -75,28 +82,31 @@ vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }
 vi.mock('@pathfinder/db', async (importOriginal) => {
   const originalDb = await importOriginal<typeof import('@pathfinder/db')>()
   return {
-  ...originalDb,
-  applyNativeGuestContentRead: (input: Parameters<typeof import('@pathfinder/db').applyNativeGuestContentRead>[0]) => {
-    const original = originalDb.applyNativeGuestContentRead(input)
-    coverageReadControls.projections += 1
-    return coverageReadControls.mismatch && coverageReadControls.projections === 2
-      ? { ...original, path: 'NATIVE' as const } : original
-  },
-  searchPlacesByEmbedding: semanticSearch.places,
-  searchKnowledgeByEmbedding: semanticSearch.knowledge,
-  reserveGuestChatTurnAction: guestTurnActions.reserve,
-  claimGuestChatTurnAction: guestTurnActions.claim,
-  markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
-  skipGuestChatProviderOperationAction: guestTurnActions.skip,
-  observeGuestChatProviderOperationAction: guestTurnActions.observe,
-  failGuestChatTurnAction: guestTurnActions.fail,
-  finalizeGuestChatTurnAction: guestTurnActions.finalize,
-  readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
-  resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
-  resolveNativeGuestReadSnapshotAction,
-  readActiveUnhealthyAiProviders,
-  isGuestConversationDisposed,
-  recordConversationLearningCandidate,
+    ...originalDb,
+    applyNativeGuestContentRead: (
+      input: Parameters<typeof import('@pathfinder/db').applyNativeGuestContentRead>[0],
+    ) => {
+      const original = originalDb.applyNativeGuestContentRead(input)
+      coverageReadControls.projections += 1
+      return coverageReadControls.mismatch && coverageReadControls.projections === 2
+        ? { ...original, path: 'NATIVE' as const }
+        : original
+    },
+    searchPlacesByEmbedding: semanticSearch.places,
+    searchKnowledgeByEmbedding: semanticSearch.knowledge,
+    reserveGuestChatTurnAction: guestTurnActions.reserve,
+    claimGuestChatTurnAction: guestTurnActions.claim,
+    markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+    skipGuestChatProviderOperationAction: guestTurnActions.skip,
+    observeGuestChatProviderOperationAction: guestTurnActions.observe,
+    failGuestChatTurnAction: guestTurnActions.fail,
+    finalizeGuestChatTurnAction: guestTurnActions.finalize,
+    readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
+    resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
+    resolveNativeGuestReadSnapshotAction,
+    readActiveUnhealthyAiProviders,
+    isGuestConversationDisposed,
+    recordConversationLearningCandidate,
   }
 })
 
@@ -1607,17 +1617,27 @@ describe('chat router', () => {
       { fail: false, mismatch: false, loadStatus: 'READY' },
       { fail: true, mismatch: false, loadStatus: 'LOAD_FAILED' },
       { fail: false, mismatch: true, loadStatus: 'PROJECTION_MISMATCH' },
-    ])('persists actual guide load status $loadStatus without failing generation', async ({ fail, mismatch, loadStatus }) => {
-      setupHappyPath('The fictional gallery is open.')
-      Object.assign(coverageReadControls, { fail, mismatch })
-      const result = await caller.chat.send(sendInput)
-      expect(result.response).toBe('The fictional gallery is open.')
-      const finalization = guestTurnActions.finalize.mock.calls[0]?.[0]
-      const evidence = finalization.input.replayMetadata.answerEvidence
-      const profile = evidence.sources.find((source: { kind: string }) => source.kind === 'VENUE_PROFILE')
-      expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({ mode: 'NONE', loadStatus })
-      expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
-    })
+    ])(
+      'persists actual guide load status $loadStatus without failing generation',
+      async ({ fail, mismatch, loadStatus }) => {
+        setupHappyPath('The fictional gallery is open.')
+        Object.assign(coverageReadControls, { fail, mismatch })
+        const result = await caller.chat.send(sendInput)
+        expect(result.response).toBe('The fictional gallery is open.')
+        const finalization = guestTurnActions.finalize.mock.calls[0]?.[0]
+        const evidence = finalization.input.replayMetadata.answerEvidence
+        const profile = evidence.sources.find(
+          (source: { kind: string }) => source.kind === 'VENUE_PROFILE',
+        )
+        expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({
+          mode: 'NONE',
+          loadStatus,
+        })
+        expect(
+          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+        ).toBe(true)
+      },
+    )
 
     function getConcatenatedSystemPrompt() {
       const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
@@ -1707,16 +1727,29 @@ describe('chat router', () => {
         {
           primaryPlaceId: upper.id,
           displayName: 'First floor east gallery',
-          floor: { name: 'First floor', stableKey: 'first-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+          floor: {
+            name: 'First floor',
+            stableKey: 'first-floor',
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
         },
         {
           primaryPlaceId: lower.id,
           displayName: 'Second floor west gallery',
-          floor: { name: 'Second floor', stableKey: 'second-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+          floor: {
+            name: 'Second floor',
+            stableKey: 'second-floor',
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
         },
       ])
 
-      await caller.chat.send({ ...sendInput, message: 'Tell me about Ember Cafe on the First floor' })
+      await caller.chat.send({
+        ...sendInput,
+        message: 'Tell me about Ember Cafe on the First floor',
+      })
 
       expect(venueLocationFindMany).toHaveBeenCalled()
       const prompt = getConcatenatedSystemPrompt()
@@ -1871,10 +1904,13 @@ describe('chat router', () => {
       const infoActions = configLogger.info.mock.calls.map(
         ([entry]) => (entry as { action?: string }).action,
       )
-      const readLog = configLogger.info.mock.calls[infoActions.lastIndexOf('guest-chat.native-content-read')]
+      const readLog =
+        configLogger.info.mock.calls[infoActions.lastIndexOf('guest-chat.native-content-read')]
       expect(readLog?.[0]).toMatchObject({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' })
       // No other native read is logged after it, before the context-ready diagnostic.
-      expect(infoActions.slice(infoActions.lastIndexOf('guest-chat.native-content-read') + 1)).toEqual(
+      expect(
+        infoActions.slice(infoActions.lastIndexOf('guest-chat.native-content-read') + 1),
+      ).toEqual(
         infoActions.includes('guest-chat.context-ready') ? ['guest-chat.context-ready'] : [],
       )
     })
@@ -3899,27 +3935,39 @@ describe('chat router', () => {
       expect(concatenatedSystemPrompt).toContain('Elephants')
     })
 
-    it.each(['0', '1'])('routes the economy guide with tiered flag %s and retains its coverage hash', async (flag) => {
-      setupHappyPath('ok')
-      vi.stubEnv('GUEST_TIERED_GUIDE', flag)
-      placeFindMany.mockResolvedValue(placeRows)
-      await caller.chat.send(sendInput)
-      const args = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
-      const blocks = args.system as Array<{ text: string; cache_control?: { type: string } }>
-      const index = blocks[1]!.text
-      const hash = createHash('sha256').update(index).digest('hex')
-      expect(index).toContain(flag === '1' ? 'VENUE INDEX:' : 'VENUE GUIDE:')
-      expect(blocks[1]!.cache_control).toEqual({ type: 'ephemeral' })
-      if (flag === '1') expect(blocks[2]!.text).toContain('Hours:')
-      const diagnostic = configLogger.info.mock.calls.find(
-        ([entry]) => (entry as { action?: string }).action === 'guest-chat.context-ready',
-      )?.[0] as Record<string, unknown>
-      expect(diagnostic).toMatchObject({ guideMode: flag === '1' ? 'TIERED' : 'FULL', guideSha256: hash })
-      if (flag === '1') expect(diagnostic.guideIndexSha256).toBe(hash)
-      const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
-      const profile = evidence.sources.find((source: { kind: string }) => source.kind === 'VENUE_PROFILE')
-      expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({ mode: flag === '1' ? 'TIERED' : 'FULL', promptSha256: hash })
-    })
+    it.each(['0', '1'])(
+      'routes the economy guide with tiered flag %s and retains its coverage hash',
+      async (flag) => {
+        setupHappyPath('ok')
+        vi.stubEnv('GUEST_TIERED_GUIDE', flag)
+        placeFindMany.mockResolvedValue(placeRows)
+        await caller.chat.send(sendInput)
+        const args = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+        const blocks = args.system as Array<{ text: string; cache_control?: { type: string } }>
+        const index = blocks[1]!.text
+        const hash = createHash('sha256').update(index).digest('hex')
+        expect(index).toContain(flag === '1' ? 'VENUE INDEX:' : 'VENUE GUIDE:')
+        expect(blocks[1]!.cache_control).toEqual({ type: 'ephemeral' })
+        if (flag === '1') expect(blocks[2]!.text).toContain('Hours:')
+        const diagnostic = configLogger.info.mock.calls.find(
+          ([entry]) => (entry as { action?: string }).action === 'guest-chat.context-ready',
+        )?.[0] as Record<string, unknown>
+        expect(diagnostic).toMatchObject({
+          guideMode: flag === '1' ? 'TIERED' : 'FULL',
+          guideSha256: hash,
+        })
+        if (flag === '1') expect(diagnostic.guideIndexSha256).toBe(hash)
+        const evidence =
+          guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+        const profile = evidence.sources.find(
+          (source: { kind: string }) => source.kind === 'VENUE_PROFILE',
+        )
+        expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({
+          mode: flag === '1' ? 'TIERED' : 'FULL',
+          promptSha256: hash,
+        })
+      },
+    )
 
     it('logs the context an answer was built from as hashes and counts only', async () => {
       setupHappyPath('ok')
@@ -3978,6 +4026,51 @@ describe('chat router', () => {
       expect(systemBlocks[2]?.text).toContain('Hours: 9am-3pm')
       expect(systemBlocks[2]?.text).toContain('Updated since the VENUE GUIDE was loaded')
     })
+
+    it.each([
+      { reply: 'Start with the big Orbiter Station water tank fragment.', carried: true },
+      { reply: 'Start with the elephants.', carried: false },
+    ])(
+      'carries a place the previous reply named into a follow-up turn (carried: $carried)',
+      async ({ reply, carried }) => {
+        setupHappyPath('ok')
+        const tank = {
+          ...placeRows[0]!,
+          id: 'orbiter-tank',
+          name: 'Orbiter Station Water Tank Fragment',
+          shortDescription: 'A charred tank fragment that survived reentry.',
+        }
+        placeFindMany.mockReset()
+        // The directory read (take 400) knows the tank; this turn's retrieval does not return it.
+        placeFindMany.mockImplementation(async (args: { take?: number }) =>
+          args.take === 400 ? [placeRows[0]!, tank] : [placeRows[0]!],
+        )
+        messageFindMany.mockReset().mockResolvedValueOnce([
+          {
+            id: 'a1',
+            role: 'assistant',
+            content: reply,
+            sessionSequence: 2,
+            createdAt: new Date(),
+          },
+          {
+            id: 'u1',
+            role: 'user',
+            content: 'What first?',
+            sessionSequence: 1,
+            createdAt: new Date(),
+          },
+        ])
+
+        await caller.chat.send({ ...sendInput, message: 'What else should I know?' })
+
+        const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+        const systemBlocks = callArgs.system as Array<{ type: string; text: string }>
+        const dynamic = systemBlocks[systemBlocks.length - 1]!.text
+        const relevantPlaces = dynamic.slice(dynamic.indexOf('MOST RELEVANT PLACES'))
+        expect(relevantPlaces.includes('Orbiter Station Water Tank Fragment')).toBe(carried)
+      },
+    )
 
     it('sends the full public venue guide as the cached block between static and dynamic', async () => {
       setupHappyPath('ok')
