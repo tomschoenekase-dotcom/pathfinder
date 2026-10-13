@@ -44,6 +44,10 @@ describe('guest ride facts', () => {
     expect(guestRideFacts({ question: 'How fast is Comet 54?', directory })).toContain(
       'Speed: 74 mph',
     )
+    directory.knowledge[54]!.title = 'Comet 54: ride facts'
+    expect(guestRideFacts({ question: 'How fast is Comet 54?', directory })).toContain(
+      'Speed: 74 mph',
+    )
   })
 
   it('does not call closed or unopened coasters current', () => {

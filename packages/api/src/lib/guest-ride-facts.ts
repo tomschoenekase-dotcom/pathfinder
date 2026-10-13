@@ -149,7 +149,10 @@ export function guestRideFacts(input: {
   ]
   // Keep an explicitly requested ride even when it falls beyond the compact block's budget.
   const named = (fact: RideFact) => {
-    const escaped = fact.ride.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const title = fact.ride
+      .replace(/\s*:\s*(?:ride facts|facts|ride details|details)\s*$/i, '')
+      .trim()
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     return new RegExp(`(^|[^\\w])${escaped}(?![\\w])`, 'i').test(input.question)
   }
   const selected = [...withLines.filter(named), ...withLines.filter((fact) => !named(fact))]
