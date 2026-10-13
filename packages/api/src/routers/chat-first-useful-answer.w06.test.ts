@@ -21,7 +21,8 @@ describe('W06 first useful answer timing', () => {
     })
 
     expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe(
-      '   Museum hours are 10:00 to 16:00. ',
+      // Trailing whitespace waits for the next word (see the dash rewrite in the projection).
+      '   Museum hours are 10:00 to 16:00.',
     )
     expect(projection.providerFirstTextMs()).toBe(90)
     expect(projection.requestFirstTextMs()).toBe(125)
