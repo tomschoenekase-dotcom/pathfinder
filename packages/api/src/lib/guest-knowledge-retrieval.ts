@@ -466,17 +466,38 @@ export function guestRequestedCalendarDays(query: string, currentDate?: string):
 }
 
 /**
- * Keeps a long dated record's lines for the requested days, so a calendar is not cut off
- * before the dates the visitor asked about. Returns null when no line names those days or
- * the selected lines still exceed the budget.
+ * Only extract dates from a uniform calendar of self-contained Hours/Closed rows.
+ * Headings, continuation lines and mixed/ambiguous years may govern other rows;
+ * keep the existing bounded window for those records instead of dropping context.
  */
-function calendarDayExcerpt(content: string, days: string[], maxChars: number): string | null {
+function calendarDayExcerpt(
+  content: string,
+  days: string[],
+  maxChars: number,
+  requestedYears: string[],
+): string | null {
+  const years = [...new Set(content.match(/\b\d{4}\b/gu) ?? [])]
+  if (years.length !== 1 || requestedYears.some((year) => year !== years[0])) return null
+  const datedRow = new RegExp(
+    `\\b(?:${CALENDAR_MONTHS.map(([, pattern]) => pattern).join('|')})\\.?\\s+${DAY_TERM},?\\s+${years[0]}\\b`,
+    'gu',
+  )
+  const lines = content.split('\n')
+  if (
+    lines.slice(1).some((line) => {
+      if (!line.trim()) return false
+      const normalized = normalize(line)
+      return (
+        !/^(hours|closed):/u.test(normalized) || [...normalized.matchAll(datedRow)].length !== 1
+      )
+    })
+  )
+    return null
   const patterns = days.map((anchor) => {
     const [month, day] = anchor.split(' ') as [string, string]
     const monthPattern = CALENDAR_MONTHS.find(([full]) => full === month)![1]
     return new RegExp(`\\b(?:${monthPattern})\\.?\\s+${day}(?!\\d)`, 'u')
   })
-  const lines = content.split('\n')
   const matched = lines
     .map((line, index) => ({ line, index }))
     .filter(
@@ -501,11 +522,12 @@ function boundedRelevantContent(
   concepts: string[][],
   maxChars = MAX_RESULT_CONTENT_CHARS,
   calendarDays: string[] = [],
+  calendarYears: string[] = [],
 ): string {
   const MAX_RESULT_CONTENT_CHARS = maxChars
   if (content.length <= MAX_RESULT_CONTENT_CHARS) return content
   const calendarExcerpt = calendarDays.length
-    ? calendarDayExcerpt(content, calendarDays, MAX_RESULT_CONTENT_CHARS)
+    ? calendarDayExcerpt(content, calendarDays, MAX_RESULT_CONTENT_CHARS, calendarYears)
     : null
   if (calendarExcerpt) return calendarExcerpt
   const normalizedContent = normalizedWithOriginalOffsets(content)
@@ -908,9 +930,25 @@ export async function retrieveGuestKnowledge(params: {
     ),
   )
   const calendarDays = guestRequestedCalendarDays(params.query, params.currentDate)
+  const calendarYears: string[] = params.query.match(/\b\d{4}\b/gu) ?? []
+  if (params.currentDate && /\b(today|tonight|tomorrow)\b/iu.test(params.query)) {
+    const date = new Date(`${params.currentDate}T00:00:00Z`)
+    if (!Number.isNaN(date.getTime())) {
+      if (/\b(today|tonight)\b/iu.test(params.query))
+        calendarYears.push(String(date.getUTCFullYear()))
+      if (/\btomorrow\b/iu.test(params.query))
+        calendarYears.push(String(new Date(date.getTime() + 24 * 60 * 60 * 1000).getUTCFullYear()))
+    }
+  }
   const entries = selected.map((entry) => ({
     ...entry,
-    content: boundedRelevantContent(entry.content, concepts, perEntryChars, calendarDays),
+    content: boundedRelevantContent(
+      entry.content,
+      concepts,
+      perEntryChars,
+      calendarDays,
+      calendarYears,
+    ),
   }))
   const selectedIds = new Set(entries.map((entry) => entry.id))
   const lexicalVersions = new Map(
