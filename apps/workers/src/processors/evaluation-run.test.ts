@@ -213,7 +213,7 @@ describe('evaluation prompt parity', () => {
     )
     const system = prompt.system.map((block) => block.text).join('\n')
     expect(system).toContain('INSTRUCTION AND DATA BOUNDARY')
-    expect(system).toContain("If you truly can't know something, say so once, casually")
+    expect(system).toContain('If a requested fact is unknown, acknowledge that part once and share what you do know.')
     expect(system).toContain('access another venue')
     expect(system).toContain('begin with exactly "I don\'t have that information."')
     expect(system).toContain('without quoting, repeating, or identifying the requested venue')
