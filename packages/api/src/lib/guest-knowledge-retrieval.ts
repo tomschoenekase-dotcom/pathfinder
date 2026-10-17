@@ -8,8 +8,6 @@ const RESULT_LIMIT = 8
 const BROAD_RESULT_LIMIT = 12
 const SEMANTIC_LIMIT = 20
 const PER_CONCEPT_LIMIT = 20
-const MAX_RESULT_CONTENT_CHARS = 4_000
-const MIN_RESULT_CONTENT_CHARS = 1_200
 const TOTAL_RESULT_CONTENT_CHARS = 20_000
 // Reciprocal-rank fusion constant. Semantic and lexical lanes contribute equally so a record
 // without a stored embedding can still outrank weaker vector neighbours on a strong text match.
@@ -186,6 +184,8 @@ export type GuestKnowledgeRetrievalTrace = {
   path: 'semantic+lexical' | 'lexical-fallback'
   retrievedSourceIds: string[]
   retrievedSources: { id: string; version: string | null }[]
+  /** Authorized current candidates, including bodies omitted by context/result budgets. */
+  observedSources?: { id: string; version: string | null }[]
   excludedSourceIds: string[]
   candidateCounts: { strict: number; broad: number; semantic: number }
   limits: { strict: number; broad: number; result: number }
@@ -382,67 +382,6 @@ function lexicalScore(
   if (score === 0) return 0
   const reviewed = row.lastReviewedAt?.getTime() ?? 0
   return score + Math.min(1, reviewed / 10 ** 15)
-}
-
-function normalizedWithOriginalOffsets(value: string) {
-  let text = ''
-  const offsets: number[] = []
-  let originalOffset = 0
-  for (const character of value) {
-    const normalizedCharacter = normalize(character)
-    text += normalizedCharacter
-    for (let index = 0; index < normalizedCharacter.length; index += 1) {
-      offsets.push(originalOffset)
-    }
-    originalOffset += character.length
-  }
-  offsets.push(value.length)
-  return { text, offsets }
-}
-
-function boundedRelevantContent(
-  content: string,
-  concepts: string[][],
-  maxChars = MAX_RESULT_CONTENT_CHARS,
-): string {
-  const MAX_RESULT_CONTENT_CHARS = maxChars
-  if (content.length <= MAX_RESULT_CONTENT_CHARS) return content
-  const normalizedContent = normalizedWithOriginalOffsets(content)
-  const matches = concepts
-    .flat()
-    .map((term) => {
-      const index = normalizedContent.text.indexOf(term)
-      if (index < 0) return null
-      let occurrences = 0
-      let cursor = index
-      while (cursor >= 0) {
-        occurrences += 1
-        cursor = normalizedContent.text.indexOf(term, cursor + term.length)
-      }
-      return { index: normalizedContent.offsets[index]!, occurrences, termLength: term.length }
-    })
-    .filter((match): match is { index: number; occurrences: number; termLength: number } =>
-      Boolean(match),
-    )
-  if (matches.length === 0) {
-    const marker = '\n...[source excerpt]...\n'
-    const available = MAX_RESULT_CONTENT_CHARS - marker.length
-    const head = Math.ceil(available / 2)
-    return `${content.slice(0, head)}${marker}${content.slice(-(available - head))}`
-  }
-  const center = [...matches].sort(
-    (a, b) => a.occurrences - b.occurrences || b.termLength - a.termLength || a.index - b.index,
-  )[0]!.index
-  const leadingMarker = '...[source excerpt]...\n'
-  const trailingMarker = '\n...[source excerpt]...'
-  const hasLeadingMarker = center > Math.floor(MAX_RESULT_CONTENT_CHARS / 3)
-  const start = hasLeadingMarker ? center - Math.floor(MAX_RESULT_CONTENT_CHARS / 3) : 0
-  const prefix = start > 0 ? leadingMarker : ''
-  const availableAfterPrefix = MAX_RESULT_CONTENT_CHARS - prefix.length
-  const provisionalEnd = Math.min(content.length, start + availableAfterPrefix)
-  const suffix = provisionalEnd < content.length ? trailingMarker : ''
-  const end = Math.min(content.length, start + availableAfterPrefix - suffix.length)
-  return `${prefix}${content.slice(start, end)}${suffix}`
 }
 
 export function guestKnowledgeSelectShape() {
@@ -798,34 +737,29 @@ export async function retrieveGuestKnowledge(params: {
     selected.splice(replaceAt, 1)
     selected.push(entry)
   }
-  const perEntryChars = Math.max(
-    MIN_RESULT_CONTENT_CHARS,
-    Math.min(
-      MAX_RESULT_CONTENT_CHARS,
-      Math.floor(TOTAL_RESULT_CONTENT_CHARS / Math.max(1, selected.length)),
-    ),
-  )
-  const entries = selected.map((entry) => ({
-    ...entry,
-    content: boundedRelevantContent(entry.content, concepts, perEntryChars),
-  }))
+  // Whole source records preserve their governing conditions. Never splice a policy.
+  let contentChars = 0
+  const entries = selected.filter((entry) => {
+    if (contentChars + entry.content.length > TOTAL_RESULT_CONTENT_CHARS) return false
+    contentChars += entry.content.length
+    return true
+  })
+  const selectedIds = new Set(entries.map((entry) => entry.id))
   const lexicalVersions = new Map(
     [...lexical.map(({ row }) => row), ...semanticRows].map((row) => [
       row.id,
       row.updatedAt.toISOString(),
     ]),
   )
-  const originalContent = new Map([
-    ...lexical.map(({ row }) => [row.id, row.content] as const),
-    ...semanticRows.map((row) => [row.id, row.content] as const),
-  ])
-  const truncatedSourceIds = entries
-    .filter((entry) => originalContent.get(entry.id) !== entry.content)
-    .map((entry) => entry.id)
+  const truncatedSourceIds: string[] = []
   return {
     entries,
     trace: {
       path: params.queryEmbedding ? 'semantic+lexical' : 'lexical-fallback',
+      observedSources: candidates.map((entry) => {
+        const updatedAt = (entry as SemanticKnowledgeEntry & { updatedAt?: unknown }).updatedAt
+        return { id: entry.id, version: updatedAt instanceof Date ? updatedAt.toISOString() : null }
+      }),
       retrievedSourceIds: entries.map((entry) => entry.id),
       retrievedSources: entries.map((entry) => ({
         id: entry.id,
@@ -836,12 +770,13 @@ export async function retrieveGuestKnowledge(params: {
           ...policyExcludedIds,
           ...activatedLegacyIds,
           ...semantic.slice(SEMANTIC_LIMIT).map((entry) => entry.id),
-          ...candidates.slice(resultLimit).map((entry) => entry.id),
+          ...candidates.filter((entry) => !selectedIds.has(entry.id)).map((entry) => entry.id),
         ]),
       ],
       candidateCounts: { strict: strict.length, broad: broad.length, semantic: semantic.length },
       limits: { strict: STRICT_LIMIT, broad: BROAD_LIMIT, result: resultLimit },
       partialCoverage:
+        candidates.length > entries.length ||
         strict.length === STRICT_LIMIT ||
         broad.length === BROAD_LIMIT ||
         semantic.length >= SEMANTIC_LIMIT ||

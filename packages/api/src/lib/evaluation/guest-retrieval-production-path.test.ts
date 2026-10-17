@@ -222,13 +222,12 @@ describe('guest retrieval production-path evaluation', () => {
     })
 
     expect(result.trace.retrievedSourceIds).toContain(archived.id)
-    expect(result.trace.truncatedSourceIds).toEqual([current.id])
+    expect(result.trace.truncatedSourceIds).toEqual([])
     expect(result.entries.find((entry) => entry.id === current.id)?.content).toContain(
       '10:00 to 16:00',
     )
-    expect(
-      result.entries.find((entry) => entry.id === current.id)?.content.length,
-    ).toBeLessThanOrEqual(4_000)
+    expect(result.entries.find((entry) => entry.id === current.id)?.content).toBe(current.content)
+    expect(result.entries.reduce((sum, entry) => sum + entry.content.length, 0)).toBeLessThanOrEqual(20_000)
     expect(JSON.stringify(result.entries)).toContain('08:00 to 20:00')
   })
 
@@ -274,9 +273,8 @@ describe('guest retrieval production-path evaluation', () => {
     expect(result.entries.find((entry) => entry.id === policy.id)?.content).toContain(
       'Expired tickets can be exchanged',
     )
-    expect(result.trace.truncatedSourceIds).toContain(semantic.id)
-    expect(
-      result.entries.find((entry) => entry.id === semantic.id)?.content.length,
-    ).toBeLessThanOrEqual(4_000)
+    expect(result.trace.truncatedSourceIds).toEqual([])
+    expect(result.entries.find((entry) => entry.id === semantic.id)?.content).toBe(semantic.content)
+    expect(result.entries.reduce((sum, entry) => sum + entry.content.length, 0)).toBeLessThanOrEqual(20_000)
   })
 })

@@ -1568,6 +1568,166 @@ describe('chat router', () => {
       messageCreate.mockResolvedValue({})
     }
 
+    it('reconciles an oversized capture as durable pre-dispatch failure without answer dispatch', async () => {
+      setupHappyPath('Unused.', { ...venueRow, description: 'x'.repeat(160_001) })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(responseGenerationDispatches()).toHaveLength(0)
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(expect.objectContaining({
+        claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+      }))
+      expect(guestTurnActions.finalize).not.toHaveBeenCalled()
+      anthropicCreate.mockReset()
+      setupHappyPath('Retry worked.')
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({ response: 'Retry worked.' })
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+    })
+
+    it('preflights oversized serialized source snapshots before answer dispatch', async () => {
+      setupHappyPath('Unused.', { ...venueRow, description: '\u0001'.repeat(30_000) })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(responseGenerationDispatches()).toHaveLength(0)
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(expect.objectContaining({
+        claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+      }))
+      expect(guestTurnActions.finalize).not.toHaveBeenCalled()
+    })
+
+    it('persists exact normally dispatched context after receipt preflight', async () => {
+      setupHappyPath('A grounded answer.')
+      const result = await caller.chat.send(sendInput)
+      const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+      expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
+      expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+    })
+
+    it('captures the actual before-opening cue in both dynamic evidence and the dispatched prompt', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-10-17T14:00:00.000Z')) // Saturday, 9 AM in Chicago.
+      try {
+        setupHappyPath('Ember House opens at noon.', {
+          ...venueRow,
+          name: 'Ember House',
+          chatAppearance: { timeZone: 'America/Chicago' },
+        })
+        semanticSearch.places.mockResolvedValue([])
+        placeFindMany.mockReset().mockResolvedValue([])
+        venueKnowledgeEntryFindMany.mockResolvedValue([{
+          id: 'ember-hours',
+          title: 'Opening hours',
+          category: 'hours',
+          content: 'Hours: Ember House, 12 pm - 6 pm Saturday',
+          sourceType: 'FOUNDER_PROVIDED',
+          sourceName: 'Fictional visitor guide',
+          sourceUrl: null,
+          updatedAt: new Date('2026-10-16T00:00:00.000Z'),
+          lastReviewedAt: null,
+        }])
+
+        const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
+
+        const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+        const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+        const system = callArgs.system as Array<{ type: string; text: string }>
+        expect(evidence.system.dynamicPart).toContain('CURRENT POSTED HOURS CHECK:')
+        expect(evidence.system.dynamicPart).toContain("Saturday before Ember House's regular 12 pm opening time")
+        expect(evidence.system.dynamicPart).toContain('Ember House is closed now according to its posted hours')
+        expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
+        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
+        expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+        expect(anthropicCreate).toHaveBeenCalledOnce()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('does not derive an old opening cue from stale directory hours when current retrieval omits the whole record', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-10-17T14:00:00.000Z'))
+      try {
+        setupHappyPath('Please confirm the current opening hours with staff.', {
+          ...venueRow,
+          name: 'Ember House',
+          chatAppearance: { timeZone: 'America/Chicago' },
+        })
+        semanticSearch.places.mockResolvedValue([])
+        placeFindMany.mockReset().mockResolvedValue([])
+        const staleHours = {
+          id: 'ember-hours',
+          title: 'Opening hours',
+          category: 'hours',
+          content: 'Hours: Ember House, 12 pm - 6 pm Saturday',
+          sourceType: 'FOUNDER_PROVIDED',
+          sourceName: 'Fictional visitor guide',
+          sourceUrl: null,
+          updatedAt: new Date('2026-10-01T00:00:00.000Z'),
+          lastReviewedAt: null,
+        }
+        const currentHours = {
+          ...staleHours,
+          content: 'Hours: Ember House, 8 am - 6 pm Saturday\n' + 'Current visitor guidance. '.repeat(1_000),
+          updatedAt: new Date('2026-10-16T00:00:00.000Z'),
+        }
+        // The cached directory has the old version; live lexical retrieval observes a
+        // newer whole record that exceeds its 20k content budget and must be omitted.
+        venueKnowledgeEntryFindMany.mockImplementation(async (args: {
+          orderBy?: Array<Record<string, string>>
+        }) => args.orderBy?.[0]?.category === 'asc' ? [staleHours] : [currentHours])
+
+        const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
+
+        const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+        const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+        const system = callArgs.system as Array<{ type: string; text: string }>
+        expect(getConcatenatedSystemPrompt()).not.toContain(staleHours.content)
+        expect(getConcatenatedSystemPrompt()).not.toContain(currentHours.content)
+        expect(getConcatenatedSystemPrompt()).not.toContain('CURRENT POSTED HOURS CHECK:')
+        expect(evidence.system.dynamicPart).not.toContain('regular 12 pm opening time')
+        expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
+        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
+        expect(configLogger.info).toHaveBeenCalledWith(expect.objectContaining({
+          knowledgeInContextCount: 0,
+          retrievedCount: 0,
+          excludedCount: 1,
+          partialCoverage: true,
+        }))
+        expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+        expect(anthropicCreate).toHaveBeenCalledOnce()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('finalizes a web-only dispatch fallback without manufacturing an answer-dispatch receipt', async () => {
+      setupHappyPath('Unused.', { ...generalWebVenue, description: 'x'.repeat(160_001) })
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+      const result = await caller.chat.send(generalWebInput)
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(result.replyKind).toBe('TEMPORARY_FALLBACK')
+      const finalization = guestTurnActions.finalize.mock.calls[0]?.[0].input
+      expect(finalization.replayMetadata).not.toHaveProperty('answerEvidence')
+      expect(guestTurnActions.fail).not.toHaveBeenCalled()
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(expect.objectContaining({
+        operation: expect.objectContaining({ kind: 'RESPONSE_GENERATION', outcomeCode: 'FAILED_FALLBACK' }),
+      }))
+      dbQueryRaw.mockResolvedValueOnce([generalWebVenue])
+      guestTurnActions.reserve.mockResolvedValueOnce({ state: 'COMPLETE',
+        turnId: '11111111-1111-4111-8111-111111111111', sessionId: SESSION_ID,
+        assistantMessageId: 'assistant-message-1', response: result.response,
+        replyKind: 'TEMPORARY_FALLBACK', places: [], citations: [], replayed: true })
+      await expect(caller.chat.send(generalWebInput)).resolves.toMatchObject({
+        response: result.response, replyKind: 'TEMPORARY_FALLBACK', replayed: true,
+      })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
+      expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+
+    })
+
     it.each([
       { fail: false, mismatch: false, loadStatus: 'READY' },
       { fail: true, mismatch: false, loadStatus: 'LOAD_FAILED' },

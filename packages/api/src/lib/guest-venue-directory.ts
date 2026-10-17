@@ -11,7 +11,6 @@ import {
   type GuestKnowledgeReader,
   type GuestKnowledgeRow,
 } from './guest-knowledge-retrieval'
-import { guestFacingText, guestFacingTitle } from './guest-facing-text'
 import { safeGuestSourceUrl } from './guest-citations'
 import { escapeUntrustedPromptData, guestPlaceKindLabel } from './venue-context'
 
@@ -30,7 +29,6 @@ const MAX_DIRECTORY_PROMPT_CHARS = 32_000
 const DESCRIPTOR_CHARS = 160
 const MAX_LINKED_ADDITIONS = 6
 const LINK_SOURCE_ENTRIES = 12
-const LINKED_ENTRY_CHARS = 1_500
 const MIN_LINK_NAME_CHARS = 4
 // A full guide above this many characters falls back to the directory, keeping the whole request
 // inside the guest-chat model input bound with room for rules, retrieval hints and history.
@@ -386,8 +384,8 @@ export function buildGuestVenueGuidePrompt(
     // Same-name places stay name-only: place-identity resolution decides which one is meant.
     if ((nameCounts.get(normalizeGuestText(place.name)) ?? 0) > 1) return `${open}</place>`
     fullRecordIds.add(`place:${place.id}`)
-    const short = guestFacingText(place.shortDescription)
-    const long = guestFacingText(place.longDescription)
+    const short = place.shortDescription ?? ''
+    const long = place.longDescription ?? ''
     const body = long.includes(short) ? long : [short, long].filter(Boolean).join('\n')
     const sourceUrl = safeGuestSourceUrl(place.sourceUrl)
     return `${open}\n${escapeUntrustedPromptData(body)}${sourceUrl ? `\nSource URL: ${escapeUntrustedPromptData(sourceUrl)}` : ''}\n</place>`
@@ -402,7 +400,7 @@ export function buildGuestVenueGuidePrompt(
     fullRecordIds.add(`knowledge:${entry.id}`)
     const sourceUrl = safeGuestSourceUrl(entry.sourceUrl)
     topicRecords.push(
-      `<topic title="${quotedAttribute(guestFacingTitle(entry.title))}" category="${quotedAttribute(entry.category)}">\n${escapeUntrustedPromptData(guestFacingText(entry.content))}${sourceUrl ? `\nSource URL: ${escapeUntrustedPromptData(sourceUrl)}` : ''}\n</topic>`,
+      `<topic title="${quotedAttribute(entry.title)}" category="${quotedAttribute(entry.category)}">\n${escapeUntrustedPromptData(entry.content)}${sourceUrl ? `\nSource URL: ${escapeUntrustedPromptData(sourceUrl)}` : ''}\n</topic>`,
     )
   }
   const body = [
@@ -427,6 +425,38 @@ export function buildGuestVenueGuidePrompt(
     recordIds: fullRecordIds,
     rendererTruncated: false,
     evidenceText: `\n\nVENUE GUIDE (full; ${prompt.length} characters; sha256 ${createHash('sha256').update(prompt).digest('hex')}; records ${recordIds.join(',')})`,
+  }
+}
+
+/** Remove demonstrably stale cached bodies before either FULL rendering or linked expansion. */
+export function suppressStaleGuestDirectoryKnowledge(params: {
+  directory: GuestVenueDirectory
+  observedSources: ReadonlyArray<{ id: string; version: string | null }>
+  /** Current whole bodies already supplied separately; existing guide override handles these. */
+  admittedSourceIds: ReadonlySet<string>
+}): { directory: GuestVenueDirectory; suppressedSourceIds: string[] } {
+  const observedVersions = new Map<string, number>()
+  for (const source of params.observedSources) {
+    if (source.version === null) continue
+    const time = Date.parse(source.version)
+    if (!Number.isFinite(time)) continue
+    observedVersions.set(source.id, Math.max(observedVersions.get(source.id) ?? -Infinity, time))
+  }
+  const suppressedSourceIds: string[] = []
+  const knowledge = params.directory.knowledge.filter((entry) => {
+    if (params.admittedSourceIds.has(entry.id)) return true
+    const observed = observedVersions.get(entry.id)
+    if (entry.updatedAt instanceof Date && observed !== undefined && observed > entry.updatedAt.getTime()) {
+      suppressedSourceIds.push(entry.id)
+      return false
+    }
+    return true
+  })
+  return {
+    directory: suppressedSourceIds.length
+      ? { ...params.directory, knowledge, incomplete: true }
+      : params.directory,
+    suppressedSourceIds,
   }
 }
 
@@ -516,10 +546,7 @@ export function expandGuestKnowledgeLinks<T extends GuestDirectoryKnowledge>(par
       if (added.length >= MAX_LINKED_ADDITIONS) break
       if (present.has(candidate.entry.id)) continue
       if (!containsGuestTerm(text, candidate.name)) continue
-      const content =
-        candidate.entry.content.length > LINKED_ENTRY_CHARS
-          ? `${candidate.entry.content.slice(0, LINKED_ENTRY_CHARS)}\n...[source excerpt]...`
-          : candidate.entry.content
+      const content = candidate.entry.content
       if (contextChars + content.length > maxContextChars) continue
       present.add(candidate.entry.id)
       contextChars += content.length
