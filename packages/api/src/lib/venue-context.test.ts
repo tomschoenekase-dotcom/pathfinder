@@ -57,6 +57,13 @@ const guideManifestDirectory: GuestVenueDirectory = {
 }
 
 describe('guest chat prompt provenance', () => {
+  it('keeps prior replies non-authoritative and answers supported compound parts', () => {
+    const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
+    expect(prompt).toContain('History resolves references, never facts')
+    expect(prompt).toContain('Answer all supported parts')
+    expect(prompt).toContain('Names or summaries do not prove omitted facts')
+  })
+
   it.each(['English', 'Spanish', 'Chinese', 'Arabic', null])(
     'allows explicit and conversational switches from preference %s while retaining on-site labels',
     (language) => {
@@ -78,7 +85,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v32')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v33')
   })
 
   it('matches the broad production prompt contract manifest', () => {

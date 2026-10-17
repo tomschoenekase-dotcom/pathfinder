@@ -1568,6 +1568,69 @@ describe('chat router', () => {
       messageCreate.mockResolvedValue({})
     }
 
+    it('reconciles an oversized capture as durable pre-dispatch failure without answer dispatch', async () => {
+      setupHappyPath('Unused.', { ...venueRow, description: 'x'.repeat(160_001) })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(responseGenerationDispatches()).toHaveLength(0)
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(expect.objectContaining({
+        claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+      }))
+      expect(guestTurnActions.finalize).not.toHaveBeenCalled()
+      anthropicCreate.mockReset()
+      setupHappyPath('Retry worked.')
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({ response: 'Retry worked.' })
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+    })
+
+    it('preflights oversized serialized source snapshots before answer dispatch', async () => {
+      setupHappyPath('Unused.', { ...venueRow, description: '\u0001'.repeat(30_000) })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(responseGenerationDispatches()).toHaveLength(0)
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(expect.objectContaining({
+        claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+      }))
+      expect(guestTurnActions.finalize).not.toHaveBeenCalled()
+    })
+
+    it('persists exact normally dispatched context after receipt preflight', async () => {
+      setupHappyPath('A grounded answer.')
+      const result = await caller.chat.send(sendInput)
+      const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+      expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
+      expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+    })
+
+    it('finalizes a web-only dispatch fallback without manufacturing an answer-dispatch receipt', async () => {
+      setupHappyPath('Unused.', { ...generalWebVenue, description: 'x'.repeat(160_001) })
+      enableGeneralWebFallback()
+      semanticSearch.places.mockResolvedValueOnce([])
+      const result = await caller.chat.send(generalWebInput)
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(result.replyKind).toBe('TEMPORARY_FALLBACK')
+      const finalization = guestTurnActions.finalize.mock.calls[0]?.[0].input
+      expect(finalization.replayMetadata).not.toHaveProperty('answerEvidence')
+      expect(guestTurnActions.fail).not.toHaveBeenCalled()
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(expect.objectContaining({
+        operation: expect.objectContaining({ kind: 'RESPONSE_GENERATION', outcomeCode: 'FAILED_FALLBACK' }),
+      }))
+      dbQueryRaw.mockResolvedValueOnce([generalWebVenue])
+      guestTurnActions.reserve.mockResolvedValueOnce({ state: 'COMPLETE',
+        turnId: '11111111-1111-4111-8111-111111111111', sessionId: SESSION_ID,
+        assistantMessageId: 'assistant-message-1', response: result.response,
+        replyKind: 'TEMPORARY_FALLBACK', places: [], citations: [], replayed: true })
+      await expect(caller.chat.send(generalWebInput)).resolves.toMatchObject({
+        response: result.response, replyKind: 'TEMPORARY_FALLBACK', replayed: true,
+      })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
+      expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+
+    })
+
     it.each([
       { fail: false, mismatch: false, loadStatus: 'READY' },
       { fail: true, mismatch: false, loadStatus: 'LOAD_FAILED' },

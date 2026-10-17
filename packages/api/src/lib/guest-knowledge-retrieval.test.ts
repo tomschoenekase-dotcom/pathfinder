@@ -23,6 +23,69 @@ function row(
 }
 
 describe('retrieveGuestKnowledge', () => {
+  it('delivers every condition in a legacy policy record within the total budget', async () => {
+    const content =
+      'Admission is included. ' +
+      'Background information. '.repeat(300) +
+      'Only with advance reservation and an accompanying adult.'
+    expect(content.length).toBeGreaterThan(5000)
+    expect(content.length).toBeLessThanOrEqual(20000)
+    const source = row('policy', 'Admission policy', content)
+    const result = await retrieveGuestKnowledge({
+      reader: {
+        venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue([source]) },
+      },
+      query: 'Admission policy?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
+    expect(result.entries[0]?.content).toBe(content)
+    expect(result.trace.truncatedSourceIds).toEqual([])
+  })
+  it('retains governing year, adjacent restrictions and requested facility lines in a whole legacy schedule', async () => {
+    const conditions = ['Schedule for 2031 only.', 'October 12: rides noon to 7 PM.', 'Rides close during high winds.', 'October 12: arcade 11 AM to 9 PM; admission requires a separate wristband.']
+    const content = conditions[0] + '\n' + 'Other dated facility information. '.repeat(200) + '\n' + conditions.slice(1).join('\n')
+    expect(content.length).toBeGreaterThan(5000)
+    const source = row('schedule', 'Facility schedule', content)
+    const result = await retrieveGuestKnowledge({ reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue([source]) } }, query: 'October 12 ride and arcade hours?', tenantId: 'tenant-a', venueId: 'venue-a', includeSecondLayer: false, queryEmbedding: null })
+    expect(result.entries[0]?.content).toBe(content)
+    for (const condition of conditions) expect(result.entries[0]?.content).toContain(condition)
+    expect(result.trace.partialCoverage).toBe(false)
+  })
+  it('omits an oversized policy completely and reports its unavailable coverage', async () => {
+    const source = row(
+      'oversized',
+      'Admission policy',
+      'Admission is included. ' + 'Conditions apply. '.repeat(1400),
+    )
+    const result = await retrieveGuestKnowledge({
+      reader: {
+        venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue([source]) },
+      },
+      query: 'Admission policy?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
+    expect(result.entries).toEqual([])
+    expect(result.trace.excludedSourceIds).toContain(source.id)
+    expect(result.trace.partialCoverage).toBe(true)
+    expect(result.trace.retrievedSourceIds).toEqual([])
+    expect(result.trace.truncatedSourceIds).toEqual([])
+  })
+  it('reports whole-record total-budget omissions without presenting partial policies', async () => {
+    const sources = Array.from({ length: 5 }, (_, index) => row(`policy-${index}`, 'Visitor policy', 'Policy conditions. '.padEnd(5000, '.')))
+    const result = await retrieveGuestKnowledge({ reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue(sources) } }, query: 'Visitor policy?', tenantId: 'tenant-a', venueId: 'venue-a', includeSecondLayer: false, queryEmbedding: null })
+    expect(result.entries).toHaveLength(4)
+    expect(result.entries.reduce((total, entry) => total + entry.content.length, 0)).toBe(20000)
+    for (const entry of result.entries) expect(entry.content).toBe(sources.find((source) => source.id === entry.id)!.content)
+    expect(result.trace.excludedSourceIds).toHaveLength(1)
+    expect(result.trace.partialCoverage).toBe(true)
+    expect(result.trace.truncatedSourceIds).toEqual([])
+  })
   it('never lets connected-source lexical or semantic hits bypass cached freshness admission', async () => {
     const source = row('source-record', 'Daily show schedule', 'Today the show starts at noon.', {
       sourceType: 'UNIVERSAL_CONTENT',

@@ -52,7 +52,7 @@ export const GuestAnswerEvidenceSourceSchema = z
     ]),
     label: z.string().trim().min(1).max(500),
     rank: z.number().int().min(0).max(100).nullable(),
-    snapshot: z.string().min(2).max(30_000),
+    snapshot: z.string().min(2).max(160_000),
     snapshotHash: sha256,
   })
   .strict()
@@ -67,7 +67,7 @@ export const GuestAnswerEvidenceBundleSchema = z
     routeConfigurationVersion: z.string().trim().min(1).max(191).nullable(),
     system: z
       .object({
-        staticPart: z.string().min(1).max(100_000),
+        staticPart: z.string().min(1).max(160_000),
         dynamicPart: z.string().min(1).max(150_000),
       })
       .strict(),

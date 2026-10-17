@@ -95,6 +95,7 @@ import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
 import { loadGuestLiveDataContext } from '../lib/guest-live-data'
 import { loadGuestSourceConnections } from '../lib/guest-source-connections'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
+import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -112,6 +113,7 @@ import {
   isPastDatedGuestEvent,
   loadGuestVenueDirectoryCached,
   staleGuestGuideRecordIds,
+  suppressStaleGuestDirectoryKnowledge,
   type GuestVenueDirectory,
 } from '../lib/guest-venue-directory'
 import {
@@ -1507,7 +1509,7 @@ const chatReadRouter = router({
     })
     if (guideLoadStatus === 'READY' && directoryRead.path !== nativeRead.path)
       guideLoadStatus = 'PROJECTION_MISMATCH'
-    const guestDirectory: GuestVenueDirectory =
+    let guestDirectory: GuestVenueDirectory =
       directoryRead.path === nativeRead.path
         ? {
             places: directoryRead.places,
@@ -1515,6 +1517,14 @@ const chatReadRouter = router({
             incomplete: loadedDirectory.incomplete,
           }
         : emptyDirectory
+    // Retrieval versions describe legacy reads only; never mix them into a native release.
+    if (directoryRead.path === 'LEGACY' && nativeRead.path === 'LEGACY') {
+      guestDirectory = suppressStaleGuestDirectoryKnowledge({
+        directory: guestDirectory,
+        observedSources: retrievalTrace?.observedSources ?? [],
+        admittedSourceIds: new Set(relevantKnowledgeEntries.map((entry) => entry.id)),
+      }).directory
+    }
     const currentYear = Number(currentDate.slice(0, 4))
     const normalizedQuery = trimmedInput.toLocaleLowerCase()
     relevantKnowledgeEntries = expandGuestKnowledgeLinks({
@@ -1530,7 +1540,9 @@ const chatReadRouter = router({
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, { currentDate })
     const directoryPrompt = venueGuide.prompt
     const guideCoverage = buildGuestGuideCoverage({
-      guide: venueGuide, directory: guestDirectory, loadStatus: guideLoadStatus,
+      guide: venueGuide,
+      directory: guestDirectory,
+      loadStatus: guideLoadStatus,
       projectionPath: directoryRead.path,
     })
     let placeIdentity = await projectGuestPlaceIdentity({
@@ -1858,6 +1870,21 @@ const chatReadRouter = router({
         : parts
     }
     let { staticPart, dynamicPart } = preparePrompt()
+    const captureEvidence = () =>
+      captureGuestEvidencePacket({
+        staticPart,
+        directoryPrompt,
+        dynamicPart,
+        mode: venueGuide.mode,
+        loadStatus: guideLoadStatus,
+        incomplete: guestDirectory.incomplete,
+        rendererTruncated: venueGuide.rendererTruncated,
+        updatedRecordCount: updatedGuideRecordCount,
+        retrievedCoveragePartial: retrievalTrace?.partialCoverage ?? false,
+      })
+    let generationEvidence: ReturnType<typeof captureEvidence> | null = null
+    let responseGenerationDispatched = false
+    let preflightEvidence: ReturnType<typeof buildGuestAnswerEvidenceBundle> | null = null
     const history = projectGuestModelHistory(
       mergeGuestConversationEntries({
         textRows: historyDesc,
@@ -1892,6 +1919,65 @@ const chatReadRouter = router({
       feature: 'guest-chat',
       surface: 'guest-web',
     })
+    const buildAnswerEvidence = (
+      assistantResponse: string,
+      evidence: ReturnType<typeof captureEvidence>,
+    ) =>
+      buildGuestAnswerEvidenceBundle({
+        assistantResponse,
+        staticSystemPrompt: evidence.staticPart,
+        dynamicSystemPrompt: evidence.dynamicPart,
+        ...(generationRouteConfigurationVersion
+          ? { routeConfigurationVersion: generationRouteConfigurationVersion }
+          : {}),
+        sources: [
+          ...(generalWebProjection?.evidenceSources ?? []),
+          {
+            sourceId: `venue:${venue.id}`,
+            kind: 'VENUE_PROFILE',
+            label: venue.name,
+            snapshot: {
+              id: venue.id,
+              name: venue.name,
+              description: venue.description,
+              category: venue.category,
+              guideNotes: venue.guideNotes,
+              aiGuideNotes: venue.aiGuideNotes,
+              guideMode,
+              guideCoverage,
+              contextPacket: evidence.contextPacket,
+            },
+          },
+          ...relevantPlaces.map((place, rank) => ({
+            sourceId: `place:${place.id}`,
+            kind: 'PLACE' as const,
+            label: place.name,
+            rank,
+            snapshot: place,
+          })),
+          ...relevantKnowledgeEntries.map((entry, rank) => ({
+            sourceId: `knowledge:${entry.id}`,
+            kind: 'KNOWLEDGE' as const,
+            label: entry.title,
+            rank,
+            snapshot: entry,
+          })),
+          ...activeUpdates.map((update, rank) => ({
+            sourceId: `operational-update:${update.id}`,
+            kind: 'OPERATIONAL_UPDATE' as const,
+            label: update.title,
+            rank,
+            snapshot: update,
+          })),
+          ...publishedUniversalContent.map((content, rank) => ({
+            sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
+            kind: 'PUBLISHED_CONTENT' as const,
+            label: `${content.kind} ${content.moduleId}`,
+            rank,
+            snapshot: content,
+          })),
+        ],
+      })
     let generationDispatched = false
     try {
       const configurationStartedAt = performance.now()
@@ -2074,6 +2160,9 @@ const chatReadRouter = router({
       } catch {
         // Diagnostics never affect the answer.
       }
+      generationEvidence = captureEvidence()
+      // Validate the exact retained text and source snapshots before any answer provider dispatch.
+      preflightEvidence = buildAnswerEvidence('Evidence preflight.', generationEvidence)
       const result = await generateTextForCapability({
         route,
         timeoutMs: configuration.timeoutMs,
@@ -2083,17 +2172,8 @@ const chatReadRouter = router({
           : {}),
         admissionGuard: assertGenerationAvailable,
         budgetGate: sharedBudgetGate,
-        // The directory is stable per venue, so the cache breakpoint moves after it.
-        system: directoryPrompt
-          ? [
-              { type: 'text', text: staticPart },
-              { type: 'text', text: directoryPrompt, cache_control: { type: 'ephemeral' } },
-              { type: 'text', text: dynamicPart },
-            ]
-          : [
-              { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
-              { type: 'text', text: dynamicPart },
-            ],
+        // Capture and dispatch share exact strings and established cache breakpoints.
+        system: generationEvidence.system,
         messages: [
           ...history.map((m: { role: string; content: string }) => ({
             role: m.role as 'user' | 'assistant',
@@ -2113,13 +2193,17 @@ const chatReadRouter = router({
             }
           : {}),
         onBeforeFirstDispatch: async () => {
-          if (generationDispatched) return
+          if (generationDispatched) {
+            responseGenerationDispatched = true
+            return
+          }
           try {
             await markGuestChatProviderDispatchedAction({
               client: ctx.db,
               operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
             })
             generationDispatched = true
+            responseGenerationDispatched = true
           } catch (error) {
             guestChatTurnError(error)
           }
@@ -2275,60 +2359,15 @@ const chatReadRouter = router({
     })
     if (generalWebProjection && !fallbackFailureCode)
       citations.push(...generalWebProjection.citations)
-    const answerEvidence = buildGuestAnswerEvidenceBundle({
-      assistantResponse,
-      staticSystemPrompt: `${staticPart}${venueGuide.evidenceText}`,
-      dynamicSystemPrompt: dynamicPart,
-      ...(generationRouteConfigurationVersion
-        ? { routeConfigurationVersion: generationRouteConfigurationVersion }
-        : {}),
-      sources: [
-        ...(generalWebProjection?.evidenceSources ?? []),
-        {
-          sourceId: `venue:${venue.id}`,
-          kind: 'VENUE_PROFILE',
-          label: venue.name,
-          snapshot: {
-            id: venue.id,
-            name: venue.name,
-            description: venue.description,
-            category: venue.category,
-            guideNotes: venue.guideNotes,
-            aiGuideNotes: venue.aiGuideNotes,
-            guideMode,
-            guideCoverage,
-          },
-        },
-        ...relevantPlaces.map((place, rank) => ({
-          sourceId: `place:${place.id}`,
-          kind: 'PLACE' as const,
-          label: place.name,
-          rank,
-          snapshot: place,
-        })),
-        ...relevantKnowledgeEntries.map((entry, rank) => ({
-          sourceId: `knowledge:${entry.id}`,
-          kind: 'KNOWLEDGE' as const,
-          label: entry.title,
-          rank,
-          snapshot: entry,
-        })),
-        ...activeUpdates.map((update, rank) => ({
-          sourceId: `operational-update:${update.id}`,
-          kind: 'OPERATIONAL_UPDATE' as const,
-          label: update.title,
-          rank,
-          snapshot: update,
-        })),
-        ...publishedUniversalContent.map((content, rank) => ({
-          sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
-          kind: 'PUBLISHED_CONTENT' as const,
-          label: `${content.kind} ${content.moduleId}`,
-          rank,
-          snapshot: content,
-        })),
-      ],
-    })
+    // Source snapshots and system metadata were frozen and validated before the paid call.
+    // Only the answer hash depends on completion; it is not part of evidenceSetHash.
+    const answerEvidence =
+      responseGenerationDispatched && preflightEvidence
+        ? {
+            ...preflightEvidence,
+            answerHash: createHash('sha256').update(assistantResponse).digest('hex'),
+          }
+        : undefined
     let finalized: Awaited<ReturnType<typeof finalizeGuestChatTurnAction>>
     try {
       finalized = await finalizeGuestChatTurnAction({
@@ -2341,7 +2380,7 @@ const chatReadRouter = router({
           replayMetadata: {
             places: mentionedPlaces,
             citations,
-            answerEvidence,
+            ...(answerEvidence ? { answerEvidence } : {}),
             ...(guestActionPlacements.length && !fallbackFailureCode
               ? { actionPlacements: guestActionPlacements }
               : {}),
