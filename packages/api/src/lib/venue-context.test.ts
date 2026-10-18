@@ -85,7 +85,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v34')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v35')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -359,6 +359,16 @@ describe('guest chat prompt provenance', () => {
         }),
       },
       {
+        id: 'height-or-age-ride-question',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces,
+          userLat: null,
+          userLng: null,
+          heightOrAgeRideQuestion: true,
+        }),
+      },
+      {
         id: 'full-venue-guide',
         prompt: buildGuestVenueGuidePrompt(guideManifestDirectory, {
           currentDate: '2026-10-06',
@@ -574,6 +584,33 @@ describe('guest venue clock', () => {
 })
 
 describe('height and age ride questions', () => {
+  it.each([false, true])(
+    'requires measured height and verified conditions even when the ride-question cue is %s',
+    (heightOrAgeRideQuestion) => {
+      const { staticPart } = buildVenueSystemPromptParts({
+        venue,
+        relevantPlaces,
+        userLat: null,
+        userLng: null,
+        heightOrAgeRideQuestion,
+      })
+      expect(staticPart).not.toMatch(
+        /use typical heights|36-43 inches|44-50 at 6-8|age usually qualifies/iu,
+      )
+      expect(staticPart).toContain(
+        'compare actual measured height or stated age only against verified matching activity rules, including adult-accompaniment minimums',
+      )
+      expect(staticPart).toContain('Never infer height or height eligibility from age')
+      expect(staticPart).toContain('Answer verified age-only conditions')
+      expect(staticPart).toContain(
+        'ask for measured height when a known height rule needs it',
+      )
+      expect(staticPart).toContain(
+        'If the needed rule is unknown, say so and check with staff',
+      )
+    },
+  )
+
   it.each([
     ['my son is 46 inches, can he ride the thunderbolt?', true],
     ['can a 50 inch kid ride Skyhook?', true],
@@ -586,7 +623,7 @@ describe('height and age ride questions', () => {
     expect(isGuestHeightOrAgeRideQuestion(message)).toBe(expected)
   })
 
-  it('asks the reply to lead with the comparison, never a bare yes or no', () => {
+  it('leads with a supported comparison and withholds a verdict when eligibility facts are missing', () => {
     const asked = buildVenueSystemPromptParts({
       venue,
       relevantPlaces,
@@ -594,7 +631,15 @@ describe('height and age ride questions', () => {
       userLng: null,
       heightOrAgeRideQuestion: true,
     })
-    expect(asked.dynamicPart).toContain('HEIGHT QUESTION: Begin the reply with the child')
+    expect(asked.dynamicPart).toContain(
+      "HEIGHT QUESTION: Begin with the child's actual measured height or stated age compared with a verified matching ride condition",
+    )
+    expect(asked.dynamicPart).toContain('the verdict only when the needed facts are known')
+    expect(asked.dynamicPart).toContain('Never infer height or height eligibility from age')
+    expect(asked.dynamicPart).toContain(
+      'Ask for a missing measured height when a known height rule requires it',
+    )
+    expect(asked.dynamicPart).toContain('if the needed ride rule is unknown, say so')
     expect(asked.dynamicPart).toContain('Never begin with "Yes" or "No".')
     const other = buildVenueSystemPromptParts({
       venue,
