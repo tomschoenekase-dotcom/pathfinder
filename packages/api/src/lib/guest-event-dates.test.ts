@@ -41,9 +41,10 @@ describe('dated titles in retrieved knowledge entries', () => {
     }).dynamicPart
     expect(plain).not.toContain('title_year_passed')
     expect(plain).not.toContain(GUEST_DATED_TITLE_RULE)
-    const { currentDate: _omitted, ...withoutDate } = base
+    const withoutDate: Partial<typeof base> = { ...base }
+    delete withoutDate.currentDate
     const undated = buildVenueSystemPromptParts({
-      ...withoutDate,
+      ...(withoutDate as typeof base),
       knowledgeEntries: [entry('a', 'Harvest Nights 2025', 'Returns October 23, 2026.')],
     }).dynamicPart
     expect(undated).not.toContain('title_year_passed')
