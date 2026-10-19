@@ -209,17 +209,25 @@ export function guestDirectoryName(title: string): string {
 const PAST_EVENT_TITLE =
   /\b(event|festival|fest|season|celebration|special|nights?|holiday|weekend)s?\b/iu
 
-/** A titled event whose every year is before the current year, such as "Spring Fest 2024". */
+const YEAR = /\b(?:19|20)\d{2}\b/gu
+
+/**
+ * A titled event whose every year is before the current year, such as "Spring Fest 2024".
+ * A record whose own text names the current year or a later one still applies, whatever its
+ * title says ("Lantern Walk 2025" re-dated for this year), so it is never hidden as past.
+ */
 export function isPastDatedGuestEvent(
-  entry: { title: string; category: string },
+  entry: { title: string; category: string; content?: string | null },
   currentYear: number,
 ): boolean {
-  const years = [...entry.title.matchAll(/\b(19|20)\d{2}\b/gu)].map((match) => Number(match[0]))
-  return (
-    years.length > 0 &&
-    years.every((year) => year < currentYear) &&
-    PAST_EVENT_TITLE.test(`${entry.title} ${entry.category}`)
+  const years = [...entry.title.matchAll(YEAR)].map((match) => Number(match[0]))
+  if (
+    years.length === 0 ||
+    !years.every((year) => year < currentYear) ||
+    !PAST_EVENT_TITLE.test(`${entry.title} ${entry.category}`)
   )
+    return false
+  return ![...(entry.content ?? '').matchAll(YEAR)].some((match) => Number(match[0]) >= currentYear)
 }
 
 export function buildGuestVenueDirectoryPrompt(
@@ -446,7 +454,11 @@ export function suppressStaleGuestDirectoryKnowledge(params: {
   const knowledge = params.directory.knowledge.filter((entry) => {
     if (params.admittedSourceIds.has(entry.id)) return true
     const observed = observedVersions.get(entry.id)
-    if (entry.updatedAt instanceof Date && observed !== undefined && observed > entry.updatedAt.getTime()) {
+    if (
+      entry.updatedAt instanceof Date &&
+      observed !== undefined &&
+      observed > entry.updatedAt.getTime()
+    ) {
       suppressedSourceIds.push(entry.id)
       return false
     }
