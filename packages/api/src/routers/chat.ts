@@ -104,6 +104,11 @@ import {
   splitGuestAnswerCheck,
   summarizeGuestAnswerCheck,
 } from '../lib/guest-answer-check'
+import {
+  appendGuestAnswerShapeInstruction,
+  guestAnswerShapeMode,
+  isGuestAnswerShapeEnabled,
+} from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
@@ -2194,6 +2199,11 @@ const chatReadRouter = router({
         configuration.maxOutputTokens,
       )
       if (answerCheckEnabled) dynamicPart = appendGuestAnswerCheckInstruction(dynamicPart)
+      // Decision-first prose is the streaming alternative to the check; never both at once.
+      const answerShapeEnabled =
+        !answerCheckEnabled &&
+        isGuestAnswerShapeEnabled(guestAnswerShapeMode(), route.candidates[0]?.modelKey)
+      if (answerShapeEnabled) dynamicPart = appendGuestAnswerShapeInstruction(dynamicPart)
       const pushVisibleDelta = streamProjection
         ? (delta: string) =>
             streamProjection.push(delta, {

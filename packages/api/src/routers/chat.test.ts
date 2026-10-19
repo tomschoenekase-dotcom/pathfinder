@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 import { GuestChatTurnActionError } from '@pathfinder/db'
 import { verifyGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
+import { GUEST_ANSWER_SHAPE_INSTRUCTION } from '../lib/guest-answer-shape'
 
 import {
   setOpenAiEmbeddingsClientForTesting,
@@ -4229,6 +4230,79 @@ describe('chat router', () => {
           type: 'complete',
           result: { response: checkedAnswer },
         })
+      })
+
+      it('adds decision-first guidance on Luna only and streams it before completion', async () => {
+        vi.stubEnv('GUEST_CHAT_ANSWER_SHAPE', 'decision-first')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-luna')
+        const shapedAnswer =
+          'The last tour leaves at 2 pm, so a 2:30 arrival misses it—the next one is tomorrow. [[ENGAGEMENT_ASKED]]'
+        let providerCompleted = false
+        let deltaBeforeCompletion = false
+        const openAiCreate = vi.fn().mockResolvedValueOnce({
+          async *[Symbol.asyncIterator]() {
+            for (const delta of [shapedAnswer.slice(0, 30), shapedAnswer.slice(30)])
+              yield { type: 'response.output_text.delta', delta }
+            providerCompleted = true
+            yield {
+              type: 'response.completed',
+              response: { status: 'completed', output_text: shapedAnswer, usage: openAiUsage },
+            }
+          },
+        })
+        setOpenAiResponsesClientForTesting({ responses: { create: openAiCreate } })
+        const events = []
+        for await (const event of streamChatTurn(ctx, sendInput)) {
+          if (event.type === 'delta' && !providerCompleted) deltaBeforeCompletion = true
+          events.push(event)
+        }
+        const request = openAiCreate.mock.calls[0]?.[0]
+        expect(lastDeveloperText(request).endsWith(GUEST_ANSWER_SHAPE_INSTRUCTION)).toBe(true)
+        expect(JSON.stringify(request)).not.toContain('TRUSTED ANSWER CHECK')
+        expect(deltaBeforeCompletion).toBe(true)
+        const stored =
+          'The last tour leaves at 2 pm, so a 2:30 arrival misses it, the next one is tomorrow.'
+        expect(events.at(-1)).toMatchObject({ type: 'complete', result: { response: stored } })
+        const streamed = events
+          .filter((event) => event.type === 'delta')
+          .map((event) => (event as { delta: string }).delta)
+          .join('')
+        expect(stored.startsWith(streamed.trimEnd())).toBe(true)
+        expect(streamed).not.toContain('ENGAGEMENT_ASKED')
+        const evidence =
+          guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+        expect(evidence.system.dynamicPart.endsWith(GUEST_ANSWER_SHAPE_INSTRUCTION)).toBe(true)
+      })
+
+      it('keeps Sol unchanged and lets the answer check take precedence over the shape', async () => {
+        vi.stubEnv('GUEST_CHAT_ANSWER_SHAPE', 'decision-first')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-sol')
+        const solCreate = vi.fn().mockResolvedValueOnce({
+          status: 'completed',
+          output_text: 'Sol answer.',
+          usage: openAiUsage,
+        })
+        setOpenAiResponsesClientForTesting({ responses: { create: solCreate } })
+        await caller.chat.send(sendInput)
+        expect(JSON.stringify(solCreate.mock.calls[0]?.[0])).not.toContain('DECISION-FIRST')
+
+        vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-luna')
+        const checkedCreate = vi.fn().mockResolvedValueOnce({
+          status: 'completed',
+          output_text: checkedReply,
+          usage: openAiUsage,
+        })
+        setOpenAiResponsesClientForTesting({ responses: { create: checkedCreate } })
+        await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+          response: checkedAnswer,
+        })
+        const checkedRequest = JSON.stringify(checkedCreate.mock.calls[0]?.[0])
+        expect(checkedRequest).toContain('TRUSTED ANSWER CHECK')
+        expect(checkedRequest).not.toContain('DECISION-FIRST')
       })
     })
 
