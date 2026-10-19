@@ -3982,7 +3982,7 @@ describe('chat router', () => {
         input_tokens_details: { cached_tokens: 0 },
       }
       function routeTo(
-        primaryModelKey: 'guest-chat-luna' | 'guest-chat-sol',
+        primaryModelKey: 'guest-chat-luna' | 'guest-chat-luna-reasoning' | 'guest-chat-sol',
         maxOutputTokens = 1024,
       ) {
         aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
@@ -4273,6 +4273,31 @@ describe('chat router', () => {
         const evidence =
           guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
         expect(evidence.system.dynamicPart.endsWith(GUEST_ANSWER_SHAPE_INSTRUCTION)).toBe(true)
+      })
+
+      it('routes the Luna reasoning key with low effort, its own cap, and the decision-first rule', async () => {
+        vi.stubEnv('GUEST_CHAT_ANSWER_SHAPE', 'decision-first')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-luna-reasoning', 2048)
+        const create = vi.fn().mockResolvedValueOnce({
+          status: 'completed',
+          output_text: 'The elephants are in the Elephant House.',
+          usage: openAiUsage,
+        })
+        setOpenAiResponsesClientForTesting({ responses: { create } })
+        await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+          response: 'The elephants are in the Elephant House.',
+        })
+        const request = create.mock.calls[0]?.[0]
+        expect(request.model).toBe('gpt-6-luna')
+        expect(request.reasoning).toEqual({ effort: 'low' })
+        expect(request.max_output_tokens).toBe(2048)
+        expect(lastDeveloperText(request).endsWith(GUEST_ANSWER_SHAPE_INSTRUCTION)).toBe(true)
+        expect(aiUsageEventCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ routeModelKey: 'guest-chat-luna-reasoning' }),
+          }),
+        )
       })
 
       it('keeps Sol unchanged and lets the answer check take precedence over the shape', async () => {

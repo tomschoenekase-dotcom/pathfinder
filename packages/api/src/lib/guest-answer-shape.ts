@@ -11,7 +11,10 @@ export type GuestAnswerShapeMode = 'off' | 'decision-first'
 
 // Only routes whose primary model was evaluated with this rule receive it. Other economy models
 // (and the platform default) keep their unshaped prompt until they are measured too.
-export const GUEST_ANSWER_SHAPE_MODEL_KEYS: ReadonlySet<string> = new Set(['guest-chat-luna'])
+export const GUEST_ANSWER_SHAPE_MODEL_KEYS: ReadonlySet<string> = new Set([
+  'guest-chat-luna',
+  'guest-chat-luna-reasoning',
+])
 
 export const GUEST_ANSWER_SHAPE_INSTRUCTION = `DECISION-FIRST ANSWERS (trusted system rule):
 - When the visitor asks whether something will work for them, such as getting in, timing, eligibility, what is allowed or the price for their group, first compare their own stated details with the limit that decides it. For timing, the deciding limit is the latest time to enter, buy or start when one is given, not the closing time.

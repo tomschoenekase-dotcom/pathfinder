@@ -48,6 +48,7 @@ describe('admin AI workload configuration', () => {
       'guest-chat',
       'guest-chat-openai',
       'guest-chat-luna',
+      'guest-chat-luna-reasoning',
       'guest-chat-sol',
       'guest-chat-deepseek-flash',
       'guest-chat-deepseek-pro',
@@ -121,7 +122,7 @@ describe('admin AI workload configuration', () => {
       expect.objectContaining({ where: { tenantId: 'tenant_1', venueScopeKey: 'venue_7' } }),
     )
     expect(result.scope).toEqual({ tenantId: 'tenant_1', venueId: 'venue_7' })
-    expect(result.workloads).toHaveLength(19)
+    expect(result.workloads).toHaveLength(20)
     expect(result.workloads.map((workload) => workload.workloadId)).toContain('guest-chat-openai')
     expect(result.workloads.map((workload) => workload.workloadId)).toContain('guest-chat-luna')
     expect(result.workloads.map((workload) => workload.workloadId)).toContain('guest-chat-sol')
@@ -139,6 +140,7 @@ describe('admin AI workload configuration', () => {
       'guest-chat-deepseek-flash',
       'guest-chat-deepseek-pro',
       'guest-chat-luna',
+      'guest-chat-luna-reasoning',
       'guest-chat-openai',
       'guest-chat-sol',
     ])
