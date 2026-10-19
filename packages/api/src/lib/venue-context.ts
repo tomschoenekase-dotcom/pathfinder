@@ -1,6 +1,11 @@
 import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { projectGuestVisitContext } from './guest-visit-context'
 import { safeGuestSourceUrl } from './guest-citations'
+import {
+  GUEST_DATED_TITLE_RULE,
+  classifyGuestDatedEvent,
+  guestPassedTitleYear,
+} from './guest-event-dates'
 import { GUEST_RECORD_DATE_RULE, guestRecordDate } from './guest-record-dates'
 /**
  * Durable version of the production guest-chat system prompt contract.
@@ -432,18 +437,30 @@ export function buildVenueSystemPromptParts(params: {
     Boolean(entry.id && params.venueGuideRecordIds?.has(`knowledge:${entry.id}`))
   const guideTopics = knowledgeEntries.filter(inGuide)
   const detailedEntries = knowledgeEntries.filter((entry) => !inGuide(entry))
+  // An old-titled event whose text names a newer date keeps its text with a neutral marker.
+  const checkDatesIds = new Set(
+    params.currentDate
+      ? detailedEntries.filter(
+          (entry) => classifyGuestDatedEvent(entry, params.currentDate!) === 'CHECK_DATES',
+        )
+      : [],
+  )
+  const checkDatesEntries = checkDatesIds.size > 0
   const knowledgeSection = `${
     guideTopics.length
       ? `\n\nMOST RELEVANT GUIDE TOPICS (full text is in the VENUE GUIDE): ${guideTopics.map((entry) => escapeUntrustedPromptData(entry.title)).join('; ')}`
       : ''
   }${
     detailedEntries.length
-      ? `\n\nKNOWLEDGE BASE:${params.recordDates ? ` ${GUEST_RECORD_DATE_RULE}` : ''}\n${detailedEntries
+      ? `\n\nKNOWLEDGE BASE:${checkDatesEntries ? ` ${GUEST_DATED_TITLE_RULE}` : ''}${params.recordDates ? ` ${GUEST_RECORD_DATE_RULE}` : ''}\n${detailedEntries
           .map((entry) => {
             const sourceUrl = safeGuestSourceUrl(entry.sourceUrl)
             const updated = params.recordDates ? guestRecordDate(entry.updatedAt) : null
+            const passedYear = checkDatesIds.has(entry)
+              ? `title_year_passed="${guestPassedTitleYear(entry.title)}"\n`
+              : ''
             return escapeUntrustedPromptData(
-              `[${entry.category}] ${entry.title}\n${updated ? `Updated: ${updated}\n` : ''}${
+              `[${entry.category}] ${entry.title}\n${passedYear}${updated ? `Updated: ${updated}\n` : ''}${
                 entry.id && params.venueGuideUpdatedRecordIds?.has(`knowledge:${entry.id}`)
                   ? `${UPDATED_GUIDE_RECORD}\n`
                   : ''
