@@ -96,6 +96,14 @@ import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
 import { loadGuestLiveDataContext } from '../lib/guest-live-data'
 import { loadGuestSourceConnections } from '../lib/guest-source-connections'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
+import {
+  appendGuestAnswerCheckInstruction,
+  createGuestAnswerCheckStreamGate,
+  guestAnswerCheckMode,
+  isGuestAnswerCheckEnabled,
+  splitGuestAnswerCheck,
+  summarizeGuestAnswerCheck,
+} from '../lib/guest-answer-check'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
@@ -2173,6 +2181,24 @@ const chatReadRouter = router({
       } catch {
         // Diagnostics never affect the answer.
       }
+      // The answer check follows every dynamic instruction, after the cache breakpoint, and is
+      // part of the captured evidence. Only the route's primary model decides the format.
+      const answerCheckEnabled = isGuestAnswerCheckEnabled(
+        guestAnswerCheckMode(),
+        route.candidates[0]?.modelKey,
+      )
+      if (answerCheckEnabled) dynamicPart = appendGuestAnswerCheckInstruction(dynamicPart)
+      const pushVisibleDelta = streamProjection
+        ? (delta: string) =>
+            streamProjection.push(delta, {
+              providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
+              requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+            })
+        : null
+      const answerCheckGate =
+        answerCheckEnabled && pushVisibleDelta
+          ? createGuestAnswerCheckStreamGate(pushVisibleDelta)
+          : null
       generationEvidence = captureEvidence()
       // Validate the exact retained text and source snapshots before any answer provider dispatch.
       preflightEvidence = buildAnswerEvidence('Evidence preflight.', generationEvidence)
@@ -2196,15 +2222,9 @@ const chatReadRouter = router({
         ],
         usageSink: chatAccounting.sink,
         invocationId: generationInvocationId,
-        ...(streamProjection
-          ? {
-              onTextDelta: (delta: string) =>
-                streamProjection.push(delta, {
-                  providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
-                  requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
-                }),
-            }
-          : {}),
+        // A check that never closes or leaves no answer fails as invalid structured output.
+        ...(answerCheckEnabled ? { parseResponse: splitGuestAnswerCheck } : {}),
+        ...(pushVisibleDelta ? { onTextDelta: answerCheckGate ?? pushVisibleDelta } : {}),
         onBeforeFirstDispatch: async () => {
           if (generationDispatched) {
             responseGenerationDispatched = true
@@ -2223,7 +2243,20 @@ const chatReadRouter = router({
         },
       })
 
-      const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)
+      let providerAnswer = result.text
+      if (answerCheckEnabled) {
+        // The gateway already accepted this exact text through the same pure split.
+        const split = splitGuestAnswerCheck(result.text)
+        providerAnswer = split.answer
+        logger.info({
+          action: 'guest-chat.answer-check',
+          tenantId: venue.tenantId,
+          venueId: venue.id,
+          turnId: reservation.turnId,
+          ...summarizeGuestAnswerCheck(split),
+        })
+      }
+      const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(providerAnswer)
       // Brevity belongs in generation guidance. Do not discard later sentences:
       // a restriction or exception may change the meaning of an earlier answer.
       // The model may only name approved action IDs; the server enforces the venue's

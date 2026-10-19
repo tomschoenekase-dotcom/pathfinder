@@ -51,8 +51,15 @@ vi.mock('@pathfinder/ai/guest-web-search-accounting', () => ({ searchGuestWebWit
 const coverageReadControls = vi.hoisted(() => ({ fail: false, mismatch: false, projections: 0 }))
 vi.mock('../lib/guest-venue-directory', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/guest-venue-directory')>()
-  return { ...original, loadGuestVenueDirectoryCached: (...args: Parameters<typeof original.loadGuestVenueDirectoryCached>) =>
-    coverageReadControls.fail ? Promise.reject(new Error('fictional directory unavailable')) : original.loadGuestVenueDirectoryCached(...args) }
+  return {
+    ...original,
+    loadGuestVenueDirectoryCached: (
+      ...args: Parameters<typeof original.loadGuestVenueDirectoryCached>
+    ) =>
+      coverageReadControls.fail
+        ? Promise.reject(new Error('fictional directory unavailable'))
+        : original.loadGuestVenueDirectoryCached(...args),
+  }
 })
 const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
 const guestTurnActions = vi.hoisted(() => ({
@@ -75,28 +82,31 @@ vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }
 vi.mock('@pathfinder/db', async (importOriginal) => {
   const originalDb = await importOriginal<typeof import('@pathfinder/db')>()
   return {
-  ...originalDb,
-  applyNativeGuestContentRead: (input: Parameters<typeof import('@pathfinder/db').applyNativeGuestContentRead>[0]) => {
-    const original = originalDb.applyNativeGuestContentRead(input)
-    coverageReadControls.projections += 1
-    return coverageReadControls.mismatch && coverageReadControls.projections === 2
-      ? { ...original, path: 'NATIVE' as const } : original
-  },
-  searchPlacesByEmbedding: semanticSearch.places,
-  searchKnowledgeByEmbedding: semanticSearch.knowledge,
-  reserveGuestChatTurnAction: guestTurnActions.reserve,
-  claimGuestChatTurnAction: guestTurnActions.claim,
-  markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
-  skipGuestChatProviderOperationAction: guestTurnActions.skip,
-  observeGuestChatProviderOperationAction: guestTurnActions.observe,
-  failGuestChatTurnAction: guestTurnActions.fail,
-  finalizeGuestChatTurnAction: guestTurnActions.finalize,
-  readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
-  resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
-  resolveNativeGuestReadSnapshotAction,
-  readActiveUnhealthyAiProviders,
-  isGuestConversationDisposed,
-  recordConversationLearningCandidate,
+    ...originalDb,
+    applyNativeGuestContentRead: (
+      input: Parameters<typeof import('@pathfinder/db').applyNativeGuestContentRead>[0],
+    ) => {
+      const original = originalDb.applyNativeGuestContentRead(input)
+      coverageReadControls.projections += 1
+      return coverageReadControls.mismatch && coverageReadControls.projections === 2
+        ? { ...original, path: 'NATIVE' as const }
+        : original
+    },
+    searchPlacesByEmbedding: semanticSearch.places,
+    searchKnowledgeByEmbedding: semanticSearch.knowledge,
+    reserveGuestChatTurnAction: guestTurnActions.reserve,
+    claimGuestChatTurnAction: guestTurnActions.claim,
+    markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+    skipGuestChatProviderOperationAction: guestTurnActions.skip,
+    observeGuestChatProviderOperationAction: guestTurnActions.observe,
+    failGuestChatTurnAction: guestTurnActions.fail,
+    finalizeGuestChatTurnAction: guestTurnActions.finalize,
+    readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
+    resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
+    resolveNativeGuestReadSnapshotAction,
+    readActiveUnhealthyAiProviders,
+    isGuestConversationDisposed,
+    recordConversationLearningCandidate,
   }
 })
 
@@ -1570,36 +1580,51 @@ describe('chat router', () => {
 
     it('reconciles an oversized capture as durable pre-dispatch failure without answer dispatch', async () => {
       setupHappyPath('Unused.', { ...venueRow, description: 'x'.repeat(160_001) })
-      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+      })
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(responseGenerationDispatches()).toHaveLength(0)
-      expect(guestTurnActions.fail).toHaveBeenCalledWith(expect.objectContaining({
-        claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
-      }))
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+        }),
+      )
       expect(guestTurnActions.finalize).not.toHaveBeenCalled()
       anthropicCreate.mockReset()
       setupHappyPath('Retry worked.')
-      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({ response: 'Retry worked.' })
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: 'Retry worked.',
+      })
       expect(anthropicCreate).toHaveBeenCalledOnce()
     })
 
     it('preflights oversized serialized source snapshots before answer dispatch', async () => {
       setupHappyPath('Unused.', { ...venueRow, description: '\u0001'.repeat(30_000) })
-      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+      })
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(responseGenerationDispatches()).toHaveLength(0)
-      expect(guestTurnActions.fail).toHaveBeenCalledWith(expect.objectContaining({
-        claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
-      }))
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+        }),
+      )
       expect(guestTurnActions.finalize).not.toHaveBeenCalled()
     })
 
     it('persists exact normally dispatched context after receipt preflight', async () => {
       setupHappyPath('A grounded answer.')
       const result = await caller.chat.send(sendInput)
-      const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
-      expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
-      expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+      const evidence =
+        guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+      expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
+        getConcatenatedSystemPrompt(),
+      )
+      expect(
+        verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+      ).toBe(true)
       expect(anthropicCreate).toHaveBeenCalledOnce()
     })
 
@@ -1614,29 +1639,40 @@ describe('chat router', () => {
         })
         semanticSearch.places.mockResolvedValue([])
         placeFindMany.mockReset().mockResolvedValue([])
-        venueKnowledgeEntryFindMany.mockResolvedValue([{
-          id: 'ember-hours',
-          title: 'Opening hours',
-          category: 'hours',
-          content: 'Hours: Ember House, 12 pm - 6 pm Saturday',
-          sourceType: 'FOUNDER_PROVIDED',
-          sourceName: 'Fictional visitor guide',
-          sourceUrl: null,
-          updatedAt: new Date('2026-10-16T00:00:00.000Z'),
-          lastReviewedAt: null,
-        }])
+        venueKnowledgeEntryFindMany.mockResolvedValue([
+          {
+            id: 'ember-hours',
+            title: 'Opening hours',
+            category: 'hours',
+            content: 'Hours: Ember House, 12 pm - 6 pm Saturday',
+            sourceType: 'FOUNDER_PROVIDED',
+            sourceName: 'Fictional visitor guide',
+            sourceUrl: null,
+            updatedAt: new Date('2026-10-16T00:00:00.000Z'),
+            lastReviewedAt: null,
+          },
+        ])
 
         const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
 
-        const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+        const evidence =
+          guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
         const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
         const system = callArgs.system as Array<{ type: string; text: string }>
         expect(evidence.system.dynamicPart).toContain('CURRENT POSTED HOURS CHECK:')
-        expect(evidence.system.dynamicPart).toContain("Saturday before Ember House's regular 12 pm opening time")
-        expect(evidence.system.dynamicPart).toContain('Ember House is closed now according to its posted hours')
+        expect(evidence.system.dynamicPart).toContain(
+          "Saturday before Ember House's regular 12 pm opening time",
+        )
+        expect(evidence.system.dynamicPart).toContain(
+          'Ember House is closed now according to its posted hours',
+        )
         expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
-        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
-        expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
+          getConcatenatedSystemPrompt(),
+        )
+        expect(
+          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+        ).toBe(true)
         expect(anthropicCreate).toHaveBeenCalledOnce()
       } finally {
         vi.useRealTimers()
@@ -1667,18 +1703,22 @@ describe('chat router', () => {
         }
         const currentHours = {
           ...staleHours,
-          content: 'Hours: Ember House, 8 am - 6 pm Saturday\n' + 'Current visitor guidance. '.repeat(1_000),
+          content:
+            'Hours: Ember House, 8 am - 6 pm Saturday\n' +
+            'Current visitor guidance. '.repeat(1_000),
           updatedAt: new Date('2026-10-16T00:00:00.000Z'),
         }
         // The cached directory has the old version; live lexical retrieval observes a
         // newer whole record that exceeds its 20k content budget and must be omitted.
-        venueKnowledgeEntryFindMany.mockImplementation(async (args: {
-          orderBy?: Array<Record<string, string>>
-        }) => args.orderBy?.[0]?.category === 'asc' ? [staleHours] : [currentHours])
+        venueKnowledgeEntryFindMany.mockImplementation(
+          async (args: { orderBy?: Array<Record<string, string>> }) =>
+            args.orderBy?.[0]?.category === 'asc' ? [staleHours] : [currentHours],
+        )
 
         const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
 
-        const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+        const evidence =
+          guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
         const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
         const system = callArgs.system as Array<{ type: string; text: string }>
         expect(getConcatenatedSystemPrompt()).not.toContain(staleHours.content)
@@ -1686,14 +1726,20 @@ describe('chat router', () => {
         expect(getConcatenatedSystemPrompt()).not.toContain('CURRENT POSTED HOURS CHECK:')
         expect(evidence.system.dynamicPart).not.toContain('regular 12 pm opening time')
         expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
-        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
-        expect(configLogger.info).toHaveBeenCalledWith(expect.objectContaining({
-          knowledgeInContextCount: 0,
-          retrievedCount: 0,
-          excludedCount: 1,
-          partialCoverage: true,
-        }))
-        expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
+          getConcatenatedSystemPrompt(),
+        )
+        expect(configLogger.info).toHaveBeenCalledWith(
+          expect.objectContaining({
+            knowledgeInContextCount: 0,
+            retrievedCount: 0,
+            excludedCount: 1,
+            partialCoverage: true,
+          }),
+        )
+        expect(
+          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+        ).toBe(true)
         expect(anthropicCreate).toHaveBeenCalledOnce()
       } finally {
         vi.useRealTimers()
@@ -1711,38 +1757,61 @@ describe('chat router', () => {
       const finalization = guestTurnActions.finalize.mock.calls[0]?.[0].input
       expect(finalization.replayMetadata).not.toHaveProperty('answerEvidence')
       expect(guestTurnActions.fail).not.toHaveBeenCalled()
-      expect(guestTurnActions.observe).toHaveBeenCalledWith(expect.objectContaining({
-        operation: expect.objectContaining({ kind: 'RESPONSE_GENERATION', outcomeCode: 'FAILED_FALLBACK' }),
-      }))
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RESPONSE_GENERATION',
+            outcomeCode: 'FAILED_FALLBACK',
+          }),
+        }),
+      )
       dbQueryRaw.mockResolvedValueOnce([generalWebVenue])
-      guestTurnActions.reserve.mockResolvedValueOnce({ state: 'COMPLETE',
-        turnId: '11111111-1111-4111-8111-111111111111', sessionId: SESSION_ID,
-        assistantMessageId: 'assistant-message-1', response: result.response,
-        replyKind: 'TEMPORARY_FALLBACK', places: [], citations: [], replayed: true })
+      guestTurnActions.reserve.mockResolvedValueOnce({
+        state: 'COMPLETE',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        sessionId: SESSION_ID,
+        assistantMessageId: 'assistant-message-1',
+        response: result.response,
+        replyKind: 'TEMPORARY_FALLBACK',
+        places: [],
+        citations: [],
+        replayed: true,
+      })
       await expect(caller.chat.send(generalWebInput)).resolves.toMatchObject({
-        response: result.response, replyKind: 'TEMPORARY_FALLBACK', replayed: true,
+        response: result.response,
+        replyKind: 'TEMPORARY_FALLBACK',
+        replayed: true,
       })
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
       expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
-
     })
 
     it.each([
       { fail: false, mismatch: false, loadStatus: 'READY' },
       { fail: true, mismatch: false, loadStatus: 'LOAD_FAILED' },
       { fail: false, mismatch: true, loadStatus: 'PROJECTION_MISMATCH' },
-    ])('persists actual guide load status $loadStatus without failing generation', async ({ fail, mismatch, loadStatus }) => {
-      setupHappyPath('The fictional gallery is open.')
-      Object.assign(coverageReadControls, { fail, mismatch })
-      const result = await caller.chat.send(sendInput)
-      expect(result.response).toBe('The fictional gallery is open.')
-      const finalization = guestTurnActions.finalize.mock.calls[0]?.[0]
-      const evidence = finalization.input.replayMetadata.answerEvidence
-      const profile = evidence.sources.find((source: { kind: string }) => source.kind === 'VENUE_PROFILE')
-      expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({ mode: 'NONE', loadStatus })
-      expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
-    })
+    ])(
+      'persists actual guide load status $loadStatus without failing generation',
+      async ({ fail, mismatch, loadStatus }) => {
+        setupHappyPath('The fictional gallery is open.')
+        Object.assign(coverageReadControls, { fail, mismatch })
+        const result = await caller.chat.send(sendInput)
+        expect(result.response).toBe('The fictional gallery is open.')
+        const finalization = guestTurnActions.finalize.mock.calls[0]?.[0]
+        const evidence = finalization.input.replayMetadata.answerEvidence
+        const profile = evidence.sources.find(
+          (source: { kind: string }) => source.kind === 'VENUE_PROFILE',
+        )
+        expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({
+          mode: 'NONE',
+          loadStatus,
+        })
+        expect(
+          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+        ).toBe(true)
+      },
+    )
 
     function getConcatenatedSystemPrompt() {
       const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
@@ -1832,16 +1901,29 @@ describe('chat router', () => {
         {
           primaryPlaceId: upper.id,
           displayName: 'First floor east gallery',
-          floor: { name: 'First floor', stableKey: 'first-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+          floor: {
+            name: 'First floor',
+            stableKey: 'first-floor',
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
         },
         {
           primaryPlaceId: lower.id,
           displayName: 'Second floor west gallery',
-          floor: { name: 'Second floor', stableKey: 'second-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+          floor: {
+            name: 'Second floor',
+            stableKey: 'second-floor',
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
         },
       ])
 
-      await caller.chat.send({ ...sendInput, message: 'Tell me about Ember Cafe on the First floor' })
+      await caller.chat.send({
+        ...sendInput,
+        message: 'Tell me about Ember Cafe on the First floor',
+      })
 
       expect(venueLocationFindMany).toHaveBeenCalled()
       const prompt = getConcatenatedSystemPrompt()
@@ -1996,10 +2078,13 @@ describe('chat router', () => {
       const infoActions = configLogger.info.mock.calls.map(
         ([entry]) => (entry as { action?: string }).action,
       )
-      const readLog = configLogger.info.mock.calls[infoActions.lastIndexOf('guest-chat.native-content-read')]
+      const readLog =
+        configLogger.info.mock.calls[infoActions.lastIndexOf('guest-chat.native-content-read')]
       expect(readLog?.[0]).toMatchObject({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' })
       // No other native read is logged after it, before the context-ready diagnostic.
-      expect(infoActions.slice(infoActions.lastIndexOf('guest-chat.native-content-read') + 1)).toEqual(
+      expect(
+        infoActions.slice(infoActions.lastIndexOf('guest-chat.native-content-read') + 1),
+      ).toEqual(
         infoActions.includes('guest-chat.context-ready') ? ['guest-chat.context-ready'] : [],
       )
     })
@@ -3873,6 +3958,199 @@ describe('chat router', () => {
         }),
       )
       expect(operationalEventUpsert).not.toHaveBeenCalled()
+    })
+
+    describe('answer check (GUEST_CHAT_ANSWER_CHECK)', () => {
+      const answerCheckBody = JSON.stringify({
+        decisions: [
+          {
+            question: 'where elephants',
+            disposition: 'INFORMATION',
+            conditions: [],
+            missingFacts: [],
+            evidenceQuotes: ['Elephant House'],
+            visitorFactQuotes: ['elephants'],
+          },
+        ],
+      })
+      const checkedAnswer = 'The elephants are in the Elephant House.'
+      const checkedReply = `<answer_check>${answerCheckBody}</answer_check>\n${checkedAnswer}`
+      const openAiUsage = {
+        input_tokens: 30,
+        output_tokens: 20,
+        input_tokens_details: { cached_tokens: 0 },
+      }
+      function routeTo(primaryModelKey: 'guest-chat-luna' | 'guest-chat-sol') {
+        aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
+          id: 'answer-check-config',
+          workloadId: 'guest-chat',
+          enabled: true,
+          primaryModelKey,
+          primaryModelKeySet: true,
+          fallbackEnabled: false,
+          fallbackEnabledSet: true,
+          fallbackModelKeys: [],
+          fallbackModelKeysSet: true,
+          timeoutMs: null,
+          timeoutMsSet: false,
+          maxAttempts: 1,
+          maxAttemptsSet: true,
+          maxOutputTokens: null,
+          maxOutputTokensSet: false,
+          requestBudgetCeilingE8Usd: null,
+          requestBudgetCeilingE8UsdSet: false,
+          unsafeChangesEnabled: true,
+          isTombstone: false,
+          reason: 'answer check test route',
+          revision: 1,
+          createdBy: 'admin',
+          updatedBy: 'admin',
+          createdAt: new Date('2026-10-18T00:00:00.000Z'),
+          updatedAt: new Date('2026-10-18T00:00:00.000Z'),
+        })
+      }
+      const lastDeveloperText = (request: any) =>
+        request.input.filter((item: any) => item.role === 'developer').at(-1).content[0]
+          .text as string
+
+      it('strips the check from the answer, history and evidence on an economy route', async () => {
+        vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-luna')
+        const openAiCreate = vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'completed',
+            output_text: checkedReply,
+            usage: openAiUsage,
+          })
+        setOpenAiResponsesClientForTesting({ responses: { create: openAiCreate } })
+
+        const result = await caller.chat.send(sendInput)
+
+        expect(result.response).toBe(checkedAnswer)
+        expect(anthropicCreate).not.toHaveBeenCalled()
+        const request = openAiCreate.mock.calls[0]?.[0]
+        expect(request.model).toBe('gpt-6-luna')
+        expect(lastDeveloperText(request)).toContain('TRUSTED ANSWER CHECK')
+        const finalized = guestTurnActions.finalize.mock.calls[0]?.[0].input
+        expect(JSON.stringify(finalized.assistantResponse ?? finalized)).not.toContain(
+          '<answer_check>',
+        )
+        expect(JSON.stringify(messageCreate.mock.calls)).not.toContain('<answer_check>')
+        const evidence = finalized.replayMetadata.answerEvidence
+        expect(evidence.system.dynamicPart).toContain('TRUSTED ANSWER CHECK')
+        expect(
+          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+        ).toBe(true)
+      })
+
+      it('leaves Sol routes and the unflagged Luna prompt unchanged', async () => {
+        vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-sol')
+        const solCreate = vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'completed',
+            output_text: 'Sol answer.',
+            usage: openAiUsage,
+          })
+        setOpenAiResponsesClientForTesting({ responses: { create: solCreate } })
+        await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+          response: 'Sol answer.',
+        })
+        const flaggedSolRequest = solCreate.mock.calls[0]?.[0]
+        expect(JSON.stringify(flaggedSolRequest)).not.toContain('TRUSTED ANSWER CHECK')
+
+        vi.unstubAllEnvs()
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-sol')
+        const unflaggedCreate = vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'completed',
+            output_text: 'Sol answer.',
+            usage: openAiUsage,
+          })
+        setOpenAiResponsesClientForTesting({ responses: { create: unflaggedCreate } })
+        await caller.chat.send(sendInput)
+        expect(JSON.stringify(unflaggedCreate.mock.calls[0]?.[0])).toBe(
+          JSON.stringify(flaggedSolRequest),
+        )
+
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-luna')
+        const plainLuna = vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'completed',
+            output_text: 'Plain Luna.',
+            usage: openAiUsage,
+          })
+        setOpenAiResponsesClientForTesting({ responses: { create: plainLuna } })
+        await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+          response: 'Plain Luna.',
+        })
+        expect(JSON.stringify(plainLuna.mock.calls[0]?.[0])).not.toContain('TRUSTED ANSWER CHECK')
+      })
+
+      it('turns an unterminated check into the ordinary fallback reply without leaking it', async () => {
+        vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-luna')
+        const openAiCreate = vi.fn().mockResolvedValueOnce({
+          status: 'completed',
+          output_text: `<answer_check>${answerCheckBody}`,
+          usage: openAiUsage,
+        })
+        setOpenAiResponsesClientForTesting({ responses: { create: openAiCreate } })
+        const result = await caller.chat.send(sendInput)
+        expect(result.response).not.toContain('answer_check')
+        expect(result.response).not.toContain('decisions')
+        expect(result.replyKind).toBe('TEMPORARY_FALLBACK')
+        expect(openAiCreate).toHaveBeenCalledOnce()
+        expect(aiUsageEventCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              success: false,
+              errorCode: 'invalid-structured-output',
+            }),
+          }),
+        )
+      })
+
+      it('streams only the answer to the visitor', async () => {
+        vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-luna')
+        const pieces = [
+          checkedReply.slice(0, 9),
+          checkedReply.slice(9, 60),
+          checkedReply.slice(60, checkedReply.length - 12),
+          checkedReply.slice(-12),
+        ]
+        const openAiCreate = vi.fn().mockResolvedValueOnce({
+          async *[Symbol.asyncIterator]() {
+            for (const delta of pieces) yield { type: 'response.output_text.delta', delta }
+            yield {
+              type: 'response.completed',
+              response: { status: 'completed', output_text: checkedReply, usage: openAiUsage },
+            }
+          },
+        })
+        setOpenAiResponsesClientForTesting({ responses: { create: openAiCreate } })
+        const events: any[] = []
+        for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+        expect(openAiCreate.mock.calls[0]?.[0].stream).toBe(true)
+        expect(JSON.stringify(events)).not.toContain('answer_check')
+        expect(JSON.stringify(events)).not.toContain('evidenceQuotes')
+        expect(events.filter((event) => event.type === 'delta').length).toBeGreaterThan(0)
+        expect(events.at(-1)).toMatchObject({
+          type: 'complete',
+          result: { response: checkedAnswer },
+        })
+      })
     })
 
     it('never logs provider error messages that may contain guest text or bearer tokens', async () => {
