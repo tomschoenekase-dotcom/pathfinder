@@ -85,7 +85,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v35')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v41')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -602,12 +602,8 @@ describe('height and age ride questions', () => {
       )
       expect(staticPart).toContain('Never infer height or height eligibility from age')
       expect(staticPart).toContain('Answer verified age-only conditions')
-      expect(staticPart).toContain(
-        'ask for measured height when a known height rule needs it',
-      )
-      expect(staticPart).toContain(
-        'If the needed rule is unknown, say so and check with staff',
-      )
+      expect(staticPart).toContain('ask for measured height when a known height rule needs it')
+      expect(staticPart).toContain('If the needed rule is unknown, say so and check with staff')
     },
   )
 

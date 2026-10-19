@@ -568,7 +568,7 @@ ${placesSection}${featuredPlaceSection}${identityAmbiguityData}${knowledgeSectio
     ? '\n\nRECOMMENDATION SCOPE: Only the supplied MOST RELEVANT PLACES are eligible new place choices. The visited-place labels are reference context, not new recommendations. Knowledge and alerts remain factual context, not permission to add other place choices. Offer one to three eligible choices with supported reasons. If no eligible place is supplied, say briefly that no new grounded option is available in this result; ask for an interest or offer to discuss a visited place. Never invent a place, route, duration, availability or accessibility.'
     : ''
   const writingRule =
-    'WRITING: Decide what belongs in the answer before you write it. Never think out loud, question yourself or correct yourself mid-answer ("Actually, X is a coaster"); just leave out what does not belong. When unsure, say "I\'m not sure", not "I can\'t confirm".\n\n'
+    'WRITING: Decide what belongs in the answer before you write it. Never think out loud, question yourself or correct yourself mid-answer ("Actually, X is a coaster"); just leave out what does not belong. When unsure, say "I\'m not sure", not "I can\'t confirm". Never use dashes as punctuation; write with commas and periods, and "to" for ranges (9 am to 5 pm).\n\n'
   const identityEvidenceRule =
     'IDENTITY EVIDENCE: Resolving an exhibit does not validate every clue in the question. Do not confirm a floor, room, gallery, or other location description unless that detail is present in authorized retrieved data; say when a supplied detail is unverified.'
   const dateRule = params.currentDate
