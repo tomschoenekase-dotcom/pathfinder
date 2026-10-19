@@ -2,11 +2,13 @@
 // and without dates the model cannot tell which is current, so it mixes them or guesses. When
 // GUEST_CHAT_RECORD_DATES=on, each knowledge topic shows the date it was last updated and one
 // rule says how to use it. Off by default; it changes the cached prompt prefix for every model.
+// updatedAt also moves when a record is only reviewed or re-imported without a content change,
+// so this stays off until a content-change timestamp backs it (see cycle02 REVIEW-PRODUCT-03).
 
-export const GUEST_RECORD_DATES_VERSION = 'guest-record-dates-v1'
+export const GUEST_RECORD_DATES_VERSION = 'guest-record-dates-v2'
 
 export const GUEST_RECORD_DATE_RULE =
-  'Each topic shows the date its record was last updated. When two topics disagree about the same thing, use the more recently updated one unless its own text says it applies to another period; never combine their figures, and say staff can confirm when the difference matters.'
+  'Topics that show an updated date give the date their record was last edited; it is for your judgement only, so never mention it to the visitor. Records that cover different people, ticket types, days, areas or periods do not conflict: use the one that fits the question. Only when two records give different values for exactly the same thing, prefer the later-edited one, never combine or average their figures, and suggest confirming with staff when the difference matters.'
 
 export function guestRecordDatesEnabled(
   env: Record<string, string | undefined> = process.env,

@@ -219,20 +219,63 @@ describe('guest venue directory', () => {
     expect(prompt).toMatch(/Past dated events[^\n]*\n(- .*\n)*- Spring Bloom Festival 2024/u)
   })
 
-  it('keeps an event whose own text gives current dates despite an old title year', () => {
-    const redated = {
+  it('keeps an old-titled event current only while its latest explicit date is ahead', () => {
+    const today = '2026-10-18'
+    const event = (content: string | null) => ({
+      title: 'Lantern Walk 2025',
+      category: 'Events',
+      content,
+    })
+    // Re-dated for this year: current.
+    for (const content of [
+      'The Lantern Walk returns on October 30 and 31, 2026, from 6 pm to 9 pm.',
+      'Runs October 22 to October 31, 2026, Thursday to Saturday.',
+      'Dates: 2026-10-30 and 2026-10-31.',
+      'Walks on 30 October 2026.',
+    ])
+      expect(isPastDatedGuestEvent(event(content), today)).toBe(false)
+    // Ended, including across a year boundary, or only a bare later year: still past.
+    for (const content of [
+      'It ran on October 30, 2025.',
+      'Ran November 21, 2025 through January 4, 2026.',
+      'Next festival: spring 2027 (dates TBA).',
+      'Tickets for 2027 go on sale soon. Ran April 5-7.',
+      'Meet at 2050 Lakeshore Drive. Call 555-2045. Copyright 2026.',
+      'Photos at https://example.org/2026/lanterns',
+      'Returns October 30 and 31 from 6 pm.',
+      '',
+    ])
+      expect(isPastDatedGuestEvent(event(content), today)).toBe(true)
+    expect(isPastDatedGuestEvent(event(null), today)).toBe(true)
+    // An event that ends today is still on today.
+    expect(isPastDatedGuestEvent(event('Final night October 18, 2026.'), today)).toBe(false)
+    // Numeric current years keep the original title-only behaviour for callers without a date.
+    expect(isPastDatedGuestEvent(event('Ran November 21, 2025.'), 2026)).toBe(true)
+  })
+
+  it('renders a re-dated event in full, and an ended one only in the past list', () => {
+    const lantern = {
+      ...knowledge[0]!,
+      id: 'lantern',
       title: 'Lantern Walk 2025',
       category: 'Events',
       content: 'The Lantern Walk returns on October 30 and 31, 2026, from 6 pm to 9 pm.',
     }
-    expect(isPastDatedGuestEvent(redated, 2026)).toBe(false)
-    expect(
-      isPastDatedGuestEvent({ ...redated, content: 'It ran on October 30, 2025.' }, 2026),
-    ).toBe(true)
-    expect(isPastDatedGuestEvent({ ...redated, content: 'Next walk: spring 2027.' }, 2026)).toBe(
-      false,
-    )
-    expect(isPastDatedGuestEvent({ ...redated, content: null }, 2026)).toBe(true)
+    const lights = {
+      ...knowledge[0]!,
+      id: 'lights',
+      title: 'Holiday Lights 2025',
+      category: 'Events',
+      content: 'Ran November 21, 2025 through January 4, 2026.',
+    }
+    const guide = buildGuestVenueGuidePrompt(
+      { knowledge: [lantern, lights], places: [], incomplete: false },
+      { currentDate: '2026-10-18' },
+    ).prompt
+    expect(guide).toContain('October 30 and 31, 2026')
+    expect(guide).toMatch(/Past dated events[^\n]*Holiday Lights 2025/u)
+    expect(guide).not.toContain('Ran November 21, 2025')
+    expect(guide).not.toMatch(/Past dated events[^\n]*Lantern Walk/u)
   })
 
   it('withholds descriptions for same-name places so identity resolution stays in charge', () => {

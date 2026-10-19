@@ -211,16 +211,70 @@ const PAST_EVENT_TITLE =
   /\b(event|festival|fest|season|celebration|special|nights?|holiday|weekend)s?\b/iu
 
 const YEAR = /\b(?:19|20)\d{2}\b/gu
+const MONTHS = [
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+]
+const MONTH_NAME = String.raw`(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\.?`
+const DAY = String.raw`(\d{1,2})(?:st|nd|rd|th)?`
+const JOIN = String.raw`\s*(?:-|–|—|to|and|through|until|till)\s*`
+// "October 22 to October 31, 2026", "October 30 and 31, 2026", "January 4, 2026": the last day named.
+const MONTH_DAY_YEAR = new RegExp(
+  String.raw`\b${MONTH_NAME}\s+${DAY}(?:${JOIN}(?:${MONTH_NAME}\s+)?${DAY})?,?\s+((?:19|20)\d{2})\b`,
+  'giu',
+)
+// "30 October 2026", "30-31 October 2026".
+const DAY_MONTH_YEAR = new RegExp(
+  String.raw`\b${DAY}(?:${JOIN}${DAY})?\s+${MONTH_NAME},?\s+((?:19|20)\d{2})\b`,
+  'giu',
+)
+const ISO_DATE = /\b((?:19|20)\d{2})-(\d{2})-(\d{2})\b/gu
+
+function isoDate(year: number, monthName: string, day: number): string | null {
+  const month = MONTHS.findIndex((name) => name.startsWith(monthName.toLowerCase().slice(0, 3))) + 1
+  if (month < 1 || day < 1 || day > 31) return null
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/** The latest explicit full calendar date in the text (YYYY-MM-DD), or null when it names none. */
+export function latestExplicitGuestDate(text: string): string | null {
+  const dates: string[] = []
+  for (const m of text.matchAll(MONTH_DAY_YEAR)) {
+    const date = isoDate(Number(m[5]), m[3] ?? m[1]!, Number(m[4] ?? m[2]))
+    if (date) dates.push(date)
+  }
+  for (const m of text.matchAll(DAY_MONTH_YEAR)) {
+    const date = isoDate(Number(m[4]), m[3]!, Number(m[2] ?? m[1]))
+    if (date) dates.push(date)
+  }
+  for (const m of text.matchAll(ISO_DATE)) {
+    if (Number(m[2]) >= 1 && Number(m[2]) <= 12 && Number(m[3]) >= 1 && Number(m[3]) <= 31)
+      dates.push(`${m[1]}-${m[2]}-${m[3]}`)
+  }
+  return dates.length ? dates.sort().at(-1)! : null
+}
 
 /**
  * A titled event whose every year is before the current year, such as "Spring Fest 2024".
- * A record whose own text names the current year or a later one still applies, whatever its
- * title says ("Lantern Walk 2025" re-dated for this year), so it is never hidden as past.
+ * A record re-dated in its own text ("Lantern Walk 2025" whose body gives this year's dates) is
+ * past only when its latest explicit full date has gone by. A bare later year ("next festival
+ * 2027", an address or phone number) never makes an old event current.
  */
 export function isPastDatedGuestEvent(
   entry: { title: string; category: string; content?: string | null },
-  currentYear: number,
+  today: number | string,
 ): boolean {
+  const currentYear = typeof today === 'number' ? today : Number(today.slice(0, 4))
   const years = [...entry.title.matchAll(YEAR)].map((match) => Number(match[0]))
   if (
     years.length === 0 ||
@@ -228,7 +282,10 @@ export function isPastDatedGuestEvent(
     !PAST_EVENT_TITLE.test(`${entry.title} ${entry.category}`)
   )
     return false
-  return ![...(entry.content ?? '').matchAll(YEAR)].some((match) => Number(match[0]) >= currentYear)
+  const latest = latestExplicitGuestDate(entry.content ?? '')
+  if (!latest) return true
+  const currentDate = typeof today === 'number' ? `${today}-01-01` : today.slice(0, 10)
+  return latest < currentDate
 }
 
 export function buildGuestVenueDirectoryPrompt(
@@ -245,10 +302,9 @@ function renderGuestVenueDirectory(
 ): { prompt: string; truncated: boolean } {
   if (directory.knowledge.length === 0 && directory.places.length === 0)
     return { prompt: '', truncated: false }
-  const currentYear = Number(options.currentDate.slice(0, 4))
   // A past dated event never describes a current place; it keeps its own past line.
   const currentKnowledge = directory.knowledge.filter(
-    (entry) => !isPastDatedGuestEvent(entry, currentYear),
+    (entry) => !isPastDatedGuestEvent(entry, options.currentDate),
   )
   const knowledgeByTitle = new Map<string, GuestDirectoryKnowledge>()
   const knowledgeByName = new Map<string, GuestDirectoryKnowledge>()
@@ -292,7 +348,7 @@ function renderGuestVenueDirectory(
   const topics: Array<{ name: string; summary: string }> = []
   for (const entry of directory.knowledge) {
     if (mergedKnowledgeIds.has(entry.id)) continue
-    if (isPastDatedGuestEvent(entry, currentYear)) past.push(`- ${entry.title}`)
+    if (isPastDatedGuestEvent(entry, options.currentDate)) past.push(`- ${entry.title}`)
     else
       topics.push({
         name: `- [${entry.category}] ${entry.title}`,
@@ -379,7 +435,6 @@ export function buildGuestVenueGuidePrompt(
     }
   }
   if (directory.incomplete) return directoryPrompt()
-  const currentYear = Number(options.currentDate.slice(0, 4))
   const nameCounts = new Map<string, number>()
   for (const place of directory.places) {
     const key = normalizeGuestText(place.name)
@@ -402,7 +457,7 @@ export function buildGuestVenueGuidePrompt(
   const past: string[] = []
   const topicRecords: string[] = []
   for (const entry of directory.knowledge) {
-    if (isPastDatedGuestEvent(entry, currentYear)) {
+    if (isPastDatedGuestEvent(entry, options.currentDate)) {
       past.push(entry.title)
       continue
     }
@@ -540,13 +595,12 @@ export function expandGuestKnowledgeLinks<T extends GuestDirectoryKnowledge>(par
 }): Array<T | (GuestDirectoryKnowledge & { distance: number })> {
   const maxContextChars = params.maxContextChars ?? MAX_CONTEXT_CHARS_WITH_LINKS
   let contextChars = params.entries.reduce((sum, entry) => sum + entry.content.length, 0)
-  const currentYear = Number(params.currentDate.slice(0, 4))
   const present = new Set(params.entries.map((entry) => entry.id))
   const placeNames = new Set(params.directory.places.map((place) => normalizeGuestText(place.name)))
   // Only named things link. A generic one-word topic ("Parking", "Tickets") would otherwise be
   // pulled in by every passing mention.
   const candidates = params.directory.knowledge
-    .filter((entry) => !present.has(entry.id) && !isPastDatedGuestEvent(entry, currentYear))
+    .filter((entry) => !present.has(entry.id) && !isPastDatedGuestEvent(entry, params.currentDate))
     .map((entry) => ({ entry, name: normalizeGuestText(guestDirectoryName(entry.title)) }))
     .filter(
       ({ entry, name }) =>

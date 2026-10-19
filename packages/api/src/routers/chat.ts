@@ -111,7 +111,7 @@ import {
   isGuestAnswerShapeEnabled,
 } from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
-import { guestRecordDatesEnabled } from '../lib/guest-record-dates'
+import { GUEST_RECORD_DATES_VERSION, guestRecordDatesEnabled } from '../lib/guest-record-dates'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -1546,13 +1546,12 @@ const chatReadRouter = router({
         admittedSourceIds: new Set(relevantKnowledgeEntries.map((entry) => entry.id)),
       }).directory
     }
-    const currentYear = Number(currentDate.slice(0, 4))
     const normalizedQuery = trimmedInput.toLocaleLowerCase()
     relevantKnowledgeEntries = expandGuestKnowledgeLinks({
       entries: relevantKnowledgeEntries.filter(
         // A past dated event stays out of context unless the visitor names it.
         (entry) =>
-          !isPastDatedGuestEvent(entry, currentYear) ||
+          !isPastDatedGuestEvent(entry, currentDate) ||
           normalizedQuery.includes(entry.title.toLocaleLowerCase()),
       ),
       directory: guestDirectory,
@@ -1560,6 +1559,13 @@ const chatReadRouter = router({
     })
     // Off by default: record dates change the cached prompt prefix for every model.
     const recordDatesEnabled = guestRecordDatesEnabled()
+    if (recordDatesEnabled)
+      logger.info({
+        action: 'guest-chat.record-dates',
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        version: GUEST_RECORD_DATES_VERSION,
+      })
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
       currentDate,
       recordDates: recordDatesEnabled,

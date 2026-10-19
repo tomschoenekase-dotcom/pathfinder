@@ -154,7 +154,7 @@ export function guideQualityWarnings(
         warnings.push({
           code: 'GUIDE_QUALITY_HIDDEN_SENTENCE',
           path: `${record.path}.${field.field}`,
-          message: `“${clip(label, LABEL_CHARS)}”: this sentence reads as research notes or a source list, and visitors are shown it exactly as written: “${quote}”. Restate any fact in it as its own plain sentence, as staff would say it, and drop the note. ${MANUAL}`,
+          message: `“${clip(label, LABEL_CHARS)}”: this sentence reads as research notes or a source list, and the visitor guide reads it as written and may repeat it: “${quote}”. Restate any fact in it as its own plain sentence, as staff would say it, and drop the note. ${MANUAL}`,
         })
       }
     }
