@@ -3983,7 +3983,7 @@ describe('chat router', () => {
       }
       function routeTo(
         primaryModelKey: 'guest-chat-luna' | 'guest-chat-luna-reasoning' | 'guest-chat-sol',
-        maxOutputTokens = 1024,
+        maxOutputTokens: number | null = 1024,
       ) {
         aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
           id: 'answer-check-config',
@@ -4000,7 +4000,7 @@ describe('chat router', () => {
           maxAttempts: 1,
           maxAttemptsSet: true,
           maxOutputTokens,
-          maxOutputTokensSet: true,
+          maxOutputTokensSet: maxOutputTokens !== null,
           requestBudgetCeilingE8Usd: null,
           requestBudgetCeilingE8UsdSet: false,
           unsafeChangesEnabled: true,
@@ -4278,7 +4278,8 @@ describe('chat router', () => {
       it('routes the Luna reasoning key with low effort, its own cap, and the decision-first rule', async () => {
         vi.stubEnv('GUEST_CHAT_ANSWER_SHAPE', 'decision-first')
         setupHappyPath('unused anthropic text')
-        routeTo('guest-chat-luna-reasoning', 2048)
+        // The admin model selector does not set explicit token or timeout limits.
+        routeTo('guest-chat-luna-reasoning', null)
         const create = vi.fn().mockResolvedValueOnce({
           status: 'completed',
           output_text: 'The elephants are in the Elephant House.',

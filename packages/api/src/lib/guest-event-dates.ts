@@ -6,7 +6,7 @@
 // number, a ticket or street number). Nothing parses "the event date", so a source-check date, a
 // long list of days, a holiday name or another language cannot flip the outcome.
 
-export const GUEST_DATED_TITLE_RULE_VERSION = 'guest-dated-title-v3'
+export const GUEST_DATED_TITLE_RULE_VERSION = 'guest-dated-title-v4'
 
 export const PAST_EVENT_TITLE =
   /\b(event|festival|fest|season|celebration|special|nights?|holiday|weekend)s?\b/iu

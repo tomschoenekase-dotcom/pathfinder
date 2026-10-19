@@ -288,6 +288,9 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
           <dd className="mt-1 font-semibold text-slate-950">
             {customerChat.effective.provider} / {customerChat.effective.model}
           </dd>
+          <dd className="mt-1 break-words text-xs text-slate-600">
+            {customerChat.effective.primaryModelKey}
+          </dd>
           <dd className="mt-1 text-xs text-slate-600">
             Source: {customerChat.effective.source.toLowerCase()}
           </dd>
@@ -334,7 +337,7 @@ function CustomerChatRouting({ customerChat }: { customerChat: AiSystems['custom
         >
           {customerChat.modelOptions.map((option) => (
             <option key={option.key} value={option.key} disabled={!option.available}>
-              {option.provider} / {option.model} · {option.costTier.toLowerCase()}
+              {option.key} · {option.provider} / {option.model} · {option.costTier.toLowerCase()}
               {option.available ? '' : ' · unavailable: provider key missing'}
             </option>
           ))}

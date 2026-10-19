@@ -261,27 +261,34 @@ function renderGuestVenueDirectory(
     // "Rapids (North)" and "Rapids (South)" share the short name "Rapids", so neither may borrow
     // a record by it; each keeps its own exact-title topic or its own description.
     const shortName = normalizeGuestText(guestDirectoryName(place.name))
-    const candidate =
+    const match =
       knowledgeByTitle.get(name) ??
       knowledgeByName.get(name) ??
       ((shortNameCounts.get(shortName) ?? 0) === 1 ? knowledgeByName.get(shortName) : undefined)
-    // A merged topic keeps its dated-title status: an ended one never describes a current place
-    // (it stays in the past list), and an uncertain one keeps its marker and the trusted rule.
-    const status = candidate ? classifyGuestDatedEvent(candidate, options.currentDate) : 'CURRENT'
-    const match = status === 'PAST' ? undefined : candidate
+    // The maps already exclude ended topics. An uncertain merged topic keeps its marker and rule.
+    const status = match ? classifyGuestDatedEvent(match, options.currentDate) : 'CURRENT'
     if (match) mergedKnowledgeIds.add(match.id)
     if (match && status === 'CHECK_DATES') checkDates = true
     const marker =
       match && status === 'CHECK_DATES'
         ? ` (title_year_passed="${guestPassedTitleYear(match.title)}")`
         : ''
-    const descriptor =
-      (match && status === 'CHECK_DATES'
+    const datedSentence =
+      match && status === 'CHECK_DATES'
         ? guestDatedSummarySentence(match.content ?? '', options.currentDate)
-        : null) ||
-      firstSentence(match?.content, place.name) ||
+        : null
+    const ownDescription =
       firstSentence(place.shortDescription, place.name) ||
       firstSentence(place.longDescription, place.name)
+    // Keep what the place is as well as the topic's date when both fit the compact line.
+    // If they do not fit, retain the dated sentence so the marker has its supporting evidence.
+    const combined = ownDescription && datedSentence ? `${ownDescription} ${datedSentence}` : ''
+    const datedDescriptor =
+      combined && combined.length <= DESCRIPTOR_CHARS && ownDescription !== datedSentence
+        ? combined
+        : datedSentence
+    const descriptor =
+      datedDescriptor || firstSentence(match?.content, place.name) || ownDescription
     return `- ${place.name} (${kind}${area})${marker}${descriptor ? `: ${descriptor}` : ''}`
   })
   const past: string[] = []

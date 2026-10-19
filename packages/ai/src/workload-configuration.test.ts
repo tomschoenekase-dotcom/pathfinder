@@ -50,6 +50,160 @@ describe('central AI workload configuration', () => {
     })
   })
 
+  it.each(['guest-chat', 'guest-chat-luna', 'guest-chat-sol'] as const)(
+    'uses reasoning-model defaults when selected over the %s default without explicit limits',
+    (defaultPrimaryModelKey) => {
+      const result = resolveAiWorkloadConfiguration({
+        workloadId: 'guest-chat',
+        defaultPrimaryModelKey,
+        overrides: [
+          enabled(
+            { level: 'WORKLOAD', workloadId: 'guest-chat' },
+            { primaryModelKey: 'guest-chat-luna-reasoning' },
+            true,
+          ),
+        ],
+      })
+      expect(result).toMatchObject({
+        primaryModelKey: 'guest-chat-luna-reasoning',
+        maxOutputTokens: 2_048,
+        timeoutMs: 20_000,
+        maxAttempts: AI_MODEL_REGISTRY['guest-chat-luna-reasoning'].maxAttempts,
+        sources: {
+          primaryModelKey: 'WORKLOAD',
+          timeoutMs: 'WORKLOAD',
+          maxAttempts: 'WORKLOAD',
+          maxOutputTokens: 'WORKLOAD',
+        },
+      })
+    },
+  )
+
+  it.each(['guest-chat', 'guest-chat-luna', 'guest-chat-sol', 'answer-analysis'] as const)(
+    'uses the selected %s limits rather than the largest limits from other models',
+    (primaryModelKey) => {
+      const result = resolveAiWorkloadConfiguration({
+        workloadId: 'guest-chat',
+        defaultPrimaryModelKey: 'guest-chat-luna-reasoning',
+        overrides: [
+          enabled({ level: 'WORKLOAD', workloadId: 'guest-chat' }, { primaryModelKey }, true),
+        ],
+      })
+      const spec = AI_MODEL_REGISTRY[primaryModelKey]
+      expect(result.timeoutMs).toBe(spec.timeoutMs)
+      expect(result.maxAttempts).toBe(spec.maxAttempts)
+      expect(result.maxOutputTokens).toBe(spec.maxOutputTokens)
+    },
+  )
+
+  it('preserves explicit inherited limits and the request budget when a later layer selects a model', () => {
+    const result = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        enabled(
+          { level: 'PLATFORM' },
+          {
+            timeoutMs: 8_000,
+            maxAttempts: 1,
+            maxOutputTokens: 400,
+            requestBudgetCeilingE8Usd: '1000',
+          },
+        ),
+        enabled(
+          { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          { primaryModelKey: 'guest-chat-luna-reasoning' },
+          true,
+        ),
+      ],
+    })
+    expect(result).toMatchObject({
+      primaryModelKey: 'guest-chat-luna-reasoning',
+      timeoutMs: 8_000,
+      maxAttempts: 1,
+      maxOutputTokens: 400,
+      requestBudgetCeilingE8Usd: '1000',
+      sources: {
+        timeoutMs: 'PLATFORM',
+        maxAttempts: 'PLATFORM',
+        maxOutputTokens: 'PLATFORM',
+        requestBudgetCeilingE8Usd: 'PLATFORM',
+      },
+    })
+  })
+
+  it('preserves same-layer explicit limits and applies more specific limits field by field', () => {
+    const result = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      clientId: 'client-1',
+      overrides: [
+        enabled(
+          { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          { primaryModelKey: 'guest-chat-luna-reasoning', timeoutMs: 12_000, maxOutputTokens: 768 },
+          true,
+        ),
+        enabled(
+          { level: 'CLIENT', workloadId: 'guest-chat', clientId: 'client-1' },
+          { timeoutMs: 9_000, maxAttempts: 1 },
+        ),
+      ],
+    })
+    expect(result).toMatchObject({
+      timeoutMs: 9_000,
+      maxOutputTokens: 768,
+      maxAttempts: 1,
+      sources: { timeoutMs: 'CLIENT', maxOutputTokens: 'WORKLOAD', maxAttempts: 'CLIENT' },
+    })
+  })
+
+  it('keeps explicit null output limits while implicit limits follow successive model selections', () => {
+    const result = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      clientId: 'client-1',
+      overrides: [
+        enabled({ level: 'PLATFORM' }, { maxOutputTokens: null }),
+        enabled(
+          { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          { primaryModelKey: 'guest-chat-luna-reasoning' },
+          true,
+        ),
+        enabled(
+          { level: 'CLIENT', workloadId: 'guest-chat', clientId: 'client-1' },
+          { primaryModelKey: 'guest-chat-luna' },
+          true,
+        ),
+      ],
+    })
+    expect(result).toMatchObject({
+      primaryModelKey: 'guest-chat-luna',
+      timeoutMs: 15_000,
+      maxOutputTokens: null,
+      sources: { timeoutMs: 'CLIENT', maxOutputTokens: 'PLATFORM' },
+    })
+  })
+
+  it.each(['guest-chat', 'guest-chat-luna', 'guest-chat-sol'] as const)(
+    'leaves the existing %s route unchanged without overrides',
+    (defaultPrimaryModelKey) => {
+      const result = resolveAiWorkloadConfiguration({
+        workloadId: 'guest-chat',
+        defaultPrimaryModelKey,
+      })
+      const spec = AI_MODEL_REGISTRY[defaultPrimaryModelKey]
+      expect(result).toMatchObject({
+        primaryModelKey: defaultPrimaryModelKey,
+        timeoutMs: spec.timeoutMs,
+        maxAttempts: spec.maxAttempts,
+        maxOutputTokens: spec.maxOutputTokens,
+        sources: {
+          primaryModelKey: 'PLATFORM',
+          timeoutMs: 'PLATFORM',
+          maxAttempts: 'PLATFORM',
+          maxOutputTokens: 'PLATFORM',
+        },
+      })
+    },
+  )
+
   it('resolves platform, workload, client, and venue layers field by field', () => {
     const result = resolveAiWorkloadConfiguration({
       workloadId: AI_MODEL_KEYS.GUEST_CHAT,
