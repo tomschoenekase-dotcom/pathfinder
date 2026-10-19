@@ -1,7 +1,7 @@
 /**
- * How record text reads in the visitor guide. The guide renderer and the authoring checks share
- * this one sentence rule, so a package check can show an author every sentence the guide will
- * drop, instead of the two drifting apart and facts disappearing without a warning.
+ * The research-note sentence rule used by authoring checks. The visitor guide renderer no longer
+ * drops these sentences (complete evidence since 11d4fb87), so the package check flags each one
+ * for the author to restate as a plain fact; guestFacingText remains for callers that filter.
  */
 
 // Research notes describe the record rather than the place: where a pin sits, who took a
@@ -24,7 +24,7 @@ const TITLE_RESEARCH_SUFFIX = /\s+(?:and|with) (?:\w+ )?source conflicts?$/iu
 
 const sentencesOf = (line: string) => line.split(/(?<=[.!?])\s+/u)
 
-/** True when the guide leaves a whole sentence out of the visitor-facing text. */
+/** True when a sentence reads as research notes or a source list rather than a visitor fact. */
 export function isHiddenGuideSentence(sentence: string): boolean {
   return GUIDE_NOISE.test(sentence) || (sentence.match(LINK)?.length ?? 0) >= 2
 }
@@ -54,7 +54,7 @@ export function guestFacingText(text: string | null | undefined): string {
     .join('\n')
 }
 
-/** Every sentence of the text that the visitor guide leaves out, in order. */
+/** Every research-note sentence of the text, in order, for the authoring check. */
 export function hiddenGuideSentences(text: string | null | undefined): string[] {
   return (text ?? '')
     .replace(/\r/gu, '')

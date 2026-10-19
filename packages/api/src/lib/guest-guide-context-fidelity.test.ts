@@ -58,7 +58,7 @@ describe('authoring checks match what the guide drops', () => {
   const boarding =
     'Riders under 42 inches ride only with an adult; exact doors for the Ember boarding gate open at 10 AM.'
 
-  it('warns about a fact-bearing sentence the guide would drop, with its exact path', () => {
+  it('warns about a research-note sentence shown to visitors as written, with its exact path', () => {
     const warnings = guideQualityWarnings([
       {
         kind: 'knowledge',
@@ -315,7 +315,9 @@ describe('a large directory says what it actually lists', () => {
     expect(guide.prompt).toContain('- [Rides] Fictional Ride 0: Hydraulic Launch Coaster')
     expect(guide.prompt).not.toContain('a long ride with a long description')
     expect(guide.prompt).toMatch(/Past dated events[^\n]*\n- Fictional Lantern Festival 2024/u)
-    expect(guide.prompt).toContain('This directory lists every loaded public place and topic record')
+    expect(guide.prompt).toContain(
+      'This directory lists every loaded public place and topic record',
+    )
     expect(guide.rendererTruncated).toBe(false)
   })
 

@@ -141,7 +141,8 @@ export function guideQualityWarnings(
         })
       }
     }
-    // The exact sentences the visitor guide leaves out, so no fact disappears without notice.
+    // Sentences that read as research notes. The guide shows them to visitors as written (it no
+    // longer drops sentences, so no fact disappears), so the author restates them as plain facts.
     for (const field of fields) {
       for (const sentence of hiddenGuideSentences(field.text).slice(
         0,
@@ -153,7 +154,7 @@ export function guideQualityWarnings(
         warnings.push({
           code: 'GUIDE_QUALITY_HIDDEN_SENTENCE',
           path: `${record.path}.${field.field}`,
-          message: `“${clip(label, LABEL_CHARS)}”: the full venue guide leaves this sentence out, because it drops whole sentences that read as research notes or source lists: “${quote}”. Any fact in it is lost too. Restate the fact in its own sentence, as staff would say it. ${MANUAL}`,
+          message: `“${clip(label, LABEL_CHARS)}”: this sentence reads as research notes or a source list, and visitors are shown it exactly as written: “${quote}”. Restate any fact in it as its own plain sentence, as staff would say it, and drop the note. ${MANUAL}`,
         })
       }
     }
