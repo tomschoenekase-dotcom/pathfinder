@@ -111,6 +111,7 @@ import {
   isGuestAnswerShapeEnabled,
 } from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
+import { guestRecordDatesEnabled } from '../lib/guest-record-dates'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -1557,7 +1558,12 @@ const chatReadRouter = router({
       directory: guestDirectory,
       currentDate,
     })
-    const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, { currentDate })
+    // Off by default: record dates change the cached prompt prefix for every model.
+    const recordDatesEnabled = guestRecordDatesEnabled()
+    const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
+      currentDate,
+      recordDates: recordDatesEnabled,
+    })
     const directoryPrompt = venueGuide.prompt
     const guideCoverage = buildGuestGuideCoverage({
       guide: venueGuide,
@@ -1855,6 +1861,7 @@ const chatReadRouter = router({
           ? new Set([...venueGuide.recordIds].filter((id) => !updatedGuideRecordIds.has(id)))
           : venueGuide.recordIds,
         venueGuideUpdatedRecordIds: updatedGuideRecordIds,
+        recordDates: recordDatesEnabled,
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {

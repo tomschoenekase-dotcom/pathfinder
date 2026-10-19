@@ -1,6 +1,7 @@
 import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { projectGuestVisitContext } from './guest-visit-context'
 import { safeGuestSourceUrl } from './guest-citations'
+import { GUEST_RECORD_DATE_RULE, guestRecordDate } from './guest-record-dates'
 /**
  * Durable version of the production guest-chat system prompt contract.
  * Increment when prompt behavior changes in a way that invalidates evaluation baselines.
@@ -131,6 +132,7 @@ type KnowledgeEntry = {
   category: string
   content: string
   sourceUrl?: string | null
+  updatedAt?: Date | string | null
 }
 
 type ActiveUpdate = {
@@ -316,6 +318,8 @@ export function buildVenueSystemPromptParts(params: {
   venueGuideUpdatedRecordIds?: ReadonlySet<string>
   /** The visitor asked whether a child of a stated height or age can ride something. */
   heightOrAgeRideQuestion?: boolean
+  /** Show each knowledge entry's last update date (GUEST_CHAT_RECORD_DATES). */
+  recordDates?: boolean
 }): { staticPart: string; dynamicPart: string } {
   const { venue, relevantPlaces, featuredPlace, language, engagementQuestion } = params
   const knowledgeEntries = params.knowledgeEntries ?? []
@@ -434,11 +438,12 @@ export function buildVenueSystemPromptParts(params: {
       : ''
   }${
     detailedEntries.length
-      ? `\n\nKNOWLEDGE BASE:\n${detailedEntries
+      ? `\n\nKNOWLEDGE BASE:${params.recordDates ? ` ${GUEST_RECORD_DATE_RULE}` : ''}\n${detailedEntries
           .map((entry) => {
             const sourceUrl = safeGuestSourceUrl(entry.sourceUrl)
+            const updated = params.recordDates ? guestRecordDate(entry.updatedAt) : null
             return escapeUntrustedPromptData(
-              `[${entry.category}] ${entry.title}\n${
+              `[${entry.category}] ${entry.title}\n${updated ? `Updated: ${updated}\n` : ''}${
                 entry.id && params.venueGuideUpdatedRecordIds?.has(`knowledge:${entry.id}`)
                   ? `${UPDATED_GUIDE_RECORD}\n`
                   : ''
