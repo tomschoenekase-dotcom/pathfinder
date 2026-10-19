@@ -18,7 +18,7 @@ const SEASON_SPAN = /\b((?:19|20)\d{2})\s*[-/–]\s*(\d{2})\b/gu
 // fragment ("555-2027"), or a street number ("2030 Main Street").
 const NOT_A_DATE_BEFORE = /(?:\(c\)|©|copyright|\bno\.|#|\d{3,}-)\s*$/iu
 const NOT_A_DATE_AFTER =
-  /^\s+\p{Lu}[\p{L}'-]*(?:\s+\p{Lu}[\p{L}'-]*)?\s+(?:st|street|ave|avenue|rd|road|blvd|boulevard|lane|ln|way|drive|dr)\b/iu
+  /^\s+\p{Lu}[\p{L}']*(?:\s+\p{Lu}[\p{L}']*)?\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Lane|Ln|Way|Drive|Dr)\b(?!-)/u
 // Years this far ahead are not plausible run dates.
 const NEAR_FUTURE_YEARS = 5
 // Shortly after New Year, last year's winter or holiday run may still be on.

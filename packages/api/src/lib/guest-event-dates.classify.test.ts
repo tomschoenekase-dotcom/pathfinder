@@ -38,6 +38,10 @@ describe('dated-title classification', () => {
       'Oct. 23-24, 2026.',
       'Wieder ab 10-2026.',
       'There is no 2026 run planned yet.',
+      'Returns October 2026 on the way to the lake.',
+      'Bigger in 2026 all the way.',
+      'Screens at the 2026 Grand Drive-In.',
+      '30-31, 2025. 2026 dates coming soon.',
     ])
       expect(status('Lantern Festival 2025', content)).toBe('CHECK_DATES')
   })
