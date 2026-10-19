@@ -6,6 +6,7 @@
  * records").
  */
 
+import { classifyGuestDatedEvent } from './guest-event-dates'
 import { hiddenGuideSentences } from './guest-facing-text'
 
 export type GuideQualityRecord =
@@ -100,12 +101,24 @@ function textOf(record: GuideQualityRecord): Array<{ field: string; text: string
 
 export function guideQualityWarnings(
   records: readonly GuideQualityRecord[],
+  options: { today?: string } = {},
 ): GuideQualityWarning[] {
+  const today = options.today ?? new Date().toISOString().slice(0, 10)
   const warnings: GuideQualityWarning[] = []
   let hiddenSentenceWarnings = 0
   for (const record of records) {
     const label = record.kind === 'place' ? record.name : record.title
     const fields = textOf(record)
+
+    // A passed year in the title while the text dates a newer run: the guide can only show it
+    // with a "check its dates" marker and leave the decision to the model, so the author fixes it.
+    if (record.kind === 'knowledge' && classifyGuestDatedEvent(record, today) === 'CHECK_DATES') {
+      warnings.push({
+        code: 'GUIDE_QUALITY_PAST_TITLE_YEAR',
+        path: `${record.path}.title`,
+        message: `“${clip(label, LABEL_CHARS)}” has a past year in its title, but its text dates a newer run: “${clip(record.content, QUOTE_CHARS)}”. Retitle it without the old year and give each date with its year, or keep the ended run as its own record. Visitors are otherwise told to check the dates themselves. ${MANUAL}`,
+      })
+    }
 
     const research = fields.map((f) => ({ ...f, m: f.text.match(RESEARCH_TEXT) })).find((f) => f.m)
     if (research?.m) {
@@ -302,7 +315,10 @@ function knowledgeRecord(path: string, v: Record<string, unknown>): GuideQuality
 }
 
 /** Guide-quality warnings for every place and knowledge record a venue package creates or updates. */
-export function venuePackageGuideQualityWarnings(payload: PayloadLike): GuideQualityWarning[] {
+export function venuePackageGuideQualityWarnings(
+  payload: PayloadLike,
+  options: { today?: string } = {},
+): GuideQualityWarning[] {
   const records: GuideQualityRecord[] =
     payload.schemaVersion === 3
       ? [
@@ -319,5 +335,5 @@ export function venuePackageGuideQualityWarnings(payload: PayloadLike): GuideQua
           ...payload.places.map((p, i) => placeRecord(`places.${i}`, p)),
           ...payload.knowledgeEntries.map((k, i) => knowledgeRecord(`knowledgeEntries.${i}`, k)),
         ]
-  return guideQualityWarnings(records)
+  return guideQualityWarnings(records, options)
 }
