@@ -91,8 +91,14 @@ const openAiStreamEventSchema = z.discriminatedUnion('type', [
 type OpenAiResponsesProviderId = Extract<AiTextProviderId, 'openai' | 'deepseek'>
 
 // gpt-6.1-sol rejects minimal; low is its cheapest level and the one that was measured.
-function reasoningEffort(model: string): 'none' | 'minimal' | 'low' {
-  if (model === 'gpt-6-luna') return 'none'
+// Luna answers without reasoning by default. OPENAI_LUNA_REASONING_EFFORT=low lets it reason
+// briefly before answering (billed as output, delays first text); only gpt-6-luna reads it.
+export function reasoningEffort(
+  model: string,
+  env: Record<string, string | undefined> = process.env,
+): 'none' | 'minimal' | 'low' {
+  if (model === 'gpt-6-luna')
+    return env.OPENAI_LUNA_REASONING_EFFORT?.trim().toLowerCase() === 'low' ? 'low' : 'none'
   if (model === 'gpt-6.1-sol') return 'low'
   return 'minimal'
 }
