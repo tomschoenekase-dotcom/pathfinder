@@ -250,6 +250,7 @@ function renderGuestVenueDirectory(
     shortNameCounts.set(shortKey, (shortNameCounts.get(shortKey) ?? 0) + 1)
   }
   const mergedKnowledgeIds = new Set<string>()
+  let checkDates = false
   const placeLines = directory.places.map((place) => {
     const kind = guestPlaceKindLabel(place)
     const area = place.areaName ? `, ${place.areaName}` : ''
@@ -260,20 +261,31 @@ function renderGuestVenueDirectory(
     // "Rapids (North)" and "Rapids (South)" share the short name "Rapids", so neither may borrow
     // a record by it; each keeps its own exact-title topic or its own description.
     const shortName = normalizeGuestText(guestDirectoryName(place.name))
-    const match =
+    const candidate =
       knowledgeByTitle.get(name) ??
       knowledgeByName.get(name) ??
       ((shortNameCounts.get(shortName) ?? 0) === 1 ? knowledgeByName.get(shortName) : undefined)
+    // A merged topic keeps its dated-title status: an ended one never describes a current place
+    // (it stays in the past list), and an uncertain one keeps its marker and the trusted rule.
+    const status = candidate ? classifyGuestDatedEvent(candidate, options.currentDate) : 'CURRENT'
+    const match = status === 'PAST' ? undefined : candidate
     if (match) mergedKnowledgeIds.add(match.id)
+    if (match && status === 'CHECK_DATES') checkDates = true
+    const marker =
+      match && status === 'CHECK_DATES'
+        ? ` (title_year_passed="${guestPassedTitleYear(match.title)}")`
+        : ''
     const descriptor =
+      (match && status === 'CHECK_DATES'
+        ? guestDatedSummarySentence(match.content ?? '', options.currentDate)
+        : null) ||
       firstSentence(match?.content, place.name) ||
       firstSentence(place.shortDescription, place.name) ||
       firstSentence(place.longDescription, place.name)
-    return `- ${place.name} (${kind}${area})${descriptor ? `: ${descriptor}` : ''}`
+    return `- ${place.name} (${kind}${area})${marker}${descriptor ? `: ${descriptor}` : ''}`
   })
   const past: string[] = []
   const topics: Array<{ name: string; summary: string }> = []
-  let checkDates = false
   for (const entry of directory.knowledge) {
     if (mergedKnowledgeIds.has(entry.id)) continue
     const status = classifyGuestDatedEvent(entry, options.currentDate)

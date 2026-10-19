@@ -38,6 +38,8 @@ describe('dated-title classification', () => {
       'Oct. 23-24, 2026.',
       'Wieder ab 10-2026.',
       'There is no 2026 run planned yet.',
+      'Held April 5 to 7, 2024. Next run in 2040.',
+      'The next festival runs October 23 through October 31, 2032.',
       'Returns October 2026 on the way to the lake.',
       'Bigger in 2026 all the way.',
       'Screens at the 2026 Grand Drive-In.',
@@ -54,7 +56,6 @@ describe('dated-title classification', () => {
       'Held April 5 to 7, 2024. Call 555-2027.',
       'Held April 5 to 7, 2024. Meet at 2030 Main Street.',
       'Held April 5 to 7, 2024. Ticket No. 2026 is the last one issued.',
-      'Held April 5 to 7, 2024. Next run in 2040.',
       '',
     ])
       expect(status('Spring Fest 2024', content)).toBe('PAST')

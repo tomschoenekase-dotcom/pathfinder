@@ -2,7 +2,7 @@
 // check. The two possible errors are not equal: calling a running event over hides its text and
 // asserts something false, while marking an ended one only asks the model to read its dates. So
 // the server calls an event over only when its text gives no sign of a newer run, and treats any
-// near-future year as such a sign unless it is plainly not a date (a copyright line, a phone
+// current or later year as such a sign unless it is plainly not a date (a copyright line, a phone
 // number, a ticket or street number). Nothing parses "the event date", so a source-check date, a
 // long list of days, a holiday name or another language cannot flip the outcome.
 
@@ -19,8 +19,6 @@ const SEASON_SPAN = /\b((?:19|20)\d{2})\s*[-/–]\s*(\d{2})\b/gu
 const NOT_A_DATE_BEFORE = /(?:\(c\)|©|copyright|\bno\.|#|\d{3,}-)\s*$/iu
 const NOT_A_DATE_AFTER =
   /^\s+\p{Lu}[\p{L}']*(?:\s+\p{Lu}[\p{L}']*)?\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Lane|Ln|Way|Drive|Dr)\b(?!-)/u
-// Years this far ahead are not plausible run dates.
-const NEAR_FUTURE_YEARS = 5
 // Shortly after New Year, last year's winter or holiday run may still be on.
 const NEW_YEAR_GRACE_MONTHS = 3
 const SUMMARY_CHARS = 160
@@ -55,11 +53,12 @@ function titleYearsOf(title: string): { years: number[]; spanEnds: number[] } {
   return { years: [...years, ...spanEnds], spanEnds }
 }
 
-/** True when the text names a year in [currentYear, currentYear + 5] that could be a date. */
+/** True when the text names the current or a later year that could be a date. */
 export function hasNearYearSign(text: string, currentYear: number): boolean {
   for (const match of text.matchAll(YEAR)) {
     const year = Number(match[0])
-    if (year < currentYear || year > currentYear + NEAR_FUTURE_YEARS) continue
+    // Any current or later year counts, however far ahead: a future run is not an ended one.
+    if (year < currentYear) continue
     const index = match.index!
     const before = text.slice(Math.max(0, index - 12), index)
     const after = text.slice(index + match[0].length, index + match[0].length + 40)
