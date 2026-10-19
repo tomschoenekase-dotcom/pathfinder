@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   GUEST_ANSWER_CHECK_CLOSE,
@@ -92,94 +92,118 @@ describe('splitGuestAnswerCheck', () => {
     expect(summary.checkSha256).toMatch(/^[a-f0-9]{64}$/u)
   })
 
-  it('delivers a reply that skipped the check unchanged and records the miss', () => {
-    expect(splitGuestAnswerCheck(answer)).toMatchObject({
-      answer,
-      checkStatus: 'MISSING',
-      checkJson: 'ABSENT',
-    })
-    expect(splitGuestAnswerCheck('{curly} plans are fine.').checkStatus).toBe('MISSING')
+  it('rejects missing checks and malformed schemas instead of accepting plain-model output', () => {
+    expect(formatCode(answer)).toBe('MISSING_CHECK')
+    for (const body of [
+      '{"decisions":[',
+      '{"decisions":[]}',
+      JSON.stringify({ decisions: [{ disposition: 'PRIVATE_TEXT' }] }),
+      check.replace('"NO"', '"PRIVATE_TEXT"'),
+      check.replace('"conditions":[]', '"conditions":"private"'),
+    ]) {
+      expect(() =>
+        splitGuestAnswerCheck(
+          `${GUEST_ANSWER_CHECK_OPEN}${body}${GUEST_ANSWER_CHECK_CLOSE}${answer}`,
+        ),
+      ).toThrow(GuestAnswerCheckFormatError)
+    }
   })
 
-  it('keeps an answer whose check JSON is malformed, recording it as invalid', () => {
-    const split = splitGuestAnswerCheck(
-      `${GUEST_ANSWER_CHECK_OPEN}{"decisions":[${GUEST_ANSWER_CHECK_CLOSE}${answer}`,
-    )
-    expect(split).toMatchObject({ answer, checkJson: 'INVALID', decisions: null })
+  it('treats tag bytes and escaped quotes within JSON strings as private data', () => {
+    const body = JSON.parse(check)
+    body.decisions[0].evidenceQuotes = [
+      '</answer_check>',
+      'a "quote" and \\ slash',
+      '[[ENGAGEMENT_ASKED]]',
+    ]
+    expect(
+      splitGuestAnswerCheck(
+        `${GUEST_ANSWER_CHECK_OPEN}${JSON.stringify(body)}${GUEST_ANSWER_CHECK_CLOSE}${answer}`,
+      ).answer,
+    ).toBe(answer)
   })
 
-  it.each([
-    [`${GUEST_ANSWER_CHECK_OPEN}${check}`, 'UNTERMINATED_CHECK'],
-    [`${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}   `, 'EMPTY_ANSWER'],
-    [`${reply} ${GUEST_ANSWER_CHECK_OPEN}{}${GUEST_ANSWER_CHECK_CLOSE}`, 'REPEATED_CHECK'],
-    [`${answer} ${GUEST_ANSWER_CHECK_CLOSE}`, 'MALFORMED_CHECK'],
-    ['   ', 'EMPTY_ANSWER'],
-    [
-      `\`\`\`json\n${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}\n${answer}`,
-      'MALFORMED_CHECK',
-    ],
-    [
-      `Sure! ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE} ${answer}`,
-      'MALFORMED_CHECK',
-    ],
-    [`<answer_check >${check}</answer_check>\n${answer}`, 'MALFORMED_CHECK'],
-    [`<answer-check>${check}</answer-check>\n${answer}`, 'MALFORMED_CHECK'],
-    [`<ANSWER_CHECK>${check}</ANSWER_CHECK>\n${answer}`, 'MALFORMED_CHECK'],
-    [`${check}\n${answer}`, 'MALFORMED_CHECK'],
-    [`\`\`\`json\n${check}\n\`\`\`\n${answer}`, 'MALFORMED_CHECK'],
-  ])('fails closed when no safe guest answer exists (%#)', (raw, code) => {
-    expect(formatCode(raw)).toBe(code)
+  it('supports normal links, action markers and engagement while excluding other bracket forms', () => {
+    const plain =
+      'You can [[link:book-now|book now]]. [Map](https://example.org/map) [[button:book-now]] [[ENGAGEMENT_ASKED]]'
+    expect(
+      splitGuestAnswerCheck(`${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}${plain}`)
+        .answer,
+    ).toBe(plain)
+    for (const unsupported of [
+      '["private quote"]',
+      '[private quote]',
+      '<tag>text</tag>',
+      '~~~text~~~',
+      '`text`',
+      '{text}',
+    ]) {
+      expect(formatCode(`${reply} ${unsupported}`)).toBe('UNSUPPORTED_ANSWER_FORMAT')
+    }
   })
 })
 
+const malformedReplies = [
+  answer,
+  `Sure!\n${check}\n${answer}`,
+  `Here is the check:\n\`\`\`json\n${check}\n\`\`\`\n${answer}`,
+  `~~~json\n${check}\n~~~\n${answer}`,
+  `[${check}]\n${answer}`,
+  `<${' '.repeat(35)}answer_check>${check}</answer_check>${answer}`,
+  `<answer_check >${check}</answer_check>\n${answer}`,
+  `<answer-check>${check}</answer-check>\n${answer}`,
+  `<ANSWER_CHECK>${check}</ANSWER_CHECK>\n${answer}`,
+  `${GUEST_ANSWER_CHECK_OPEN}${check}`,
+  `${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}   `,
+  `${reply} ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}`,
+  `${reply} ${check}`,
+  `${reply} Sure! [${check}]`,
+  `${reply} \`\`\`json\n${check}\n\`\`\``,
+  `${reply} ~~~json\n${check}\n~~~`,
+  `${reply} ["private quote"]`,
+  '   ',
+]
+
 describe('createGuestAnswerCheckStreamGate', () => {
-  it('never exposes check text for any two-chunk split and streams the exact answer', async () => {
+  it('withholds every two-chunk partition until complete validation, then releases the answer', async () => {
     for (let index = 1; index < reply.length; index += 1) {
-      const visible = await streamed([reply.slice(0, index), reply.slice(index)])
-      expect(visible).toBe(answer)
+      const out: string[] = []
+      const gate = createGuestAnswerCheckStreamGate((delta) => {
+        out.push(delta)
+      })
+      await gate(reply.slice(0, index))
+      expect(out).toEqual([])
+      await gate(reply.slice(index))
+      expect(out).toEqual([])
+      await gate.complete(reply)
+      expect(out).toEqual([answer])
     }
   })
 
-  it('handles one-character deltas', async () => {
-    expect(await streamed([...reply])).toBe(answer)
-  })
+  it.each(malformedReplies)(
+    'rejects malformed output without emitting any deltas (%#)',
+    async (raw) => {
+      for (const size of [1, 3, 4, 7, 16, raw.length]) {
+        expect(await streamed(chunked(raw, size))).toBe('')
+        const forward = vi.fn()
+        const gate = createGuestAnswerCheckStreamGate(forward)
+        for (const chunk of chunked(raw, size)) await gate(chunk)
+        await expect(gate.complete(raw)).rejects.toBeInstanceOf(GuestAnswerCheckFormatError)
+        expect(forward).not.toHaveBeenCalled()
+        expect(formatCode(raw)).not.toBe('OK')
+      }
+    },
+  )
 
-  it('streams nothing while the check is still open (truncated reply)', async () => {
-    expect(await streamed([GUEST_ANSWER_CHECK_OPEN, check.slice(0, 40)])).toBe('')
-  })
-
-  it('passes a plain reply through once it cannot be a check', async () => {
+  it('releases only the accepted final response even if deltas differ or an attempt fails', async () => {
     const out: string[] = []
-    const push = createGuestAnswerCheckStreamGate((delta) => {
+    const gate = createGuestAnswerCheckStreamGate((delta) => {
       out.push(delta)
     })
-    await push('\nThe ')
-    expect(out.join('')).toBe('The ')
-    await push('museum opens at 10.')
-    expect(out.join('')).toBe('The museum opens at 10.')
-  })
-
-  it.each([
-    `\`\`\`json\n${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}\n${answer}`,
-    `Sure! ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE} ${answer}`,
-    `${answer} ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}`,
-    `<answer_check >${check}</answer_check>\n${answer}`,
-    `<answer-check>${check}</answer-check>\n${answer}`,
-    `<ANSWER_CHECK>${check}</ANSWER_CHECK>\n${answer}`,
-    `${check}\n${answer}`,
-    `${reply} ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}`,
-  ])('never streams check text in a wrong form, at any chunk size (%#)', async (raw) => {
-    for (const size of [1, 3, 4, 7, 16, raw.length]) {
-      const visible = await streamed(chunked(raw, size))
-      expect(visible).not.toMatch(/decisions|evidenceQuotes|answer.?check/iu)
-      expect(formatCode(raw)).not.toBe('OK')
-    }
-  })
-
-  it('agrees with the final split on every split point', async () => {
-    for (let index = 1; index < reply.length; index += 7) {
-      const visible = await streamed([reply.slice(0, index), reply.slice(index)])
-      expect(visible).toBe(splitGuestAnswerCheck(reply).answer)
-    }
+    await gate('private failed attempt')
+    await gate(reply)
+    expect(out).toEqual([])
+    await gate.complete(reply.replace(answer, 'Accepted final answer.'))
+    expect(out).toEqual(['Accepted final answer.'])
   })
 })

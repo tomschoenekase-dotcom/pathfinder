@@ -2228,7 +2228,7 @@ const chatReadRouter = router({
         ],
         usageSink: chatAccounting.sink,
         invocationId: generationInvocationId,
-        // A check that never closes or leaves no answer fails as invalid structured output.
+        // Missing checks, invalid decision JSON or unsupported answer grammar fail closed.
         ...(answerCheckEnabled ? { parseResponse: splitGuestAnswerCheck } : {}),
         ...(pushVisibleDelta ? { onTextDelta: answerCheckGate ?? pushVisibleDelta } : {}),
         onBeforeFirstDispatch: async () => {
@@ -2254,6 +2254,7 @@ const chatReadRouter = router({
         // The gateway already accepted this exact text through the same pure split.
         const split = splitGuestAnswerCheck(result.text)
         providerAnswer = split.answer
+        await answerCheckGate?.complete(result.text)
         logger.info({
           action: 'guest-chat.answer-check',
           tenantId: venue.tenantId,

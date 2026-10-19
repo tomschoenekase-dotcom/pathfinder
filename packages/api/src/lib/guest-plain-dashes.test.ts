@@ -18,14 +18,19 @@ describe('plain dashes in visitor answers', () => {
     )
   })
 
-  it('reads ranges of times, days and months as "to"', () => {
+  it('preserves range dashes without inferring language or translating them', () => {
     expect(
       guestPlainDashes(`Open Friday${EN}Saturday, 9 am${EN}5 pm, and Sunday, 1${EN}5 pm.`),
-    ).toBe('Open Friday to Saturday, 9 am to 5 pm, and Sunday, 1-5 pm.')
-    expect(guestPlainDashes(`Weekends May ${EM} October.`)).toBe('Weekends May to October.')
+    ).toBe('Open Friday-Saturday, 9 am-5 pm, and Sunday, 1-5 pm.')
+    expect(guestPlainDashes(`Weekends May ${EN} October.`)).toBe('Weekends May-October.')
   })
 
   it('keeps minus signs and writes bare number ranges in a language-neutral way', () => {
+    expect(guestPlainDashes('Abierto lunes–viernes.')).toBe('Abierto lunes-viernes.')
+    expect(guestPlainDashes('Abierto 10 h–18 h.')).toBe('Abierto 10 h-18 h.')
+    expect(guestPlainDashes('Ouvert lundi–vendredi, 10 h – 18 h.')).toBe(
+      'Ouvert lundi-vendredi, 10 h-18 h.',
+    )
     expect(guestPlainDashes('Es hat −5 Grad.')).toBe('Es hat −5 Grad.')
     expect(guestPlainDashes(`Geöffnet 10${EN}18 Uhr.`)).toBe('Geöffnet 10-18 Uhr.')
     expect(guestPlainDashes(`Call 555${EN}1234.`)).toBe('Call 555-1234.')
@@ -47,6 +52,7 @@ describe('plain dashes in visitor answers', () => {
     for (const text of [
       `Open Friday${EN}Saturday, 9 am${EN}5 pm. The Saturn V model${EM}huge${EM}is near Sat${EM}Saturn.`,
       'Try the Comet - it is the classic - then lunch.',
+      'Abierto lunes–viernes, 10 h–18 h. Ouvert lundi–vendredi. 日曜日–金曜日。',
       `Mon${EM}Monkeys first, then Sat ${EM} Sun.`,
       `Ages 6${EN}17 and 10 ${EN} 18 Uhr, call 555${EN}1234.`,
     ]) {

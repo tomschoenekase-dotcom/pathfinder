@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { AI_MODEL_REGISTRY, type AiModelKey } from '@pathfinder/ai'
+import { z } from 'zod'
 
 // A single-call "decide, then answer" format for guest chat. The model first writes a
 // short private check (one decision per question, with exact quotes), then the guest
@@ -9,7 +10,7 @@ import { AI_MODEL_REGISTRY, type AiModelKey } from '@pathfinder/ai'
 
 export const GUEST_ANSWER_CHECK_OPEN = '<answer_check>'
 export const GUEST_ANSWER_CHECK_CLOSE = '</answer_check>'
-export const GUEST_ANSWER_CHECK_VERSION = 'guest-answer-check-v2'
+export const GUEST_ANSWER_CHECK_VERSION = 'guest-answer-check-v3'
 // The check itself can take a few hundred output tokens; routes capped below this would
 // truncate answers into fallback replies.
 export const GUEST_ANSWER_CHECK_MIN_OUTPUT_TOKENS = 1024
@@ -67,82 +68,110 @@ export function appendGuestAnswerCheckInstruction(dynamicPart: string): string {
 
 export class GuestAnswerCheckFormatError extends Error {
   constructor(
-    readonly code: 'UNTERMINATED_CHECK' | 'EMPTY_ANSWER' | 'REPEATED_CHECK' | 'MALFORMED_CHECK',
+    readonly code:
+      | 'UNTERMINATED_CHECK'
+      | 'EMPTY_ANSWER'
+      | 'MISSING_CHECK'
+      | 'MALFORMED_CHECK'
+      | 'UNSUPPORTED_ANSWER_FORMAT',
   ) {
     super(`Guest answer check format failed: ${code}`)
     this.name = 'GuestAnswerCheckFormatError'
   }
 }
 
-// Any tag that looks like the check, in any case or spelling, opening or closing.
-const CHECK_LIKE_TAG = /<\s*\/?\s*answer[\s_-]*check/iu
-// A reply that opens with a code fence or a JSON object may be a wrapped check; it is held
-// back and decided on the complete text.
-const MAYBE_WRAPPED_CHECK = /^(?:`|\{)/u
+// The envelope is a format boundary, not a factual or quote-provenance validator.
+// Keep logged dispositions typed: arbitrary provider strings must never become log fields.
+const CheckSchema = z
+  .object({
+    decisions: z
+      .array(
+        z
+          .object({
+            question: z.string().min(1),
+            disposition: z.enum(GUEST_ANSWER_CHECK_DISPOSITIONS),
+            conditions: z.array(z.string()),
+            missingFacts: z.array(z.string()),
+            evidenceQuotes: z.array(z.string()),
+            visitorFactQuotes: z.array(z.string()),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict()
 
 export type GuestAnswerCheckSplit = {
   answer: string
-  // MISSING: the model skipped the check and answered directly; the answer is delivered
-  // unchanged (plain-model behavior) and the miss is recorded, never repaired.
-  checkStatus: 'PRESENT' | 'MISSING'
-  checkText: string | null
-  checkJson: 'VALID' | 'INVALID' | 'ABSENT'
-  decisions: Array<{ disposition: string }> | null
+  checkStatus: 'PRESENT'
+  checkText: string
+  checkJson: 'VALID'
+  decisions: Array<{ disposition: (typeof GUEST_ANSWER_CHECK_DISPOSITIONS)[number] }>
 }
 
-function parseCheckJson(text: string): GuestAnswerCheckSplit['decisions'] {
-  try {
-    const value = JSON.parse(text) as unknown
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-    const decisions = (value as { decisions?: unknown }).decisions
-    if (!Array.isArray(decisions) || decisions.length === 0) return null
-    return decisions.map((decision) => ({
-      disposition:
-        decision && typeof decision === 'object' && 'disposition' in decision
-          ? String((decision as { disposition: unknown }).disposition)
-          : 'MISSING',
-    }))
-  } catch {
-    return null
+/** Find the closing tag outside JSON strings; quoted tag bytes are private data. */
+function checkCloseIndex(body: string): number {
+  let quoted = false
+  let escaped = false
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index]
+    if (quoted) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') quoted = false
+    } else if (char === '"') quoted = true
+    else if (body.startsWith(GUEST_ANSWER_CHECK_CLOSE, index)) return index
   }
+  return -1
 }
 
 /**
- * Splits a complete provider reply. Throws only when no safe guest answer exists: a check
- * that never closes (truncation), an empty answer, a check in the wrong form (wrong tag
- * spelling, code fence or bare JSON) or a second check that would leak into guest text.
- * Malformed check JSON inside correct tags is recorded but does not block an otherwise
- * complete answer: the check informs generation, it is not a gate.
+ * Supported answer grammar: plain prose, plain URLs, Markdown links and the existing
+ * engagement/action markers. Braces, angle brackets, backticks, tildes and other square
+ * bracket forms are reserved, even in innocent quotations. This deliberately conservative
+ * boundary rejects serialized JSON, tags and fences wherever they occur, including after
+ * a normal prose preface. It does not detect private information rewritten as plain prose.
+ */
+function assertPlainAnswer(answer: string): void {
+  if (/[{}<>`~]/u.test(answer)) throw new GuestAnswerCheckFormatError('UNSUPPORTED_ANSWER_FORMAT')
+  const prose = answer.replace(
+    /\[\[(?:ENGAGEMENT_ASKED|button:[a-z0-9-]{1,63}|link:[a-z0-9-]{1,63}\|[^[\]|\n]{1,120})\]\]|\[[^[\]\n]+\]\(https?:\/\/[^\s[\]]+\)/gu,
+    '',
+  )
+  if (/[[\]]/u.test(prose)) throw new GuestAnswerCheckFormatError('UNSUPPORTED_ANSWER_FORMAT')
+}
+
+/**
+ * Only called for the flagged route. Require exactly the supported envelope: an initial
+ * canonical tag, valid decision JSON, its closing tag, and a nonempty plain answer.
+ * Missing/malformed checks are format failures, never plain-model success. Complete
+ * validation must precede visitor emission, storage and answer evidence.
  */
 export function splitGuestAnswerCheck(raw: string): GuestAnswerCheckSplit {
   const trimmedStart = raw.trimStart()
-  if (!trimmedStart.startsWith(GUEST_ANSWER_CHECK_OPEN)) {
-    if (!raw.trim()) throw new GuestAnswerCheckFormatError('EMPTY_ANSWER')
-    if (CHECK_LIKE_TAG.test(raw)) throw new GuestAnswerCheckFormatError('MALFORMED_CHECK')
-    if (MAYBE_WRAPPED_CHECK.test(trimmedStart) && /"decisions"/u.test(raw))
-      throw new GuestAnswerCheckFormatError('MALFORMED_CHECK')
-    return {
-      answer: raw.trim(),
-      checkStatus: 'MISSING',
-      checkText: null,
-      checkJson: 'ABSENT',
-      decisions: null,
-    }
-  }
+  if (!trimmedStart) throw new GuestAnswerCheckFormatError('EMPTY_ANSWER')
+  if (!trimmedStart.startsWith(GUEST_ANSWER_CHECK_OPEN))
+    throw new GuestAnswerCheckFormatError('MISSING_CHECK')
   const body = trimmedStart.slice(GUEST_ANSWER_CHECK_OPEN.length)
-  const closeIndex = body.indexOf(GUEST_ANSWER_CHECK_CLOSE)
+  const closeIndex = checkCloseIndex(body)
   if (closeIndex < 0) throw new GuestAnswerCheckFormatError('UNTERMINATED_CHECK')
   const checkText = body.slice(0, closeIndex).trim()
+  let check: z.infer<typeof CheckSchema>
+  try {
+    check = CheckSchema.parse(JSON.parse(checkText))
+  } catch {
+    // Never include schema diagnostics containing provider text in this error.
+    throw new GuestAnswerCheckFormatError('MALFORMED_CHECK')
+  }
   const answer = body.slice(closeIndex + GUEST_ANSWER_CHECK_CLOSE.length).trim()
-  if (CHECK_LIKE_TAG.test(answer)) throw new GuestAnswerCheckFormatError('REPEATED_CHECK')
   if (!answer) throw new GuestAnswerCheckFormatError('EMPTY_ANSWER')
-  const decisions = parseCheckJson(checkText)
+  assertPlainAnswer(answer)
   return {
     answer,
     checkStatus: 'PRESENT',
     checkText,
-    checkJson: decisions ? 'VALID' : 'INVALID',
-    decisions,
+    checkJson: 'VALID',
+    decisions: check.decisions.map(({ disposition }) => ({ disposition })),
   }
 }
 
@@ -161,64 +190,25 @@ export function summarizeGuestAnswerCheck(split: GuestAnswerCheckSplit) {
 }
 
 /**
- * Streaming gate in front of the guest projection.
- * - Text is held while it could still be the opening tag, and inside the check.
- * - A reply opening with a check-like tag in the wrong form, a code fence or a JSON object is
- *   held entirely; the final split decides whether it is a plain answer or a format failure.
- * - Visible answer text stops at any later check-like tag, and a trailing "<" that could start
- *   one waits for the next delta, so check text never streams to the visitor.
+ * Completion gate in front of the guest projection. Provider deltas are deliberately
+ * withheld, preserving the streaming transport without claiming incremental visitor text.
+ * A valid prefix cannot certify its unseen suffix (or the provider's final status).
+ * Only the gateway-accepted final response is released; deltas from a failed attempt or
+ * an incomplete provider response can never contaminate a later answer or fallback.
+ * First visible text on this route is therefore at or after provider completion.
  */
 export function createGuestAnswerCheckStreamGate(
   forward: (visibleDelta: string) => void | Promise<void>,
 ) {
-  let buffer = ''
-  let state: 'DECIDING' | 'IN_CHECK' | 'VISIBLE' | 'HOLD_ALL' | 'STOPPED' = 'DECIDING'
-  let visible = ''
-  let emitted = 0
-
-  async function forwardVisible(delta: string) {
-    if (!visible) delta = delta.trimStart()
-    visible += delta
-    const tag = visible.search(CHECK_LIKE_TAG)
-    let safe = tag >= 0 ? tag : visible.length
-    if (tag < 0) {
-      const lastOpen = visible.lastIndexOf('<')
-      if (lastOpen >= 0 && !visible.slice(lastOpen).includes('>') && visible.length - lastOpen < 24)
-        safe = lastOpen
-    } else {
-      state = 'STOPPED'
-    }
-    if (safe <= emitted) return
-    const next = visible.slice(emitted, safe)
-    emitted = safe
-    await forward(next)
-  }
-
-  return async function push(delta: string) {
-    if (!delta || state === 'HOLD_ALL' || state === 'STOPPED') return
-    if (state === 'VISIBLE') return forwardVisible(delta)
-    buffer += delta
-    if (state === 'DECIDING') {
-      const leading = buffer.trimStart()
-      if (!leading) return
-      if (leading.startsWith('<') && !leading.includes('>') && leading.length < 32) return
-      if (leading.startsWith(GUEST_ANSWER_CHECK_OPEN)) {
-        state = 'IN_CHECK'
-      } else if (CHECK_LIKE_TAG.test(leading.slice(0, 32)) || MAYBE_WRAPPED_CHECK.test(leading)) {
-        state = 'HOLD_ALL'
-        return
-      } else {
-        state = 'VISIBLE'
-        const held = buffer
-        buffer = ''
-        return forwardVisible(held)
-      }
-    }
-    const closeIndex = buffer.indexOf(GUEST_ANSWER_CHECK_CLOSE)
-    if (closeIndex < 0) return
-    const rest = buffer.slice(closeIndex + GUEST_ANSWER_CHECK_CLOSE.length)
-    buffer = ''
-    state = 'VISIBLE'
-    if (rest) return forwardVisible(rest)
-  }
+  return Object.assign(
+    async function push(delta: string) {
+      void delta
+      // The provider gateway owns accumulation and completion validation.
+    },
+    {
+      async complete(raw: string) {
+        await forward(splitGuestAnswerCheck(raw).answer)
+      },
+    },
+  )
 }

@@ -4130,10 +4130,75 @@ describe('chat router', () => {
         )
       })
 
-      it('streams only the answer to the visitor', async () => {
+      it.each([
+        'prefaced-bare',
+        'prefaced-fence',
+        'tilde-fence',
+        'array',
+        'second-bare',
+        'late-second-bare',
+        'invalid-disposition',
+        'missing',
+        'incomplete-provider',
+      ])('fails closed in both transports for %s, including persistence', async (kind) => {
+        const privateBody = answerCheckBody.replace('Elephant House', 'PRIVATE_SENTINEL_QUOTE')
+        const privateCheck = `<answer_check>${privateBody}</answer_check>`
+        const rawByKind: Record<string, string> = {
+          'prefaced-bare': `Sure!\n${privateBody}\n${checkedAnswer}`,
+          'prefaced-fence': `Here is the check:\n\`\`\`json\n${privateBody}\n\`\`\`\n${checkedAnswer}`,
+          'tilde-fence': `~~~json\n${privateBody}\n~~~\n${checkedAnswer}`,
+          array: `[${privateBody}]\n${checkedAnswer}`,
+          'second-bare': `${privateCheck}\n${privateBody}\n${checkedAnswer}`,
+          'late-second-bare': `${privateCheck}\n${checkedAnswer}\n${privateBody}`,
+          'invalid-disposition': `${privateCheck.replace('INFORMATION', 'PRIVATE_SENTINEL_QUOTE')}\n${checkedAnswer}`,
+          missing: 'PRIVATE_SENTINEL_QUOTE',
+          'incomplete-provider': `${privateCheck}\n${checkedAnswer}`,
+        }
+        const raw = rawByKind[kind]!
+        for (const streaming of [false, true]) {
+          vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
+          setupHappyPath('unused anthropic text')
+          routeTo('guest-chat-luna')
+          const status = kind === 'incomplete-provider' ? 'incomplete' : 'completed'
+          const providerResponse = { status, output_text: raw, usage: openAiUsage }
+          const openAiCreate = vi.fn().mockResolvedValueOnce(
+            streaming
+              ? {
+                  async *[Symbol.asyncIterator]() {
+                    for (const delta of raw) yield { type: 'response.output_text.delta', delta }
+                    yield { type: `response.${status}`, response: providerResponse }
+                  },
+                }
+              : providerResponse,
+          )
+          setOpenAiResponsesClientForTesting({ responses: { create: openAiCreate } })
+          if (streaming) {
+            const events = []
+            for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+            expect(events.at(-1)).toMatchObject({
+              type: 'complete',
+              result: { replyKind: 'TEMPORARY_FALLBACK' },
+            })
+            expect(JSON.stringify(events)).not.toContain('PRIVATE_SENTINEL_QUOTE')
+            expect(JSON.stringify(events)).not.toContain(checkedAnswer)
+          } else {
+            expect(await caller.chat.send(sendInput)).toMatchObject({
+              replyKind: 'TEMPORARY_FALLBACK',
+            })
+          }
+          expect(openAiCreate).toHaveBeenCalledOnce()
+          expect(JSON.stringify(messageCreate.mock.calls)).not.toContain('PRIVATE_SENTINEL_QUOTE')
+          expect(JSON.stringify(guestTurnActions.finalize.mock.calls)).not.toContain(
+            'PRIVATE_SENTINEL_QUOTE',
+          )
+        }
+      })
+
+      it('releases only the accepted answer after provider completion', async () => {
         vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
         setupHappyPath('unused anthropic text')
         routeTo('guest-chat-luna')
+        let providerCompleted = false
         const pieces = [
           checkedReply.slice(0, 9),
           checkedReply.slice(9, 60),
@@ -4143,6 +4208,7 @@ describe('chat router', () => {
         const openAiCreate = vi.fn().mockResolvedValueOnce({
           async *[Symbol.asyncIterator]() {
             for (const delta of pieces) yield { type: 'response.output_text.delta', delta }
+            providerCompleted = true
             yield {
               type: 'response.completed',
               response: { status: 'completed', output_text: checkedReply, usage: openAiUsage },
@@ -4151,7 +4217,10 @@ describe('chat router', () => {
         })
         setOpenAiResponsesClientForTesting({ responses: { create: openAiCreate } })
         const events = []
-        for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+        for await (const event of streamChatTurn(ctx, sendInput)) {
+          if (event.type === 'delta') expect(providerCompleted).toBe(true)
+          events.push(event)
+        }
         expect(openAiCreate.mock.calls[0]?.[0].stream).toBe(true)
         expect(JSON.stringify(events)).not.toContain('answer_check')
         expect(JSON.stringify(events)).not.toContain('evidenceQuotes')
@@ -4373,7 +4442,7 @@ describe('chat router', () => {
     it('stores and returns visitor answers without dashes used as punctuation', async () => {
       setupHappyPath('The show is loud and bright\u2014not a ride. Open 9 am\u20135 pm.')
       const result = await caller.chat.send(sendInput)
-      expect(result.response).toBe('The show is loud and bright, not a ride. Open 9 am to 5 pm.')
+      expect(result.response).toBe('The show is loud and bright, not a ride. Open 9 am-5 pm.')
       expect(messageCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ role: 'assistant', content: result.response }),
