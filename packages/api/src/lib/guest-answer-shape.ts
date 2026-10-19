@@ -1,21 +1,25 @@
-import { AI_MODEL_REGISTRY, type AiModelKey } from '@pathfinder/ai'
-
-// Decision-first answers for economy guest-chat routes. Smaller models tend to open with a bare
+// Decision-first answers for the Luna guest-chat route. Smaller models tend to open with a bare
 // "Yes" and then explain a limit that makes the answer "no", or turn one ruled-out option into
 // "there is none". This asks for the deciding comparison first, in ordinary prose, so the answer
 // still streams immediately and needs no private format or parser. It generalizes the existing
-// height-question rule to every outcome question. Off unless GUEST_CHAT_ANSWER_SHAPE selects it.
+// height-question rule to other "will this work for me" questions. Off unless
+// GUEST_CHAT_ANSWER_SHAPE selects it.
 
-export const GUEST_ANSWER_SHAPE_VERSION = 'guest-answer-shape-decision-first-v1'
+export const GUEST_ANSWER_SHAPE_VERSION = 'guest-answer-shape-decision-first-v2'
 
 export type GuestAnswerShapeMode = 'off' | 'decision-first'
 
+// Only routes whose primary model was evaluated with this rule receive it. Other economy models
+// (and the platform default) keep their unshaped prompt until they are measured too.
+export const GUEST_ANSWER_SHAPE_MODEL_KEYS: ReadonlySet<string> = new Set(['guest-chat-luna'])
+
 export const GUEST_ANSWER_SHAPE_INSTRUCTION = `DECISION-FIRST ANSWERS (trusted system rule):
-- Before writing, settle each thing the visitor asked. Compare their own stated details, such as a time, date, age, height, group or amount, with the exact limit that governs it. A last entry, last sale, last departure or booking cutoff is the limit, not the closing time.
-- Open with that comparison stated as a fact together with its outcome, in the visitor's language, for example "The last tour leaves at 2 pm, so a 2:30 arrival misses it." Never open with a bare "Yes" or "No", and never let a later sentence contradict the outcome you stated.
-- If an outcome depends on something about the visitor or someone with them that they have not said, such as an age or a membership, give the outcome for each case in one short clause.
-- If the venue facts rule out only one option the visitor asked about, say what is ruled out and that other options are not known, rather than concluding there are none.
-- Answer every part of the question before adding anything extra.`
+- When the visitor asks whether something will work for them, such as getting in, timing, eligibility, what is allowed or the price for their group, first compare their own stated details with the limit that decides it. For timing, the deciding limit is the latest time to enter, buy or start when one is given, not the closing time.
+- Put that fact and what it means for them first, in the reply language. A yes or no word may never come before that fact, and no later sentence may contradict it.
+- When the outcome depends on something about the visitor or their group that they have not said, other than a measured height, give the outcome for each possibility briefly instead of assuming one.
+- When the facts rule out one kind of option but say nothing about others, say what is ruled out, then say you're not sure about other options and who can check. Never conclude that there are none.
+- Questions that only ask what something is like, or what options exist, are answered as usual.
+- Cover every part of the question before any suggestion or follow-up question.`
 
 export function guestAnswerShapeMode(
   env: Record<string, string | undefined> = process.env,
@@ -25,13 +29,20 @@ export function guestAnswerShapeMode(
     : 'off'
 }
 
-/** Decided by the route's primary model; only economy-tier routes receive the rule. */
+/**
+ * Decided by the configured primary model, not by whichever candidate is first after unhealthy
+ * providers are filtered out. The system prompt is shared by every route candidate, so a
+ * configured fallback model also receives the rule when the primary is Luna.
+ */
 export function isGuestAnswerShapeEnabled(
   mode: GuestAnswerShapeMode,
-  primaryModelKey: string | undefined,
+  configuredPrimaryModelKey: string | undefined,
 ): boolean {
-  if (mode === 'off' || !primaryModelKey || !(primaryModelKey in AI_MODEL_REGISTRY)) return false
-  return AI_MODEL_REGISTRY[primaryModelKey as AiModelKey].costTier === 'ECONOMY'
+  return (
+    mode === 'decision-first' &&
+    configuredPrimaryModelKey !== undefined &&
+    GUEST_ANSWER_SHAPE_MODEL_KEYS.has(configuredPrimaryModelKey)
+  )
 }
 
 export function appendGuestAnswerShapeInstruction(dynamicPart: string): string {

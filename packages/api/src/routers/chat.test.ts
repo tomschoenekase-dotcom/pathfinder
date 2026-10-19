@@ -4287,6 +4287,21 @@ describe('chat router', () => {
         setOpenAiResponsesClientForTesting({ responses: { create: solCreate } })
         await caller.chat.send(sendInput)
         expect(JSON.stringify(solCreate.mock.calls[0]?.[0])).not.toContain('DECISION-FIRST')
+        // Byte-identical to the same Sol request with the flag off.
+        vi.stubEnv('GUEST_CHAT_ANSWER_SHAPE', 'off')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-sol')
+        const solOff = vi.fn().mockResolvedValueOnce({
+          status: 'completed',
+          output_text: 'Sol answer.',
+          usage: openAiUsage,
+        })
+        setOpenAiResponsesClientForTesting({ responses: { create: solOff } })
+        await caller.chat.send(sendInput)
+        expect(JSON.stringify(solOff.mock.calls[0]?.[0])).toBe(
+          JSON.stringify(solCreate.mock.calls[0]?.[0]),
+        )
+        vi.stubEnv('GUEST_CHAT_ANSWER_SHAPE', 'decision-first')
 
         vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
         setupHappyPath('unused anthropic text')

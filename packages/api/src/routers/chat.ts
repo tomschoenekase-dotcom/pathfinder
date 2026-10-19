@@ -105,6 +105,7 @@ import {
   summarizeGuestAnswerCheck,
 } from '../lib/guest-answer-check'
 import {
+  GUEST_ANSWER_SHAPE_VERSION,
   appendGuestAnswerShapeInstruction,
   guestAnswerShapeMode,
   isGuestAnswerShapeEnabled,
@@ -2202,8 +2203,17 @@ const chatReadRouter = router({
       // Decision-first prose is the streaming alternative to the check; never both at once.
       const answerShapeEnabled =
         !answerCheckEnabled &&
-        isGuestAnswerShapeEnabled(guestAnswerShapeMode(), route.candidates[0]?.modelKey)
-      if (answerShapeEnabled) dynamicPart = appendGuestAnswerShapeInstruction(dynamicPart)
+        isGuestAnswerShapeEnabled(guestAnswerShapeMode(), configuration.primaryModelKey)
+      if (answerShapeEnabled) {
+        dynamicPart = appendGuestAnswerShapeInstruction(dynamicPart)
+        logger.info({
+          action: 'guest-chat.answer-shape',
+          tenantId: venue.tenantId,
+          venueId: venue.id,
+          turnId: reservation.turnId,
+          version: GUEST_ANSWER_SHAPE_VERSION,
+        })
+      }
       const pushVisibleDelta = streamProjection
         ? (delta: string) =>
             streamProjection.push(delta, {
