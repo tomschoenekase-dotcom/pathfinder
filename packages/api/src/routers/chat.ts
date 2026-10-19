@@ -111,6 +111,7 @@ import {
   isGuestAnswerShapeEnabled,
 } from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
+import { GUEST_DATED_TITLE_RULE, GUEST_DATED_TITLE_RULE_VERSION } from '../lib/guest-event-dates'
 import { GUEST_RECORD_DATES_VERSION, guestRecordDatesEnabled } from '../lib/guest-record-dates'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
@@ -1571,6 +1572,13 @@ const chatReadRouter = router({
       recordDates: recordDatesEnabled,
     })
     const directoryPrompt = venueGuide.prompt
+    if (directoryPrompt.includes(GUEST_DATED_TITLE_RULE))
+      logger.info({
+        action: 'guest-chat.dated-title-marker',
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        version: GUEST_DATED_TITLE_RULE_VERSION,
+      })
     const guideCoverage = buildGuestGuideCoverage({
       guide: venueGuide,
       directory: guestDirectory,
