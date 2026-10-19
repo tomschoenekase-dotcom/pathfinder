@@ -33,6 +33,11 @@ describe('dated-title classification', () => {
       '2026年10月23日',
       'Returns 2026/10/23.',
       'Next festival: spring 2027 (dates TBA).',
+      'Opens 1.11.2026.',
+      'Dates: 23.10.2026 and 24.10.2026.',
+      'Oct. 23-24, 2026.',
+      'Wieder ab 10-2026.',
+      'There is no 2026 run planned yet.',
     ])
       expect(status('Lantern Festival 2025', content)).toBe('CHECK_DATES')
   })

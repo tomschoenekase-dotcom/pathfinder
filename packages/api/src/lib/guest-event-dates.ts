@@ -16,7 +16,7 @@ const YEAR = /\b(?:19|20)\d{2}\b/gu
 const SEASON_SPAN = /\b((?:19|20)\d{2})\s*[-/–]\s*(\d{2})\b/gu
 // A year that is plainly not a date: copyright, a ticket or reference number, a phone or code
 // fragment ("555-2027"), or a street number ("2030 Main Street").
-const NOT_A_DATE_BEFORE = /(?:\(c\)|©|copyright|\bno\.?|#|\d[-.])\s*$/iu
+const NOT_A_DATE_BEFORE = /(?:\(c\)|©|copyright|\bno\.|#|\d{3,}-)\s*$/iu
 const NOT_A_DATE_AFTER =
   /^\s+\p{Lu}[\p{L}'-]*(?:\s+\p{Lu}[\p{L}'-]*)?\s+(?:st|street|ave|avenue|rd|road|blvd|boulevard|lane|ln|way|drive|dr)\b/iu
 // Years this far ahead are not plausible run dates.
