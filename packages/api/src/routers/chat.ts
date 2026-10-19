@@ -2246,6 +2246,18 @@ const chatReadRouter = router({
         answerCheckEnabled && pushVisibleDelta
           ? createGuestAnswerCheckStreamGate(pushVisibleDelta)
           : null
+      // Markers on retrieved entries alone (no guide, or the guide left them out) are logged too.
+      if (
+        !directoryPrompt.includes(GUEST_DATED_TITLE_RULE) &&
+        dynamicPart.includes(GUEST_DATED_TITLE_RULE)
+      )
+        logger.info({
+          action: 'guest-chat.dated-title-marker',
+          tenantId: venue.tenantId,
+          venueId: venue.id,
+          version: GUEST_DATED_TITLE_RULE_VERSION,
+          scope: 'retrieved-entries',
+        })
       generationEvidence = captureEvidence()
       // Validate the exact retained text and source snapshots before any answer provider dispatch.
       preflightEvidence = buildAnswerEvidence('Evidence preflight.', generationEvidence)

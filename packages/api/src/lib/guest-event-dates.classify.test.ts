@@ -1,95 +1,105 @@
 import { describe, expect, it } from 'vitest'
 
-import { GUEST_DATED_TITLE_RULE, classifyGuestDatedEvent } from './guest-event-dates'
+import {
+  GUEST_DATED_TITLE_RULE,
+  classifyGuestDatedEvent,
+  classifyGuestDatedEventWithReason,
+  guestDatedSummarySentence,
+} from './guest-event-dates'
 import { buildGuestVenueDirectoryPrompt, type GuestVenueDirectory } from './guest-venue-directory'
 
+const today = '2026-10-19'
 const event = (title: string, content: string, category = 'Events') => ({
   title,
   category,
   content,
 })
+const status = (title: string, content: string, when = today, category = 'Events') =>
+  classifyGuestDatedEvent(event(title, content, category), when)
 
-describe('dated-title classification (REVIEW-PRODUCT-04 probes)', () => {
-  it('reads a season span in the title as covering both years', () => {
-    expect(
-      classifyGuestDatedEvent(
-        event('Winter Season 2025-26', 'Runs through February 28.'),
-        '2026-01-10',
-      ),
-    ).toBe('CURRENT')
-    expect(
-      classifyGuestDatedEvent(
-        event('Winter Season 2025/26', 'Runs through February 28.'),
-        '2026-01-10',
-      ),
-    ).toBe('CURRENT')
-    expect(
-      classifyGuestDatedEvent(
-        event('Winter Season 2024-25', 'Runs through February 28.'),
-        '2026-10-18',
-      ),
-    ).toBe('PAST')
-  })
-
-  it("does not call last year's event over in the first months after New Year", () => {
-    expect(
-      classifyGuestDatedEvent(event('Holiday Lights 2025', 'Nov 21 to Jan 4.'), '2026-01-02'),
-    ).toBe('CHECK_DATES')
-    expect(
-      classifyGuestDatedEvent(event('Holiday Lights 2025', 'Nov 21 to Jan 4.'), '2026-10-18'),
-    ).toBe('PAST')
-    expect(
-      classifyGuestDatedEvent(event('Holiday Lights 2024', 'Nov 21 to Jan 4.'), '2026-01-02'),
-    ).toBe('PAST')
-  })
-
-  it('counts a near year only when the text uses it as a date', () => {
+describe('dated-title classification', () => {
+  it('never calls an event over when its text names this year or soon after, in any form', () => {
     for (const content of [
-      '(c) 2026 Example Park.',
-      'Refunds processed in 2026.',
-      'Call 555-2027.',
-      'At 2030 Main Street.',
-      'Archived page, last edited 2026 by staff.',
-    ])
-      expect(
-        classifyGuestDatedEvent(
-          event('Spring Fest 2024', `Held April 5 to 7, 2024. ${content}`),
-          '2026-10-18',
-        ),
-      ).toBe('PAST')
-    for (const content of [
-      'Returns October 23, 24, 30 and 31, 2026.',
-      'Checked October 18, 2026 against the official site.',
+      'Returns October 23, 24, 30 and 31, 2026, from 6 pm to 9 pm.',
+      'Returns Fridays and Saturdays: October 2, 3, 9, 10, 16, 17, 23, 24, 30 and 31, 2026.',
+      'Weekends in October (2, 3, 9, 10, 16, 17, 23, 24, 30, 31), 2026.',
+      'The festival ran October 30 and 31, 2025. Checked October 18, 2026 against the official site.',
+      'Back for Halloween 2026.',
+      'Returns Christmas 2026.',
+      'The festival returns in 2026, dates to be announced.',
+      'Retour les 23 et 24 octobre 2026.',
+      'Wieder vom 27. November bis 23. Dezember 2026.',
+      'Vuelve del 3 al 5 de octubre de 2026.',
+      '2026年10月23日',
+      'Returns 2026/10/23.',
       'Next festival: spring 2027 (dates TBA).',
-      'Next run 2026-11-02.',
-      'Dates: 30/10/2026.',
-      'Back for the 2027 season.',
     ])
-      expect(classifyGuestDatedEvent(event('Spring Fest 2024', content), '2026-10-18')).toBe(
-        'CHECK_DATES',
-      )
+      expect(status('Lantern Festival 2025', content)).toBe('CHECK_DATES')
   })
 
-  it('marks a passed-year title with a dated body whatever its title words or language', () => {
+  it('calls an event over only when nothing in its text points at a newer run', () => {
+    for (const content of [
+      'The festival ran October 30 and 31, 2025.',
+      'Held April 5 to 7, 2024. (c) 2026 Example Park.',
+      'Held April 5 to 7, 2024. © 2026 Example Park.',
+      'Held April 5 to 7, 2024. Call 555-2027.',
+      'Held April 5 to 7, 2024. Meet at 2030 Main Street.',
+      'Held April 5 to 7, 2024. Ticket No. 2026 is the last one issued.',
+      'Held April 5 to 7, 2024. Next run in 2040.',
+      '',
+    ])
+      expect(status('Spring Fest 2024', content)).toBe('PAST')
+    // Deferred, same as the released baseline: a year-less recurring body cannot be told apart.
+    expect(status('Halloween Nights 2025', 'Fridays and Saturdays in October.')).toBe('PAST')
+  })
+
+  it('handles season spans and the months after New Year without asserting either way', () => {
+    // A span ending this year may be running (January) or over (October): marker, never "over".
+    expect(status('Ski Season 2025-26', 'Runs through February 28.', '2026-01-10')).toBe(
+      'CHECK_DATES',
+    )
+    expect(status('Ski Season 2025-26', 'Ran December 2025 to April 2026.', '2026-10-19')).toBe(
+      'CHECK_DATES',
+    )
+    expect(status('Winter Season 2026-27', 'Opens December 12.', '2026-10-19')).toBe('CURRENT')
+    expect(status('Winter Season 2024-25', 'Runs through February 28.', '2026-10-19')).toBe('PAST')
+    expect(status('Holiday Lights 2025', 'Nov 21 to Jan 4.', '2026-01-02')).toBe('CHECK_DATES')
+    expect(status('Holiday Lights 2025', 'Nov 21 to Jan 4.', '2026-10-19')).toBe('PAST')
+    expect(status('Holiday Lights 2024', 'Nov 21 to Jan 4.', '2026-01-02')).toBe('PAST')
     expect(
-      classifyGuestDatedEvent(
-        event('Weihnachtsmarkt 2025', 'Wieder geöffnet ab 27/11/2026.', 'Markt'),
-        '2026-10-18',
-      ),
-    ).toBe('CHECK_DATES')
+      classifyGuestDatedEventWithReason(
+        event('Holiday Lights 2025', 'Nov 21 to Jan 4.'),
+        '2026-01-02',
+      ).reason,
+    ).toBe('NEW_YEAR_GRACE')
+  })
+
+  it('marks any passed-year title with a near-year body, whatever its title words', () => {
+    expect(status('Weihnachtsmarkt 2025', 'Wieder geöffnet ab 27/11/2026.', today, 'Markt')).toBe(
+      'CHECK_DATES',
+    )
+    expect(status('Menu 2025', 'Updated May 2026.', today, 'Food')).toBe('CHECK_DATES')
+    expect(status('Annual report 2024', 'Visitor numbers grew.', today, 'About')).toBe('CURRENT')
+    expect(status('Lantern Festival 2026', 'Returns October 30.')).toBe('CURRENT')
+  })
+
+  it('summarizes a marked topic with its dated sentence, abbreviation-safe and capped', () => {
     expect(
-      classifyGuestDatedEvent(
-        event('Lantern Walk 2025', 'Returns October 30, 2026.', 'Seasonal'),
-        '2026-10-18',
+      guestDatedSummarySentence(
+        'The 2025 festival ran Oct. 30 and 31. Returns Oct. 23, 2026.',
+        today,
       ),
-    ).toBe('CHECK_DATES')
-    // Without a dated body, a non-event record keeps the baseline: shown as an ordinary topic.
+    ).toBe('Returns Oct. 23, 2026.')
+    expect(guestDatedSummarySentence('Ended.\nReturns\n  October 23, 2026.', today)).toBe(
+      'Returns October 23, 2026.',
+    )
+    expect(guestDatedSummarySentence(`Returns October 23, 2026. ${'x'.repeat(10)}`, today)).toBe(
+      'Returns October 23, 2026.',
+    )
     expect(
-      classifyGuestDatedEvent(
-        event('Annual report 2024', 'Visitor numbers grew.', 'About'),
-        '2026-10-18',
-      ),
-    ).toBe('CURRENT')
+      guestDatedSummarySentence(`Returns ${'very '.repeat(60)}October 23, 2026.`, today)!.length,
+    ).toBe(160)
+    expect(guestDatedSummarySentence('It ran in 2025.', today)).toBeNull()
   })
 
   it('puts the rule in the trusted directory header and summarizes with the dated sentence', () => {
@@ -107,7 +117,7 @@ describe('dated-title classification (REVIEW-PRODUCT-04 probes)', () => {
       places: [],
       incomplete: false,
     } as unknown as GuestVenueDirectory
-    const prompt = buildGuestVenueDirectoryPrompt(directory, { currentDate: '2026-10-18' })
+    const prompt = buildGuestVenueDirectoryPrompt(directory, { currentDate: today })
     const open = prompt.indexOf('<untrusted_venue_data>')
     expect(prompt.indexOf(GUEST_DATED_TITLE_RULE)).toBeGreaterThan(-1)
     expect(prompt.indexOf(GUEST_DATED_TITLE_RULE)).toBeLessThan(open)

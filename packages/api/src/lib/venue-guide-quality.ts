@@ -6,7 +6,7 @@
  * records").
  */
 
-import { classifyGuestDatedEvent } from './guest-event-dates'
+import { classifyGuestDatedEventWithReason } from './guest-event-dates'
 import { hiddenGuideSentences } from './guest-facing-text'
 
 export type GuideQualityRecord =
@@ -110,13 +110,17 @@ export function guideQualityWarnings(
     const label = record.kind === 'place' ? record.name : record.title
     const fields = textOf(record)
 
-    // A passed year in the title while the text dates a newer run: the guide can only show it
+    // A passed year in the title while the text points at a newer run: the guide can only show it
     // with a "check its dates" marker and leave the decision to the model, so the author fixes it.
-    if (record.kind === 'knowledge' && classifyGuestDatedEvent(record, today) === 'CHECK_DATES') {
+    // The New Year grace and season-span markers are about today's date, not the record, and stay quiet.
+    if (
+      record.kind === 'knowledge' &&
+      classifyGuestDatedEventWithReason(record, today).reason === 'NEAR_YEAR'
+    ) {
       warnings.push({
         code: 'GUIDE_QUALITY_PAST_TITLE_YEAR',
         path: `${record.path}.title`,
-        message: `“${clip(label, LABEL_CHARS)}” has a past year in its title, but its text dates a newer run: “${clip(record.content, QUOTE_CHARS)}”. Retitle it without the old year and give each date with its year, or keep the ended run as its own record. Visitors are otherwise told to check the dates themselves. ${MANUAL}`,
+        message: `“${clip(label, LABEL_CHARS)}” has a past year in its title, but its text names this year or a later one: “${clip(record.content, QUOTE_CHARS)}”. If it runs again, retitle it without the old year and give each date with its year; if that year is only a note (a source check, an update date), remove the note. Visitors are otherwise told to check the dates themselves. ${MANUAL}`,
       })
     }
 

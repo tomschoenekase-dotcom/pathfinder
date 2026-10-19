@@ -34,4 +34,20 @@ describe('past title year authoring check', () => {
       pastTitleWarnings('Spring Fest 2024', 'Held April 5 to 7, 2024. (c) 2026 Example Park.'),
     ).toEqual([])
   })
+
+  it('stays quiet for markers that come from today, not the record (New Year grace)', () => {
+    const graceWarnings = guideQualityWarnings(
+      [
+        {
+          kind: 'knowledge',
+          path: 'knowledgeEntries.0',
+          title: 'Halloween Nights 2025',
+          category: 'Events',
+          content: 'An evening event on October weekends.',
+        },
+      ],
+      { today: '2026-02-10' },
+    ).filter((w) => w.code === 'GUIDE_QUALITY_PAST_TITLE_YEAR')
+    expect(graceWarnings).toEqual([])
+  })
 })
