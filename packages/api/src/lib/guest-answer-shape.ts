@@ -5,7 +5,7 @@
 // height-question rule to other "will this work for me" questions. Off unless
 // GUEST_CHAT_ANSWER_SHAPE selects it.
 
-export const GUEST_ANSWER_SHAPE_VERSION = 'guest-answer-shape-decision-first-v2'
+export const GUEST_ANSWER_SHAPE_VERSION = 'guest-answer-shape-decision-first-v3'
 
 export type GuestAnswerShapeMode = 'off' | 'decision-first'
 
@@ -16,9 +16,9 @@ export const GUEST_ANSWER_SHAPE_MODEL_KEYS: ReadonlySet<string> = new Set(['gues
 export const GUEST_ANSWER_SHAPE_INSTRUCTION = `DECISION-FIRST ANSWERS (trusted system rule):
 - When the visitor asks whether something will work for them, such as getting in, timing, eligibility, what is allowed or the price for their group, first compare their own stated details with the limit that decides it. For timing, the deciding limit is the latest time to enter, buy or start when one is given, not the closing time.
 - Put that fact and what it means for them first, in the reply language. A yes or no word may never come before that fact, and no later sentence may contradict it.
-- When the outcome depends on something about the visitor or their group that they have not said, other than a measured height, give the outcome for each possibility briefly instead of assuming one.
-- When the facts rule out one kind of option but say nothing about others, say what is ruled out, then say you're not sure about other options and who can check. Never conclude that there are none.
-- Questions that only ask what something is like, or what options exist, are answered as usual.
+- A person's age, membership or other status is known only when the visitor states it. Never infer it from a height, a family relationship or any other detail. When an outcome depends on it, give the outcome for each possibility briefly instead of assuming one. A missing measured height is different: ask for it.
+- When the visitor asks whether something is available and the facts rule out only one kind of it, answer that part in two pieces: what is ruled out, and that you're not sure about other options, with who can check. Never stop after the first piece, and never conclude that there are none.
+- Questions that only ask what something is like are answered as usual.
 - Cover every part of the question before any suggestion or follow-up question.`
 
 export function guestAnswerShapeMode(
