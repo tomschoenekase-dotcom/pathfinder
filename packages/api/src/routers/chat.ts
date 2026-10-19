@@ -186,7 +186,8 @@ function boundedGuestChatFallbackCode(error: unknown): GuestChatFallbackCode {
   if (
     error.code === 'provider-incomplete-response' ||
     error.code === 'provider-invalid-response' ||
-    error.code === 'provider-empty-response'
+    error.code === 'provider-empty-response' ||
+    error.code === 'invalid-structured-output'
   ) {
     return 'PROVIDER_INVALID_RESPONSE'
   }
@@ -2186,10 +2187,11 @@ const chatReadRouter = router({
         // Diagnostics never affect the answer.
       }
       // The answer check follows every dynamic instruction, after the cache breakpoint, and is
-      // part of the captured evidence. Only the route's primary model decides the format.
+      // part of the captured evidence. The route's primary model and output cap decide it.
       const answerCheckEnabled = isGuestAnswerCheckEnabled(
         guestAnswerCheckMode(),
         route.candidates[0]?.modelKey,
+        configuration.maxOutputTokens,
       )
       if (answerCheckEnabled) dynamicPart = appendGuestAnswerCheckInstruction(dynamicPart)
       const pushVisibleDelta = streamProjection

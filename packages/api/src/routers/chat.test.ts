@@ -3980,7 +3980,10 @@ describe('chat router', () => {
         output_tokens: 20,
         input_tokens_details: { cached_tokens: 0 },
       }
-      function routeTo(primaryModelKey: 'guest-chat-luna' | 'guest-chat-sol') {
+      function routeTo(
+        primaryModelKey: 'guest-chat-luna' | 'guest-chat-sol',
+        maxOutputTokens = 1024,
+      ) {
         aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
           id: 'answer-check-config',
           workloadId: 'guest-chat',
@@ -3995,8 +3998,8 @@ describe('chat router', () => {
           timeoutMsSet: false,
           maxAttempts: 1,
           maxAttemptsSet: true,
-          maxOutputTokens: null,
-          maxOutputTokensSet: false,
+          maxOutputTokens,
+          maxOutputTokensSet: true,
           requestBudgetCeilingE8Usd: null,
           requestBudgetCeilingE8UsdSet: false,
           unsafeChangesEnabled: true,
@@ -4009,9 +4012,9 @@ describe('chat router', () => {
           updatedAt: new Date('2026-10-18T00:00:00.000Z'),
         })
       }
-      const lastDeveloperText = (request: any) =>
-        request.input.filter((item: any) => item.role === 'developer').at(-1).content[0]
-          .text as string
+      type CapturedWire = { input: Array<{ role: string; content: Array<{ text: string }> }> }
+      const lastDeveloperText = (request: CapturedWire) =>
+        request.input.filter((item) => item.role === 'developer').at(-1)!.content[0]!.text
 
       it('strips the check from the answer, history and evidence on an economy route', async () => {
         vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
@@ -4085,6 +4088,21 @@ describe('chat router', () => {
           response: 'Plain Luna.',
         })
         expect(JSON.stringify(plainLuna.mock.calls[0]?.[0])).not.toContain('TRUSTED ANSWER CHECK')
+
+        // A route capped below the check's output budget never receives the check.
+        vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
+        setupHappyPath('unused anthropic text')
+        routeTo('guest-chat-luna', 512)
+        const cappedLuna = vi.fn().mockResolvedValueOnce({
+          status: 'completed',
+          output_text: 'Capped Luna.',
+          usage: openAiUsage,
+        })
+        setOpenAiResponsesClientForTesting({ responses: { create: cappedLuna } })
+        await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+          response: 'Capped Luna.',
+        })
+        expect(JSON.stringify(cappedLuna.mock.calls[0]?.[0])).not.toContain('TRUSTED ANSWER CHECK')
       })
 
       it('turns an unterminated check into the ordinary fallback reply without leaking it', async () => {
@@ -4132,7 +4150,7 @@ describe('chat router', () => {
           },
         })
         setOpenAiResponsesClientForTesting({ responses: { create: openAiCreate } })
-        const events: any[] = []
+        const events = []
         for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
         expect(openAiCreate.mock.calls[0]?.[0].stream).toBe(true)
         expect(JSON.stringify(events)).not.toContain('answer_check')

@@ -20,8 +20,9 @@ describe('W06 first useful answer timing', () => {
       requestFirstTextMs: 125,
     })
 
+    // Trailing whitespace waits for the next word so the dash rewrite never revises streamed text.
     expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe(
-      '   Museum hours are 10:00 to 16:00. ',
+      '   Museum hours are 10:00 to 16:00.',
     )
     expect(projection.providerFirstTextMs()).toBe(90)
     expect(projection.requestFirstTextMs()).toBe(125)

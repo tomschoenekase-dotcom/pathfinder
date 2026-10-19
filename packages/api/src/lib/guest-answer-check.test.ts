@@ -36,6 +36,19 @@ async function streamed(chunks: string[]) {
   for (const chunk of chunks) await push(chunk)
   return out.join('')
 }
+const chunked = (text: string, size: number) =>
+  Array.from({ length: Math.ceil(text.length / size) }, (_, i) =>
+    text.slice(i * size, (i + 1) * size),
+  )
+
+function formatCode(raw: string) {
+  try {
+    splitGuestAnswerCheck(raw)
+    return 'OK'
+  } catch (error) {
+    return (error as GuestAnswerCheckFormatError).code
+  }
+}
 
 describe('guest answer check mode', () => {
   it('is off unless explicitly selected, including for unknown values', () => {
@@ -45,9 +58,15 @@ describe('guest answer check mode', () => {
     expect(guestAnswerCheckMode({ GUEST_CHAT_ANSWER_CHECK: 'all' })).toBe('all')
   })
 
-  it('selects economy-tier primary models only in economy mode', () => {
+  it('selects only economy routes with room for the check in economy mode', () => {
     expect(isGuestAnswerCheckEnabled('economy', 'guest-chat-luna')).toBe(true)
+    expect(isGuestAnswerCheckEnabled('economy', 'guest-chat-luna', null)).toBe(true)
+    expect(isGuestAnswerCheckEnabled('economy', 'guest-chat-luna', 512)).toBe(false)
     expect(isGuestAnswerCheckEnabled('economy', 'guest-chat-sol')).toBe(false)
+    // Economy routes capped at 512 output tokens would truncate the answer after the check.
+    expect(isGuestAnswerCheckEnabled('economy', 'guest-chat')).toBe(false)
+    expect(isGuestAnswerCheckEnabled('economy', 'guest-chat-openai')).toBe(false)
+    expect(isGuestAnswerCheckEnabled('all', 'guest-chat-openai')).toBe(false)
     expect(isGuestAnswerCheckEnabled('all', 'guest-chat-sol')).toBe(true)
     expect(isGuestAnswerCheckEnabled('off', 'guest-chat-luna')).toBe(false)
     expect(isGuestAnswerCheckEnabled('all', 'not-a-model')).toBe(false)
@@ -59,7 +78,7 @@ describe('guest answer check mode', () => {
     const appended = appendGuestAnswerCheckInstruction(dynamic)
     expect(appended.startsWith(dynamic)).toBe(true)
     expect(appended.endsWith(GUEST_ANSWER_CHECK_INSTRUCTION)).toBe(true)
-    expect(GUEST_ANSWER_CHECK_INSTRUCTION).not.toMatch(/—/u)
+    expect(GUEST_ANSWER_CHECK_INSTRUCTION).not.toMatch(/[‒-―]/u)
   })
 })
 
@@ -79,6 +98,7 @@ describe('splitGuestAnswerCheck', () => {
       checkStatus: 'MISSING',
       checkJson: 'ABSENT',
     })
+    expect(splitGuestAnswerCheck('{curly} plans are fine.').checkStatus).toBe('MISSING')
   })
 
   it('keeps an answer whose check JSON is malformed, recording it as invalid', () => {
@@ -92,15 +112,23 @@ describe('splitGuestAnswerCheck', () => {
     [`${GUEST_ANSWER_CHECK_OPEN}${check}`, 'UNTERMINATED_CHECK'],
     [`${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}   `, 'EMPTY_ANSWER'],
     [`${reply} ${GUEST_ANSWER_CHECK_OPEN}{}${GUEST_ANSWER_CHECK_CLOSE}`, 'REPEATED_CHECK'],
-    [`${answer} ${GUEST_ANSWER_CHECK_CLOSE}`, 'REPEATED_CHECK'],
+    [`${answer} ${GUEST_ANSWER_CHECK_CLOSE}`, 'MALFORMED_CHECK'],
     ['   ', 'EMPTY_ANSWER'],
+    [
+      `\`\`\`json\n${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}\n${answer}`,
+      'MALFORMED_CHECK',
+    ],
+    [
+      `Sure! ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE} ${answer}`,
+      'MALFORMED_CHECK',
+    ],
+    [`<answer_check >${check}</answer_check>\n${answer}`, 'MALFORMED_CHECK'],
+    [`<answer-check>${check}</answer-check>\n${answer}`, 'MALFORMED_CHECK'],
+    [`<ANSWER_CHECK>${check}</ANSWER_CHECK>\n${answer}`, 'MALFORMED_CHECK'],
+    [`${check}\n${answer}`, 'MALFORMED_CHECK'],
+    [`\`\`\`json\n${check}\n\`\`\`\n${answer}`, 'MALFORMED_CHECK'],
   ])('fails closed when no safe guest answer exists (%#)', (raw, code) => {
-    expect(() => splitGuestAnswerCheck(raw)).toThrow(GuestAnswerCheckFormatError)
-    try {
-      splitGuestAnswerCheck(raw)
-    } catch (error) {
-      expect((error as GuestAnswerCheckFormatError).code).toBe(code)
-    }
+    expect(formatCode(raw)).toBe(code)
   })
 })
 
@@ -113,25 +141,39 @@ describe('createGuestAnswerCheckStreamGate', () => {
   })
 
   it('handles one-character deltas', async () => {
-    const visible = await streamed([...reply])
-    expect(visible).toBe(answer)
+    expect(await streamed([...reply])).toBe(answer)
   })
 
   it('streams nothing while the check is still open (truncated reply)', async () => {
     expect(await streamed([GUEST_ANSWER_CHECK_OPEN, check.slice(0, 40)])).toBe('')
   })
 
-  it('passes a reply without a check through from the first decisive character', async () => {
+  it('passes a plain reply through once it cannot be a check', async () => {
     const out: string[] = []
     const push = createGuestAnswerCheckStreamGate((delta) => {
       out.push(delta)
     })
-    await push('\n<')
-    expect(out).toEqual([])
-    await push('p')
-    expect(out.join('')).toBe('\n<p')
-    await push(' rest')
-    expect(out.join('')).toBe('\n<p rest')
+    await push('\nThe ')
+    expect(out.join('')).toBe('The ')
+    await push('museum opens at 10.')
+    expect(out.join('')).toBe('The museum opens at 10.')
+  })
+
+  it.each([
+    `\`\`\`json\n${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}\n${answer}`,
+    `Sure! ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE} ${answer}`,
+    `${answer} ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}`,
+    `<answer_check >${check}</answer_check>\n${answer}`,
+    `<answer-check>${check}</answer-check>\n${answer}`,
+    `<ANSWER_CHECK>${check}</ANSWER_CHECK>\n${answer}`,
+    `${check}\n${answer}`,
+    `${reply} ${GUEST_ANSWER_CHECK_OPEN}${check}${GUEST_ANSWER_CHECK_CLOSE}`,
+  ])('never streams check text in a wrong form, at any chunk size (%#)', async (raw) => {
+    for (const size of [1, 3, 4, 7, 16, raw.length]) {
+      const visible = await streamed(chunked(raw, size))
+      expect(visible).not.toMatch(/decisions|evidenceQuotes|answer.?check/iu)
+      expect(formatCode(raw)).not.toBe('OK')
+    }
   })
 
   it('agrees with the final split on every split point', async () => {

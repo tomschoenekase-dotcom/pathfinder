@@ -1,15 +1,20 @@
-// Figure dash, en dash, em dash, horizontal bar and minus sign, plus a hyphen used as a spaced dash.
-const DASH_CHARS = '\u2012-\u2015\u2212'
+// Figure dash, en dash, em dash and horizontal bar, plus a hyphen used as a spaced dash.
+// The minus sign (U+2212) is a sign, not punctuation, so it is kept.
+const DASH_CHARS = '\u2012-\u2015'
 const DASH = new RegExp(String.raw`[ \t]*(?:[${DASH_CHARS}]|(?<=\S) -(?= ))[ \t]*`, 'gu')
 const ANY_DASH = new RegExp(String.raw`[${DASH_CHARS}]| - `, 'u')
 const TRAILING = new RegExp(String.raw`[\s${DASH_CHARS}-]+$`, 'u')
 const DAY = '(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)(?:day|sday|nesday|urday)?'
 const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*'
-// A number, a time, a weekday or a month on both sides makes a dash read as "to".
+// An English time, weekday or month before the dash, with a number, weekday or month after it,
+// reads as "to". Bare numbers on both sides become a plain hyphen ("10-18"), which reads
+// correctly in every language and keeps phone numbers intact.
 const RANGE_END = new RegExp(
-  String.raw`(?:\d(?:\s?(?:am|pm|a\.m\.|p\.m\.))?|\b${DAY}\.?|\b${MONTH}\.?)$`,
+  String.raw`(?:\d\s?(?:am|pm|a\.m\.|p\.m\.)|\b${DAY}\.?|\b${MONTH}\.?)$`,
   'iu',
 )
+const NUMBER_END = /\d$/u
+const NUMBER_START = /^\d/u
 const RANGE_START = new RegExp(String.raw`^(?:\d|${DAY}\b|${MONTH}\b)`, 'iu')
 
 /**
@@ -27,8 +32,9 @@ export function guestPlainDashes(text: string): string {
     const after = whole.slice(offset + match.length)
     if (!before.trim() || !after.trim()) return ''
     if (/^[,.;:!?)\]]/u.test(after)) return ''
-    if (/[,;:(\[]$/u.test(before.trimEnd())) return ' '
+    if (/[,;:([]$/u.test(before.trimEnd())) return ' '
     if (RANGE_END.test(before.trimEnd()) && RANGE_START.test(after)) return ' to '
+    if (NUMBER_END.test(before.trimEnd()) && NUMBER_START.test(after)) return '-'
     return ', '
   })
 }

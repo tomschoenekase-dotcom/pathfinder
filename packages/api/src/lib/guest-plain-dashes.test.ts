@@ -21,8 +21,15 @@ describe('plain dashes in visitor answers', () => {
   it('reads ranges of times, days and months as "to"', () => {
     expect(
       guestPlainDashes(`Open Friday${EN}Saturday, 9 am${EN}5 pm, and Sunday, 1${EN}5 pm.`),
-    ).toBe('Open Friday to Saturday, 9 am to 5 pm, and Sunday, 1 to 5 pm.')
+    ).toBe('Open Friday to Saturday, 9 am to 5 pm, and Sunday, 1-5 pm.')
     expect(guestPlainDashes(`Weekends May ${EM} October.`)).toBe('Weekends May to October.')
+  })
+
+  it('keeps minus signs and writes bare number ranges in a language-neutral way', () => {
+    expect(guestPlainDashes('Es hat −5 Grad.')).toBe('Es hat −5 Grad.')
+    expect(guestPlainDashes(`Geöffnet 10${EN}18 Uhr.`)).toBe('Geöffnet 10-18 Uhr.')
+    expect(guestPlainDashes(`Call 555${EN}1234.`)).toBe('Call 555-1234.')
+    expect(guestPlainDashes(`Ages 6 ${EN} 17 pay $6.`)).toBe('Ages 6-17 pay $6.')
   })
 
   it('never leaves doubled or dangling punctuation and keeps hyphenated words', () => {
@@ -41,6 +48,7 @@ describe('plain dashes in visitor answers', () => {
       `Open Friday${EN}Saturday, 9 am${EN}5 pm. The Saturn V model${EM}huge${EM}is near Sat${EM}Saturn.`,
       'Try the Comet - it is the classic - then lunch.',
       `Mon${EM}Monkeys first, then Sat ${EM} Sun.`,
+      `Ages 6${EN}17 and 10 ${EN} 18 Uhr, call 555${EN}1234.`,
     ]) {
       const final = guestPlainDashes(text)
       let shown = ''
@@ -51,7 +59,7 @@ describe('plain dashes in visitor answers', () => {
         if (visible.length > shown.length) shown = visible
         expect(final.startsWith(shown)).toBe(true)
       }
-      expect(final).not.toMatch(/[\u2012-\u2015\u2212]/u)
+      expect(final).not.toMatch(/[\u2012-\u2015]/u)
     }
   })
 })
