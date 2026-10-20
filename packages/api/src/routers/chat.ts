@@ -2076,11 +2076,16 @@ const chatReadRouter = router({
         ...entry,
         distance: 1,
       }))
-    else if (questionKnowledge.length)
+    else if (questionKnowledge.length) {
+      // A named record may already be among the retrieved entries; never list a source twice.
+      const present = new Set(relevantKnowledgeEntries.map((entry) => entry.id))
       relevantKnowledgeEntries = [
         ...relevantKnowledgeEntries,
-        ...questionKnowledge.map((entry) => ({ ...entry, distance: 1 })),
+        ...questionKnowledge
+          .filter((entry) => !present.has(entry.id))
+          .map((entry) => ({ ...entry, distance: 1 })),
       ]
+    }
     retrievalMs = elapsedMilliseconds(retrievalStartedAt)
 
     let featuredPlace: {
