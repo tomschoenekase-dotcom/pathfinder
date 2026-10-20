@@ -609,15 +609,32 @@ export function guestKnowledgeNamedPlaces(params: {
     if (name.length < MIN_LINK_NAME_CHARS) continue
     byName.set(name, [...(byName.get(name) ?? []), place])
   }
-  const unique = [...byName.entries()].flatMap(([name, places]) =>
-    places.length === 1 ? [{ name, place: places[0]! }] : [],
-  )
+  const names = [...byName.entries()].sort((a, b) => b[0].length - a[0].length)
   const added = new Map<string, GuestDirectoryPlace>()
   for (const source of params.knowledge) {
     const text = normalizeGuestText(`${source.title} ${source.content}`)
-    const named = unique
-      .filter(({ name }) => containsGuestTerm(text, name))
-      .sort((a, b) => text.indexOf(a.name) - text.indexOf(b.name))
+    // Claim each occurrence longest-first, including ambiguous names: a mention of Junior
+    // alone must not imply its parent. A separate parent occurrence can still name that place.
+    const claimed: Array<{ start: number; end: number }> = []
+    const named: Array<{ place: GuestDirectoryPlace; start: number }> = []
+    for (const [name, places] of names) {
+      let first = -1
+      let start = text.indexOf(name)
+      while (start >= 0) {
+        const end = start + name.length
+        const surrounding = text.slice(Math.max(0, start - 1), end + 1)
+        const following = text[end]
+        const atBoundary =
+          containsGuestTerm(surrounding, name) && (!following || !/[\p{L}\p{N}]/u.test(following))
+        if (atBoundary && !claimed.some((span) => start < span.end && end > span.start)) {
+          claimed.push({ start, end })
+          if (first < 0) first = start
+        }
+        start = text.indexOf(name, start + 1)
+      }
+      if (first >= 0 && places.length === 1) named.push({ place: places[0]!, start: first })
+    }
+    named.sort((a, b) => a.start - b.start)
     if (named.length < 2 || named.length > MAX_NAMED_PLACES_PER_SOURCE) continue
     for (const { place } of named) {
       if (added.size >= MAX_NAMED_PLACE_ADDITIONS) return [...added.values()]

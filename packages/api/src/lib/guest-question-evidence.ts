@@ -72,7 +72,7 @@ const INTENT_GROUPS: readonly (readonly string[])[] = [
   // height rules
   'height tall taller inches altura taille grosse altezza',
   // booking
-  'book booking bookings reservation reservations advance reservar reserva reservas reserver ' +
+  'book booking bookings reserve reserved reserving reservation reservations advance reservar reserva reservas reserver ' +
     'buchen buchung reservieren reservierung prenotare prenotazione',
   // duration
   'minutes minute mins duration lasts minutos duracion dure duree minuten dauer dauert minuti ' +
@@ -91,7 +91,7 @@ const INTENT_GROUPS: readonly (readonly string[])[] = [
   'restroom restrooms bathroom bathrooms toilet toilets bano banos aseo aseos toilettes ' +
     'toiletten bagno bagni banheiro',
   // pets
-  'dog dogs pet pets perro perros mascota mascotas chien chiens hund hunde cani cachorro',
+  'dog dogs pet pets assistanceanimal perro perros mascota mascotas chien chiens hund hunde cani cachorro',
   // strollers
   'stroller strollers pushchair pushchairs pram prams buggy buggies cochecito carrito ' +
     'poussette kinderwagen passeggino carrinho',
@@ -146,6 +146,7 @@ function singular(token: string): string {
  * "restrooms" stay apart.
  */
 function stem(token: string): string {
+  if (token === 'assistanceanimal') return token
   if (CJK.test(token)) return token
   const base = singular(token)
   if (base.length <= STEM_CHARS) return base
@@ -154,7 +155,11 @@ function stem(token: string): string {
 
 /** Words, with "step-free" kept whole and unspaced CJK text split into character pairs. */
 function tokens(text: string): string[] {
-  const normalized = normalizeGuestText(text).replace(/\bstep[\s-]+free\b/gu, 'stepfree')
+  const normalized = normalizeGuestText(text)
+    .replace(/\bstep[\s-]+free\b/gu, 'stepfree')
+    // A phrase-level retrieval synonym, not a permission rule. Keep generic "assistance"
+    // and "animals" separate so payment help or animal exhibits do not become pet questions.
+    .replace(/\b(?:service|assistance|guide)[\s-]+(?:dogs?|animals?)\b/gu, 'assistanceanimal')
   return (normalized.match(/[\p{L}\p{N}]+/gu) ?? []).flatMap((token) => {
     if (!CJK.test(token) || token.length <= 2) return [token]
     return Array.from({ length: token.length - 1 }, (_, index) => token.slice(index, index + 2))
@@ -439,6 +444,42 @@ export function rankGuestQuestionEvidence(params: {
   )
   const relevance = contributions.map((values) => values.reduce((sum, value) => sum + value, 0))
   const floor = Math.max(0, ...relevance) * MIN_RELATIVE_SCORE
+  // Named items can dominate the global relevance scale while the venue-wide rule uses
+  // common words. Preserve a small number of explicit policy/topic matches per queried
+  // intent before that floor. This is retrieval only: whole-body budgets, current scope
+  // revalidation and the final admission gate still apply.
+  const policyTopics = docs.map(({ candidate }) => {
+    if (candidate.kind !== 'knowledge') return null
+    const titleWords = new Set(tokens(candidate.record.title).map(singular))
+    const explicitlyGoverning = /\b(?:policy|policies|rules|conditions|requirements)\b/u.test(
+      normalizeGuestText(candidate.record.title),
+    )
+    return { titleWords, explicitlyGoverning }
+  })
+  const policyAnchors = new Set<number>()
+  for (const [termIndex, term] of terms.entries()) {
+    if (term.kind !== 'intent') continue
+    let best = -1
+    let bestTitleMatch = false
+    for (const [index, topic] of policyTopics.entries()) {
+      if (!topic || contributions[index]![termIndex]! <= 0) continue
+      const titleMatch = [...term.forms].some((form) => topic.titleWords.has(form))
+      if (!titleMatch && !topic.explicitlyGoverning) continue
+      if (
+        best < 0 ||
+        (titleMatch && !bestTitleMatch) ||
+        (titleMatch === bestTitleMatch &&
+          contributions[index]![termIndex]! > contributions[best]![termIndex]!)
+      ) {
+        best = index
+        bestTitleMatch = titleMatch
+      }
+    }
+    if (best >= 0) policyAnchors.add(best)
+  }
+  const anchorQueue = [...policyAnchors]
+    .sort((a, b) => relevance[b]! - relevance[a]! || a - b)
+    .slice(0, 3)
   const covered = new Set<number>()
   const remaining = new Set(
     docs.flatMap((_, index) =>
@@ -449,18 +490,22 @@ export function rankGuestQuestionEvidence(params: {
         : [],
     ),
   )
+  for (const index of anchorQueue) remaining.add(index)
   const ranked: GuestQuestionEvidenceRank[] = []
   while (remaining.size > 0 && ranked.length < MAX_RANKED) {
-    let best = -1
+    let best = anchorQueue.shift() ?? -1
     let bestGain = 0
-    for (const index of remaining) {
-      const gain = contributions[index]!.reduce(
-        (sum, value, termIndex) => sum + value * (covered.has(termIndex) ? COVERED_TERM_WEIGHT : 1),
-        0,
-      )
-      if (gain > bestGain) {
-        bestGain = gain
-        best = index
+    if (best < 0) {
+      for (const index of remaining) {
+        const gain = contributions[index]!.reduce(
+          (sum, value, termIndex) =>
+            sum + value * (covered.has(termIndex) ? COVERED_TERM_WEIGHT : 1),
+          0,
+        )
+        if (gain > bestGain) {
+          bestGain = gain
+          best = index
+        }
       }
     }
     if (best < 0) break
@@ -700,27 +745,48 @@ export function guestQuestionNamedRecords(params: {
   const titled = params.directory.knowledge
     .filter((entry) => !isPastDatedGuestEvent(entry, params.currentDate))
     .flatMap((entry) => {
-      const run = longestSharedRun(questionWords, guestPlaceIdentityKey(entry.title).split(' '))
-      const named = run.length >= 3 || (run.length === 2 && run.some((word) => /\p{N}/u.test(word)))
-      return named ? [{ entry, length: run.length }] : []
+      const titleWords = guestPlaceIdentityKey(entry.title).split(' ')
+      const run = longestSharedRun(questionWords, titleWords)
+      return isNamedRun(questionWords, run) ? [{ entry, titleWords, run }] : []
     })
-  const longest = Math.max(0, ...titled.map(({ length }) => length))
-  knowledge.push(
-    ...titled
-      .filter(({ length }) => length === longest)
-      .slice(0, MAX_NAMED_TITLE_KNOWLEDGE)
-      .map(({ entry }) => entry),
-  )
+  const claimed: Array<{ start: number; length: number }> = []
+  let addedTitles = 0
+  for (const candidate of titled.sort((a, b) => b.run.length - a.run.length)) {
+    if (addedTitles >= MAX_NAMED_TITLE_KNOWLEDGE) break
+    let run = candidate.run
+    const sameSpan = claimed.some((span) => span.start === run.start && span.length === run.length)
+    if (!sameSpan) {
+      // Prefer longer names at overlapping positions, but allow an independently named
+      // shorter subject elsewhere in a comparison. Records about the same exact span
+      // may still contribute their distinct conditions, up to the existing bound.
+      const unclaimed = questionWords.map((word, index) =>
+        claimed.some((span) => index >= span.start && index < span.start + span.length) ? '' : word,
+      )
+      run = longestSharedRun(unclaimed, candidate.titleWords)
+      if (!isNamedRun(unclaimed, run)) continue
+      claimed.push(run)
+    }
+    knowledge.push(candidate.entry)
+    addedTitles++
+  }
   return { places, knowledge: [...new Map(knowledge.map((entry) => [entry.id, entry])).values()] }
 }
 
-function longestSharedRun(a: string[], b: string[]): string[] {
-  let best: string[] = []
+function isNamedRun(words: string[], run: { start: number; length: number }): boolean {
+  return (
+    run.length >= 3 ||
+    (run.length === 2 &&
+      words.slice(run.start, run.start + run.length).some((word) => /\p{N}/u.test(word)))
+  )
+}
+
+function longestSharedRun(a: string[], b: string[]): { start: number; length: number } {
+  let best = { start: 0, length: 0 }
   for (let i = 0; i < a.length; i++)
     for (let j = 0; j < b.length; j++) {
       let k = 0
       while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++
-      if (k > best.length) best = a.slice(i, i + k)
+      if (k > best.length) best = { start: i, length: k }
     }
   return best
 }
