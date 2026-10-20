@@ -136,6 +136,7 @@ import {
 } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
+  guestQuestionNamedRecords,
   mergeGuestQuestionEvidencePlaces,
   revalidateGuestQuestionEvidence,
   revalidateGuestQuestionPlaces,
@@ -1775,6 +1776,17 @@ const chatReadRouter = router({
       // Recommendation and nearby questions keep their own place ranking and slots.
       allowPlaces: !hasLiveLocation && !isGuestRecommendationQuery(effectiveIdentityQuery),
     })
+    // Records the visitor names exactly lead the evidence, whatever search ranked.
+    const namedQuestion =
+      process.env.LAB_DISABLE_NAMEDQ !== '1' && venueGuide.mode === 'DIRECTORY'
+        ? guestQuestionNamedRecords({ query: trimmedInput, directory: guestDirectory, currentDate })
+        : { places: [], knowledge: [] }
+    namedQuestion.places = namedQuestion.places.filter((place) => place.id !== pinnedEntryPlaceId)
+    questionEvidence.knowledge = [
+      ...new Map(
+        [...namedQuestion.knowledge, ...questionEvidence.knowledge].map((row) => [row.id, row]),
+      ).values(),
+    ]
     // Members a context record enumerates join as whole place records ahead of looser matches.
     const namedPlaces =
       process.env.LAB_DISABLE_NAMED !== '1' && venueGuide.mode === 'DIRECTORY' && !hasLiveLocation
@@ -1783,9 +1795,14 @@ const chatReadRouter = router({
             directory: guestDirectory,
           }).filter((place) => place.id !== pinnedEntryPlaceId)
         : []
-    if (namedPlaces.length > 0)
+    const leadingPlaces = [
+      ...new Map([...namedQuestion.places, ...namedPlaces].map((row) => [row.id, row])).values(),
+    ]
+    if (leadingPlaces.length > 0)
       questionEvidence.places = [
-        ...new Map([...namedPlaces, ...questionEvidence.places].map((row) => [row.id, row])).values(),
+        ...new Map(
+          [...leadingPlaces, ...questionEvidence.places].map((row) => [row.id, row]),
+        ).values(),
       ]
     const facetQuery = parseFacetCollectionQuery(trimmedInput)
     // Preserve the bounded pre-collection place priorities before broad facet candidates compete
@@ -1849,7 +1866,7 @@ const chatReadRouter = router({
         : null
     const factPlaceLimit = facetCollection
       ? Math.max(NEAREST_PLACES_LIMIT, relevantPlaces.length + questionEvidence.places.length)
-      : NEAREST_PLACES_LIMIT + namedPlaces.length
+      : NEAREST_PLACES_LIMIT + leadingPlaces.length
     // A mixed native entry projection must not be replaced by legacy compatibility text.
     const protectedNativeEntryId =
       entryPlace && nativeReadSnapshot.path === 'NATIVE' && directoryRead.path !== 'NATIVE'
@@ -2345,6 +2362,8 @@ const chatReadRouter = router({
               ...facetCollection.selection.selectedKeys,
             ]
           : [
+              ...namedQuestion.knowledge.map((row) => `knowledge:${row.id}`),
+              ...namedQuestion.places.map((row) => `place:${row.id}`),
               ...relevantKnowledgeEntries.map((row) => `knowledge:${row.id}`),
               ...relevantPlaces.map((row) => `place:${row.id}`),
             ],

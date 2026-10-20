@@ -651,6 +651,51 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
   }
 }
 
+const MAX_NAMED_QUESTION_PLACES = 6
+const MAX_NAMED_PLACE_KNOWLEDGE = 2
+
+/**
+ * Records the visitor names exactly. A place whose full name appears in the question joins as a
+ * whole record, with up to two knowledge records whose titles carry that name ("<name> visitor
+ * details"). Search cannot be trusted to find these: a numbered or repeated name ("Hall 214",
+ * "Alder Hide 00989") shares every word with its neighbours. Longer names claim their words
+ * first, so "Harvest Wheel Junior" does not also name "Harvest Wheel". Same-name places are left
+ * to identity resolution. Bodies still pass the caller's live revalidation and budget.
+ */
+export function guestQuestionNamedRecords(params: {
+  query: string
+  directory: GuestVenueDirectory
+  currentDate: string
+}): { places: GuestDirectoryPlace[]; knowledge: GuestDirectoryKnowledge[] } {
+  let remaining = ` ${guestPlaceIdentityKey(params.query)} `
+  const byKey = new Map<string, GuestDirectoryPlace[]>()
+  for (const place of params.directory.places) {
+    const key = guestPlaceIdentityKey(place.name)
+    if (key.length < 3 || !remaining.includes(` ${key} `)) continue
+    byKey.set(key, [...(byKey.get(key) ?? []), place])
+  }
+  const places: GuestDirectoryPlace[] = []
+  for (const [key, matches] of [...byKey.entries()].sort((a, b) => b[0].length - a[0].length)) {
+    if (!remaining.includes(` ${key} `)) continue
+    remaining = remaining.split(` ${key} `).join('  ')
+    if (matches.length === 1 && places.length < MAX_NAMED_QUESTION_PLACES) places.push(matches[0]!)
+  }
+  const knowledge: GuestDirectoryKnowledge[] = []
+  for (const place of places) {
+    const key = guestPlaceIdentityKey(place.name)
+    knowledge.push(
+      ...params.directory.knowledge
+        .filter(
+          (entry) =>
+            !isPastDatedGuestEvent(entry, params.currentDate) &&
+            ` ${guestPlaceIdentityKey(entry.title)} `.includes(` ${key} `),
+        )
+        .slice(0, MAX_NAMED_PLACE_KNOWLEDGE),
+    )
+  }
+  return { places, knowledge: [...new Map(knowledge.map((entry) => [entry.id, entry])).values()] }
+}
+
 /**
  * The guide behind question evidence is cached for up to a minute. Before a hydrated body reaches
  * the model, re-read those rows through the same live guest scope the directory loader uses
