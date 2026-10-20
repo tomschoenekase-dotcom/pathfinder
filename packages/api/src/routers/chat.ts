@@ -1778,7 +1778,7 @@ const chatReadRouter = router({
     })
     // Records the visitor names exactly lead the evidence, whatever search ranked.
     const namedQuestion =
-      process.env.LAB_DISABLE_NAMEDQ !== '1' && venueGuide.mode === 'DIRECTORY'
+      process.env.LAB_DISABLE_NAMEDQ !== '1' && venueGuide.mode !== 'NONE'
         ? guestQuestionNamedRecords({ query: trimmedInput, directory: guestDirectory, currentDate })
         : { places: [], knowledge: [] }
     namedQuestion.places = namedQuestion.places.filter((place) => place.id !== pinnedEntryPlaceId)
