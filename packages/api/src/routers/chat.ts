@@ -154,6 +154,7 @@ import {
   staleGuestGuideRecordIds,
   suppressStaleGuestDirectoryKnowledge,
   type GuestVenueDirectory,
+  guestKnowledgeNamedPlaces,
 } from '../lib/guest-venue-directory'
 import {
   compatibleGuestPlaceIdentityCandidates,
@@ -1774,6 +1775,18 @@ const chatReadRouter = router({
       // Recommendation and nearby questions keep their own place ranking and slots.
       allowPlaces: !hasLiveLocation && !isGuestRecommendationQuery(effectiveIdentityQuery),
     })
+    // Members a context record enumerates join as whole place records ahead of looser matches.
+    const namedPlaces =
+      process.env.LAB_DISABLE_NAMED !== '1' && venueGuide.mode === 'DIRECTORY' && !hasLiveLocation
+        ? guestKnowledgeNamedPlaces({
+            knowledge: [...relevantKnowledgeEntries, ...questionEvidence.knowledge],
+            directory: guestDirectory,
+          }).filter((place) => place.id !== pinnedEntryPlaceId)
+        : []
+    if (namedPlaces.length > 0)
+      questionEvidence.places = [
+        ...new Map([...namedPlaces, ...questionEvidence.places].map((row) => [row.id, row])).values(),
+      ]
     const facetQuery = parseFacetCollectionQuery(trimmedInput)
     // Preserve the bounded pre-collection place priorities before broad facet candidates compete
     // for the same body budget. These keys never bypass current authority or final admission.
@@ -1836,7 +1849,7 @@ const chatReadRouter = router({
         : null
     const factPlaceLimit = facetCollection
       ? Math.max(NEAREST_PLACES_LIMIT, relevantPlaces.length + questionEvidence.places.length)
-      : NEAREST_PLACES_LIMIT
+      : NEAREST_PLACES_LIMIT + namedPlaces.length
     // A mixed native entry projection must not be replaced by legacy compatibility text.
     const protectedNativeEntryId =
       entryPlace && nativeReadSnapshot.path === 'NATIVE' && directoryRead.path !== 'NATIVE'

@@ -588,6 +588,45 @@ export function staleGuestGuideRecordIds(params: {
   return stale
 }
 
+// A record naming more places than this is an overview, not a bounded set of members.
+const MAX_NAMED_PLACES_PER_SOURCE = 8
+const MAX_NAMED_PLACE_ADDITIONS = 8
+
+/**
+ * Places a context record enumerates ("the discovery route consists of A, B, C and D"). A list
+ * answer needs each member's own record for its conditions, and members rarely share the
+ * question's wording, so they are followed by name rather than found by search. Only records
+ * naming two to eight distinct places count; one name is the record's own subject, and a long
+ * list is an overview. Same-name places are ambiguous and never followed.
+ */
+export function guestKnowledgeNamedPlaces(params: {
+  knowledge: ReadonlyArray<{ id?: string; title: string; content: string }>
+  directory: GuestVenueDirectory
+}): GuestDirectoryPlace[] {
+  const byName = new Map<string, GuestDirectoryPlace[]>()
+  for (const place of params.directory.places) {
+    const name = normalizeGuestText(place.name)
+    if (name.length < MIN_LINK_NAME_CHARS) continue
+    byName.set(name, [...(byName.get(name) ?? []), place])
+  }
+  const unique = [...byName.entries()].flatMap(([name, places]) =>
+    places.length === 1 ? [{ name, place: places[0]! }] : [],
+  )
+  const added = new Map<string, GuestDirectoryPlace>()
+  for (const source of params.knowledge) {
+    const text = normalizeGuestText(`${source.title} ${source.content}`)
+    const named = unique
+      .filter(({ name }) => containsGuestTerm(text, name))
+      .sort((a, b) => text.indexOf(a.name) - text.indexOf(b.name))
+    if (named.length < 2 || named.length > MAX_NAMED_PLACES_PER_SOURCE) continue
+    for (const { place } of named) {
+      if (added.size >= MAX_NAMED_PLACE_ADDITIONS) return [...added.values()]
+      added.set(place.id, place)
+    }
+  }
+  return [...added.values()]
+}
+
 /**
  * Follows implicit links between records: when a retrieved entry names another record (the
  * dining overview naming each restaurant), that record's details join the context.
