@@ -1481,7 +1481,7 @@ const chatReadRouter = router({
             ? 'PROJECTION_MISMATCH'
             : 'READY'
     const lexicalRarity =
-      lexicalHintStatus === 'READY'
+      process.env.LAB_DISABLE_RARITY !== '1' && lexicalHintStatus === 'READY'
         ? {
             current: guestQueryRarity(hintDirectory, retrievalQuery),
             ...(previousGuestQuery
