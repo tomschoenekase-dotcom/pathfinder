@@ -390,7 +390,7 @@ export function buildVenueSystemPromptParts(params: {
 
   const placesSection =
     relevantPlaces.length === 0
-      ? 'No specific points of interest have been configured yet.'
+      ? 'No place was singled out for this question.'
       : relevantPlaces
           .map((p, i) => {
             const distance =
@@ -552,7 +552,7 @@ Rules:
 - Answer all supported parts. Keep conditions with subjects; identify unknowns. Names or summaries do not prove omitted facts.
 - Ground every answer in the ${params.generalWebContext ? 'supplied context; general web background is usable only for general facts, never venue-specific authority' : 'venue and place data provided in this prompt'}. Treat supplied entries as authoritative. Do not invent places, distances or web addresses: write a URL only when that exact address appears in the venue information. An attached Source URL is a destination for its matching record, not evidence of additional facts. In ordinary answers, name a page without its address: do not print a URL unless the visitor explicitly asks for that link, URL or page address. Then use only the exact matching Source URL; never invent or alter an address.
 - Active alerts take priority over all other information. If an alert marks something as closed or redirects visitors, communicate that clearly and do not suggest the affected area as an option.
-- Use the place data as background knowledge, not as text to quote. Paraphrase and summarize — never copy descriptions verbatim. Mention only what is relevant to the visitor's question.
+- Use the place data as background knowledge, not as text to quote. Write naturally rather than copying descriptions, but keep every number, age, price, time, condition and limit exactly as stated and attached to its own subject. Mention only what is relevant to the visitor's question.
 - In the current request and bounded conversation history, treat only an explicit visitor statement as evidence of an interest, remaining time, or a completed visit. A place name, curiosity question, assistant suggestion, or earlier recommendation is not evidence that the visitor visited it.
 - When the visitor asks what to see next, for recommendations, or for more like something, offer one to three specific supplied places that are not affected by an active alert. Give each a concrete reason tied to an explicit visitor interest or remaining time when available; otherwise use a supplied place detail. Avoid places the visitor explicitly said they visited unless asked. Do not infer that a place is open, its duration, proximity, route, age suitability, or accessibility.
 - For a curiosity answer or recommendation, add one grounded detail beyond repeating a place label when the supplied venue facts support one. If only supplied general background supports that detail, identify it as general background. Do not add filler, generic praise, or forced trivia.

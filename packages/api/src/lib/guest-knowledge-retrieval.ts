@@ -83,6 +83,34 @@ const STOP_WORDS = new Set([
   'your',
 ])
 
+/**
+ * Function words and question scaffolding in the languages guests commonly write. They never
+ * identify a record, so neither the lexical lanes nor question evidence spends a query slot on them.
+ */
+export const GUEST_QUERY_FUNCTION_WORDS: ReadonlySet<string> = new Set(
+  (
+    'a an and are as at be been but by can could did do does doing for from get got had has have ' +
+    'he her here hers him his how i if in into is it its just me might more most much must my no ' +
+    'not now of on or our ours out please she should so some such than that the their them then ' +
+    'there these they this those to too us very was we were what when where which while who whom ' +
+    'whose why will with would you your yours also any anything something tell know want like ' +
+    'need go going able whats im ive id dont cant isnt arent ' +
+    'al algo como con cual cuales cuando de del el ella ellos en es esta este esto estos hay la ' +
+    'las le les lo los mas me mi mis muy nos nuestro o para pero por puede pueden podemos puedo ' +
+    'que se si sin su sus te tu un una unos unas y ya hacer quiero queremos buscamos usted ' +
+    'au aux avec ce ces cette dans des du elle en est et il ils je la le les leur mais me mes ' +
+    'mon nous on ou par pas peut peuvent pouvons pour quand que quel quelle quels qui sa se ses ' +
+    'si son sont sur ta te tes ton tu un une vos votre vous y faire ' +
+    'aber als am an auch auf aus bei bin bis das dass dem den der des die du ein eine einen einem ' +
+    'einer er es fur gibt hat haben ich ihr im in ist ja kann konnen mit nach nicht noch oder sie ' +
+    'sind so uber um und uns unser von vor was wenn wer wie wir wo zu zum zur ' +
+    'ai alla alle che chi ci come con da dei del della di e gli il in io la le lo ma mi nel ne non ' +
+    'per piu possiamo posso puo qual quale quando questo questa se si sono su un una uno vi ' +
+    'ao aos as com da das de do dos ela ele em entre eu isso esta este na nas no nos num numa o os ' +
+    'ou para pela pelo pode podem podemos por qual quando que se sem seu sua um uma voce'
+  ).split(/\s+/u),
+)
+
 const CONCEPTS: readonly (readonly string[])[] = [
   ['capacity', 'occupancy', 'occupants', 'visitors', 'guests', 'fit', 'hold', 'aforo', 'caben'],
   ['photo', 'photos', 'photography', 'camera', 'pictures', 'fotografia', 'fotografía', 'fotos'],
@@ -182,6 +210,11 @@ export type GuestKnowledgeRow = {
 
 export type GuestKnowledgeRetrievalTrace = {
   path: 'semantic+lexical' | 'lexical-fallback'
+  /**
+   * What the vector lane actually did. `path` says only that an embedding existed; an empty or
+   * failed vector search is a degraded lane, not semantic evidence.
+   */
+  semanticStatus?: 'HITS' | 'EMPTY' | 'FAILED' | 'NOT_RUN'
   retrievedSourceIds: string[]
   retrievedSources: { id: string; version: string | null }[]
   /** Authorized current candidates, including bodies omitted by context/result budgets. */
@@ -303,7 +336,19 @@ export function guestQueryConcepts(query: string): string[][] {
       ),
     }))
     .filter(({ token, concepts }) =>
-      concepts.length > 0 ? true : token.length > 2 && !STOP_WORDS.has(token),
+      concepts.length > 0
+        ? true
+        : token.length > 2 && !STOP_WORDS.has(token) && !GUEST_QUERY_FUNCTION_WORDS.has(token),
+    )
+    // Keep the most informative words, not the first ones: a later part of a multi-part question
+    // ("... and can we take photos?") must reach the lexical lanes as reliably as the first part.
+    // Known concepts lead, then longer (usually rarer) words; ties keep question order.
+    .map((item, position) => ({ ...item, position }))
+    .sort(
+      (a, b) =>
+        Number(b.concepts.length > 0) - Number(a.concepts.length > 0) ||
+        b.token.length - a.token.length ||
+        a.position - b.position,
     )
     .slice(0, 8)
   const groups: string[][] = overview ? [OVERVIEW_CONCEPT.map(normalize)] : []
@@ -562,6 +607,7 @@ export async function retrieveGuestKnowledge(params: {
         OR: concepts.flatMap((group) => group.map(textClause).flatMap((clause) => clause.OR)),
       }
     : { ...scope, id: '__no_query_terms__' }
+  let semanticStatus: NonNullable<GuestKnowledgeRetrievalTrace['semanticStatus']> = 'NOT_RUN'
   const [strict, broadAll, semantic, activated] = await Promise.all([
     reader.venueKnowledgeEntry.findMany({
       where: strictWhere,
@@ -582,7 +628,14 @@ export async function retrieveGuestKnowledge(params: {
             venueId: params.venueId,
             includeSecondLayer: params.includeSecondLayer,
           })
-          .catch(() => [])
+          .then((hits) => {
+            semanticStatus = hits.length ? 'HITS' : 'EMPTY'
+            return hits
+          })
+          .catch(() => {
+            semanticStatus = 'FAILED'
+            return []
+          })
       : Promise.resolve([]),
     reader.legacyKnowledgeAdoptionActivation
       ? reader.legacyKnowledgeAdoptionActivation.findMany({
@@ -756,6 +809,7 @@ export async function retrieveGuestKnowledge(params: {
     entries,
     trace: {
       path: params.queryEmbedding ? 'semantic+lexical' : 'lexical-fallback',
+      semanticStatus,
       observedSources: candidates.map((entry) => {
         const updatedAt = (entry as SemanticKnowledgeEntry & { updatedAt?: unknown }).updatedAt
         return { id: entry.id, version: updatedAt instanceof Date ? updatedAt.toISOString() : null }

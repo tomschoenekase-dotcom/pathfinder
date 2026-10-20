@@ -395,6 +395,7 @@ export function buildGuestVenueGuidePrompt(
     nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
   }
   const fullRecordIds = new Set<string>()
+  const placeTopics = guestTopicPlaceLinks(directory)
   const placeRecords = directory.places.map((place) => {
     const area = place.areaName ? ` area="${quotedAttribute(place.areaName)}"` : ''
     const hours = place.hours ? ` hours="${quotedAttribute(place.hours)}"` : ''
@@ -409,7 +410,7 @@ export function buildGuestVenueGuidePrompt(
     return `${open}\n${escapeUntrustedPromptData(body)}${sourceUrl ? `\nSource URL: ${escapeUntrustedPromptData(sourceUrl)}` : ''}\n</place>`
   })
   const past: string[] = []
-  const topicRecords: string[] = []
+  const topicRecords = new Map<string, string>()
   let checkDates = false
   for (const entry of directory.knowledge) {
     const status = classifyGuestDatedEvent(entry, options.currentDate)
@@ -423,13 +424,26 @@ export function buildGuestVenueGuidePrompt(
     const updated = options.recordDates ? guestRecordDate(entry.updatedAt) : null
     const passedYear =
       status === 'CHECK_DATES' ? ` title_year_passed="${guestPassedTitleYear(entry.title)}"` : ''
-    topicRecords.push(
+    topicRecords.set(
+      entry.id,
       `<topic title="${quotedAttribute(entry.title)}" category="${quotedAttribute(entry.category)}"${passedYear}${updated ? ` updated="${updated}"` : ''}>\n${escapeUntrustedPromptData(entry.content)}${sourceUrl ? `\nSource URL: ${escapeUntrustedPromptData(sourceUrl)}` : ''}\n</topic>`,
     )
   }
+  // One subject, one block: a topic about a place sits right after that place, so the place's
+  // summary is never read apart from the topic that carries its full conditions.
+  const groupedTopicIds = new Set<string>()
+  const groupedRecords = directory.places.flatMap((place, index) => {
+    const topics = (placeTopics.get(place.id) ?? []).flatMap((id) => {
+      const record = topicRecords.get(id)
+      if (!record) return []
+      groupedTopicIds.add(id)
+      return [record]
+    })
+    return [placeRecords[index]!, ...topics]
+  })
   const body = [
-    ...placeRecords,
-    ...topicRecords,
+    ...groupedRecords,
+    ...[...topicRecords].filter(([id]) => !groupedTopicIds.has(id)).map(([, record]) => record),
     ...(past.length
       ? [
           `Past dated events (over; never present as current): ${escapeUntrustedPromptData(past.join('; '))}`,
@@ -450,6 +464,32 @@ export function buildGuestVenueGuidePrompt(
     rendererTruncated: false,
     evidenceText: `\n\nVENUE GUIDE (full; ${prompt.length} characters; sha256 ${createHash('sha256').update(prompt).digest('hex')}; records ${recordIds.join(',')})`,
   }
+}
+
+/**
+ * Topics about one specific place: the topic's title is the place's name or starts with it
+ * ("Map Room family activity"). The longest matching name wins; same-name places never link.
+ */
+export function guestTopicPlaceLinks(directory: GuestVenueDirectory): Map<string, string[]> {
+  const counts = new Map<string, number>()
+  for (const place of directory.places) {
+    const key = normalizeGuestText(place.name).trim()
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const places = directory.places
+    .map((place) => ({ id: place.id, key: normalizeGuestText(place.name).trim() }))
+    .filter(({ key }) => key.length >= MIN_LINK_NAME_CHARS && counts.get(key) === 1)
+    .sort((a, b) => b.key.length - a.key.length)
+  const links = new Map<string, string[]>()
+  for (const entry of directory.knowledge) {
+    const title = normalizeGuestText(entry.title).trim()
+    const match = places.find(
+      ({ key }) =>
+        title === key || (title.startsWith(key) && !/[\p{L}\p{N}]/u.test(title[key.length]!)),
+    )
+    if (match) links.set(match.id, [...(links.get(match.id) ?? []), entry.id])
+  }
+  return links
 }
 
 /** Remove demonstrably stale cached bodies before either FULL rendering or linked expansion. */

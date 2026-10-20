@@ -85,7 +85,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v41')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v42')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -814,7 +814,7 @@ describe('buildVenueSystemPrompt', () => {
       userLat: 0,
       userLng: 0,
     })
-    expect(prompt).toContain('No specific points of interest have been configured yet.')
+    expect(prompt).toContain('No place was singled out for this question.')
   })
 
   it('does not contain importanceScore or tenantId', () => {
@@ -1042,8 +1042,8 @@ describe('buildVenueSystemPrompt', () => {
 
     expect(staticPart).toContain('City Zoo')
     expect(staticPart).toContain('Rules:')
-    expect(staticPart).not.toContain('No specific points of interest have been configured yet.')
-    expect(dynamicPart).toContain('No specific points of interest have been configured yet.')
+    expect(staticPart).not.toContain('No place was singled out for this question.')
+    expect(dynamicPart).toContain('No place was singled out for this question.')
   })
 
   it('does not retain prior prompt content when supplied facts change or are removed', () => {

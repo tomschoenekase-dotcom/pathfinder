@@ -124,6 +124,7 @@ import {
   type GuestKnowledgeRetrievalTrace,
 } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
+import { selectGuestQuestionEvidence } from '../lib/guest-question-evidence'
 import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
 import {
   buildGuestVenueGuidePrompt,
@@ -1571,6 +1572,36 @@ const chatReadRouter = router({
       currentDate,
       recordDates: recordDatesEnabled,
     })
+    // Whole guide records for every part of the question, ranked in memory over the same fenced,
+    // projected and stale-suppressed guide. A DIRECTORY guide gains their full bodies, so a
+    // governing condition past a record's first sentence still reaches the model; a FULL guide
+    // already has every body and only gains the relevant topic names.
+    const questionEvidence = selectGuestQuestionEvidence({
+      query: retrievalQuery,
+      previousQuery: previousGuestQuery,
+      directory: guestDirectory,
+      mode: venueGuide.mode,
+      currentDate,
+      knowledgeInContext: relevantKnowledgeEntries,
+      placeIdsInContext: new Set(relevantPlaces.map((place) => place.id)),
+    })
+    if (questionEvidence.knowledge.length)
+      relevantKnowledgeEntries = [
+        ...relevantKnowledgeEntries,
+        ...questionEvidence.knowledge.map((entry) => ({ ...entry, distance: 1 })),
+      ]
+    if (questionEvidence.places.length) {
+      // Interleave with the retrieved order (equal-weight rank fusion); a scanned entry place stays first.
+      const pinned = entryPlace ? relevantPlaces.filter((place) => place.id === entryPlace.id) : []
+      const retrieved = relevantPlaces.filter((place) => !pinned.includes(place))
+      const added = questionEvidence.places.map((place) => ({ ...place, distance: 1 }))
+      const fused: typeof relevantPlaces = [...pinned]
+      for (let index = 0; index < Math.max(retrieved.length, added.length); index += 1) {
+        if (retrieved[index]) fused.push(retrieved[index]!)
+        if (added[index]) fused.push(added[index]!)
+      }
+      relevantPlaces = fused
+    }
     const directoryPrompt = venueGuide.prompt
     if (directoryPrompt.includes(GUEST_DATED_TITLE_RULE))
       logger.info({
@@ -2202,6 +2233,11 @@ const chatReadRouter = router({
           placesInContextCount: relevantPlaces.length,
           // The trace describes the legacy retrieval; a native read replaces its entries.
           retrievalPath: retrievalTrace?.path ?? null,
+          semanticStatus: retrievalTrace?.semanticStatus ?? null,
+          questionEvidenceKnowledgeCount: questionEvidence.trace.addedKnowledgeIds.length,
+          questionEvidencePlaceCount: questionEvidence.trace.addedPlaceIds.length,
+          questionEvidenceBudgetExcludedCount: questionEvidence.trace.budgetExcludedIds.length,
+          questionPartsUncoveredCount: questionEvidence.trace.uncoveredTerms.length,
           retrievedCount: retrievalTrace?.retrievedSourceIds.length ?? null,
           excludedCount: retrievalTrace?.excludedSourceIds.length ?? null,
           truncatedCount: retrievalTrace?.truncatedSourceIds.length ?? null,
