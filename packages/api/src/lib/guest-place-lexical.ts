@@ -5,6 +5,7 @@ import {
   containsGuestTerm,
   guestRetrievalConcepts,
   normalizeGuestText,
+  type GuestRetrievalRarity,
 } from './guest-knowledge-retrieval'
 
 const LEXICAL_PLACE_CANDIDATES = 40
@@ -46,6 +47,7 @@ export async function fuseGuestPlacesWithLexical(params: {
   reader: unknown
   query: string
   previousQuery?: string | null
+  lexicalRarity?: GuestRetrievalRarity
   tenantId: string
   venueId: string
   includeSecondLayer: boolean
@@ -55,7 +57,11 @@ export async function fuseGuestPlacesWithLexical(params: {
   userLat: number | null
   userLng: number | null
 }): Promise<SemanticPlace[]> {
-  const { concepts, broad } = guestRetrievalConcepts(params.query, params.previousQuery)
+  const { concepts, broad } = guestRetrievalConcepts(
+    params.query,
+    params.previousQuery,
+    params.lexicalRarity,
+  )
   const limit = broad ? Math.max(params.limit, BROAD_PLACE_LIMIT) : params.limit
   const reader = params.reader as Partial<GuestPlaceLexicalReader>
   if (concepts.length === 0 || typeof reader.place?.findMany !== 'function')
@@ -110,7 +116,11 @@ export async function fuseGuestPlacesWithLexical(params: {
     .sort((a, b) => b.score - a.score)
   const fused = new Map<string, { place: SemanticPlace; score: number; order: number }>()
   semanticPlaces.forEach((place, index) => {
-    fused.set(place.id, { place, score: 1 / (FUSION_RANK_OFFSET + index + 1), order: index })
+    fused.set(place.id, {
+      place,
+      score: 1 / (FUSION_RANK_OFFSET + index + 1),
+      order: index,
+    })
   })
   lexical.forEach(({ place }, index) => {
     const contribution = 1 / (FUSION_RANK_OFFSET + index + 1)

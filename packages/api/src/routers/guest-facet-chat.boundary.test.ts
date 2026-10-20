@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { loadGuestVenueDirectory } from '../lib/guest-venue-directory'
+import {
+  loadGuestVenueDirectory,
+  loadGuestVenueDirectoryCached,
+} from '../lib/guest-venue-directory'
 import { guestDirectoryVersion } from '../lib/guest-directory-index-loader'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
@@ -12,6 +15,107 @@ import {
   type AnthropicMessagesClient,
   type OpenAiEmbeddingsClient,
 } from '@pathfinder/ai'
+
+// Test-only counterfactual changes ONLY facet activation, never query text or QE/admission output.
+const qePreservation = vi.hoisted(() => ({
+  inactiveQuery: null as string | null,
+  parser: [] as Array<{ query: string; naturalRecognized: boolean; overridden: boolean }>,
+  qe: [] as Array<{
+    query: string
+    allowPlaces: boolean | undefined
+    maxPlaces: number | undefined
+    initialPlaceIds: string[]
+    initialKnowledgeIds: string[]
+    addedKnowledgeIds: string[]
+    addedPlaceIds: string[]
+  }>,
+  facet: [] as Array<{
+    governingKeys: string[]
+    requiredKeys: string[]
+    selectedKeys: string[]
+    maxChars: number
+    constraints: unknown
+    selectionComplete: boolean
+  }>,
+  admission: [] as Array<{
+    priorityKeys: string[]
+    inputPlaceIds: string[]
+    inputPlaceBodies: Array<{ id: string; body: unknown }>
+    outputPlaceIds: string[]
+    excludedKeys: string[]
+    chars: number
+  }>,
+}))
+vi.mock('../lib/guest-facet-query', async (importOriginal) => {
+  const owner = await importOriginal<typeof import('../lib/guest-facet-query')>()
+  return {
+    ...owner,
+    parseFacetCollectionQuery: (...args: Parameters<typeof owner.parseFacetCollectionQuery>) => {
+      const natural = owner.parseFacetCollectionQuery(...args)
+      const overridden = qePreservation.inactiveQuery === args[0]
+      qePreservation.parser.push({
+        query: args[0],
+        naturalRecognized: natural.recognized,
+        overridden,
+      })
+      return overridden ? { recognized: false, constraints: {} } : natural
+    },
+  }
+})
+vi.mock('../lib/guest-question-evidence', async (importOriginal) => {
+  const owner = await importOriginal<typeof import('../lib/guest-question-evidence')>()
+  return {
+    ...owner,
+    selectGuestQuestionEvidence: (
+      ...args: Parameters<typeof owner.selectGuestQuestionEvidence>
+    ) => {
+      const result = owner.selectGuestQuestionEvidence(...args)
+      qePreservation.qe.push({
+        query: args[0].query,
+        allowPlaces: args[0].allowPlaces,
+        maxPlaces: args[0].maxPlaces,
+        initialPlaceIds: args[0].placesInContext.map((row) => row.id),
+        initialKnowledgeIds: args[0].knowledgeInContext.flatMap((row) => (row.id ? [row.id] : [])),
+        addedKnowledgeIds: result.knowledge.map((row) => row.id),
+        addedPlaceIds: result.places.map((row) => row.id),
+      })
+      return result
+    },
+  }
+})
+
+const w7Initial = vi.hoisted(() => ({
+  knowledge: [] as Array<{ query: string; hasHints: boolean; ids: string[] }>,
+  places: [] as string[][],
+}))
+vi.mock('../lib/guest-knowledge-retrieval', async (importOriginal) => {
+  const owner = await importOriginal<typeof import('../lib/guest-knowledge-retrieval')>()
+  return {
+    ...owner,
+    retrieveGuestKnowledge: async (...args: Parameters<typeof owner.retrieveGuestKnowledge>) => {
+      const result = await owner.retrieveGuestKnowledge(...args)
+      w7Initial.knowledge.push({
+        query: args[0].query,
+        hasHints: Boolean(args[0].lexicalRarity),
+        ids: result.entries.map((row) => row.id),
+      })
+      return result
+    },
+  }
+})
+vi.mock('../lib/guest-place-lexical', async (importOriginal) => {
+  const owner = await importOriginal<typeof import('../lib/guest-place-lexical')>()
+  return {
+    ...owner,
+    fuseGuestPlacesWithLexical: async (
+      ...args: Parameters<typeof owner.fuseGuestPlacesWithLexical>
+    ) => {
+      const result = await owner.fuseGuestPlacesWithLexical(...args)
+      w7Initial.places.push(result.map((row) => row.id))
+      return result
+    },
+  }
+})
 
 const venueRenderings = vi.hoisted(
   () =>
@@ -40,7 +144,11 @@ vi.mock('../lib/venue-context', async (importOriginal) => {
 })
 // Add at module scope beside the venue-context transparent observer.
 const facetInputs = vi.hoisted(
-  () => [] as Array<{ knowledge: Array<{ id: string }>; places: Array<{ id: string }> }>,
+  () =>
+    [] as Array<{
+      knowledge: Array<{ id: string }>
+      places: Array<{ id: string }>
+    }>,
 )
 vi.mock('../lib/guest-facet-integration', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/guest-facet-integration')>()
@@ -54,7 +162,33 @@ vi.mock('../lib/guest-facet-integration', async (importOriginal) => {
         knowledge: args[0].directory.knowledge.map(({ id }) => ({ id })),
         places: args[0].directory.places.map(({ id }) => ({ id })),
       })
-      return original.selectGuestFacetCollection(...args)
+      const result = original.selectGuestFacetCollection(...args)
+      qePreservation.facet.push({
+        governingKeys: [...result.selection.governingKeys],
+        requiredKeys: [...result.selection.requiredKeys],
+        selectedKeys: [...result.selection.selectedKeys],
+        maxChars: args[0].maxChars,
+        constraints: structuredClone(args[0].constraints),
+        selectionComplete: result.selection.selectionComplete,
+      })
+      return result
+    },
+    admitGuestDynamicRecords: (...args: Parameters<typeof original.admitGuestDynamicRecords>) => {
+      const inputPlaceIds = args[0].places.map((row) => row.id)
+      const inputPlaceBodies = args[0].places.map((row) => ({
+        id: row.id,
+        body: 'longDescription' in row ? row.longDescription : null,
+      }))
+      const result = original.admitGuestDynamicRecords(...args)
+      qePreservation.admission.push({
+        priorityKeys: [...args[0].priorityKeys],
+        inputPlaceIds,
+        inputPlaceBodies,
+        outputPlaceIds: result.places.map((row) => row.id),
+        excludedKeys: [...result.excludedKeys],
+        chars: result.chars,
+      })
+      return result
     },
   }
 })
@@ -85,15 +219,24 @@ const { checkRateLimit, checkRateLimitsOrdered } = vi.hoisted(() => ({
   checkRateLimitsOrdered: vi.fn(),
 }))
 
-vi.mock('../lib/rate-limit', () => ({ checkRateLimit, checkRateLimitsOrdered }))
+vi.mock('../lib/rate-limit', () => ({
+  checkRateLimit,
+  checkRateLimitsOrdered,
+}))
 
 const readApprovedGuestPlaceMedia = vi.hoisted(() => vi.fn())
 vi.mock('../lib/guest-place-media', () => ({ readApprovedGuestPlaceMedia }))
 
 const searchGuestWebWithAccounting = vi.hoisted(() => vi.fn())
-vi.mock('@pathfinder/ai/guest-web-search-accounting', () => ({ searchGuestWebWithAccounting }))
+vi.mock('@pathfinder/ai/guest-web-search-accounting', () => ({
+  searchGuestWebWithAccounting,
+}))
 
-const coverageReadControls = vi.hoisted(() => ({ fail: false, mismatch: false, projections: 0 }))
+const coverageReadControls = vi.hoisted(() => ({
+  fail: false,
+  mismatch: false,
+  projections: 0,
+}))
 const fixtureDirectory = vi.hoisted(() => ({
   knowledge: [] as Array<Record<string, unknown>>,
   places: [] as Array<Record<string, unknown>>,
@@ -102,10 +245,16 @@ const fixtureDirectory = vi.hoisted(() => ({
 }))
 vi.mock('../lib/guest-venue-directory', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/guest-venue-directory')>()
-  return { ...original, loadGuestVenueDirectoryCached: vi.fn(async () => fixtureDirectory) }
+  return {
+    ...original,
+    loadGuestVenueDirectoryCached: vi.fn(async () => fixtureDirectory),
+  }
 })
 const adoptionFindMany = vi.hoisted(() => vi.fn())
-const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
+const semanticSearch = vi.hoisted(() => ({
+  places: vi.fn(),
+  knowledge: vi.fn(),
+}))
 const guestTurnActions = vi.hoisted(() => ({
   reserve: vi.fn(),
   claim: vi.fn(),
@@ -122,7 +271,9 @@ const readActiveUnhealthyAiProviders = vi.hoisted(() => vi.fn())
 const isGuestConversationDisposed = vi.hoisted(() => vi.fn())
 const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
 const recordConversationLearningCandidate = vi.hoisted(() => vi.fn())
-vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }))
+vi.mock('../lib/character-registry', () => ({
+  resolveSystemCharacterProjection,
+}))
 vi.mock('@pathfinder/db', async (importOriginal) => {
   const originalDb = await importOriginal<typeof import('@pathfinder/db')>()
   return {
@@ -132,7 +283,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
     ) => {
       const original = originalDb.applyNativeGuestContentRead(input)
       coverageReadControls.projections += 1
-      return coverageReadControls.mismatch && coverageReadControls.projections === 2
+      return coverageReadControls.mismatch && coverageReadControls.projections === 1
         ? { ...original, path: 'NATIVE' as const }
         : original
     },
@@ -202,7 +353,9 @@ const liveDataConnectorFindMany = vi.hoisted(() => vi.fn())
 const mockDb = {
   liveDataConnector: { findMany: liveDataConnectorFindMany },
   platformConfig: { findUnique: platformConfigFindUnique },
-  aiWorkloadConfigurationOverride: { findFirst: aiWorkloadConfigurationOverrideFindFirst },
+  aiWorkloadConfigurationOverride: {
+    findFirst: aiWorkloadConfigurationOverrideFindFirst,
+  },
   aiScopedWorkloadConfigurationOverride: {
     findFirst: aiScopedWorkloadConfigurationOverrideFindFirst,
   },
@@ -228,7 +381,11 @@ const mockDb = {
   operationalEvent: { upsert: operationalEventUpsert },
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
   venueLocation: { findMany: venueLocationFindMany },
-  message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
+  message: {
+    findMany: messageFindMany,
+    create: messageCreate,
+    findFirst: messageFindFirst,
+  },
   voiceTranscriptSegment: { findMany: voiceTranscriptSegmentFindMany },
   guestChatTurn: { findFirst: guestChatTurnFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
@@ -251,7 +408,9 @@ const mockAnthropicClient = {
   messages: { create: anthropicCreate },
 } as AnthropicMessagesClient
 const embeddingCreate = vi.fn()
-const mockOpenAiClient = { embeddings: { create: embeddingCreate } } as OpenAiEmbeddingsClient
+const mockOpenAiClient = {
+  embeddings: { create: embeddingCreate },
+} as OpenAiEmbeddingsClient
 
 // ---------------------------------------------------------------------------
 // Context
@@ -260,7 +419,12 @@ const mockOpenAiClient = { embeddings: { create: embeddingCreate } } as OpenAiEm
 const ctx: TRPCContext = {
   db: mockDb,
   headers: new Headers(),
-  session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+  session: {
+    userId: null,
+    activeTenantId: null,
+    role: null,
+    isPlatformAdmin: false,
+  },
 }
 
 const testRouter = router({ chat: chatRouter })
@@ -305,7 +469,11 @@ const placeRows = [
 describe('facet actual chat independent boundaries', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    Object.assign(coverageReadControls, { fail: false, mismatch: false, projections: 0 })
+    Object.assign(coverageReadControls, {
+      fail: false,
+      mismatch: false,
+      projections: 0,
+    })
     _setAnthropicClientForTesting(mockAnthropicClient)
     setOpenAiEmbeddingsClientForTesting(mockOpenAiClient)
     embeddingCreate.mockResolvedValue({
@@ -337,13 +505,20 @@ describe('facet actual chat independent boundaries', () => {
     aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
     aiScopedWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
     aiCostBudgetFindFirst.mockResolvedValue(null)
-    operationalEventUpsert.mockResolvedValue({ id: 'event_1', state: 'OPEN', occurrenceCount: 1 })
+    operationalEventUpsert.mockResolvedValue({
+      id: 'event_1',
+      state: 'OPEN',
+      occurrenceCount: 1,
+    })
     venueFindFirst.mockResolvedValue({ isActive: true })
     venueFindMany.mockResolvedValue([])
     resolveSystemCharacterProjection.mockReturnValue(null)
     tenantFeatureFlagFindMany.mockResolvedValue([])
     voiceTranscriptSegmentFindMany.mockResolvedValue([])
-    sessionFindFirst.mockResolvedValue({ id: SESSION_ID, experienceScope: 'PUBLIC' })
+    sessionFindFirst.mockResolvedValue({
+      id: SESSION_ID,
+      experienceScope: 'PUBLIC',
+    })
     dbTransaction.mockImplementation((callback: (client: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -369,8 +544,14 @@ describe('facet actual chat independent boundaries', () => {
       sessionId: SESSION_ID,
       claimId: '22222222-2222-4222-8222-222222222222',
       providerOperations: [
-        { kind: 'QUERY_EMBEDDING', invocationId: '33333333-3333-4333-8333-333333333333' },
-        { kind: 'RESPONSE_GENERATION', invocationId: '44444444-4444-4444-8444-444444444444' },
+        {
+          kind: 'QUERY_EMBEDDING',
+          invocationId: '33333333-3333-4333-8333-333333333333',
+        },
+        {
+          kind: 'RESPONSE_GENERATION',
+          invocationId: '44444444-4444-4444-8444-444444444444',
+        },
       ],
       replayed: false,
     })
@@ -381,7 +562,9 @@ describe('facet actual chat independent boundaries', () => {
     guestTurnActions.readAdjacentIdentity.mockResolvedValue(null)
     guestTurnActions.finalize.mockImplementation(async ({ input }) => {
       await messageCreate({ data: { role: 'user', content: input.message } })
-      await messageCreate({ data: { role: 'assistant', content: input.assistantResponse } })
+      await messageCreate({
+        data: { role: 'assistant', content: input.assistantResponse },
+      })
       return {
         state: 'COMPLETE',
         turnId: input.turnId,
@@ -424,7 +607,11 @@ describe('facet actual chat independent boundaries', () => {
       contentPublicationId: null,
     }
   }
-  const input = { venueId: VENUE_ID, anonymousToken: TOKEN, message: 'What are the opening hours?' }
+  const input = {
+    venueId: VENUE_ID,
+    anonymousToken: TOKEN,
+    message: 'What are the opening hours?',
+  }
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-17T14:00:00Z'))
@@ -434,9 +621,16 @@ describe('facet actual chat independent boundaries', () => {
     semanticSearch.knowledge.mockResolvedValue([{ ...topic(), distance: 0.1 }])
     vi.stubEnv('GUEST_GUIDE_STRATEGY', 'evidence')
     dbQueryRaw.mockResolvedValue([
-      { ...venueRow, name: 'Orchid Museum', chatAppearance: { timeZone: 'America/Chicago' } },
+      {
+        ...venueRow,
+        name: 'Orchid Museum',
+        chatAppearance: { timeZone: 'America/Chicago' },
+      },
     ])
-    sessionUpsert.mockResolvedValue({ id: SESSION_ID, experienceScope: 'PUBLIC' })
+    sessionUpsert.mockResolvedValue({
+      id: SESSION_ID,
+      experienceScope: 'PUBLIC',
+    })
     messageFindMany.mockResolvedValue([])
     messageCreate.mockResolvedValue({})
     anthropicCreate.mockResolvedValue({
@@ -509,8 +703,15 @@ describe('facet actual chat independent boundaries', () => {
     onKnowledgeHydrate: undefined as ((ids: string[]) => void) | undefined,
   }
   beforeEach(() => {
+    w7Initial.knowledge.length = 0
+    w7Initial.places.length = 0
     venueRenderings.length = 0
     facetInputs.length = 0
+    qePreservation.inactiveQuery = null
+    qePreservation.parser.length = 0
+    qePreservation.qe.length = 0
+    qePreservation.facet.length = 0
+    qePreservation.admission.length = 0
     Object.assign(fixture, {
       knowledge: [],
       places: [],
@@ -539,7 +740,9 @@ describe('facet actual chat independent boundaries', () => {
     )
     adoptionFindMany.mockImplementation(async (args) => {
       expect(args.where).toEqual({ tenantId: TENANT_ID, venueId: VENUE_ID })
-      return fixture.activatedIds.map((id) => ({ adoption: { legacyKnowledgeEntryId: id } }))
+      return fixture.activatedIds.map((id) => ({
+        adoption: { legacyKnowledgeEntryId: id },
+      }))
     })
   })
   function strictMatches(actual: unknown, condition: unknown): boolean {
@@ -861,7 +1064,10 @@ describe('facet actual chat independent boundaries', () => {
     fixture.lexicalKnowledge = [policy]
     semanticSearch.knowledge.mockResolvedValue([{ ...policy, distance: 0.1 }])
     fixture.liveKnowledge = [
-      { ...policy, content: `GOVERNING_CURRENT_BEGIN_${'condition '.repeat(3500)}_END` },
+      {
+        ...policy,
+        content: `GOVERNING_CURRENT_BEGIN_${'condition '.repeat(3500)}_END`,
+      },
       rideTopic('ordinary'),
     ]
     await send()
@@ -880,7 +1086,10 @@ describe('facet actual chat independent boundaries', () => {
     await install([first, growing], [place])
     fixture.liveKnowledge = [
       first,
-      { ...growing, content: `GROWN_BODY_START_${'<&>'.repeat(2500)}_GROWN_BODY_END` },
+      {
+        ...growing,
+        content: `GROWN_BODY_START_${'<&>'.repeat(2500)}_GROWN_BODY_END`,
+      },
     ]
     await send()
     expect(prompt()).not.toContain('PREDECESSOR_SMALL')
@@ -933,7 +1142,10 @@ describe('facet actual chat independent boundaries', () => {
     )
     expect(metadataReads.length).toBeGreaterThanOrEqual(2)
     for (const [args] of metadataReads)
-      expect(args.where).toMatchObject({ tenantId: TENANT_ID, venueId: VENUE_ID })
+      expect(args.where).toMatchObject({
+        tenantId: TENANT_ID,
+        venueId: VENUE_ID,
+      })
   })
 
   it.each(['changed', 'failed', 'absent-version', 'incomplete'])(
@@ -1049,7 +1261,11 @@ describe('facet actual chat independent boundaries', () => {
         throw new Error('Unexpected second core hydration')
       }
     }
-    await caller.chat.send({ ...input, entryPlaceId: legacyEntry.id, message: listQuery })
+    await caller.chat.send({
+      ...input,
+      entryPlaceId: legacyEntry.id,
+      message: listQuery,
+    })
     expect(coreReads).toBe(1)
     expect(finalEvidence().system.staticPart).toContain('CORE_CURRENT_SINGLE_GENERATION')
     expect(finalEvidence().system.staticPart).not.toContain('CORE_OLD_NEVER_SEND')
@@ -1096,7 +1312,11 @@ describe('facet actual chat independent boundaries', () => {
       releaseId: '22222222-2222-4222-8222-222222222222',
       state: { places: [nativeOther], knowledgeEntries: [] },
     })
-    await caller.chat.send({ ...input, entryPlaceId: rejected.id, message: listQuery })
+    await caller.chat.send({
+      ...input,
+      entryPlaceId: rejected.id,
+      message: listQuery,
+    })
     expect(prompt()).not.toContain('REJECTED_QR_BODY_NEVER_SEND')
     expect(retainedBodyKeys()).not.toContain('place:rejected-qr')
     expect(JSON.stringify(finalEvidence().sources)).not.toContain('REJECTED_QR_BODY_NEVER_SEND')
@@ -1127,7 +1347,11 @@ describe('facet actual chat independent boundaries', () => {
         // Release membership alone cannot authorize the scoped-out compatibility row.
         state: { places: [valid, forbidden], knowledgeEntries: [] },
       })
-      await caller.chat.send({ ...input, entryPlaceId: rejectedId, message: listQuery })
+      await caller.chat.send({
+        ...input,
+        entryPlaceId: rejectedId,
+        message: listQuery,
+      })
       expect(placeFindFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
@@ -1170,7 +1394,10 @@ describe('facet actual chat independent boundaries', () => {
       },
     })
     const withdrawn = moduleRow('withdrawn-publication', 'WITHDRAW')
-    const unpublished = { ...moduleRow('unpublished'), contentPublication: null }
+    const unpublished = {
+      ...moduleRow('unpublished'),
+      contentPublication: null,
+    }
     const future = moduleRow('future-revision')
     future.contentRevision.effectiveFrom = new Date('2027-01-01')
     const expired = moduleRow('expired-revision')
@@ -1180,11 +1407,23 @@ describe('facet actual chat independent boundaries', () => {
     const knowledge = [
       valid,
       adopted,
-      { ...rideTopic('foreign-tenant', 'FORBIDDEN_TENANT'), tenantId: 'another-tenant' },
-      { ...rideTopic('foreign-venue', 'FORBIDDEN_VENUE'), venueId: 'another-venue' },
+      {
+        ...rideTopic('foreign-tenant', 'FORBIDDEN_TENANT'),
+        tenantId: 'another-tenant',
+      },
+      {
+        ...rideTopic('foreign-venue', 'FORBIDDEN_VENUE'),
+        venueId: 'another-venue',
+      },
       { ...rideTopic('disabled', 'FORBIDDEN_DISABLED'), isEnabled: false },
-      { ...rideTopic('second-layer', 'FORBIDDEN_SECOND'), visibility: 'SECOND_LAYER' },
-      { ...rideTopic('source-connection', 'FORBIDDEN_CONNECTED'), sourceType: 'SOURCE_CONNECTION' },
+      {
+        ...rideTopic('second-layer', 'FORBIDDEN_SECOND'),
+        visibility: 'SECOND_LAYER',
+      },
+      {
+        ...rideTopic('source-connection', 'FORBIDDEN_CONNECTED'),
+        sourceType: 'SOURCE_CONNECTION',
+      },
       withdrawn,
       unpublished,
       future,
@@ -1196,7 +1435,10 @@ describe('facet actual chat independent boundaries', () => {
       validPlace,
       { ...ridePlace('private', 'FORBIDDEN_PRIVATE'), visibility: 'PRIVATE' },
       { ...ridePlace('inactive', 'FORBIDDEN_INACTIVE'), isActive: false },
-      { ...ridePlace('foreign-place', 'FORBIDDEN_FOREIGN_PLACE'), tenantId: 'another-tenant' },
+      {
+        ...ridePlace('foreign-place', 'FORBIDDEN_FOREIGN_PLACE'),
+        tenantId: 'another-tenant',
+      },
     ]
     fixture.strict = true
     fixture.activatedIds = [adopted.id]
@@ -1231,4 +1473,385 @@ describe('facet actual chat independent boundaries', () => {
     expect(retainedBodyKeys()).toEqual(['knowledge:strict-valid', 'place:strict-place'])
     assertBodyBudgetAndTypedIdentity()
   })
+  const rarityQuery =
+    'extraordinary international educational architectural informational recreational unforgettable comprehensive Ark'
+  async function rarityFixture() {
+    const common =
+      'extraordinary international educational architectural informational recreational unforgettable comprehensive'
+    const ark = {
+      ...rideTopic('rarity-ark', 'ARK_WHOLE_GOVERNING_BODY: Children need an adult.'),
+      title: 'Ark',
+    }
+    const place = {
+      ...ridePlace('rarity-place', 'ARK_PLACE_WHOLE_BODY'),
+      name: 'Ark',
+    }
+    const fillers = Array.from({ length: 16 }, (_, i) => rideTopic(`rarity-common-${i}`, common))
+    await install([ark, ...fillers], [place])
+    fixture.strict = true
+    semanticSearch.knowledge.mockResolvedValue([])
+    semanticSearch.places.mockResolvedValue([])
+    return { ark, place, fillers }
+  }
+  it.each([false, true])(
+    'recovers initial Ark knowledge with authorized rarity (embedding=%s), loading directory once',
+    async (embedding) => {
+      const { ark, place } = await rarityFixture()
+      if (!embedding)
+        embeddingCreate.mockRejectedValue(new Error('synthetic unavailable embedding'))
+      await send(rarityQuery)
+      expect(loadGuestVenueDirectoryCached).toHaveBeenCalledOnce()
+      expect(w7Initial.knowledge).toHaveLength(1)
+      expect(w7Initial.knowledge[0]?.hasHints).toBe(true)
+      expect(w7Initial.knowledge[0]?.ids).toContain(ark.id)
+      const lexicalQueries = venueKnowledgeEntryFindMany.mock.calls.filter(([args]) =>
+        args.where?.AND?.some((clause: Record<string, unknown>) =>
+          JSON.stringify(clause).includes('contains'),
+        ),
+      )
+      expect(lexicalQueries.some(([args]) => JSON.stringify(args.where).includes('ark'))).toBe(true)
+      if (embedding) {
+        expect(w7Initial.places.flat()).toContain(place.id)
+        expect(
+          placeFindMany.mock.calls.some(([args]) => JSON.stringify(args.where?.OR).includes('ark')),
+        ).toBe(true)
+      } else {
+        expect(w7Initial.places).toEqual([]) // No-embedding place lane remains importance/geo.
+      }
+      expect(prompt()).toContain('ARK_WHOLE_GOVERNING_BODY')
+      expect(retainedBodyKeys()).toContain(`knowledge:${ark.id}`)
+      assertBodyBudgetAndTypedIdentity()
+    },
+  )
+  it('falls back to query-only initial retrieval after one directory failure without retry', async () => {
+    await rarityFixture()
+    vi.mocked(loadGuestVenueDirectoryCached).mockRejectedValueOnce(
+      new Error('synthetic directory unavailable'),
+    )
+    await send(rarityQuery)
+    expect(loadGuestVenueDirectoryCached).toHaveBeenCalledOnce()
+    expect(w7Initial.knowledge).toHaveLength(1)
+    expect(w7Initial.knowledge[0]?.hasHints).toBe(false)
+    expect(
+      configLogger.info.mock.calls.some(
+        ([row]) => row.action === 'guest-chat.lexical-rarity' && row.status === 'LOAD_FAILED',
+      ),
+    ).toBe(true)
+  })
+  it('distinguishes projected Ark hints from old compatibility initial IDs and later QE recovery', async () => {
+    const { ark, place, fillers } = await rarityFixture()
+    const legacyArk = {
+      ...ark,
+      title: 'Old Pavilion',
+      content: 'OLD_PAVILION_ONLY_BODY',
+    }
+    const legacyPlace = {
+      ...place,
+      name: 'Old Pavilion',
+      longDescription: 'OLD_PAVILION_ONLY_PLACE',
+    }
+    await install([legacyArk, ...fillers], [legacyPlace])
+    fixture.strict = true
+    semanticSearch.knowledge.mockResolvedValue([])
+    semanticSearch.places.mockResolvedValue([])
+    resolveNativeGuestReadSnapshotAction.mockResolvedValue({
+      path: 'NATIVE',
+      reason: 'NATIVE_READY',
+      releaseId: '77777777-7777-4777-8777-777777777777',
+      state: { knowledgeEntries: [ark, ...fillers], places: [place] },
+    })
+    await send(rarityQuery)
+    expect(w7Initial.knowledge[0]?.hasHints).toBe(true)
+    expect(
+      venueKnowledgeEntryFindMany.mock.calls.some(([args]) =>
+        JSON.stringify(args.where).includes('ark'),
+      ),
+    ).toBe(true)
+    expect(w7Initial.knowledge[0]?.ids).not.toContain(ark.id)
+    expect(w7Initial.places.flat()).not.toContain(place.id)
+    expect(prompt()).toContain('ARK_WHOLE_GOVERNING_BODY')
+    expect(prompt()).not.toContain('OLD_PAVILION_ONLY_BODY')
+    expect(retainedBodyKeys()).toContain(`knowledge:${ark.id}`)
+    expect(loadGuestVenueDirectoryCached).toHaveBeenCalledOnce()
+  })
+  it('treats DARK as compatibility for fresh hydration while preserving actual path diagnostics', async () => {
+    const { ark } = await rarityFixture()
+    fixture.liveKnowledge = fixture.liveKnowledge.map((row) =>
+      row.id === ark.id
+        ? {
+            ...row,
+            content: 'DARK_CURRENT_ARK_BODY: An adult must accompany the child.',
+          }
+        : row,
+    )
+    resolveNativeGuestReadSnapshotAction.mockResolvedValue({
+      path: 'DARK',
+      reason: 'DARK_READ',
+      releaseId: null,
+      state: null,
+    })
+    await send(rarityQuery)
+    expect(prompt()).toContain('DARK_CURRENT_ARK_BODY')
+    expect(prompt()).not.toContain('ARK_WHOLE_GOVERNING_BODY')
+    expect(
+      venueKnowledgeEntryFindMany.mock.calls.some(([args]) => args.where?.id?.in?.includes(ark.id)),
+    ).toBe(true)
+    expect(
+      configLogger.info.mock.calls.some(
+        ([row]) => row.action === 'guest-chat.native-content-read' && row.readPath === 'DARK',
+      ),
+    ).toBe(true)
+    expect(loadGuestVenueDirectoryCached).toHaveBeenCalledOnce()
+  })
+  it('updates native rarity after compatibility membership changes within one immutable release', async () => {
+    const { ark, place, fillers } = await rarityFixture()
+    const snapshot = {
+      path: 'NATIVE',
+      reason: 'NATIVE_READY',
+      releaseId: '88888888-8888-4888-8888-888888888888',
+      state: { knowledgeEntries: [ark, ...fillers], places: [place] },
+    }
+    await install(fillers, [])
+    fixture.strict = true
+    semanticSearch.knowledge.mockResolvedValue([])
+    semanticSearch.places.mockResolvedValue([])
+    resolveNativeGuestReadSnapshotAction.mockResolvedValue(snapshot)
+    await send(rarityQuery)
+    expect(w7Initial.knowledge.at(-1)?.ids).not.toContain(ark.id)
+    anthropicCreate.mockClear()
+    guestTurnActions.finalize.mockClear()
+    venueRenderings.length = 0
+    await install([ark, ...fillers], [place])
+    fixture.strict = true
+    await send(rarityQuery)
+    expect(w7Initial.knowledge.at(-1)?.ids).toContain(ark.id)
+    expect(prompt()).toContain('ARK_WHOLE_GOVERNING_BODY')
+    expect(retainedBodyKeys()).toContain(`knowledge:${ark.id}`)
+    expect(loadGuestVenueDirectoryCached).toHaveBeenCalledTimes(2)
+    anthropicCreate.mockClear()
+    guestTurnActions.finalize.mockClear()
+    venueRenderings.length = 0
+    await install(fillers, [])
+    fixture.strict = true
+    await send(rarityQuery)
+    expect(w7Initial.knowledge.at(-1)?.ids).not.toContain(ark.id)
+    expect(prompt()).not.toContain('ARK_WHOLE_GOVERNING_BODY')
+    expect(retainedBodyKeys()).not.toContain(`knowledge:${ark.id}`)
+    expect(loadGuestVenueDirectoryCached).toHaveBeenCalledTimes(3)
+  })
+
+  // UNRUN proposal: same query and actual QE/admission in both arms; only collection activation differs.
+  const qePreservationQuery = 'List rides with supervised launch boarding restrictions.'
+  function pressureBody(size: number, label: string) {
+    const opening = `${label}: This ride has supervised launch boarding restrictions. Children younger than nine need a paying adult. `
+    const ending = ` ${label}_WHOLE_END`
+    return opening + 'q'.repeat(Math.max(0, size - opening.length - ending.length)) + ending
+  }
+  function qePressureFixture(fillerSize = 20_000, targetSize = 10_000) {
+    const policy = rideTopic(
+      '000-governing-qe-policy',
+      'GOVERNING_QE_POLICY_CURRENT: Boarding conditions are mandatory for every recorded offering. Read each offering whole current restrictions before deciding.',
+    )
+    policy.title = 'Shared boarding restrictions'
+    policy.category = 'RULES'
+    const archiveOpening = 'UNRELATED_ARCHIVE_CURRENT: Unparsed archival background material. '
+    const filler = rideTopic(
+      'aaa-unknown-archive',
+      archiveOpening + 'z'.repeat(fillerSize - archiveOpening.length),
+    )
+    filler.title = 'Archival textile record'
+    filler.category = 'ARCHIVE'
+    const target = ridePlace('zzz-qe-decisive', pressureBody(targetSize, 'QE_PLACE_CURRENT'))
+    target.name = 'Juniper Shuttle'
+    // Changed bodies must carry a distinct metadata version, matching the real cache owner.
+    // Determinism keeps the same fixture version in both same-query counterfactual arms.
+    const fixtureRevision = createHash('sha256')
+      .update(JSON.stringify([policy.content, filler.content, target.longDescription]))
+      .digest('hex')
+    const updatedAt = new Date(
+      Date.UTC(2020, 0, 1) + (Number.parseInt(fixtureRevision.slice(0, 12), 16) % 31_536_000_000),
+    )
+    for (const row of [policy, filler, target]) row.updatedAt = updatedAt
+    return { policy, filler, target }
+  }
+  type PressureFixture = ReturnType<typeof qePressureFixture>
+  async function qePreservationArm(
+    data: PressureFixture,
+    active: boolean,
+    mutation: 'none' | 'withdraw' | 'grow-fit' | 'grow-over-budget' = 'none',
+  ) {
+    anthropicCreate.mockClear()
+    guestTurnActions.finalize.mockClear()
+    venueRenderings.length = 0
+    facetInputs.length = 0
+    w7Initial.knowledge.length = 0
+    w7Initial.places.length = 0
+    qePreservation.parser.length = 0
+    qePreservation.qe.length = 0
+    qePreservation.facet.length = 0
+    qePreservation.admission.length = 0
+    fixture.onHydrate = undefined
+    await install([data.policy, data.filler], [data.target])
+    fixture.lexicalKnowledge = [data.policy]
+    semanticSearch.knowledge.mockResolvedValue([{ ...data.policy, distance: 0.1 }])
+    semanticSearch.places.mockResolvedValue([])
+    qePreservation.inactiveQuery = active ? null : qePreservationQuery
+    let mutationObserved = false
+    const currentBody =
+      mutation === 'grow-fit'
+        ? pressureBody(10_000, 'QE_PLACE_GROWN_CURRENT')
+        : mutation === 'grow-over-budget'
+          ? pressureBody(31_000, 'QE_PLACE_OVERSIZED_CURRENT')
+          : (data.target.longDescription as string)
+    if (mutation !== 'none')
+      fixture.onHydrate = () => {
+        expect(
+          qePreservation.qe.at(-1)?.addedPlaceIds,
+          'mutation must occur after actual QE selected the cached whole place',
+        ).toContain(data.target.id)
+        fixture.onHydrate = undefined
+        mutationObserved = true
+        fixture.livePlaces =
+          mutation === 'withdraw'
+            ? []
+            : [
+                {
+                  ...data.target,
+                  longDescription: currentBody,
+                  updatedAt: new Date('2026-10-17T13:59:00Z'),
+                },
+              ]
+        // Model the matching metadata drift without rewriting the old loaded-directory snapshot.
+        fixture.places = fixture.livePlaces.map((row) => ({ ...row }))
+      }
+    await send(qePreservationQuery)
+    expect(qePreservation.parser).toContainEqual({
+      query: qePreservationQuery,
+      naturalRecognized: true,
+      overridden: !active,
+    })
+    const observedQe = qePreservation.qe.at(-1)!
+    expect(observedQe.query).toBe(qePreservationQuery)
+    expect(observedQe.allowPlaces).toBe(true)
+    expect(observedQe.maxPlaces ?? 0).toBeGreaterThan(0)
+    expect(observedQe.initialPlaceIds).not.toContain(data.target.id)
+    expect(observedQe.initialKnowledgeIds).toContain(data.policy.id)
+    expect(
+      observedQe.addedKnowledgeIds,
+      'unrelated pressure knowledge must not already be QE evidence',
+    ).not.toContain(data.filler.id)
+    expect(w7Initial.places.flat()).not.toContain(data.target.id)
+    expect(
+      observedQe.addedPlaceIds,
+      'the decisive place must come from actual whole-directory QE, never a substituted result',
+    ).toContain(data.target.id)
+    expect(qePreservation.admission).toHaveLength(1)
+    if (active) {
+      expect(qePreservation.facet).toHaveLength(1)
+      expect(qePreservation.facet[0]!.constraints).toEqual({})
+      expect(qePreservation.facet[0]!.maxChars).toBe(30_000)
+      expect(qePreservation.facet[0]!.governingKeys).toContain(`knowledge:${data.policy.id}`)
+      expect(qePreservation.facet[0]!.requiredKeys).toEqual(
+        expect.arrayContaining([
+          `knowledge:${data.policy.id}`,
+          `knowledge:${data.filler.id}`,
+          `place:${data.target.id}`,
+        ]),
+      )
+    } else expect(qePreservation.facet).toEqual([])
+    if (mutation !== 'none') expect(mutationObserved).toBe(true)
+    const admission = qePreservation.admission[0]!
+    if (mutation === 'withdraw') expect(admission.inputPlaceIds).not.toContain(data.target.id)
+    else {
+      expect(
+        admission.inputPlaceIds,
+        'one available QE place must reach actual admission; retrieval/card pool caps are not the adversary',
+      ).toContain(data.target.id)
+      expect(admission.inputPlaceBodies).toContainEqual({ id: data.target.id, body: currentBody })
+    }
+    const text = prompt()
+    const evidence = structuredClone(finalEvidence())
+    if (!active)
+      expect(evidence.sources.map((row) => row.sourceId)).not.toContain(
+        `knowledge:${data.filler.id}`,
+      )
+    assertBodyBudgetAndTypedIdentity()
+    expect(text).toContain(data.policy.content as string)
+    expect(retainedBodyKeys()).toContain(`knowledge:${data.policy.id}`)
+    return {
+      text,
+      evidence,
+      currentBody,
+      observations: structuredClone({
+        qe: qePreservation.qe,
+        facet: qePreservation.facet,
+        admission: qePreservation.admission,
+      }),
+    }
+  }
+  function assertCurrentQePlace(report: Awaited<ReturnType<typeof qePreservationArm>>, id: string) {
+    const source = report.evidence.sources.find(
+      (row) => row.kind === 'PLACE' && row.sourceId === `place:${id}`,
+    )
+    const diagnostic = JSON.stringify(report.observations)
+    expect(
+      source,
+      `required baseline whole-place source lost; actual owner trace=${diagnostic}`,
+    ).toBeDefined()
+    expect(JSON.parse(source!.snapshot).longDescription).toBe(report.currentBody)
+    expect(
+      report.text,
+      `required current whole-place body lost; actual owner trace=${diagnostic}`,
+    ).toContain(report.currentBody)
+  }
+
+  it('preserves a baseline whole current QE place when unrelated unknown collection evidence overflows', async () => {
+    const data = qePressureFixture()
+    expect(data.target.id > data.filler.id).toBe(true)
+    // Source bodies alone exceed30k, independently of wrappers; the baseline policy+target fits.
+    expect(
+      (data.filler.content as string).length +
+        (data.target.longDescription as string).length +
+        (data.policy.content as string).length,
+    ).toBeGreaterThan(30_000)
+    const baseline = await qePreservationArm(data, false)
+    assertCurrentQePlace(baseline, data.target.id)
+    const augmented = await qePreservationArm(data, true)
+    expect(augmented.observations.facet[0]!.selectionComplete).toBe(false)
+    assertCurrentQePlace(augmented, data.target.id)
+  })
+
+  it('preserves the same QE place when the finite augmented union fits', async () => {
+    const data = qePressureFixture(1_000, 1_000)
+    const baseline = await qePreservationArm(data, false)
+    assertCurrentQePlace(baseline, data.target.id)
+    const augmented = await qePreservationArm(data, true)
+    expect(augmented.observations.facet[0]!.selectionComplete).toBe(true)
+    assertCurrentQePlace(augmented, data.target.id)
+  })
+
+  it('preserves a fitting live-grown QE place without restoring its smaller predecessor', async () => {
+    const data = qePressureFixture(20_000, 2_000)
+    const baseline = await qePreservationArm(data, false, 'grow-fit')
+    assertCurrentQePlace(baseline, data.target.id)
+    expect(baseline.text).not.toContain('QE_PLACE_CURRENT:')
+    const augmented = await qePreservationArm(data, true, 'grow-fit')
+    assertCurrentQePlace(augmented, data.target.id)
+    expect(augmented.text).not.toContain('QE_PLACE_CURRENT:')
+  })
+
+  it.each(['withdraw', 'grow-over-budget'] as const)(
+    'does not preserve a forbidden or oversized QE place through %s',
+    async (mutation) => {
+      const data = qePressureFixture(20_000, 2_000)
+      for (const active of [false, true]) {
+        const report = await qePreservationArm(data, active, mutation)
+        expect(report.evidence.sources.map((row) => row.sourceId)).not.toContain(
+          `place:${data.target.id}`,
+        )
+        expect(report.text).not.toContain('QE_PLACE_CURRENT:')
+        expect(report.text).not.toContain('QE_PLACE_OVERSIZED_CURRENT:')
+      }
+    },
+  )
 })

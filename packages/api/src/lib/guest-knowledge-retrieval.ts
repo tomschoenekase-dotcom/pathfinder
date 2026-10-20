@@ -323,7 +323,11 @@ function stemVariants(token: string): string[] {
   return [token]
 }
 
-export function guestQueryConcepts(query: string): string[][] {
+export type GuestQueryRarity = {
+  documentFrequency: ReadonlyMap<string, number>
+  exactNameTokens: ReadonlySet<string>
+}
+export function guestQueryConcepts(query: string, rarity?: GuestQueryRarity): string[][] {
   const overview = guestQueryIsOverview(query)
   const tokens = [...new Set(normalize(query).match(/[\p{L}\p{N}]+/gu) ?? [])]
     .filter((token) => !(overview && OVERVIEW_GENERIC_TOKENS.has(token)))
@@ -345,12 +349,20 @@ export function guestQueryConcepts(query: string): string[][] {
     // ("... and can we take photos?") must reach the lexical lanes as reliably as the first part.
     // Known concepts lead, then longer (usually rarer) words; ties keep question order.
     .map((item, position) => ({ ...item, position }))
-    .sort(
-      (a, b) =>
-        Number(b.concepts.length > 0) - Number(a.concepts.length > 0) ||
-        b.token.length - a.token.length ||
-        a.position - b.position,
-    )
+    .sort((a, b) => {
+      if (!rarity)
+        return (
+          Number(b.concepts.length > 0) - Number(a.concepts.length > 0) ||
+          b.token.length - a.token.length ||
+          a.position - b.position
+        )
+      const exact =
+        Number(rarity.exactNameTokens.has(b.token)) - Number(rarity.exactNameTokens.has(a.token))
+      const known = Number(b.concepts.length > 0) - Number(a.concepts.length > 0)
+      const frequency = (token: string) =>
+        rarity.documentFrequency.get(token) ?? Number.MAX_SAFE_INTEGER
+      return exact || known || frequency(a.token) - frequency(b.token) || a.position - b.position
+    })
     .slice(0, 8)
   const groups: string[][] = overview ? [OVERVIEW_CONCEPT.map(normalize)] : []
   for (const { token, concepts } of tokens) {
@@ -369,14 +381,19 @@ export function guestQueryConcepts(query: string): string[][] {
  * Lexical concept groups for this turn. A short referential follow-up borrows the previous
  * visitor message's concepts so "which one is scariest?" keeps the earlier topic.
  */
+export type GuestRetrievalRarity = {
+  current: GuestQueryRarity
+  previous?: GuestQueryRarity
+}
 export function guestRetrievalConcepts(
   query: string,
   previousQuery?: string | null,
+  lexicalRarity?: GuestRetrievalRarity,
 ): { ownConcepts: string[][]; concepts: string[][]; broad: boolean } {
-  const ownConcepts = guestQueryConcepts(query)
+  const ownConcepts = guestQueryConcepts(query, lexicalRarity?.current)
   const followupConcepts =
     previousQuery && guestQueryIsFollowup(query)
-      ? guestQueryConcepts(previousQuery).filter(
+      ? guestQueryConcepts(previousQuery, lexicalRarity?.previous).filter(
           (group) => !ownConcepts.some((existing) => existing.join('|') === group.join('|')),
         )
       : []
@@ -494,8 +511,12 @@ export function guestKnowledgeScope(scopeParams: {
         contentRevision: {
           audience: 'PUBLIC',
           AND: [
-            { OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: scopeParams.asOf } }] },
-            { OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: scopeParams.asOf } }] },
+            {
+              OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: scopeParams.asOf } }],
+            },
+            {
+              OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: scopeParams.asOf } }],
+            },
             {
               OR: [
                 { kind: { not: 'OPERATIONAL_FACT' } },
@@ -532,7 +553,11 @@ export function guestKnowledgeScope(scopeParams: {
           // predicate tests that composite key and excludes ordinary legacy rows.
           // Test the nullable revision key itself; connected revisions remain fenced.
           { contentRevisionId: null },
-          { contentRevision: { is: { NOT: { createdBy: { startsWith: 'source-connection:' } } } } },
+          {
+            contentRevision: {
+              is: { NOT: { createdBy: { startsWith: 'source-connection:' } } },
+            },
+          },
         ],
       },
     ],
@@ -567,6 +592,7 @@ export async function retrieveGuestKnowledge(params: {
    * short referential follow-up, so "which one is scariest?" keeps the earlier coaster topic.
    */
   previousQuery?: string | null
+  lexicalRarity?: GuestRetrievalRarity
   /** Must apply this exact tenant, venue, and visibility scope before returning candidates. */
   semanticSearch?: (scope: {
     tenantId: string
@@ -575,14 +601,17 @@ export async function retrieveGuestKnowledge(params: {
   }) => Promise<SemanticKnowledgeEntry[]>
   now?: () => number
   asOf?: Date
-}): Promise<{ entries: SemanticKnowledgeEntry[]; trace: GuestKnowledgeRetrievalTrace }> {
+}): Promise<{
+  entries: SemanticKnowledgeEntry[]
+  trace: GuestKnowledgeRetrievalTrace
+}> {
   const reader = params.reader as GuestKnowledgeReader
   const started = (params.now ?? performance.now.bind(performance))()
   const {
     ownConcepts,
     concepts,
     broad: broadQuestion,
-  } = guestRetrievalConcepts(params.query, params.previousQuery)
+  } = guestRetrievalConcepts(params.query, params.previousQuery, params.lexicalRarity)
   const resultLimit = broadQuestion ? BROAD_RESULT_LIMIT : RESULT_LIMIT
   const asOf = params.asOf ?? new Date()
   const scope = guestKnowledgeScope({
@@ -652,7 +681,10 @@ export async function retrieveGuestKnowledge(params: {
   const semanticCandidates = semantic.slice(0, SEMANTIC_LIMIT)
   const semanticRows = semanticCandidates.length
     ? await reader.venueKnowledgeEntry.findMany({
-        where: { ...scope, id: { in: semanticCandidates.map((entry) => entry.id) } },
+        where: {
+          ...scope,
+          id: { in: semanticCandidates.map((entry) => entry.id) },
+        },
         select: guestKnowledgeSelectShape(),
         take: SEMANTIC_LIMIT,
       })
@@ -665,7 +697,10 @@ export async function retrieveGuestKnowledge(params: {
       ? await Promise.all(
           concepts.map((group) =>
             reader.venueKnowledgeEntry.findMany({
-              where: { ...scope, OR: group.map(textClause).flatMap((clause) => clause.OR) },
+              where: {
+                ...scope,
+                OR: group.map(textClause).flatMap((clause) => clause.OR),
+              },
               select: guestKnowledgeSelectShape(),
               orderBy: [{ lastReviewedAt: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
               take: PER_CONCEPT_LIMIT,
@@ -749,7 +784,11 @@ export async function retrieveGuestKnowledge(params: {
         continue
       semanticRank += 1
       fused.set(entry.id, {
-        entry: { ...current, distance: entry.distance, content: current.content },
+        entry: {
+          ...current,
+          distance: entry.distance,
+          content: current.content,
+        },
         score: 1 / (FUSION_RANK_OFFSET + semanticRank),
         order: fused.size,
       })
@@ -813,7 +852,10 @@ export async function retrieveGuestKnowledge(params: {
       semanticStatus,
       observedSources: candidates.map((entry) => {
         const updatedAt = (entry as SemanticKnowledgeEntry & { updatedAt?: unknown }).updatedAt
-        return { id: entry.id, version: updatedAt instanceof Date ? updatedAt.toISOString() : null }
+        return {
+          id: entry.id,
+          version: updatedAt instanceof Date ? updatedAt.toISOString() : null,
+        }
       }),
       retrievedSourceIds: entries.map((entry) => entry.id),
       retrievedSources: entries.map((entry) => ({
@@ -828,7 +870,11 @@ export async function retrieveGuestKnowledge(params: {
           ...candidates.filter((entry) => !selectedIds.has(entry.id)).map((entry) => entry.id),
         ]),
       ],
-      candidateCounts: { strict: strict.length, broad: broad.length, semantic: semantic.length },
+      candidateCounts: {
+        strict: strict.length,
+        broad: broad.length,
+        semantic: semantic.length,
+      },
       limits: { strict: STRICT_LIMIT, broad: BROAD_LIMIT, result: resultLimit },
       partialCoverage:
         candidates.length > entries.length ||

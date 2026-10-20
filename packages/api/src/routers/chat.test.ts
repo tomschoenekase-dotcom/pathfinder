@@ -3280,9 +3280,21 @@ describe('chat router', () => {
       })
       embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
       placeFindMany.mockReset()
-      placeFindMany
-        .mockResolvedValueOnce([{ ...placeRows[0], importanceScore: 90 }])
-        .mockResolvedValue([])
+      placeFindMany.mockImplementation(async (args) => {
+        // Directory metadata/body and hydration reads must not consume fallback fixtures.
+        if (args.select?.importanceScore !== true) return []
+        expect(args).toMatchObject({
+          where: {
+            tenantId: venueRow.tenantId,
+            venueId: VENUE_ID,
+            isActive: true,
+            visibility: 'PUBLIC',
+          },
+          orderBy: { importanceScore: 'desc' },
+          take: 8,
+        })
+        return [{ ...placeRows[0], importanceScore: 90 }]
+      })
 
       const result = await caller.chat.send({
         venueId: VENUE_ID,
@@ -3321,22 +3333,36 @@ describe('chat router', () => {
       })
       embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
       placeFindMany.mockReset()
-      placeFindMany.mockResolvedValueOnce([
-        {
-          ...placeRows[0],
-          id: 'far_from_default',
-          name: 'Far Habitat',
-          lat: 40.8,
-          importanceScore: 100,
-        },
-        {
-          ...placeRows[0],
-          id: 'near_default',
-          name: 'Near Habitat',
-          lat: 40.7001,
-          importanceScore: 10,
-        },
-      ])
+      placeFindMany.mockImplementation(async (args) => {
+        // Directory metadata/body and hydration reads must not consume fallback fixtures.
+        if (args.select?.importanceScore !== true) return []
+        expect(args).toMatchObject({
+          where: {
+            tenantId: venueRow.tenantId,
+            venueId: VENUE_ID,
+            isActive: true,
+            visibility: 'PUBLIC',
+          },
+          orderBy: { importanceScore: 'desc' },
+          take: 8,
+        })
+        return [
+          {
+            ...placeRows[0],
+            id: 'far_from_default',
+            name: 'Far Habitat',
+            lat: 40.8,
+            importanceScore: 100,
+          },
+          {
+            ...placeRows[0],
+            id: 'near_default',
+            name: 'Near Habitat',
+            lat: 40.7001,
+            importanceScore: 10,
+          },
+        ]
+      })
 
       const result = await caller.chat.send({
         venueId: VENUE_ID,
@@ -3368,24 +3394,38 @@ describe('chat router', () => {
       })
       embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
       placeFindMany.mockReset()
-      placeFindMany.mockResolvedValueOnce([
-        {
-          ...placeRows[0],
-          id: 'near_default',
-          name: 'Default Habitat',
-          lat: 40.7,
-          lng: -74,
-          importanceScore: 100,
-        },
-        {
-          ...placeRows[0],
-          id: 'near_visitor',
-          name: 'Visitor Habitat',
-          lat: sendInput.lat,
-          lng: sendInput.lng,
-          importanceScore: 10,
-        },
-      ])
+      placeFindMany.mockImplementation(async (args) => {
+        // Directory metadata/body and hydration reads must not consume fallback fixtures.
+        if (args.select?.importanceScore !== true) return []
+        expect(args).toMatchObject({
+          where: {
+            tenantId: venueRow.tenantId,
+            venueId: VENUE_ID,
+            isActive: true,
+            visibility: 'PUBLIC',
+          },
+          orderBy: { importanceScore: 'desc' },
+          take: 8,
+        })
+        return [
+          {
+            ...placeRows[0],
+            id: 'near_default',
+            name: 'Default Habitat',
+            lat: 40.7,
+            lng: -74,
+            importanceScore: 100,
+          },
+          {
+            ...placeRows[0],
+            id: 'near_visitor',
+            name: 'Visitor Habitat',
+            lat: sendInput.lat,
+            lng: sendInput.lng,
+            importanceScore: 10,
+          },
+        ]
+      })
 
       const result = await caller.chat.send(sendInput)
       const prompt = getConcatenatedSystemPrompt()

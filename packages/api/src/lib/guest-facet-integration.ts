@@ -1,5 +1,6 @@
 import { isPastDatedGuestEvent } from './guest-event-dates'
 import { buildVenueSystemPromptParts } from './venue-context'
+import { facetUnionCannotFit } from './guest-facet-union-bound'
 import {
   extractRecordFacetHints,
   selectFacetRecords,
@@ -32,6 +33,52 @@ function renderedRecordChars(
     userLat: null,
     userLng: null,
   }).recordContext.chars
+}
+
+// Formatting-only process constant, never a content/authority cache. Both exact measurements
+// include nonnegative body text, so their maximum bounds each standalone shared wrapper.
+let standaloneRecordOverhead: number | undefined
+function getStandaloneRecordOverhead(): number {
+  if (standaloneRecordOverhead === undefined)
+    standaloneRecordOverhead = Math.max(
+      renderedRecordChars(
+        [
+          {
+            id: '',
+            title: '',
+            category: 'GENERAL',
+            content: '',
+            sourceType: 'MANUAL',
+            sourceName: null,
+            sourceUrl: null,
+          },
+        ],
+        [],
+      ),
+      renderedRecordChars(
+        [],
+        [
+          {
+            id: '',
+            name: '',
+            type: 'ATTRACTION',
+            itemType: null,
+            shortDescription: null,
+            longDescription: null,
+            lat: null,
+            lng: null,
+            tags: [],
+            areaName: null,
+            hours: null,
+            photoUrl: null,
+            sourceType: 'MANUAL',
+            sourceName: null,
+            sourceUrl: null,
+          },
+        ],
+      ),
+    )
+  return standaloneRecordOverhead
 }
 
 /** Authorized projected index only; caller owns tenant/venue/authority and current version. */
@@ -127,11 +174,21 @@ export function selectGuestFacetCollection(params: {
     maxChars: Number.MAX_SAFE_INTEGER,
   })
   const allKeys = new Set(all.requiredKeys)
-  const knowledge = params.directory.knowledge.filter((row) => allKeys.has(`knowledge:${row.id}`))
-  const places = params.directory.places.filter((row) => allKeys.has(`place:${row.id}`))
-  // Per-row standalone wrappers overestimate a collection. Test the complete finite union first.
+  // A proven lower bound can reject an oversized union without constructing/rendering it.
+  // Failure to prove overflow is never proof of fit: retain the existing exact renderer.
+  const cannotFit = facetUnionCannotFit(
+    index,
+    allKeys,
+    params.maxChars,
+    getStandaloneRecordOverhead(),
+  )
   const finiteUnionFits =
-    renderedRecordChars(knowledge, places) <= params.maxChars && all.selectionComplete
+    !cannotFit &&
+    renderedRecordChars(
+      params.directory.knowledge.filter((row) => allKeys.has(`knowledge:${row.id}`)),
+      params.directory.places.filter((row) => allKeys.has(`place:${row.id}`)),
+    ) <= params.maxChars &&
+    all.selectionComplete
   const selection = finiteUnionFits
     ? all
     : selectFacetRecords({

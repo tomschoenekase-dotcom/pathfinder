@@ -3,6 +3,25 @@ import { createHash } from 'node:crypto'
 
 import type { RealtimeVoiceProviderAdapter } from '@pathfinder/ai'
 
+const w7VoiceInputs = vi.hoisted(
+  () => [] as Array<{ asOf: Date | undefined; currentDate: string | undefined }>,
+)
+vi.mock('../lib/voice-grounding-context', async (importOriginal) => {
+  const owner = await importOriginal<typeof import('../lib/voice-grounding-context')>()
+  return {
+    ...owner,
+    buildVoiceGroundingContext: async (
+      ...args: Parameters<typeof owner.buildVoiceGroundingContext>
+    ) => {
+      w7VoiceInputs.push({
+        asOf: args[0].asOf,
+        currentDate: args[0].currentDate,
+      })
+      return owner.buildVoiceGroundingContext(...args)
+    },
+  }
+})
+
 const mocks = vi.hoisted(() => ({
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
   entitlement: vi.fn(),
@@ -10,9 +29,12 @@ const mocks = vi.hoisted(() => ({
   publishOperationalEvent: vi.fn().mockResolvedValue(undefined),
   rateLimit: vi.fn().mockResolvedValue(true),
   enqueueHangup: vi.fn().mockResolvedValue(undefined),
-  nativeSnapshot: vi
-    .fn()
-    .mockResolvedValue({ path: 'LEGACY', reason: 'SERVER_DISABLED', releaseId: null, state: null }),
+  nativeSnapshot: vi.fn().mockResolvedValue({
+    path: 'LEGACY',
+    reason: 'SERVER_DISABLED',
+    releaseId: null,
+    state: null,
+  }),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -27,7 +49,9 @@ vi.mock('@pathfinder/db', () => ({
   })),
 }))
 vi.mock('@pathfinder/analytics', () => ({ emitEvent: mocks.emitEvent }))
-vi.mock('@pathfinder/jobs', () => ({ enqueueVoiceSessionHangup: mocks.enqueueHangup }))
+vi.mock('@pathfinder/jobs', () => ({
+  enqueueVoiceSessionHangup: mocks.enqueueHangup,
+}))
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit: mocks.rateLimit }))
 
 import { router } from '../core'
@@ -107,13 +131,20 @@ const db = {
   venueBotConfiguration: { findUnique: dbMocks.bot },
 } as unknown as TRPCContext['db']
 ;(
-  db as unknown as { $transaction: (operation: (transaction: typeof db) => unknown) => unknown }
+  db as unknown as {
+    $transaction: (operation: (transaction: typeof db) => unknown) => unknown
+  }
 ).$transaction = (operation) => operation(db)
 
 const caller = router({ voice: voiceRouter }).createCaller({
   db,
   headers: new Headers(),
-  session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+  session: {
+    userId: null,
+    activeTenantId: null,
+    role: null,
+    isPlatformAdmin: false,
+  },
 })
 
 const provider = {
@@ -153,7 +184,10 @@ describe('voice router', () => {
     dbMocks.updates.mockResolvedValue([])
     dbMocks.media.mockResolvedValue([])
     dbMocks.bot.mockResolvedValue(null)
-    dbMocks.voiceCreate.mockResolvedValue({ id: VOICE_ID, maxDurationSeconds: 600 })
+    dbMocks.voiceCreate.mockResolvedValue({
+      id: VOICE_ID,
+      maxDurationSeconds: 600,
+    })
     dbMocks.voiceUpdateMany.mockResolvedValue({ count: 1 })
     dbMocks.usageCreate.mockResolvedValue({ id: 'usage-1' })
     dbMocks.executeRaw.mockResolvedValue(1)
@@ -174,7 +208,10 @@ describe('voice router', () => {
   })
 
   it('reports only safe public availability after session and entitlement checks', async () => {
-    const result = await caller.voice.availability({ venueId: VENUE_ID, anonymousToken: TOKEN })
+    const result = await caller.voice.availability({
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+    })
 
     expect(result).toEqual({
       enabled: true,
@@ -199,7 +236,11 @@ describe('voice router', () => {
       caller.voice.availability({ venueId: VENUE_ID, anonymousToken: TOKEN }),
     ).resolves.toEqual({ enabled: false })
     await expect(
-      caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en' }),
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en',
+      }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(mocks.entitlement).toHaveBeenCalledWith(
       expect.objectContaining({ capability: 'premium-voice' }),
@@ -254,17 +295,26 @@ describe('voice router', () => {
       .mockResolvedValueOnce({ _sum: { durationSeconds: 17_750 } })
       .mockResolvedValueOnce({ _sum: { durationSeconds: 3_350 } })
       .mockResolvedValueOnce({ _sum: { durationSeconds: 17_750 } })
-    dbMocks.voiceCreate.mockResolvedValue({ id: VOICE_ID, maxDurationSeconds: 250 })
+    dbMocks.voiceCreate.mockResolvedValue({
+      id: VOICE_ID,
+      maxDurationSeconds: 250,
+    })
     const result = await caller.voice.start({
       venueId: VENUE_ID,
       anonymousToken: TOKEN,
       locale: 'en',
       tier: 'PREMIUM',
     })
-    expect(result).toMatchObject({ maxDurationSeconds: 250, model: 'gpt-realtime-2.1-mini' })
+    expect(result).toMatchObject({
+      maxDurationSeconds: 250,
+      model: 'gpt-realtime-2.1-mini',
+    })
     expect(dbMocks.voiceCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ maxDurationSeconds: 250, tier: 'ECONOMY' }),
+        data: expect.objectContaining({
+          maxDurationSeconds: 250,
+          tier: 'ECONOMY',
+        }),
       }),
     )
   })
@@ -282,7 +332,11 @@ describe('voice router', () => {
       },
     ])
     await expect(
-      caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en' }),
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en',
+      }),
     ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
     expect(provider.authorizeSession).not.toHaveBeenCalled()
     expect(mocks.publishOperationalEvent).toHaveBeenCalledWith(
@@ -310,7 +364,11 @@ describe('voice router', () => {
     mocks.publishOperationalEvent.mockRejectedValueOnce(new Error('event store unavailable'))
 
     await expect(
-      caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en' }),
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en',
+      }),
     ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
     expect(mocks.publishOperationalEvent).toHaveBeenCalledOnce()
     expect(provider.authorizeSession).not.toHaveBeenCalled()
@@ -323,14 +381,20 @@ describe('voice router', () => {
       .mockResolvedValueOnce({ _sum: { durationSeconds: 0 } })
       .mockResolvedValueOnce({ _sum: { durationSeconds: 17_980 } })
     await expect(
-      caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en' }),
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en',
+      }),
     ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
     expect(dbMocks.executeRaw).toHaveBeenCalledOnce()
     expect(dbMocks.voiceCreate).not.toHaveBeenCalled()
     expect(provider.authorizeSession).not.toHaveBeenCalled()
     expect(mocks.publishOperationalEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: expect.objectContaining({ eventType: 'voice.monthly-cap-or-concurrency-reached' }),
+        event: expect.objectContaining({
+          eventType: 'voice.monthly-cap-or-concurrency-reached',
+        }),
       }),
     )
   })
@@ -377,7 +441,11 @@ describe('voice router', () => {
       dbMocks.queryRaw.mockResolvedValueOnce([
         { ...scope, chatAppearance: { timeZone: 'America/Chicago' } },
       ])
-      await caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en-US' })
+      await caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en-US',
+      })
     } finally {
       vi.useRealTimers()
     }
@@ -499,7 +567,10 @@ describe('voice router', () => {
         sdpOffer: 'v=0\r\noffer',
       }),
     ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
-    expect(hangup).toHaveBeenCalledWith({ apiKey: 'sk-server-only', callId: 'rtc_local_test' })
+    expect(hangup).toHaveBeenCalledWith({
+      apiKey: 'sk-server-only',
+      callId: 'rtc_local_test',
+    })
     expect(dbMocks.voiceUpdateMany).toHaveBeenLastCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'FAILED', durationSeconds: 1 }),
@@ -569,7 +640,10 @@ describe('voice router', () => {
         sdpOffer: 'v=0\r\noffer',
       }),
     ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
-    expect(hangup).toHaveBeenCalledWith({ apiKey: 'sk-server-only', callId: 'rtc_local_test' })
+    expect(hangup).toHaveBeenCalledWith({
+      apiKey: 'sk-server-only',
+      callId: 'rtc_local_test',
+    })
     expect(mocks.enqueueHangup).not.toHaveBeenCalled()
   })
 
@@ -601,7 +675,9 @@ describe('voice router', () => {
     ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
     expect(dbMocks.voiceUpdateMany).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ status: { in: ['AUTHORIZING', 'ACTIVE', 'FAILED'] } }),
+        where: expect.objectContaining({
+          status: { in: ['AUTHORIZING', 'ACTIVE', 'FAILED'] },
+        }),
         data: expect.objectContaining({
           status: 'ACTIVE',
           providerSessionId: 'rtc_local_test',
@@ -658,7 +734,11 @@ describe('voice router', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-10T01:00:00Z'))
     try {
-      await caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en-US' })
+      await caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en-US',
+      })
     } finally {
       vi.useRealTimers()
     }
@@ -763,7 +843,10 @@ describe('voice router', () => {
     expect(result.sourceIds).toEqual(['bathroom'])
     expect(dbMocks.knowledge).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ tenantId: 'tenant-1', venueId: VENUE_ID }),
+        where: expect.objectContaining({
+          tenantId: 'tenant-1',
+          venueId: VENUE_ID,
+        }),
       }),
     )
   })
@@ -896,7 +979,13 @@ describe('voice router', () => {
           sourceName: 'Venue staff',
           sourceUrl: 'https://example.com/source',
           placeLinks: [{ placeId: 'garden' }],
-          reviews: [{ sequence: 2, action: 'APPROVE_CONTENT_USE', rightsBasis: 'VENUE_OWNED' }],
+          reviews: [
+            {
+              sequence: 2,
+              action: 'APPROVE_CONTENT_USE',
+              rightsBasis: 'VENUE_OWNED',
+            },
+          ],
         },
       },
     ])
@@ -956,7 +1045,11 @@ describe('voice router', () => {
   it('rejects employee sessions at the public voice boundary before entitlement or provider work', async () => {
     dbMocks.queryRaw.mockResolvedValue([{ ...scope, experienceScope: 'EMPLOYEE' }])
     await expect(
-      caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en' }),
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en',
+      }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(mocks.entitlement).not.toHaveBeenCalled()
     expect(provider.authorizeSession).not.toHaveBeenCalled()
@@ -982,7 +1075,10 @@ describe('voice router', () => {
       audioInputTokens: 1_000,
       audioOutputTokens: 2_000,
     })
-    expect(result).toMatchObject({ accepted: true, estimatedCostUsd: 0.050246 })
+    expect(result).toMatchObject({
+      accepted: true,
+      estimatedCostUsd: 0.050246,
+    })
     expect(dbMocks.usageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         tenantId: 'tenant-1',
@@ -1045,7 +1141,9 @@ describe('voice router', () => {
       audioInputTokens: 0,
       audioOutputTokens: 0,
     }
-    await expect(caller.voice.usage(base)).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(caller.voice.usage(base)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
     await expect(
       caller.voice.usage({
         ...base,
@@ -1150,7 +1248,10 @@ describe('voice router', () => {
     ).rejects.toMatchObject({ code: 'CONFLICT' })
 
     expect(dbMocks.usageCreate).not.toHaveBeenCalled()
-    expect(hangup).toHaveBeenCalledWith({ apiKey: 'sk-server-only', callId: 'rtc_local_test' })
+    expect(hangup).toHaveBeenCalledWith({
+      apiKey: 'sk-server-only',
+      callId: 'rtc_local_test',
+    })
     expect(dbMocks.voiceUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -1205,7 +1306,10 @@ describe('voice router', () => {
   })
 
   it('cancels a connecting row before provider acceptance can make it active', async () => {
-    dbMocks.voiceFindFirst.mockResolvedValue({ id: VOICE_ID, status: 'AUTHORIZING' })
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'AUTHORIZING',
+    })
     await expect(
       caller.voice.end({
         venueId: VENUE_ID,
@@ -1217,7 +1321,10 @@ describe('voice router', () => {
     expect(dbMocks.voiceUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ status: 'AUTHORIZING' }),
-        data: expect.objectContaining({ status: 'FAILED', errorCode: 'CLIENT_CANCELLED' }),
+        data: expect.objectContaining({
+          status: 'FAILED',
+          errorCode: 'CLIENT_CANCELLED',
+        }),
       }),
     )
   })
@@ -1247,7 +1354,10 @@ describe('voice router', () => {
         fallbackToText: true,
       }),
     ).resolves.toEqual({ ended: true, durationSeconds: 1 })
-    expect(hangup).toHaveBeenCalledWith({ apiKey: 'sk-server-only', callId: 'rtc_local_test' })
+    expect(hangup).toHaveBeenCalledWith({
+      apiKey: 'sk-server-only',
+      callId: 'rtc_local_test',
+    })
   })
 
   it('marks a failed explicit end for immediate provider recovery', async () => {
@@ -1343,11 +1453,15 @@ describe('voice router', () => {
 
     expect(dbMocks.voiceUpdateMany).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ where: expect.objectContaining({ status: 'AUTHORIZING' }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({ status: 'AUTHORIZING' }),
+      }),
     )
     expect(dbMocks.voiceUpdateMany).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ where: expect.objectContaining({ status: 'AUTHORIZING' }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({ status: 'AUTHORIZING' }),
+      }),
     )
     expect(mocks.emitEvent).not.toHaveBeenCalled()
     expect(mocks.publishOperationalEvent).not.toHaveBeenCalled()
@@ -1356,7 +1470,11 @@ describe('voice router', () => {
   it('keeps the endpoint dark when the server kill switch is off', async () => {
     vi.stubEnv('VOICE_MODE_ENABLED', 'false')
     await expect(
-      caller.voice.start({ venueId: VENUE_ID, anonymousToken: TOKEN, locale: 'en' }),
+      caller.voice.start({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        locale: 'en',
+      }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(dbMocks.queryRaw).not.toHaveBeenCalled()
   })
@@ -1367,5 +1485,31 @@ describe('voice router', () => {
       caller.voice.availability({ venueId: VENUE_ID, anonymousToken: TOKEN }),
     ).resolves.toEqual({ enabled: false })
     expect(dbMocks.queryRaw).not.toHaveBeenCalled()
+  })
+  it('passes server Chicago previous-day date and the same instant to actual voice grounding', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const now = new Date('2026-10-20T00:30:00.000Z')
+    vi.setSystemTime(now)
+    w7VoiceInputs.length = 0
+    dbMocks.queryRaw.mockResolvedValue([
+      { ...scope, chatAppearance: { timeZone: 'America/Chicago' } },
+    ])
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      connectedAt: now,
+      maxDurationSeconds: 600,
+    })
+    dbMocks.knowledge.mockResolvedValue([])
+    await caller.voice.groundingContext({
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      voiceSessionId: VOICE_ID,
+      toolCallId: 'w7-server-date',
+      query: 'Tell me about Ark.',
+    })
+    expect(w7VoiceInputs).toHaveLength(1)
+    expect(w7VoiceInputs[0]?.asOf?.toISOString()).toBe(now.toISOString())
+    expect(w7VoiceInputs[0]?.currentDate).toBe('2026-10-19')
   })
 })

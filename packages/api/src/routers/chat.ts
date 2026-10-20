@@ -114,6 +114,7 @@ import {
   isGuestAnswerShapeEnabled,
 } from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
+import { guestQueryRarity } from '../lib/guest-query-rarity'
 import { guestDirectoryVersion } from '../lib/guest-directory-index-loader'
 import { parseFacetCollectionQuery } from '../lib/guest-facet-query'
 import {
@@ -433,7 +434,10 @@ function authorizeChatExperience(
     session.activeTenantId !== venue.tenantId ||
     session.role === null
   ) {
-    throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue experience not found' })
+    throw new TRPCError({
+      code: 'NOT_FOUND',
+      message: 'Venue experience not found',
+    })
   }
   return 'SECOND_LAYER'
 }
@@ -442,7 +446,10 @@ function elapsedMilliseconds(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt))
 }
 
-function stripEngagementMarker(text: string): { cleaned: string; markerFound: boolean } {
+function stripEngagementMarker(text: string): {
+  cleaned: string
+  markerFound: boolean
+} {
   const markerIndex = text.lastIndexOf(ENGAGEMENT_ASKED_MARKER)
   if (markerIndex === -1) {
     return { cleaned: text, markerFound: false }
@@ -450,7 +457,10 @@ function stripEngagementMarker(text: string): { cleaned: string; markerFound: bo
   return { cleaned: text.slice(0, markerIndex).trimEnd(), markerFound: true }
 }
 
-const NO_GUEST_ACTIONS: GuestActionSettings = { inlineLinks: false, buttons: false }
+const NO_GUEST_ACTIONS: GuestActionSettings = {
+  inlineLinks: false,
+  buttons: false,
+}
 
 type GuestActionState = { settings: GuestActionSettings; stored: unknown[] }
 
@@ -501,7 +511,10 @@ function guestActionResponseBlocks(
     now: new Date(),
     places: turn.places as GuestResponsePlace[],
     ...(turn.citations
-      ? { citations: turn.citations.citations, citationsHeading: turn.citations.heading }
+      ? {
+          citations: turn.citations.citations,
+          citationsHeading: turn.citations.heading,
+        }
       : {}),
   })
 }
@@ -511,7 +524,13 @@ function guestCitationBlocks(
   visible: ReturnType<typeof selectGuestVisibleCitations>,
 ): GuestResponseBlock[] | null {
   return visible
-    ? [{ type: 'citations' as const, heading: visible.heading, citations: visible.citations }]
+    ? [
+        {
+          type: 'citations' as const,
+          heading: visible.heading,
+          citations: visible.citations,
+        },
+      ]
     : null
 }
 
@@ -592,7 +611,13 @@ const admittedChatSendProcedure = publicProcedure
     const experienceScope = authorizeChatExperience(chatVenue, ctx.session, input.secondLayerKey)
 
     return next({
-      ctx: { ...ctx, chatVenue, experienceScope, chatIngressStartedAt, chatRateLimitMs },
+      ctx: {
+        ...ctx,
+        chatVenue,
+        experienceScope,
+        chatIngressStartedAt,
+        chatRateLimitMs,
+      },
     })
   })
   .use(async ({ ctx, input, next }) => {
@@ -669,7 +694,10 @@ const chatSessionRouter = router({
       60,
     )
     if (!globallyAllowed) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many session updates.',
+      })
     }
 
     const venueAllowed = await checkRateLimit(
@@ -678,7 +706,10 @@ const chatSessionRouter = router({
       60,
     )
     if (!venueAllowed) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many session updates.',
+      })
     }
 
     const sessionAllowed = await checkRateLimit(
@@ -687,7 +718,10 @@ const chatSessionRouter = router({
       60,
     )
     if (!sessionAllowed) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many session updates.',
+      })
     }
 
     // $queryRaw used here because this is a public cross-tenant lookup — the caller
@@ -767,7 +801,10 @@ const chatSessionRouter = router({
     })
 
     if ((session.experienceScope ?? 'PUBLIC') !== experienceScope) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat session not found' })
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Chat session not found',
+      })
     }
 
     return { sessionId: session.id }
@@ -849,7 +886,10 @@ const chatReadRouter = router({
     let reservation: Awaited<ReturnType<typeof reserveGuestChatTurnAction>>
     const reservationStartedAt = performance.now()
     try {
-      reservation = await reserveGuestChatTurnAction({ client: ctx.db, request: turnRequest })
+      reservation = await reserveGuestChatTurnAction({
+        client: ctx.db,
+        request: turnRequest,
+      })
     } catch (error) {
       guestChatTurnError(error)
     }
@@ -931,7 +971,10 @@ const chatReadRouter = router({
       }
     }
     if (claimed.state !== 'GENERATING') {
-      throw new TRPCError({ code: 'CONFLICT', message: 'Chat turn claim is incomplete.' })
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Chat turn claim is incomplete.',
+      })
     }
     const session = { id: claimed.sessionId }
     const embeddingInvocationId = claimed.providerOperations.find(
@@ -941,7 +984,10 @@ const chatReadRouter = router({
       (operation) => operation.kind === 'RESPONSE_GENERATION',
     )?.invocationId
     if (!embeddingInvocationId || !generationInvocationId) {
-      throw new TRPCError({ code: 'CONFLICT', message: 'Chat provider evidence is incomplete.' })
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Chat provider evidence is incomplete.',
+      })
     }
 
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
@@ -1032,7 +1078,11 @@ const chatReadRouter = router({
           tenantId: venue.tenantId,
           venueId: input.venueId,
           includeSecondLayer,
-          places: authorizedCandidates.map(({ id, name, areaName }) => ({ id, name, areaName })),
+          places: authorizedCandidates.map(({ id, name, areaName }) => ({
+            id,
+            name,
+            areaName,
+          })),
         })
         const effectiveFollowup = resolveGuestPlaceIdentityFollowup({
           rawReply: trimmedInput,
@@ -1185,6 +1235,24 @@ const chatReadRouter = router({
           })
 
     const operationalNow = new Date()
+    // The complete public directory; a failure only removes it from the prompt.
+    const emptyDirectory: GuestVenueDirectory = {
+      knowledge: [],
+      places: [],
+      incomplete: true,
+    }
+    let guideLoadStatus: 'READY' | 'LOAD_FAILED' | 'PROJECTION_MISMATCH' = 'READY'
+    const loadedDirectoryPromise = loadGuestVenueDirectoryCached({
+      reader: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      includeSecondLayer,
+      asOf: operationalNow,
+    }).catch(() => {
+      guideLoadStatus = 'LOAD_FAILED'
+      logger.warn({ action: 'guest-directory-unavailable', venueId: venue.id })
+      return emptyDirectory
+    })
     const [
       queryEmbedding,
       historyDesc,
@@ -1295,7 +1363,11 @@ const chatReadRouter = router({
       ]
       void ctx.db.tenantFeatureFlag
         .findMany({
-          where: { tenantId: venue.tenantId, enabled: true, flagKey: { in: requiredKeys } },
+          where: {
+            tenantId: venue.tenantId,
+            enabled: true,
+            flagKey: { in: requiredKeys },
+          },
           select: { flagKey: true },
         })
         .then((rows) => {
@@ -1370,12 +1442,68 @@ const chatReadRouter = router({
       parseChatAppearance(venue.chatAppearance).timeZone,
     )
     const currentDate = venueClock.date
+    const loadedDirectory = await loadedDirectoryPromise
+    // The directory follows the same native-release projection as retrieved content.
+    const directoryRead = applyNativeGuestContentRead({
+      snapshot: nativeReadSnapshot,
+      legacyPlaces: loadedDirectory.places,
+      legacyKnowledgeEntries: loadedDirectory.knowledge.map((entry) => ({
+        ...entry,
+        distance: 0,
+      })),
+    })
+    const effectiveDirectoryPath = directoryRead.path === 'NATIVE' ? 'NATIVE' : 'LEGACY'
+    const intendedContentPath = nativeReadSnapshot.path === 'NATIVE' ? 'NATIVE' : 'LEGACY'
+    const hintDirectory: GuestVenueDirectory = {
+      knowledge: directoryRead.knowledgeEntries,
+      places: directoryRead.places,
+      incomplete: loadedDirectory.incomplete,
+      ...(effectiveDirectoryPath === 'NATIVE' && nativeReadSnapshot.releaseId
+        ? {
+            searchVersion: JSON.stringify([
+              venue.tenantId,
+              input.venueId,
+              includeSecondLayer,
+              'NATIVE',
+              nativeReadSnapshot.releaseId,
+            ]),
+          }
+        : loadedDirectory.searchVersion
+          ? { searchVersion: loadedDirectory.searchVersion }
+          : {}),
+    }
+    const lexicalHintStatus =
+      guideLoadStatus !== 'READY'
+        ? guideLoadStatus
+        : hintDirectory.incomplete
+          ? 'INCOMPLETE'
+          : effectiveDirectoryPath !== intendedContentPath
+            ? 'PROJECTION_MISMATCH'
+            : 'READY'
+    const lexicalRarity =
+      lexicalHintStatus === 'READY'
+        ? {
+            current: guestQueryRarity(hintDirectory, retrievalQuery),
+            ...(previousGuestQuery
+              ? {
+                  previous: guestQueryRarity(hintDirectory, previousGuestQuery),
+                }
+              : {}),
+          }
+        : undefined
+    logger.info({
+      action: 'guest-chat.lexical-rarity',
+      status: lexicalHintStatus,
+      directoryPath: directoryRead.path,
+      snapshotPath: nativeReadSnapshot.path,
+    })
     if (queryEmbedding) {
       const [places, knowledge] = await Promise.all([
         fuseGuestPlacesWithLexical({
           reader: ctx.db,
           query: retrievalQuery,
           previousQuery: previousGuestQuery,
+          ...(lexicalRarity ? { lexicalRarity } : {}),
           tenantId: venue.tenantId,
           venueId: input.venueId,
           includeSecondLayer,
@@ -1397,6 +1525,7 @@ const chatReadRouter = router({
           reader: ctx.db,
           query: retrievalQuery,
           previousQuery: previousGuestQuery,
+          ...(lexicalRarity ? { lexicalRarity } : {}),
           queryEmbedding,
           venueId: input.venueId,
           tenantId: venue.tenantId,
@@ -1426,6 +1555,7 @@ const chatReadRouter = router({
         reader: ctx.db,
         query: retrievalQuery,
         previousQuery: previousGuestQuery,
+        ...(lexicalRarity ? { lexicalRarity } : {}),
         queryEmbedding: null,
         venueId: input.venueId,
         tenantId: venue.tenantId,
@@ -1531,30 +1661,11 @@ const chatReadRouter = router({
       relevantPlaces = [entryPlace, ...relevantPlaces.filter((place) => place.id !== entryPlace.id)]
     }
     relevantKnowledgeEntries = nativeRead.knowledgeEntries
-    // The complete public directory; a failure only removes it from the prompt.
-    const emptyDirectory: GuestVenueDirectory = { knowledge: [], places: [], incomplete: false }
-    let guideLoadStatus: 'READY' | 'LOAD_FAILED' | 'PROJECTION_MISMATCH' = 'READY'
-    const loadedDirectory = await loadGuestVenueDirectoryCached({
-      reader: ctx.db,
-      tenantId: venue.tenantId,
-      venueId: input.venueId,
-      includeSecondLayer,
-      asOf: operationalNow,
-    }).catch(() => {
-      guideLoadStatus = 'LOAD_FAILED'
-      logger.warn({ action: 'guest-directory-unavailable', venueId: venue.id })
-      return emptyDirectory
-    })
-    // The directory follows the same native-release projection as retrieved content.
-    const directoryRead = applyNativeGuestContentRead({
-      snapshot: nativeReadSnapshot,
-      legacyPlaces: loadedDirectory.places,
-      legacyKnowledgeEntries: loadedDirectory.knowledge.map((entry) => ({ ...entry, distance: 0 })),
-    })
-    if (guideLoadStatus === 'READY' && directoryRead.path !== nativeRead.path)
+    const effectiveCandidatePath = nativeRead.path === 'NATIVE' ? 'NATIVE' : 'LEGACY'
+    if (guideLoadStatus === 'READY' && effectiveDirectoryPath !== effectiveCandidatePath)
       guideLoadStatus = 'PROJECTION_MISMATCH'
     let guestDirectory: GuestVenueDirectory =
-      directoryRead.path === nativeRead.path
+      effectiveDirectoryPath === effectiveCandidatePath
         ? {
             places: directoryRead.places,
             knowledge: directoryRead.knowledgeEntries,
@@ -1575,7 +1686,7 @@ const chatReadRouter = router({
           }
         : emptyDirectory
     // Retrieval versions describe legacy reads only; never mix them into a native release.
-    if (directoryRead.path === 'LEGACY' && nativeRead.path === 'LEGACY') {
+    if (effectiveDirectoryPath === 'LEGACY' && effectiveCandidatePath === 'LEGACY') {
       guestDirectory = suppressStaleGuestDirectoryKnowledge({
         directory: guestDirectory,
         observedSources: retrievalTrace?.observedSources ?? [],
@@ -1587,7 +1698,7 @@ const chatReadRouter = router({
       ? selectGuestVenueIndexCoreKnowledge(guestDirectory, { currentDate })
       : []
     let indexCoreKnowledge = indexCoreCandidates
-    if (evidenceStrategyEnabled && directoryRead.path === 'LEGACY') {
+    if (evidenceStrategyEnabled && effectiveDirectoryPath === 'LEGACY') {
       indexCoreKnowledge = await revalidateGuestQuestionEvidence({
         reader: ctx.db,
         tenantId: venue.tenantId,
@@ -1597,7 +1708,10 @@ const chatReadRouter = router({
         currentDate,
         knowledge: indexCoreCandidates,
       }).catch(() => {
-        logger.warn({ action: 'guest-index-core-revalidation-failed', venueId: venue.id })
+        logger.warn({
+          action: 'guest-index-core-revalidation-failed',
+          venueId: venue.id,
+        })
         return []
       })
       const preparedCore = prepareGuestVenueIndexCoreKnowledge({
@@ -1661,13 +1775,24 @@ const chatReadRouter = router({
       allowPlaces: !hasLiveLocation && !isGuestRecommendationQuery(effectiveIdentityQuery),
     })
     const facetQuery = parseFacetCollectionQuery(trimmedInput)
+    // Preserve the bounded pre-collection place priorities before broad facet candidates compete
+    // for the same body budget. These keys never bypass current authority or final admission.
+    const baselinePlaceKeys = mergeGuestQuestionEvidencePlaces({
+      places: relevantPlaces.map(({ id }) => ({ id })),
+      added: questionEvidence.places.map(({ id }) => ({ id })),
+      pinnedId: pinnedEntryPlaceId,
+      limit: NEAREST_PLACES_LIMIT,
+      retrievedSlots: QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS,
+    })
+      .slice(0, NEAREST_PLACES_LIMIT)
+      .map(({ id }) => `place:${id}`)
     const facetCollection =
       facetQuery.recognized &&
       venueGuide.mode === 'DIRECTORY' &&
       !hasLiveLocation &&
       !isGuestRecommendationQuery(effectiveIdentityQuery) &&
       guideLoadStatus === 'READY' &&
-      directoryRead.path === nativeRead.path
+      effectiveDirectoryPath === effectiveCandidatePath
         ? selectGuestFacetCollection({
             directory: guestDirectory,
             currentDate,
@@ -1704,7 +1829,7 @@ const chatReadRouter = router({
     // Metadata bracket begins BEFORE any collection hydration. NATIVE counts deliberately omitted.
     const facetVersionBefore =
       facetCollection &&
-      directoryRead.path === 'LEGACY' &&
+      effectiveDirectoryPath === 'LEGACY' &&
       guestDirectory.searchVersion &&
       !guestDirectory.incomplete
         ? await guestDirectoryVersion(facetVersionScope).catch(() => null)
@@ -1745,7 +1870,7 @@ const chatReadRouter = router({
       evidenceStrategyEnabled ? indexCoreKnowledge.map((entry) => [entry.id, entry]) : [],
     )
     const questionKnowledgePromise =
-      venueGuide.mode === 'DIRECTORY' && directoryRead.path === 'LEGACY'
+      venueGuide.mode === 'DIRECTORY' && effectiveDirectoryPath === 'LEGACY'
         ? revalidateGuestQuestionEvidence({
             reader: ctx.db,
             tenantId: venue.tenantId,
@@ -1777,7 +1902,7 @@ const chatReadRouter = router({
             })
         : Promise.resolve(knowledgeToHydrate)
     const questionPlaces =
-      directoryRead.path === 'LEGACY'
+      effectiveDirectoryPath === 'LEGACY'
         ? await revalidateGuestQuestionPlaces({
             reader: ctx.db,
             tenantId: venue.tenantId,
@@ -1785,13 +1910,16 @@ const chatReadRouter = router({
             includeSecondLayer,
             places: placesToHydrate,
           }).catch(() => {
-            logger.warn({ action: 'guest-question-place-revalidation-failed', venueId: venue.id })
+            logger.warn({
+              action: 'guest-question-place-revalidation-failed',
+              venueId: venue.id,
+            })
             return []
           })
         : venueGuide.mode === 'DIRECTORY'
           ? placesToHydrate
           : questionEvidence.places
-    if (venueGuide.mode === 'DIRECTORY' && directoryRead.path === 'LEGACY') {
+    if (venueGuide.mode === 'DIRECTORY' && effectiveDirectoryPath === 'LEGACY') {
       const current = new Map(questionPlaces.map((row) => [row.id, row]))
       relevantPlaces = relevantPlaces.flatMap((row) =>
         row.id === protectedNativeEntryId
@@ -1828,7 +1956,11 @@ const chatReadRouter = router({
       tenantId: venue.tenantId,
       venueId: input.venueId,
       includeSecondLayer,
-      places: relevantPlaces.map(({ id, name, areaName }) => ({ id, name, areaName })),
+      places: relevantPlaces.map(({ id, name, areaName }) => ({
+        id,
+        name,
+        areaName,
+      })),
     })
     const entryNameWasExplicit = Boolean(
       entryPlace &&
@@ -1910,7 +2042,10 @@ const chatReadRouter = router({
       })
     const questionKnowledge = await questionKnowledgePromise
     if (venueGuide.mode === 'DIRECTORY')
-      relevantKnowledgeEntries = questionKnowledge.map((entry) => ({ ...entry, distance: 1 }))
+      relevantKnowledgeEntries = questionKnowledge.map((entry) => ({
+        ...entry,
+        distance: 1,
+      }))
     else if (questionKnowledge.length)
       relevantKnowledgeEntries = [
         ...relevantKnowledgeEntries,
@@ -2005,7 +2140,10 @@ const chatReadRouter = router({
           priorUserMessages,
         })
       } catch {
-        logger.warn({ action: 'venue-recommendation-unavailable', venueId: venue.id })
+        logger.warn({
+          action: 'venue-recommendation-unavailable',
+          venueId: venue.id,
+        })
       }
     }
     const recommendationContext = recommendationDecision
@@ -2032,7 +2170,10 @@ const chatReadRouter = router({
       })
         .then((result) => result.prompt)
         .catch(() => {
-          logger.warn({ action: 'guest-live-data-unavailable', venueId: venue.id })
+          logger.warn({
+            action: 'guest-live-data-unavailable',
+            venueId: venue.id,
+          })
           return ''
         }),
       loadGuestSourceConnections(ctx.db, {
@@ -2040,7 +2181,10 @@ const chatReadRouter = router({
         venueId: venue.id,
         query: trimmedInput,
       }).catch(() => {
-        logger.warn({ action: 'guest-source-connections-unavailable', venueId: venue.id })
+        logger.warn({
+          action: 'guest-source-connections-unavailable',
+          venueId: venue.id,
+        })
         return ''
       }),
     ]).then((results) => results.filter(Boolean).join('\n\n'))
@@ -2098,7 +2242,10 @@ const chatReadRouter = router({
           .filter((place) => !(entryPlaceFromOtherSource && place.id === entryPlace.id))
           .map((place) =>
             identityAreaOriginals.has(place.id)
-              ? { ...place, areaName: identityAreaOriginals.get(place.id) ?? null }
+              ? {
+                  ...place,
+                  areaName: identityAreaOriginals.get(place.id) ?? null,
+                }
               : place,
           ),
         knowledgeEntries: relevantKnowledgeEntries,
@@ -2179,7 +2326,11 @@ const chatReadRouter = router({
         knowledge: relevantKnowledgeEntries,
         places: relevantPlaces,
         priorityKeys: facetCollection
-          ? [...facetCollection.selection.governingKeys, ...facetCollection.selection.selectedKeys]
+          ? [
+              ...facetCollection.selection.governingKeys,
+              ...baselinePlaceKeys,
+              ...facetCollection.selection.selectedKeys,
+            ]
           : [
               ...relevantKnowledgeEntries.map((row) => `knowledge:${row.id}`),
               ...relevantPlaces.map((row) => `place:${row.id}`),
@@ -2379,7 +2530,11 @@ const chatReadRouter = router({
           venueId: input.venueId,
         })
         const currentConfiguration = await resolveRuntimeAiWorkloadConfiguration(
-          { workloadId: 'guest-chat', tenantId: venue.tenantId, venueId: input.venueId },
+          {
+            workloadId: 'guest-chat',
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+          },
           ctx.db,
         )
         if (JSON.stringify(currentConfiguration) !== configurationSnapshot) {
@@ -2480,7 +2635,10 @@ const chatReadRouter = router({
                   throw new Error('Web search permission changed')
                 await markGuestChatProviderDispatchedAction({
                   client: ctx.db,
-                  operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
+                  operation: {
+                    ...turnOperationBase,
+                    kind: 'RESPONSE_GENERATION',
+                  },
                 })
                 generationDispatched = true
               },
@@ -2498,7 +2656,10 @@ const chatReadRouter = router({
           }
         } catch (error) {
           if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
-          logger.warn({ action: 'guest-general-web-unavailable', venueId: venue.id })
+          logger.warn({
+            action: 'guest-general-web-unavailable',
+            venueId: venue.id,
+          })
         }
       }
       // Best-effort diagnostic: what context this answer was built from, as hashes and counts only.
@@ -2760,7 +2921,10 @@ const chatReadRouter = router({
         }))
       } catch {
         // Optional media failure must not lose an already generated, grounded answer.
-        logger.warn({ action: 'guest-place-media-unavailable', venueId: venue.id })
+        logger.warn({
+          action: 'guest-place-media-unavailable',
+          venueId: venue.id,
+        })
       }
     }
     mentionedPlaces = selectDisplayableGuestPlaceCards(
@@ -2824,7 +2988,12 @@ const chatReadRouter = router({
                     version: 'guest-place-identity-pending-v1' as const,
                     requestedName: placeIdentity.ambiguity.requestedName,
                     candidates: placeIdentity.ambiguity.candidates.map(
-                      ({ id, name, floor, location }) => ({ id, name, floor, location }),
+                      ({ id, name, floor, location }) => ({
+                        id,
+                        name,
+                        floor,
+                        location,
+                      }),
                     ),
                   },
                 }
@@ -3019,7 +3188,10 @@ const chatReadRouter = router({
         if (decision.declinedNow) {
           ledger.push({
             eventType: 'recommendation.declined',
-            metadata: { policyId: decision.policyId, policyVersion: decision.policyVersion },
+            metadata: {
+              policyId: decision.policyId,
+              policyVersion: decision.policyVersion,
+            },
           })
         }
         for (const entry of ledger) {
@@ -3163,8 +3335,10 @@ const chatReadRouter = router({
       citations: finalized.citations,
     })
     const responseBlocks =
-      guestActionResponseBlocks(guestActionState, { ...finalized, citations: visibleCitations }) ??
-      guestCitationBlocks(visibleCitations)
+      guestActionResponseBlocks(guestActionState, {
+        ...finalized,
+        citations: visibleCitations,
+      }) ?? guestCitationBlocks(visibleCitations)
     return {
       response: finalized.response,
       replyKind: finalized.replyKind,
@@ -3203,7 +3377,10 @@ const chatReadRouter = router({
       },
     ])
     if (deniedLimit !== 0) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many history requests.',
+      })
     }
 
     // Resolve venue ownership before consulting the caller's retired token. The
@@ -3290,7 +3467,9 @@ const chatReadRouter = router({
           content: true,
           createdAt: true,
           sessionSequence: true,
-          guestChatTurn: { select: { replayMetadata: true, fallbackCode: true } },
+          guestChatTurn: {
+            select: { replayMetadata: true, fallbackCode: true },
+          },
         },
       }),
       ctx.db.voiceTranscriptSegment.findMany({
@@ -3342,7 +3521,10 @@ const chatReadRouter = router({
       ...(input.operationId
         ? {
             turn: requestedTurn
-              ? { operationId: requestedTurn.requestId, status: requestedTurn.status }
+              ? {
+                  operationId: requestedTurn.requestId,
+                  status: requestedTurn.status,
+                }
               : null,
           }
         : {}),
@@ -3368,7 +3550,9 @@ const chatReadRouter = router({
           role: entry.row.role as 'user' | 'assistant',
           content: entry.row.content,
           ...(entry.row.role === 'assistant'
-            ? { replyKind: guestReplyKindFromFallbackCode(entry.row.guestChatTurn?.fallbackCode) }
+            ? {
+                replyKind: guestReplyKindFromFallbackCode(entry.row.guestChatTurn?.fallbackCode),
+              }
             : {}),
           ...(replay?.success && replay.data.places.length ? { places: replay.data.places } : {}),
           ...(() => {

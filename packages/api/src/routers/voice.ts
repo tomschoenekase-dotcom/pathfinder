@@ -124,7 +124,10 @@ async function resolvePublicVoiceScope(
      LIMIT 1
   `
   if (!scope || !scope.venueActive || scope.experienceScope !== 'PUBLIC') {
-    throw new TRPCError({ code: 'NOT_FOUND', message: 'Voice is unavailable for this session.' })
+    throw new TRPCError({
+      code: 'NOT_FOUND',
+      message: 'Voice is unavailable for this session.',
+    })
   }
   return scope
 }
@@ -143,7 +146,10 @@ async function resolveOwnedVoiceSession(
     },
   })
   if (!voiceSession) {
-    throw new TRPCError({ code: 'NOT_FOUND', message: 'Voice session not found.' })
+    throw new TRPCError({
+      code: 'NOT_FOUND',
+      message: 'Voice session not found.',
+    })
   }
   return { scope, voiceSession }
 }
@@ -154,7 +160,10 @@ async function requireUsableVoiceSession(
 ) {
   const { scope, voiceSession } = resolved
   if (!['READY', 'ACTIVE'].includes(voiceSession.status)) {
-    throw new TRPCError({ code: 'CONFLICT', message: 'Voice session is not active.' })
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: 'Voice session is not active.',
+    })
   }
   const now = new Date()
   // The ephemeral secret expires as a credential for establishing the WebRTC call.
@@ -285,7 +294,9 @@ function voiceInstructions(
     currentDate: clock.date,
     // A voice session can run for an hour on these instructions, so the time is marked as its start.
     ...(clock.localTime
-      ? { currentLocalTime: `${clock.localTime} when this voice session started` }
+      ? {
+          currentLocalTime: `${clock.localTime} when this voice session started`,
+        }
       : {}),
     venue: {
       ...scope,
@@ -326,14 +337,24 @@ export const voiceRouter = router({
       featureAvailable: isFeatureEnabled('voiceMode'),
     })
     if (!entitlement.enabled) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'Voice is not enabled for this venue.' })
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Voice is not enabled for this venue.',
+      })
     }
     const nativeSnapshot = await resolveNativeGuestReadSnapshotAction({
       client: ctx.db,
       tenantId: resolved.scope.tenantId,
       venueId: resolved.scope.venueId,
     })
+    const groundingNow = new Date()
+    const groundingDate = guestVenueClock(
+      groundingNow,
+      parseChatAppearance(resolved.scope.chatAppearance).timeZone,
+    ).date
     const result = await buildVoiceGroundingContext({
+      asOf: groundingNow,
+      currentDate: groundingDate,
       reader: ctx.db as unknown as VoiceGroundingReader,
       tenantId: resolved.scope.tenantId,
       venueId: resolved.scope.venueId,
@@ -366,7 +387,11 @@ export const voiceRouter = router({
     const [dailyUsage, monthlyUsage, activeSessions, dailyBoundary, monthlyBoundary] =
       await Promise.all([
         ctx.db.voiceSession.aggregate({
-          where: { tenantId: scope.tenantId, venueId: scope.venueId, createdAt: { gte: dayStart } },
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            createdAt: { gte: dayStart },
+          },
           _sum: { durationSeconds: true },
         }),
         ctx.db.voiceSession.aggregate({
@@ -434,7 +459,10 @@ export const voiceRouter = router({
 
   start: publicAiProcedure.input(VoiceSessionStartInput).mutation(async ({ ctx, input }) => {
     if (!isFeatureEnabled('voiceMode')) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Voice is not available.' })
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Voice is not available.',
+      })
     }
     if (!(await checkRateLimit('ratelimit:voice:start:global', 120, 60))) throw quotaError()
     const scope = await resolvePublicVoiceScope(ctx, input)
@@ -452,7 +480,10 @@ export const voiceRouter = router({
       featureAvailable: true,
     })
     if (!voiceEntitlement.enabled) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'Voice is not enabled for this venue.' })
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Voice is not enabled for this venue.',
+      })
     }
     const route = resolveRealtimeVoiceRoute({
       voiceEntitled: true,
@@ -539,7 +570,12 @@ export const voiceRouter = router({
     }
 
     const botConfiguration = await ctx.db.venueBotConfiguration.findUnique({
-      where: { tenantId_venueId: { tenantId: scope.tenantId, venueId: scope.venueId } },
+      where: {
+        tenantId_venueId: {
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+        },
+      },
       select: {
         presentationMode: true,
         personalityMode: true,
@@ -723,7 +759,11 @@ export const voiceRouter = router({
           venueId: scope.venueId,
           status: 'AUTHORIZING',
         },
-        data: { status: 'FAILED', errorCode: 'AUTHORIZATION_FAILED', endedAt: new Date() },
+        data: {
+          status: 'FAILED',
+          errorCode: 'AUTHORIZATION_FAILED',
+          endedAt: new Date(),
+        },
       })
       if (failed.count === 1) {
         void emitEvent({
@@ -731,7 +771,10 @@ export const voiceRouter = router({
           venueId: scope.venueId,
           sessionId: scope.sessionId,
           eventType: 'voice.session.failed',
-          metadata: { voiceSessionId: saved.id, failureStage: 'authorization' },
+          metadata: {
+            voiceSessionId: saved.id,
+            failureStage: 'authorization',
+          },
         })
         void publishOperationalEvent({
           client: ctx.db,
@@ -761,13 +804,19 @@ export const voiceRouter = router({
 
   connect: publicAiProcedure.input(VoiceSessionConnectInput).mutation(async ({ ctx, input }) => {
     if (!isFeatureEnabled('voiceMode'))
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Voice is not available.' })
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Voice is not available.',
+      })
     const { scope, voiceSession } = await requireUsableVoiceSession(
       ctx,
       await resolveOwnedVoiceSession(ctx, input),
     )
     if (voiceSession.status !== 'READY')
-      throw new TRPCError({ code: 'CONFLICT', message: 'Voice session already connected.' })
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Voice session already connected.',
+      })
     const entitlement = await resolveProductEntitlement({
       client: ctx.db,
       tenantId: scope.tenantId,
@@ -776,7 +825,10 @@ export const voiceRouter = router({
       featureAvailable: true,
     })
     if (!entitlement.enabled)
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'Voice is not enabled for this venue.' })
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Voice is not enabled for this venue.',
+      })
     const route = resolveRealtimeVoiceRoute({
       voiceEntitled: true,
       tier: voiceSession.tier === 'PREMIUM' ? 'PREMIUM' : 'ECONOMY',
@@ -787,10 +839,16 @@ export const voiceRouter = router({
       voiceSession.model !== route.model ||
       voiceSession.capability !== route.capability
     )
-      throw new TRPCError({ code: 'CONFLICT', message: 'Voice route changed. Start voice again.' })
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Voice route changed. Start voice again.',
+      })
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey)
-      throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Voice is unavailable.' })
+      throw new TRPCError({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Voice is unavailable.',
+      })
     // Claim this READY row before any network call. A duplicate connect request
     // must not create a second provider call for the same reserved session.
     const claimed = await ctx.db.voiceSession.updateMany({
@@ -804,7 +862,10 @@ export const voiceRouter = router({
       data: { status: 'AUTHORIZING', lastActiveAt: new Date() },
     })
     if (claimed.count !== 1)
-      throw new TRPCError({ code: 'CONFLICT', message: 'Voice session already connecting.' })
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Voice session already connecting.',
+      })
     let callId: string | null = null
     let providerConnectedAt: Date | null = null
     try {
@@ -852,7 +913,10 @@ export const voiceRouter = router({
         },
       })
       if (updated.count !== 1) throw new Error('Voice session is no longer available')
-      await enqueueVoiceSessionHangup({ voiceSessionId: voiceSession.id, deadlineAt })
+      await enqueueVoiceSessionHangup({
+        voiceSessionId: voiceSession.id,
+        deadlineAt,
+      })
       return { sdpAnswer: exchange.sdpAnswer }
     } catch {
       let providerHangupPending = false
@@ -947,7 +1011,11 @@ export const voiceRouter = router({
         skipDuplicates: true,
       })
       await ctx.db.voiceSession.updateMany({
-        where: { id: input.voiceSessionId, tenantId: scope.tenantId, venueId: scope.venueId },
+        where: {
+          id: input.voiceSessionId,
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+        },
         data: { lastActiveAt: new Date() },
       })
       return { accepted: created.count === 1 }
@@ -1054,7 +1122,10 @@ export const voiceRouter = router({
       // In that case, continue below and hang up the now-persisted call.
       voiceSession = (await resolveOwnedVoiceSession(ctx, input)).voiceSession
       if (voiceSession.status === 'AUTHORIZING')
-        throw new TRPCError({ code: 'CONFLICT', message: 'Voice is still connecting.' })
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Voice is still connecting.',
+        })
     }
     if (voiceSession.status === 'ACTIVE' && voiceSession.providerSessionId?.startsWith('rtc_')) {
       const markHangupPending = () =>
@@ -1067,19 +1138,28 @@ export const voiceRouter = router({
             status: 'ACTIVE',
             providerSessionId: voiceSession.providerSessionId,
           },
-          data: { errorCode: 'PROVIDER_HANGUP_PENDING', fallbackToText: true },
+          data: {
+            errorCode: 'PROVIDER_HANGUP_PENDING',
+            fallbackToText: true,
+          },
         })
       const apiKey = process.env.OPENAI_API_KEY
       if (!apiKey) {
         await markHangupPending()
-        throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Voice could not end yet.' })
+        throw new TRPCError({
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Voice could not end yet.',
+        })
       }
       try {
         await voiceHangup({ apiKey, callId: voiceSession.providerSessionId })
       } catch {
         // Recovery sees the persisted pending marker on its next minute scan.
         await markHangupPending()
-        throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Voice could not end yet.' })
+        throw new TRPCError({
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Voice could not end yet.',
+        })
       }
     }
     const endedAt = new Date()

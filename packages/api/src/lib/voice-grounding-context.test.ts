@@ -569,7 +569,18 @@ describe('voice grounding production retrieval parity', () => {
       visitContext: { visitedPlaceIds, interests: ['galleries'] },
     })
 
-    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ take: 16 })
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 16,
+        where: expect.objectContaining({
+          tenantId: 'tenant',
+          venueId: 'venue',
+          visibility: 'PUBLIC',
+          isActive: true,
+        }),
+        orderBy: [{ importanceScore: 'desc' }, { name: 'asc' }],
+      }),
+    )
     expect(result.context).toContain('[PLACE: Gallery 9]')
     expect(result.sourceIds).toContain('place:place-9')
     for (let index = 1; index <= 8; index += 1) {
@@ -603,7 +614,18 @@ describe('voice grounding production retrieval parity', () => {
       },
     })
 
-    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ take: 28 })
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 28,
+        where: expect.objectContaining({
+          tenantId: 'tenant',
+          venueId: 'venue',
+          visibility: 'PUBLIC',
+          isActive: true,
+        }),
+        orderBy: [{ importanceScore: 'desc' }, { name: 'asc' }],
+      }),
+    )
     expect(result.sourceIds.filter((sourceId) => sourceId.startsWith('place:'))).toHaveLength(8)
     expect(result.context.match(/\[PLACE:/gu)).toHaveLength(8)
     expect(result.sourceIds).not.toContain('place:eligible-9')
