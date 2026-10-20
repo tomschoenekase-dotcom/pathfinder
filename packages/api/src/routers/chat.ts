@@ -135,6 +135,10 @@ import {
 } from '../lib/guest-question-evidence'
 import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
 import {
+  selectGuestVenueIndexCoreKnowledge,
+  prepareGuestVenueIndexCoreKnowledge,
+} from '../lib/guest-venue-index'
+import {
   buildGuestVenueGuidePrompt,
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
@@ -1571,6 +1575,35 @@ const chatReadRouter = router({
         admittedSourceIds: new Set(relevantKnowledgeEntries.map((entry) => entry.id)),
       }).directory
     }
+    const evidenceStrategyEnabled = process.env.GUEST_GUIDE_STRATEGY === 'evidence'
+    const indexCoreCandidates = evidenceStrategyEnabled
+      ? selectGuestVenueIndexCoreKnowledge(guestDirectory, { currentDate })
+      : []
+    let indexCoreKnowledge = indexCoreCandidates
+    if (evidenceStrategyEnabled && directoryRead.path === 'LEGACY') {
+      indexCoreKnowledge = await revalidateGuestQuestionEvidence({
+        reader: ctx.db,
+        tenantId: venue.tenantId,
+        venueId: input.venueId,
+        includeSecondLayer,
+        asOf: operationalNow,
+        currentDate,
+        knowledge: indexCoreCandidates,
+      }).catch(() => {
+        logger.warn({ action: 'guest-index-core-revalidation-failed', venueId: venue.id })
+        return []
+      })
+      const preparedCore = prepareGuestVenueIndexCoreKnowledge({
+        directory: guestDirectory,
+        selected: indexCoreCandidates,
+        current: indexCoreKnowledge,
+        relevantKnowledgeEntries,
+        currentDate,
+      })
+      guestDirectory = preparedCore.directory
+      indexCoreKnowledge = preparedCore.coreKnowledge
+      relevantKnowledgeEntries = preparedCore.relevantKnowledgeEntries
+    }
     const normalizedQuery = trimmedInput.toLocaleLowerCase()
     relevantKnowledgeEntries = expandGuestKnowledgeLinks({
       entries: relevantKnowledgeEntries.filter(
@@ -1594,6 +1627,7 @@ const chatReadRouter = router({
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
       currentDate,
       recordDates: recordDatesEnabled,
+      ...(evidenceStrategyEnabled ? { strategy: 'evidence' as const, indexCoreKnowledge } : {}),
     })
     // Whole guide records for every part of the question, ranked in memory over the same fenced,
     // projected and stale-suppressed guide. A DIRECTORY guide gains their full bodies, so a
@@ -1622,6 +1656,9 @@ const chatReadRouter = router({
     // FULL guides only gain names of records already in the cached guide. Hydrated DIRECTORY bodies
     // are re-read live (in parallel with identity projection below), so a record changed or
     // withdrawn within the cache minute is never sent stale.
+    const currentIndexCore = new Map(
+      evidenceStrategyEnabled ? indexCoreKnowledge.map((entry) => [entry.id, entry]) : [],
+    )
     const questionKnowledgePromise =
       venueGuide.mode === 'DIRECTORY' && directoryRead.path === 'LEGACY'
         ? revalidateGuestQuestionEvidence({
@@ -1631,15 +1668,28 @@ const chatReadRouter = router({
             includeSecondLayer,
             asOf: operationalNow,
             currentDate,
-            knowledge: questionEvidence.knowledge,
-          }).catch((error: unknown) => {
-            logger.warn({
-              action: 'guest-question-evidence-revalidation-failed',
-              venueId: venue.id,
-              error: error instanceof Error ? error.message : String(error),
-            })
-            return []
+            // Core bodies already completed their live authority read for this generation.
+            // A second read could otherwise disagree with the body still in the index.
+            knowledge: evidenceStrategyEnabled
+              ? questionEvidence.knowledge.filter((entry) => !currentIndexCore.has(entry.id))
+              : questionEvidence.knowledge,
           })
+            .catch((error: unknown) => {
+              logger.warn({
+                action: 'guest-question-evidence-revalidation-failed',
+                venueId: venue.id,
+                error: error instanceof Error ? error.message : String(error),
+              })
+              return []
+            })
+            .then((entries) => {
+              if (!evidenceStrategyEnabled) return entries
+              const refreshed = new Map(entries.map((entry) => [entry.id, entry]))
+              return questionEvidence.knowledge.flatMap((entry) => {
+                const current = currentIndexCore.get(entry.id) ?? refreshed.get(entry.id)
+                return current ? [current] : []
+              })
+            })
         : Promise.resolve(questionEvidence.knowledge)
     const questionPlaces =
       directoryRead.path === 'LEGACY'
@@ -1963,7 +2013,9 @@ const chatReadRouter = router({
                 question: trimmedInput,
                 now: operationalNow,
                 timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
-                knowledge: guestDirectory.knowledge,
+                // Evidence mode may carry only a bounded live subset of core policies.
+                // A cached hours row outside that subset cannot establish a trusted cue.
+                knowledge: evidenceStrategyEnabled ? indexCoreKnowledge : guestDirectory.knowledge,
                 activeUpdates,
               })
             : null,

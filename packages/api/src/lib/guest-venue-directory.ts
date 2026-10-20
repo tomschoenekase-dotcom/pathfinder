@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { renderGuestVenueIndex } from './guest-venue-index'
 
 import {
   loadVersionedGuestDirectory,
@@ -350,7 +351,13 @@ export type GuestVenueGuidePrompt = {
  */
 export function buildGuestVenueGuidePrompt(
   directory: GuestVenueDirectory,
-  options: { currentDate: string; maxFullChars?: number; recordDates?: boolean },
+  options: {
+    currentDate: string
+    maxFullChars?: number
+    recordDates?: boolean
+    strategy?: 'evidence'
+    indexCoreKnowledge?: GuestDirectoryKnowledge[]
+  },
 ): GuestVenueGuidePrompt {
   if (directory.knowledge.length === 0 && directory.places.length === 0)
     return {
@@ -360,6 +367,20 @@ export function buildGuestVenueGuidePrompt(
       recordIds: new Set(),
       rendererTruncated: false,
     }
+  // Evidence strategy must branch before constructing a hypothetical whole guide.
+  if (options.strategy === 'evidence') {
+    const { prompt, truncated, recordIds } = renderGuestVenueIndex(directory, {
+      currentDate: options.currentDate,
+      ...(options.indexCoreKnowledge ? { coreKnowledge: options.indexCoreKnowledge } : {}),
+    })
+    return {
+      prompt,
+      mode: 'DIRECTORY',
+      evidenceText: prompt,
+      recordIds,
+      rendererTruncated: truncated,
+    }
+  }
   const directoryPrompt = (): GuestVenueGuidePrompt => {
     const { prompt, truncated } = renderGuestVenueDirectory(directory, options)
     return {
