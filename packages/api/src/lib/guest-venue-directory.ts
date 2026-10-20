@@ -483,10 +483,13 @@ export function guestTopicPlaceLinks(directory: GuestVenueDirectory): Map<string
   const links = new Map<string, string[]>()
   for (const entry of directory.knowledge) {
     const title = normalizeGuestText(entry.title).trim()
-    const match = places.find(
-      ({ key }) =>
-        title === key || (title.startsWith(key) && !/[\p{L}\p{N}]/u.test(title[key.length]!)),
-    )
+    // A one-word name ("Kids") claims a longer title only when a separator follows it
+    // ("Aviary: feeding times"), so "Kids eat free" never reads as a rule of the place "Kids".
+    const match = places.find(({ key }) => {
+      if (title === key) return true
+      if (!title.startsWith(key) || /[\p{L}\p{N}]/u.test(title[key.length]!)) return false
+      return key.includes(' ') || /^\s*[:(–—-]/u.test(title.slice(key.length))
+    })
     if (match) links.set(match.id, [...(links.get(match.id) ?? []), entry.id])
   }
   return links

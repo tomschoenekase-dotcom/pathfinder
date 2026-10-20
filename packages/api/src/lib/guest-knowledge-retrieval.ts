@@ -86,6 +86,7 @@ const STOP_WORDS = new Set([
 /**
  * Function words and question scaffolding in the languages guests commonly write. They never
  * identify a record, so neither the lexical lanes nor question evidence spends a query slot on them.
+ * Words that are also ordinary English content words (hay, fur, den, con, son...) are left out.
  */
 export const GUEST_QUERY_FUNCTION_WORDS: ReadonlySet<string> = new Set(
   (
@@ -95,16 +96,16 @@ export const GUEST_QUERY_FUNCTION_WORDS: ReadonlySet<string> = new Set(
     'there these they this those to too us very was we were what when where which while who whom ' +
     'whose why will with would you your yours also any anything something tell know want like ' +
     'need go going able whats im ive id dont cant isnt arent ' +
-    'al algo como con cual cuales cuando de del el ella ellos en es esta este esto estos hay la ' +
+    'al algo como cual cuales cuando de del el ella ellos en es esta este esto estos la ' +
     'las le les lo los mas me mi mis muy nos nuestro o para pero por puede pueden podemos puedo ' +
-    'que se si sin su sus te tu un una unos unas y ya hacer quiero queremos buscamos usted ' +
-    'au aux avec ce ces cette dans des du elle en est et il ils je la le les leur mais me mes ' +
-    'mon nous on ou par pas peut peuvent pouvons pour quand que quel quelle quels qui sa se ses ' +
-    'si son sont sur ta te tes ton tu un une vos votre vous y faire ' +
-    'aber als am an auch auf aus bei bin bis das dass dem den der des die du ein eine einen einem ' +
-    'einer er es fur gibt hat haben ich ihr im in ist ja kann konnen mit nach nicht noch oder sie ' +
-    'sind so uber um und uns unser von vor was wenn wer wie wir wo zu zum zur ' +
-    'ai alla alle che chi ci come con da dei del della di e gli il in io la le lo ma mi nel ne non ' +
+    'que se si su sus te tu un una unos unas y ya hacer quiero queremos buscamos usted ' +
+    'au aux avec ce ces cette dans des du elle en est et il ils je la le les leur mais me ' +
+    ' nous on ou pas peut peuvent pouvons pour quand que quel quelle quels qui sa se ses ' +
+    'si sont sur ta te tes tu un une vos votre vous y faire ' +
+    'aber als an auch auf aus bei bis das dass dem der des du ein eine einen einem ' +
+    'einer er es gibt haben ich ihr im in ist ja kann konnen nach nicht noch oder ' +
+    'sind so um und uns unser von vor was wenn wer wie wir wo zu zum zur ' +
+    'ai alla alle che chi ci come da dei del della di e gli il in io la le lo ma mi nel ne non ' +
     'per piu possiamo posso puo qual quale quando questo questa se si sono su un una uno vi ' +
     'ao aos as com da das de do dos ela ele em entre eu isso esta este na nas no nos num numa o os ' +
     'ou para pela pelo pode podem podemos por qual quando que se sem seu sua um uma voce'

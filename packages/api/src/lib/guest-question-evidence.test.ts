@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { guestQueryConcepts } from './guest-knowledge-retrieval'
 import {
   QUESTION_EVIDENCE_MAX_FOCUS_TOPICS,
   guestQuestionTerms,
+  revalidateGuestQuestionEvidence,
   selectGuestQuestionEvidence,
 } from './guest-question-evidence'
 import {
@@ -97,7 +98,7 @@ const select = (
     mode: 'DIRECTORY',
     currentDate: '2026-11-21',
     knowledgeInContext: [],
-    placeIdsInContext: new Set(),
+    placesInContext: [],
     ...overrides,
   })
 
@@ -215,6 +216,99 @@ describe('question evidence', () => {
   })
 })
 
+describe('question evidence precision (independent review findings)', () => {
+  const keys = (query: string) => guestQuestionTerms(query).map((term) => term.key)
+
+  it('matches intent groups by whole word, never by a shared prefix', () => {
+    // visitors/visit, experience/experimentar, closest/close, alternative/alter, charging/charge
+    for (const query of [
+      'How many visitors come here?',
+      'What is the best experience?',
+      'Which café is closest?',
+      'Is there an alternative route?',
+      'Where can I charge my phone? I need charging',
+    ])
+      expect(keys(query).filter((key) => key.startsWith('intent:')).length).toBeLessThanOrEqual(1)
+    expect(
+      keys('How old is the castle and what year was it built?').some((key) =>
+        key.startsWith('intent:'),
+      ),
+    ).toBe(false)
+  })
+
+  it('selects nothing for chit-chat or questions made only of common words', () => {
+    expect(select('ok thanks!').knowledge).toEqual([])
+    expect(select('Reef tank alcove rail?').knowledge.length).toBe(0)
+  })
+
+  it('ignores bare numbers as question parts', () => {
+    expect(keys('Our kids are 5 and 11')).not.toContain('word:5')
+    expect(keys('Our kids are 5 and 11')).not.toContain('word:11')
+  })
+
+  it('keeps English content words that are function words elsewhere', () => {
+    expect(guestQueryConcepts('Can we see the fur seals and the hay barn?').flat()).toEqual(
+      expect.arrayContaining(['fur', 'hay']),
+    )
+  })
+
+  it('splits unspaced CJK questions so they can match records', () => {
+    expect(guestQuestionTerms('水族館の写真撮影は大丈夫ですか').length).toBeGreaterThan(3)
+  })
+
+  it('treats step-free as one access word, not as free entry', () => {
+    expect(keys('Is the gallery step-free?')).not.toContain(keys('Is it free?')[0])
+  })
+
+  it('never hydrates places when the caller keeps its own place ranking', () => {
+    expect(select('Where can my kids touch starfish?', { allowPlaces: false }).places).toEqual([])
+  })
+
+  it('counts hydrated place descriptions toward the body budget', () => {
+    const long = place(
+      'p-long',
+      'Starfish Grotto',
+      `Touch starfish here. ${'Kids touch starfish. '.repeat(400)}`,
+    )
+    const result = select('Where can my kids touch starfish?', {
+      directory: directory({ places: [long] }),
+      maxContextChars: 2_000,
+    })
+    expect(result.places).toEqual([])
+    expect(result.trace.budgetExcludedIds).toContain('p-long')
+  })
+})
+
+describe('question evidence revalidation', () => {
+  it('drops withdrawn records and sends edited records in their current form', async () => {
+    const edited = { ...governing[1]!, content: 'The glass-bottom boat costs 6 for adults.' }
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        ...edited,
+        updatedAt: new Date('2026-11-21T10:00:00Z'),
+        lastReviewedAt: null,
+        contentModuleId: null,
+      },
+    ])
+    const result = await revalidateGuestQuestionEvidence({
+      reader: { venueKnowledgeEntry: { findMany } },
+      tenantId: 't',
+      venueId: 'v',
+      includeSecondLayer: false,
+      asOf: new Date('2026-11-21T12:00:00Z'),
+      knowledge: [governing[0]!, governing[1]!],
+    })
+    expect(result.map((entry) => entry.id)).toEqual(['boat-fares'])
+    expect(result[0]!.content).toContain('6')
+    const where = findMany.mock.calls[0]![0].where
+    expect(where).toMatchObject({
+      tenantId: 't',
+      venueId: 'v',
+      id: { in: ['otter-talk', 'boat-fares'] },
+    })
+  })
+})
+
 describe('lexical query concepts', () => {
   it('keeps a late informative part instead of the first words of a long question', () => {
     const concepts = guestQueryConcepts(
@@ -254,6 +348,19 @@ describe('subject grouping in the full guide', () => {
     expect(topicAt).toBeGreaterThan(placeAt)
     expect(rulesAt).toBeGreaterThan(topicAt)
     expect(hoursAt).toBeGreaterThan(rulesAt)
+  })
+
+  it('links a one-word place name only through a separator', () => {
+    const guide = directory({
+      places: [place('p-kids', 'Kids', 'Play area.'), place('p-aviary', 'Aviary', 'Birds.')],
+      knowledge: [
+        knowledge('kids-free', 'Kids eat free on Tuesdays', 'Children eat free.', 'dining'),
+        knowledge('aviary-times', 'Aviary: feeding times', 'Feeding at 11:00.'),
+      ],
+    })
+    const links = guestTopicPlaceLinks(guide)
+    expect(links.get('p-kids')).toBeUndefined()
+    expect(links.get('p-aviary')).toEqual(['aviary-times'])
   })
 
   it('does not link a topic whose title merely starts with a longer word', () => {

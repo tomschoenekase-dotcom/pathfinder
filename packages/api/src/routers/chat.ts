@@ -2,7 +2,10 @@ import {
   guestRecommendationRetrievalLimit,
   partitionGuestRecommendationPlaces,
 } from '../lib/guest-recommendation-candidates'
-import { guestVisitRetrievalQuery } from '../lib/guest-visit-retrieval-query'
+import {
+  guestVisitRetrievalQuery,
+  isGuestRecommendationQuery,
+} from '../lib/guest-visit-retrieval-query'
 import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
@@ -124,7 +127,10 @@ import {
   type GuestKnowledgeRetrievalTrace,
 } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
-import { selectGuestQuestionEvidence } from '../lib/guest-question-evidence'
+import {
+  revalidateGuestQuestionEvidence,
+  selectGuestQuestionEvidence,
+} from '../lib/guest-question-evidence'
 import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
 import {
   buildGuestVenueGuidePrompt,
@@ -242,6 +248,8 @@ export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | 
 }
 
 const NEAREST_PLACES_LIMIT = 8
+// Question-evidence places join after this many retrieved places, inside the place limit above.
+const QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS = 5
 // Semantic candidate pool; guest-knowledge-retrieval fuses it with lexical hits and applies the
 // final per-question budget, so this must exceed that budget.
 const KNOWLEDGE_ENTRIES_LIMIT = 12
@@ -1584,24 +1592,44 @@ const chatReadRouter = router({
       mode: venueGuide.mode,
       currentDate,
       knowledgeInContext: relevantKnowledgeEntries,
-      placeIdsInContext: new Set(relevantPlaces.map((place) => place.id)),
+      placesInContext: relevantPlaces,
+      // Recommendation and nearby questions keep their own place ranking and slots.
+      allowPlaces: !hasLiveLocation && !isGuestRecommendationQuery(effectiveIdentityQuery),
     })
-    if (questionEvidence.knowledge.length)
+    // FULL guides only gain names of records already in the cached guide. Hydrated DIRECTORY bodies
+    // are re-read live, so a record changed or withdrawn within the cache minute is never sent stale.
+    const questionKnowledge =
+      venueGuide.mode === 'DIRECTORY' && directoryRead.path === 'LEGACY'
+        ? await revalidateGuestQuestionEvidence({
+            reader: ctx.db,
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            includeSecondLayer,
+            asOf: operationalNow,
+            knowledge: questionEvidence.knowledge,
+          }).catch(() => {
+            logger.warn({
+              action: 'guest-question-evidence-revalidation-failed',
+              venueId: venue.id,
+            })
+            return []
+          })
+        : questionEvidence.knowledge
+    if (questionKnowledge.length)
       relevantKnowledgeEntries = [
         ...relevantKnowledgeEntries,
-        ...questionEvidence.knowledge.map((entry) => ({ ...entry, distance: 1 })),
+        ...questionKnowledge.map((entry) => ({ ...entry, distance: 1 })),
       ]
     if (questionEvidence.places.length) {
-      // Interleave with the retrieved order (equal-weight rank fusion); a scanned entry place stays first.
+      // Retrieved places keep the first slots; a scanned entry place stays first of all.
       const pinned = entryPlace ? relevantPlaces.filter((place) => place.id === entryPlace.id) : []
       const retrieved = relevantPlaces.filter((place) => !pinned.includes(place))
-      const added = questionEvidence.places.map((place) => ({ ...place, distance: 1 }))
-      const fused: typeof relevantPlaces = [...pinned]
-      for (let index = 0; index < Math.max(retrieved.length, added.length); index += 1) {
-        if (retrieved[index]) fused.push(retrieved[index]!)
-        if (added[index]) fused.push(added[index]!)
-      }
-      relevantPlaces = fused
+      relevantPlaces = [
+        ...pinned,
+        ...retrieved.slice(0, QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS),
+        ...questionEvidence.places.map((place) => ({ ...place, distance: 1 })),
+        ...retrieved.slice(QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS),
+      ]
     }
     const directoryPrompt = venueGuide.prompt
     if (directoryPrompt.includes(GUEST_DATED_TITLE_RULE))

@@ -1,9 +1,14 @@
 import {
   GUEST_QUERY_FUNCTION_WORDS,
+  guestKnowledgeScope,
+  guestKnowledgeSelectShape,
   guestQueryIsFollowup,
+  hasCurrentGuestPublicationAuthority,
   normalizeGuestText,
+  type GuestKnowledgeReader,
 } from './guest-knowledge-retrieval'
 import { isPastDatedGuestEvent } from './guest-event-dates'
+import { guestPlaceIdentityKey } from './guest-place-identity'
 import type {
   GuestDirectoryKnowledge,
   GuestDirectoryPlace,
@@ -18,519 +23,82 @@ import type {
  * is too large to send in full, the model sees one-sentence summaries plus a ranked retrieval
  * sample, so a governing condition in a later sentence of an unretrieved record never reaches it.
  * This ranks every loaded record against the whole question in memory (no positional query
- * clipping, cognate-tolerant, multilingual intent aliases) and selects whole records so that each
- * distinct part of the question is covered before a second record for an already-covered part.
- * It never splices a record and never adds a record from outside the loaded guide.
+ * clipping, cognate-tolerant plain words, multilingual intent groups) and selects whole records
+ * so that each distinct part of the question is covered before a second record for an already
+ * covered part. It never splices a record and never adds a record from outside the loaded guide.
  */
 
-// Common guest intents across languages. Each group is one question part: a match on any member
-// stem covers that part. Written from general venue vocabulary, not from particular questions.
+// Common guest intents across languages. Each group is one question part, matched by exact word
+// form (plural tolerant), never by prefix, so "visitors" or "closest" cannot select a topic.
+// Written from general venue vocabulary; words that are common English homographs are left out.
 const INTENT_GROUPS: readonly (readonly string[])[] = [
   // price and tickets
-  [
-    'price',
-    'prices',
-    'cost',
-    'costs',
-    'fee',
-    'fees',
-    'fare',
-    'fares',
-    'charge',
-    'charges',
-    'pay',
-    'paid',
-    'ticket',
-    'tickets',
-    'admission',
-    'supplement',
-    'surcharge',
-    'dollars',
-    'precio',
-    'precios',
-    'cuesta',
-    'cuestan',
-    'cuanto',
-    'tarifa',
-    'tarifas',
-    'boleto',
-    'boletos',
-    'prix',
-    'coute',
-    'coutent',
-    'combien',
-    'tarif',
-    'billet',
-    'billets',
-    'preis',
-    'preise',
-    'kostet',
-    'kosten',
-    'gebuhr',
-    'eintrittskarte',
-    'prezzo',
-    'prezzi',
-    'costo',
-    'costa',
-    'biglietto',
-    'biglietti',
-    'preco',
-    'precos',
-    'custa',
-    'bilhete',
-    'bilhetes',
-  ],
+  'price prices cost costs fee fees fare fares charge charges pay paid ticket tickets admission ' +
+    'dollars precio precios cuesta cuestan cuanto tarifa tarifas boleto boletos prix coute ' +
+    'coutent combien tarif tarifs billet billets preis preise kostet kosten gebuhr gebuhren ' +
+    'eintrittskarte prezzo prezzi costo costa biglietto biglietti quanto preco precos custa ' +
+    'bilhete bilhetes',
   // inclusion and free entry
-  [
-    'included',
-    'include',
-    'includes',
-    'inclusive',
-    'free',
-    'covered',
-    'covers',
-    'cover',
-    'complimentary',
-    'extra',
-    'additional',
-    'incluido',
-    'incluida',
-    'incluye',
-    'gratis',
-    'gratuito',
-    'gratuita',
-    'inclus',
-    'incluse',
-    'compris',
-    'gratuit',
-    'gratuite',
-    'inbegriffen',
-    'enthalten',
-    'kostenlos',
-    'incluso',
-    'inclusa',
-    'compreso',
-    'incluidos',
-  ],
+  'included include includes inclusive free covered covers complimentary extra additional ' +
+    'incluido incluida incluidos incluye gratis gratuito gratuita inclus incluse compris gratuit ' +
+    'gratuite inbegriffen enthalten kostenlos incluso inclusa compreso',
   // entry and admission
-  [
-    'entry',
-    'entrance',
-    'enter',
-    'admission',
-    'admit',
-    'entrada',
-    'entree',
-    'eintritt',
-    'ingresso',
-    'ingreso',
-    'acceder',
-  ],
+  'entry entrance enter admission admit entrada entrar entree eintritt ingresso ingreso',
   // photography
-  [
-    'photo',
-    'photos',
-    'photograph',
-    'photographs',
-    'photography',
-    'camera',
-    'cameras',
-    'pictures',
-    'picture',
-    'selfie',
-    'flash',
-    'filming',
-    'video',
-    'foto',
-    'fotos',
-    'fotografia',
-    'fotografias',
-    'fotografiar',
-    'photographier',
-    'fotografieren',
-    'fotografare',
-    'fotografar',
-    'kamera',
-  ],
+  'photo photos photograph photographs photography camera cameras pictures picture selfie ' +
+    'selfies flash filming video foto fotos fotografia fotografias fotografiar photographier ' +
+    'fotografieren fotografare fotografar kamera',
   // food and drink
-  [
-    'eat',
-    'eating',
-    'food',
-    'foods',
-    'dining',
-    'dine',
-    'restaurant',
-    'restaurants',
-    'cafe',
-    'cafes',
-    'meal',
-    'meals',
-    'snack',
-    'snacks',
-    'lunch',
-    'dinner',
-    'breakfast',
-    'hungry',
-    'menu',
-    'kiosk',
-    'sandwich',
-    'sandwiches',
-    'drink',
-    'drinks',
-    'coffee',
-    'tea',
-    'picnic',
-    'comida',
-    'comer',
-    'bocadillo',
-    'bocadillos',
-    'almuerzo',
-    'cena',
-    'bebida',
-    'bebidas',
-    'restaurante',
-    'manger',
-    'nourriture',
-    'repas',
-    'dejeuner',
-    'boisson',
-    'boissons',
-    'essen',
-    'speisen',
-    'imbiss',
-    'mittagessen',
-    'getranke',
-    'mangiare',
-    'cibo',
-    'pranzo',
-    'panino',
-    'panini',
-    'bevande',
-    'lanche',
-    'almoco',
-    'bebida',
-  ],
+  'eat eating food foods dining dine restaurant restaurants cafe cafes meal meals snack snacks ' +
+    'lunch dinner breakfast hungry menu sandwich sandwiches drink drinks coffee tea picnic comida ' +
+    'comer almuerzo cena bebida bebidas restaurante manger nourriture repas dejeuner boisson ' +
+    'boissons essen speisen imbiss mittagessen getranke mangiare cibo pranzo bevande lanche almoco',
   // step-free access
-  [
-    'wheelchair',
-    'wheelchairs',
-    'accessible',
-    'accessibility',
-    'access',
-    'stepfree',
-    'lift',
-    'lifts',
-    'elevator',
-    'elevators',
-    'ramp',
-    'ramps',
-    'stairs',
-    'steps',
-    'mobility',
-    'scooter',
-    'silla',
-    'ruedas',
-    'accesible',
-    'accesibilidad',
-    'ascensor',
-    'rampa',
-    'escaleras',
-    'fauteuil',
-    'roulant',
-    'ascenseur',
-    'escalier',
-    'escaliers',
-    'rollstuhl',
-    'barrierefrei',
-    'aufzug',
-    'rampe',
-    'treppe',
-    'treppen',
-    'carrozzina',
-    'sedia',
-    'rotelle',
-    'ascensore',
-    'accessibile',
-    'cadeira',
-    'rodas',
-    'elevador',
-    'acessivel',
-    'escadas',
-  ],
+  'wheelchair wheelchairs accessible accessibility stepfree lift lifts elevator elevators ramp ' +
+    'ramps stairs steps mobility accesible accesibilidad ascensor rampa escaleras fauteuil ' +
+    'roulant ascenseur escalier escaliers rollstuhl barrierefrei aufzug rampe treppe treppen ' +
+    'carrozzina ascensore accessibile cadeira rodas elevador acessivel escadas',
   // opening hours and closing
-  [
-    'hours',
-    'opening',
-    'closing',
-    'open',
-    'opens',
-    'close',
-    'closes',
-    'closed',
-    'horario',
-    'horarios',
-    'abre',
-    'abierto',
-    'cierra',
-    'cerrado',
-    'horaires',
-    'ouvert',
-    'ouvre',
-    'ferme',
-    'offnungszeiten',
-    'geoffnet',
-    'offnet',
-    'geschlossen',
-    'schliesst',
-    'orari',
-    'orario',
-    'aperto',
-    'chiuso',
-    'chiude',
-    'aberto',
-    'fechado',
-    'fecha',
-  ],
+  'hours opening closing open opens closes closed horario horarios abre abierto cierra cerrado ' +
+    'horaires ouvert ouvre ferme offnungszeiten geoffnet offnet geschlossen schliesst orari ' +
+    'orario aperto chiuso chiude aberto fechado',
   // ages, children and adults
-  [
-    'age',
-    'ages',
-    'aged',
-    'old',
-    'year',
-    'years',
-    'child',
-    'children',
-    'kid',
-    'kids',
-    'toddler',
-    'toddlers',
-    'baby',
-    'babies',
-    'infant',
-    'infants',
-    'adult',
-    'adults',
-    'teen',
-    'teens',
-    'teenager',
-    'son',
-    'daughter',
-    'accompanied',
-    'accompanying',
-    'supervision',
-    'nino',
-    'ninos',
-    'nina',
-    'ninas',
-    'hijo',
-    'hija',
-    'hijos',
-    'edad',
-    'anos',
-    'adulto',
-    'adultos',
-    'enfant',
-    'enfants',
-    'ans',
-    'adulte',
-    'adultes',
-    'kinder',
-    'alter',
-    'jahre',
-    'jahrige',
-    'erwachsene',
-    'erwachsener',
-    'bambino',
-    'bambini',
-    'bambina',
-    'eta',
-    'anni',
-    'adulto',
-    'adulti',
-    'crianca',
-    'criancas',
-    'idade',
-    'filho',
-    'filha',
-  ],
+  'age ages aged child children kid kids toddler toddlers baby babies infant infants adult ' +
+    'adults teen teens teenager teenagers daughter accompanied accompanying supervision ' +
+    'supervised nino ninos nina ninas hijo hija hijos edad anos adulto adultos enfant enfants ' +
+    'adulte adultes kinder alter jahre jahrige erwachsene erwachsener bambino bambini bambina ' +
+    'anni adulti crianca criancas idade filho filha',
   // height rules
-  ['height', 'tall', 'taller', 'cm', 'inches', 'altura', 'taille', 'grosse', 'altezza'],
+  'height tall taller inches altura taille grosse altezza',
   // booking
-  [
-    'book',
-    'booking',
-    'bookings',
-    'reserve',
-    'reservation',
-    'reservations',
-    'advance',
-    'reservar',
-    'reserva',
-    'reservas',
-    'reserver',
-    'buchen',
-    'buchung',
-    'reservieren',
-    'reservierung',
-    'prenotare',
-    'prenotazione',
-  ],
+  'book booking bookings reservation reservations advance reservar reserva reservas reserver ' +
+    'buchen buchung reservieren reservierung prenotare prenotazione',
   // duration
-  [
-    'minutes',
-    'minute',
-    'mins',
-    'duration',
-    'lasts',
-    'minutos',
-    'duracion',
-    'dure',
-    'duree',
-    'minuten',
-    'dauer',
-    'dauert',
-    'minuti',
-    'durata',
-    'dura',
-    'duracao',
-  ],
+  'minutes minute mins duration lasts minutos duracion dure duree minuten dauer dauert minuti ' +
+    'durata duracao',
   // screens and digital displays
-  [
-    'screen',
-    'screens',
-    'screenfree',
-    'digital',
-    'pantalla',
-    'pantallas',
-    'ecran',
-    'ecrans',
-    'bildschirm',
-    'bildschirme',
-    'schermo',
-    'schermi',
-    'tela',
-    'telas',
-  ],
+  'screen screens screenfree digital pantalla pantallas ecran ecrans bildschirm bildschirme ' +
+    'schermo schermi',
   // hands-on activity
-  [
-    'touch',
-    'hands',
-    'interactive',
-    'tocar',
-    'interactivo',
-    'experimentar',
-    'toucher',
-    'interactif',
-    'anfassen',
-    'beruhren',
-    'interaktiv',
-    'ausprobieren',
-    'toccare',
-    'interattivo',
-    'interativo',
-  ],
+  'touch hands interactive tocar interactivo experimentar toucher interactif anfassen beruhren ' +
+    'interaktiv ausprobieren toccare interattivo interativo',
   // events, shows and schedules
-  [
-    'event',
-    'events',
-    'show',
-    'shows',
-    'demonstration',
-    'demo',
-    'talk',
-    'tour',
-    'tours',
-    'schedule',
-    'evento',
-    'eventos',
-    'espectaculo',
-    'visita',
-    'evenement',
-    'spectacle',
-    'veranstaltung',
-    'vorfuhrung',
-    'fuhrung',
-    'spettacolo',
-    'espetaculo',
-  ],
+  'event events shows demonstration demonstrations demo talks tour tours schedule evento ' +
+    'eventos espectaculo evenement evenements spectacle veranstaltung vorfuhrung fuhrung ' +
+    'spettacolo espetaculo',
   // toilets
-  [
-    'restroom',
-    'restrooms',
-    'bathroom',
-    'bathrooms',
-    'toilet',
-    'toilets',
-    'wc',
-    'bano',
-    'banos',
-    'aseo',
-    'toilettes',
-    'toiletten',
-    'bagno',
-    'bagni',
-    'banheiro',
-  ],
+  'restroom restrooms bathroom bathrooms toilet toilets bano banos aseo aseos toilettes ' +
+    'toiletten bagno bagni banheiro',
   // pets
-  [
-    'dog',
-    'dogs',
-    'pet',
-    'pets',
-    'perro',
-    'perros',
-    'mascota',
-    'chien',
-    'chiens',
-    'hund',
-    'hunde',
-    'cane',
-    'cani',
-    'cachorro',
-  ],
+  'dog dogs pet pets perro perros mascota mascotas chien chiens hund hunde cane cani cachorro',
   // strollers
-  [
-    'stroller',
-    'strollers',
-    'pushchair',
-    'pram',
-    'buggy',
-    'cochecito',
-    'carrito',
-    'poussette',
-    'kinderwagen',
-    'passeggino',
-    'carrinho',
-  ],
+  'stroller strollers pushchair pushchairs pram prams buggy buggies cochecito carrito ' +
+    'poussette kinderwagen passeggino carrinho',
   // parking
-  [
-    'parking',
-    'aparcamiento',
-    'estacionamiento',
-    'stationnement',
-    'parkplatz',
-    'parcheggio',
-    'estacionamento',
-  ],
+  'parking aparcamiento estacionamiento stationnement parkplatz parcheggio estacionamento',
   // languages and guides
-  [
-    'language',
-    'languages',
-    'audio',
-    'guide',
-    'guided',
-    'idioma',
-    'idiomas',
-    'langue',
-    'langues',
-    'sprache',
-    'sprachen',
-    'lingua',
-    'lingue',
-  ],
-]
+  'language languages audio guided idioma idiomas langue langues sprache sprachen lingua lingue',
+].map((group) => group.split(' '))
 
 const STEM_CHARS = 5
 const BM25_K1 = 1.2
@@ -546,34 +114,58 @@ const MIN_RELATIVE_SCORE = 0.25
 // A FULL guide already carries every body, so a topic name is pointed at only when it is close
 // to the strongest match: a loose focus list would steer the answer toward unrelated topics.
 const FULL_FOCUS_MIN_RELATIVE_SCORE = 0.5
+// A plain word found in more than this share of records says nothing about which record answers;
+// a question made only of such words ("ok thanks", "what next?") selects nothing.
+const INFORMATIVE_MAX_SHARE = 0.15
+const INFORMATIVE_MIN_RECORDS = 3
 const FOLLOWUP_TERM_WEIGHT = 0.5
 const MAX_QUERY_TERMS = 24
 // Bounds the greedy selection; more picks than every budget below combined is never useful.
 const MAX_RANKED = 40
+const STEM_CACHE_MAX = 20_000
 
 export const QUESTION_EVIDENCE_MAX_KNOWLEDGE_RECORDS = 10
-export const QUESTION_EVIDENCE_MAX_PLACES = 6
-/** Whole knowledge bodies in the dynamic context (retrieved + linked + question evidence). */
+export const QUESTION_EVIDENCE_MAX_PLACES = 3
+/** Whole bodies in the dynamic context (retrieved + linked + question evidence, with places). */
 export const QUESTION_EVIDENCE_MAX_CONTEXT_CHARS = 30_000
 /** FULL guides already carry every body; only this many relevant topic names are pointed at. */
 export const QUESTION_EVIDENCE_MAX_FOCUS_TOPICS = 6
 
+const CJK = /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}/u
+
+function singular(token: string): string {
+  return token.length > 3 && token.endsWith('s') && !token.endsWith('ss')
+    ? token.slice(0, -1)
+    : token
+}
+
+/** Prefix stem for plain words, so cognates and inflections meet ("supplement"/"supplément"). */
 function stem(token: string): string {
-  if (/^\p{N}+$/u.test(token)) return token
-  const singular =
-    token.length > 3 && token.endsWith('s') && !token.endsWith('ss') ? token.slice(0, -1) : token
-  return singular.length > STEM_CHARS ? singular.slice(0, STEM_CHARS) : singular
+  if (CJK.test(token)) return token
+  const base = singular(token)
+  return base.length > STEM_CHARS ? base.slice(0, STEM_CHARS) : base
 }
 
+/** Words, with "step-free" kept whole and unspaced CJK text split into character pairs. */
 function tokens(text: string): string[] {
-  return normalizeGuestText(text).match(/[\p{L}\p{N}]+/gu) ?? []
+  const normalized = normalizeGuestText(text).replace(/\bstep[\s-]+free\b/gu, 'stepfree')
+  return (normalized.match(/[\p{L}\p{N}]+/gu) ?? []).flatMap((token) => {
+    if (!CJK.test(token) || token.length <= 2) return [token]
+    return Array.from({ length: token.length - 1 }, (_, index) => token.slice(index, index + 2))
+  })
 }
 
-const INTENT_STEMS = INTENT_GROUPS.map(
-  (group) => new Set(group.map((word) => stem(normalizeGuestText(word)))),
+const INTENT_FORMS = INTENT_GROUPS.map(
+  (group) => new Set(group.map((word) => singular(normalizeGuestText(word)))),
 )
 
-type QueryTerm = { key: string; stems: ReadonlySet<string>; weight: number }
+type QueryTerm = {
+  key: string
+  kind: 'intent' | 'word'
+  /** Exact word forms (intent) or prefix stems (plain word) that match this part. */
+  forms: ReadonlySet<string>
+  weight: number
+}
 
 /** The distinct parts of a question: intent groups plus remaining content words, in any order. */
 export function guestQuestionTerms(
@@ -602,20 +194,20 @@ function questionTerms(
   const terms = new Map<string, QueryTerm>()
   for (const token of tokens(query)) {
     if (GUEST_QUERY_FUNCTION_WORDS.has(token)) continue
-    if (/^\p{N}+$/u.test(token) ? token.length > 4 : token.length < 3) continue
-    const tokenStem = stem(token)
-    const groupIndex = INTENT_STEMS.findIndex((group) => group.has(tokenStem))
-    if (groupIndex < 0 && venueStems.has(tokenStem)) continue
+    // Bare numbers ("kids are 5 and 11") match every duration and price; intent words carry them.
+    if (/^\p{N}+$/u.test(token)) continue
+    if (token.length < 3 && !CJK.test(token)) continue
+    const groupIndex = INTENT_FORMS.findIndex((group) => group.has(singular(token)))
     if (groupIndex >= 0) {
       const key = `intent:${groupIndex}`
-      if (!terms.has(key)) terms.set(key, { key, stems: INTENT_STEMS[groupIndex]!, weight })
-    } else if (!terms.has(`word:${tokenStem}`)) {
-      terms.set(`word:${tokenStem}`, {
-        key: `word:${tokenStem}`,
-        stems: new Set([tokenStem]),
-        weight,
-      })
+      if (!terms.has(key))
+        terms.set(key, { key, kind: 'intent', forms: INTENT_FORMS[groupIndex]!, weight })
+      continue
     }
+    const tokenStem = stem(token)
+    if (venueStems.has(tokenStem)) continue
+    const key = `word:${tokenStem}`
+    if (!terms.has(key)) terms.set(key, { key, kind: 'word', forms: new Set([tokenStem]), weight })
   }
   return [...terms.values()].slice(0, MAX_QUERY_TERMS)
 }
@@ -647,25 +239,35 @@ function candidateText(candidate: GuestEvidenceCandidate): { title: string; body
   }
 }
 
-// The cached directory hands every turn the same record objects for up to a minute, so each
-// record is tokenized once per load rather than once per question.
-const stemCache = new WeakMap<object, { length: number; counts: Map<string, number> }>()
-
-function recordStems(candidate: GuestEvidenceCandidate): {
+type RecordTerms = {
   length: number
-  counts: Map<string, number>
-} {
-  const cached = stemCache.get(candidate.record)
-  if (cached) return cached
+  /** Exact singular word forms, for intent groups. */
+  words: Map<string, number>
+  /** Prefix stems, for plain words. */
+  stems: Map<string, number>
+}
+
+// Records arrive as fresh objects every turn (projection copies them), so the cache is keyed by
+// the searchable text itself: a record is tokenized once per content version, not once per turn.
+const termCache = new Map<string, RecordTerms>()
+
+function recordTerms(candidate: GuestEvidenceCandidate): RecordTerms {
   const { title, body } = candidateText(candidate)
-  const stems = [
-    ...Array.from({ length: TITLE_REPEAT }, () => tokens(title)).flat(),
-    ...tokens(body),
-  ].map(stem)
-  const counts = new Map<string, number>()
-  for (const value of stems) counts.set(value, (counts.get(value) ?? 0) + 1)
-  const result = { length: stems.length, counts }
-  stemCache.set(candidate.record, result)
+  const key = `${title}\u0000${body}`
+  const cached = termCache.get(key)
+  if (cached) return cached
+  const all = [...Array.from({ length: TITLE_REPEAT }, () => tokens(title)).flat(), ...tokens(body)]
+  const words = new Map<string, number>()
+  const stems = new Map<string, number>()
+  for (const token of all) {
+    const word = singular(token)
+    words.set(word, (words.get(word) ?? 0) + 1)
+    const value = stem(token)
+    stems.set(value, (stems.get(value) ?? 0) + 1)
+  }
+  const result = { length: all.length, words, stems }
+  if (termCache.size >= STEM_CACHE_MAX) termCache.delete(termCache.keys().next().value!)
+  termCache.set(key, result)
   return result
 }
 
@@ -691,21 +293,29 @@ export function rankGuestQuestionEvidence(params: {
   const terms = guestQuestionTerms(params.query, params.previousQuery, params.venueName)
   if (terms.length === 0 || params.candidates.length === 0)
     return { terms: terms.map((term) => term.key), ranked: [] }
-  const docs = params.candidates.map((candidate) => ({ candidate, ...recordStems(candidate) }))
+  const docs = params.candidates.map((candidate) => ({ candidate, ...recordTerms(candidate) }))
   const averageLength = docs.reduce((sum, doc) => sum + doc.length, 0) / docs.length || 1
   const termFrequency = (doc: (typeof docs)[number], term: QueryTerm) => {
+    const counts = term.kind === 'intent' ? doc.words : doc.stems
     let tf = 0
-    for (const value of term.stems) tf += doc.counts.get(value) ?? 0
+    for (const value of term.forms) tf += counts.get(value) ?? 0
     return tf
   }
-  const idf = terms.map((term) => {
-    const df = docs.filter((doc) => termFrequency(doc, term) > 0).length
-    return Math.log(1 + (docs.length - df + 0.5) / (df + 0.5))
-  })
-  // Per record, per question part: the BM25 contribution of that part.
-  const contributions = docs.map((doc) =>
+  const frequencies = docs.map((doc) => terms.map((term) => termFrequency(doc, term)))
+  const documentFrequency = terms.map(
+    (_, index) => frequencies.filter((row) => row[index]! > 0).length,
+  )
+  const idf = documentFrequency.map((df) => Math.log(1 + (docs.length - df + 0.5) / (df + 0.5)))
+  const informativeLimit = Math.max(INFORMATIVE_MIN_RECORDS, docs.length * INFORMATIVE_MAX_SHARE)
+  // Intent groups are curated question parts; a plain word must be rare among this venue's records.
+  const informative = terms.map(
+    (term, index) =>
+      term.kind === 'intent' ||
+      (documentFrequency[index]! > 0 && documentFrequency[index]! <= informativeLimit),
+  )
+  const contributions = docs.map((doc, docIndex) =>
     terms.map((term, index) => {
-      const tf = termFrequency(doc, term)
+      const tf = frequencies[docIndex]![index]!
       if (tf === 0) return 0
       const norm = tf + BM25_K1 * (1 - BM25_B + (BM25_B * doc.length) / averageLength)
       return term.weight * idf[index]! * ((tf * (BM25_K1 + 1)) / norm)
@@ -716,7 +326,11 @@ export function rankGuestQuestionEvidence(params: {
   const covered = new Set<number>()
   const remaining = new Set(
     docs.flatMap((_, index) =>
-      relevance[index]! > 0 && relevance[index]! >= floor ? [index] : [],
+      relevance[index]! > 0 &&
+      relevance[index]! >= floor &&
+      contributions[index]!.some((value, termIndex) => value > 0 && informative[termIndex])
+        ? [index]
+        : [],
     ),
   )
   const ranked: GuestQuestionEvidenceRank[] = []
@@ -757,9 +371,14 @@ export function uncoveredGuestQuestionTerms(params: {
   venueName?: string | null
   texts: ReadonlyArray<string>
 }): string[] {
-  const present = new Set(params.texts.flatMap((text) => tokens(text).map(stem)))
+  const all = params.texts.flatMap((text) => tokens(text))
+  const words = new Set(all.map(singular))
+  const stems = new Set(all.map(stem))
   return guestQuestionTerms(params.query, params.previousQuery, params.venueName)
-    .filter((term) => ![...term.stems].some((value) => present.has(value)))
+    .filter(
+      (term) =>
+        ![...term.forms].some((value) => (term.kind === 'intent' ? words : stems).has(value)),
+    )
     .map((term) => term.key)
 }
 
@@ -774,6 +393,9 @@ export type GuestQuestionEvidenceTrace = {
   budgetExcludedIds: string[]
 }
 
+const placeChars = (place: GuestDirectoryPlace) =>
+  (place.shortDescription?.length ?? 0) + (place.longDescription?.length ?? 0)
+
 /**
  * Whole guide records to add for this question. In DIRECTORY mode the bodies join the dynamic
  * context; in FULL mode every body is already present, so only relevant topic names are added
@@ -787,29 +409,32 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
   mode: 'FULL' | 'DIRECTORY' | 'NONE'
   currentDate: string
   knowledgeInContext: ReadonlyArray<K>
-  placeIdsInContext: ReadonlySet<string>
+  placesInContext: ReadonlyArray<GuestDirectoryPlace>
+  /** False for recommendation or nearby questions, whose place list has its own ranking. */
+  allowPlaces?: boolean
   maxContextChars?: number
 }): {
   knowledge: GuestDirectoryKnowledge[]
   places: GuestDirectoryPlace[]
   trace: GuestQuestionEvidenceTrace
 } {
-  const empty = () => ({
-    knowledge: [],
-    places: [],
-    trace: {
-      mode: params.mode,
-      terms: [],
-      uncoveredTerms: [],
-      addedKnowledgeIds: [],
-      addedPlaceIds: [],
-      budgetExcludedIds: [],
-    },
-  })
-  if (params.mode === 'NONE') return empty()
+  if (params.mode === 'NONE')
+    return {
+      knowledge: [],
+      places: [],
+      trace: {
+        mode: params.mode,
+        terms: [],
+        uncoveredTerms: [],
+        addedKnowledgeIds: [],
+        addedPlaceIds: [],
+        budgetExcludedIds: [],
+      },
+    }
   const presentKnowledge = new Set(
     params.knowledgeInContext.flatMap((entry) => (entry.id ? [entry.id] : [])),
   )
+  const presentPlaces = new Set(params.placesInContext.map((place) => place.id))
   const knowledgeCandidates: GuestEvidenceCandidate[] = params.directory.knowledge
     .filter((entry) => !isPastDatedGuestEvent(entry, params.currentDate))
     .map((entry) => ({
@@ -821,17 +446,12 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
   // Same-name places stay name-only until identity resolution picks one; never hydrate them here.
   const nameCounts = new Map<string, number>()
   for (const place of params.directory.places) {
-    const key = normalizeGuestText(place.name)
+    const key = guestPlaceIdentityKey(place.name)
     nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
   }
   const placeCandidates: GuestEvidenceCandidate[] = params.directory.places
-    .filter((place) => (nameCounts.get(normalizeGuestText(place.name)) ?? 0) === 1)
-    .map((place) => ({
-      kind: 'place',
-      id: place.id,
-      record: place,
-      chars: (place.shortDescription?.length ?? 0) + (place.longDescription?.length ?? 0),
-    }))
+    .filter((place) => (nameCounts.get(guestPlaceIdentityKey(place.name)) ?? 0) === 1)
+    .map((place) => ({ kind: 'place', id: place.id, record: place, chars: placeChars(place) }))
   const { terms, ranked } = rankGuestQuestionEvidence({
     query: params.query,
     previousQuery: params.previousQuery ?? null,
@@ -844,33 +464,39 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
   const places: GuestDirectoryPlace[] = []
   const budgetExcludedIds: string[] = []
   const maxChars = params.maxContextChars ?? QUESTION_EVIDENCE_MAX_CONTEXT_CHARS
-  let contextChars = params.knowledgeInContext.reduce((sum, entry) => sum + entry.content.length, 0)
+  let contextChars =
+    params.knowledgeInContext.reduce((sum, entry) => sum + entry.content.length, 0) +
+    params.placesInContext.reduce((sum, place) => sum + placeChars(place), 0)
   const focusFloor =
     Math.max(0, ...ranked.map((rank) => rank.score)) * FULL_FOCUS_MIN_RELATIVE_SCORE
   for (const rank of ranked) {
     if (rank.kind === 'knowledge') {
       if (presentKnowledge.has(rank.id)) continue
-      if (params.mode === 'FULL' && rank.score < focusFloor) continue
-      const limit =
-        params.mode === 'FULL'
-          ? QUESTION_EVIDENCE_MAX_FOCUS_TOPICS
-          : QUESTION_EVIDENCE_MAX_KNOWLEDGE_RECORDS
       const entry = knowledgeById.get(rank.id)!
-      if (knowledge.length >= limit) continue
       // FULL guides already carry the body; only the name is rendered, so no body budget applies.
-      if (params.mode === 'DIRECTORY') {
-        if (contextChars + entry.content.length > maxChars) {
-          budgetExcludedIds.push(rank.id)
-          continue
-        }
-        contextChars += entry.content.length
+      if (params.mode === 'FULL') {
+        if (rank.score >= focusFloor && knowledge.length < QUESTION_EVIDENCE_MAX_FOCUS_TOPICS)
+          knowledge.push(entry)
+        continue
       }
+      if (knowledge.length >= QUESTION_EVIDENCE_MAX_KNOWLEDGE_RECORDS) continue
+      if (contextChars + entry.content.length > maxChars) {
+        budgetExcludedIds.push(rank.id)
+        continue
+      }
+      contextChars += entry.content.length
       knowledge.push(entry)
     } else {
-      if (params.placeIdsInContext.has(rank.id)) continue
       // A FULL guide carries every place body already.
-      if (params.mode !== 'DIRECTORY' || places.length >= QUESTION_EVIDENCE_MAX_PLACES) continue
-      places.push(placeById.get(rank.id)!)
+      if (params.mode !== 'DIRECTORY' || params.allowPlaces === false) continue
+      if (presentPlaces.has(rank.id) || places.length >= QUESTION_EVIDENCE_MAX_PLACES) continue
+      const place = placeById.get(rank.id)!
+      if (contextChars + placeChars(place) > maxChars) {
+        budgetExcludedIds.push(rank.id)
+        continue
+      }
+      contextChars += placeChars(place)
+      places.push(place)
     }
   }
   return {
@@ -886,8 +512,7 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
         texts: [
           ...params.knowledgeInContext.map((entry) => entry.content),
           ...knowledge.map((entry) => `${entry.title} ${entry.content}`),
-          ...params.directory.places
-            .filter((place) => params.placeIdsInContext.has(place.id) || places.includes(place))
+          ...[...params.placesInContext, ...places]
             .map((place) => candidateText({ kind: 'place', id: place.id, record: place, chars: 0 }))
             .map(({ title, body }) => `${title} ${body}`),
           ...(params.mode === 'FULL'
@@ -900,4 +525,48 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
       budgetExcludedIds,
     },
   }
+}
+
+/**
+ * The guide behind question evidence is cached for up to a minute. Before a hydrated body reaches
+ * the model, re-read those rows through the live guest scope: a record unpublished, hidden or
+ * withdrawn since the load is dropped, and a record edited since then is sent in its current form.
+ */
+export async function revalidateGuestQuestionEvidence(params: {
+  reader: unknown
+  tenantId: string
+  venueId: string
+  includeSecondLayer: boolean
+  asOf: Date
+  knowledge: GuestDirectoryKnowledge[]
+}): Promise<GuestDirectoryKnowledge[]> {
+  if (params.knowledge.length === 0) return []
+  const reader = params.reader as GuestKnowledgeReader
+  const rows = await reader.venueKnowledgeEntry.findMany({
+    where: {
+      ...guestKnowledgeScope(params),
+      id: { in: params.knowledge.map((entry) => entry.id) },
+    },
+    select: guestKnowledgeSelectShape(),
+    take: params.knowledge.length,
+  })
+  const current = new Map(
+    rows.filter(hasCurrentGuestPublicationAuthority).map((row) => [row.id, row]),
+  )
+  return params.knowledge.flatMap((entry) => {
+    const row = current.get(entry.id)
+    if (!row) return []
+    return [
+      {
+        ...entry,
+        title: row.title,
+        category: row.category,
+        content: row.content,
+        sourceType: row.sourceType,
+        sourceName: row.sourceName,
+        sourceUrl: row.sourceUrl,
+        updatedAt: row.updatedAt,
+      },
+    ]
+  })
 }
