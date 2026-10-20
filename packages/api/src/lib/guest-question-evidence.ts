@@ -396,6 +396,23 @@ const INTENT_GROUPS: readonly (readonly string[])[] = [
     'dura',
     'duracao',
   ],
+  // screens and digital displays
+  [
+    'screen',
+    'screens',
+    'screenfree',
+    'digital',
+    'pantalla',
+    'pantallas',
+    'ecran',
+    'ecrans',
+    'bildschirm',
+    'bildschirme',
+    'schermo',
+    'schermi',
+    'tela',
+    'telas',
+  ],
   // hands-on activity
   [
     'touch',
@@ -522,7 +539,9 @@ const TITLE_REPEAT = 2
 // A part of the question already covered by a selected record still counts, at this weight, so
 // list questions ("which exhibits...") keep collecting matching records.
 const COVERED_TERM_WEIGHT = 0.4
-// A record must reach this share of the strongest record's score to be selected at all.
+// A record's own relevance (undiscounted) must reach this share of the most relevant record's to
+// be selected at all. Coverage only orders eligible records; it never makes a weak one eligible,
+// and it never hides a strong alternative for a part another record already answers.
 const MIN_RELATIVE_SCORE = 0.25
 // A FULL guide already carries every body, so a topic name is pointed at only when it is close
 // to the strongest match: a loose focus list would steer the answer toward unrelated topics.
@@ -653,6 +672,7 @@ function recordStems(candidate: GuestEvidenceCandidate): {
 export type GuestQuestionEvidenceRank = {
   kind: 'knowledge' | 'place'
   id: string
+  /** The record's own relevance to the whole question, before any coverage discount. */
   score: number
   /** Question part keys this record matches. */
   terms: string[]
@@ -691,10 +711,15 @@ export function rankGuestQuestionEvidence(params: {
       return term.weight * idf[index]! * ((tf * (BM25_K1 + 1)) / norm)
     }),
   )
+  const relevance = contributions.map((values) => values.reduce((sum, value) => sum + value, 0))
+  const floor = Math.max(0, ...relevance) * MIN_RELATIVE_SCORE
   const covered = new Set<number>()
-  const remaining = new Set(docs.map((_, index) => index))
+  const remaining = new Set(
+    docs.flatMap((_, index) =>
+      relevance[index]! > 0 && relevance[index]! >= floor ? [index] : [],
+    ),
+  )
   const ranked: GuestQuestionEvidenceRank[] = []
-  let firstScore = 0
   while (remaining.size > 0 && ranked.length < MAX_RANKED) {
     let best = -1
     let bestGain = 0
@@ -709,8 +734,6 @@ export function rankGuestQuestionEvidence(params: {
       }
     }
     if (best < 0) break
-    if (ranked.length === 0) firstScore = bestGain
-    if (bestGain < firstScore * MIN_RELATIVE_SCORE) break
     remaining.delete(best)
     const matched = contributions[best]!.flatMap((value, termIndex) =>
       value > 0 ? [termIndex] : [],
@@ -720,7 +743,7 @@ export function rankGuestQuestionEvidence(params: {
     ranked.push({
       kind: candidate.kind,
       id: candidate.id,
-      score: Math.round(bestGain * 1000) / 1000,
+      score: Math.round(relevance[best]! * 1000) / 1000,
       terms: matched.map((termIndex) => terms[termIndex]!.key),
     })
   }
@@ -822,7 +845,8 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
   const budgetExcludedIds: string[] = []
   const maxChars = params.maxContextChars ?? QUESTION_EVIDENCE_MAX_CONTEXT_CHARS
   let contextChars = params.knowledgeInContext.reduce((sum, entry) => sum + entry.content.length, 0)
-  const focusFloor = (ranked[0]?.score ?? 0) * FULL_FOCUS_MIN_RELATIVE_SCORE
+  const focusFloor =
+    Math.max(0, ...ranked.map((rank) => rank.score)) * FULL_FOCUS_MIN_RELATIVE_SCORE
   for (const rank of ranked) {
     if (rank.kind === 'knowledge') {
       if (presentKnowledge.has(rank.id)) continue
