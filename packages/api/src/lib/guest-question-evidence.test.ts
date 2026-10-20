@@ -87,7 +87,10 @@ const directory = (extra: Partial<GuestVenueDirectory> = {}): GuestVenueDirector
   ...extra,
 })
 
-const select = (query: string, overrides: Partial<Parameters<typeof selectGuestQuestionEvidence>[0]> = {}) =>
+const select = (
+  query: string,
+  overrides: Partial<Parameters<typeof selectGuestQuestionEvidence>[0]> = {},
+) =>
   selectGuestQuestionEvidence({
     query,
     directory: directory(),
@@ -117,14 +120,19 @@ describe('question evidence', () => {
   })
 
   it('matches a question written in another language through shared intents and cognates', () => {
-    const result = select('¿Podemos hacer fotos durante la charla de las nutrias? ¿Está incluida en la entrada?')
+    const result = select(
+      '¿Podemos hacer fotos durante la charla de las nutrias? ¿Está incluida en la entrada?',
+    )
     expect(result.knowledge.map((entry) => entry.id)).toContain('otter-talk')
   })
 
   it('keeps whole records and never exceeds the context budget', () => {
-    const result = select('Which reef tanks can adults and children watch, and how many minutes each?', {
-      maxContextChars: 6_000,
-    })
+    const result = select(
+      'Which reef tanks can adults and children watch, and how many minutes each?',
+      {
+        maxContextChars: 6_000,
+      },
+    )
     const chars = result.knowledge.reduce((sum, entry) => sum + entry.content.length, 0)
     expect(chars).toBeLessThanOrEqual(6_000)
     for (const entry of result.knowledge)
@@ -146,7 +154,9 @@ describe('question evidence', () => {
   })
 
   it('in FULL mode adds only a bounded set of topic names and never places', () => {
-    const result = select('Touch pool help for children, and how long does it take?', { mode: 'FULL' })
+    const result = select('Touch pool help for children, and how long does it take?', {
+      mode: 'FULL',
+    })
     expect(result.knowledge.length).toBeLessThanOrEqual(QUESTION_EVIDENCE_MAX_FOCUS_TOPICS)
     expect(result.knowledge.map((entry) => entry.id)).toContain('touch-pool')
     expect(result.places).toEqual([])
@@ -175,6 +185,21 @@ describe('question evidence', () => {
     expect(result.knowledge.map((entry) => entry.id)).not.toContain('lantern-2025')
   })
 
+  it('never treats the venue name as a question part', () => {
+    const terms = guestQuestionTerms(
+      'Can we buy sandwiches around Coral Cove?',
+      null,
+      'Coral Cove Aquarium',
+    )
+    expect(terms.map((term) => term.key)).not.toContain('word:coral')
+    expect(terms.map((term) => term.key)).not.toContain('word:cove')
+  })
+
+  it('points a FULL guide only at topics close to the strongest match', () => {
+    const result = select('How much is the glass bottom boat at sunset?', { mode: 'FULL' })
+    expect(result.knowledge.map((entry) => entry.id)).toEqual(['boat-fares'])
+  })
+
   it('adds nothing when the guide is absent', () => {
     expect(select('How much is the boat?', { mode: 'NONE' }).knowledge).toEqual([])
   })
@@ -182,9 +207,11 @@ describe('question evidence', () => {
   it('borrows the previous question only for a short referential follow-up', () => {
     const terms = guestQuestionTerms('and how much is it?', 'Tell me about the glass bottom boat')
     expect(terms.some((term) => term.key === 'word:botto')).toBe(true)
-    expect(guestQuestionTerms('How much is the otter talk?', 'glass bottom boat').some(
-      (term) => term.key === 'word:botto',
-    )).toBe(false)
+    expect(
+      guestQuestionTerms('How much is the otter talk?', 'glass bottom boat').some(
+        (term) => term.key === 'word:botto',
+      ),
+    ).toBe(false)
   })
 })
 
@@ -198,7 +225,9 @@ describe('lexical query concepts', () => {
   })
 
   it('ignores function words in other languages', () => {
-    const concepts = guestQueryConcepts('Pour un adulte, combien coûte le supplément dans la voiture ?').flat()
+    const concepts = guestQueryConcepts(
+      'Pour un adulte, combien coûte le supplément dans la voiture ?',
+    ).flat()
     expect(concepts).not.toContain('pour')
     expect(concepts).not.toContain('dans')
     expect(concepts).toContain('supplement')

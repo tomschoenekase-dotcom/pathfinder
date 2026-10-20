@@ -28,101 +28,491 @@ import type {
 const INTENT_GROUPS: readonly (readonly string[])[] = [
   // price and tickets
   [
-    'price', 'prices', 'cost', 'costs', 'fee', 'fees', 'fare', 'fares', 'charge', 'charges', 'pay',
-    'paid', 'ticket', 'tickets', 'admission', 'supplement', 'surcharge', 'dollars', 'precio',
-    'precios', 'cuesta', 'cuestan', 'cuanto', 'tarifa', 'tarifas', 'boleto', 'boletos', 'prix',
-    'coute', 'coutent', 'combien', 'tarif', 'billet', 'billets', 'preis', 'preise', 'kostet',
-    'kosten', 'gebuhr', 'eintrittskarte', 'prezzo', 'prezzi', 'costo', 'costa', 'biglietto',
-    'biglietti', 'preco', 'precos', 'custa', 'bilhete', 'bilhetes',
+    'price',
+    'prices',
+    'cost',
+    'costs',
+    'fee',
+    'fees',
+    'fare',
+    'fares',
+    'charge',
+    'charges',
+    'pay',
+    'paid',
+    'ticket',
+    'tickets',
+    'admission',
+    'supplement',
+    'surcharge',
+    'dollars',
+    'precio',
+    'precios',
+    'cuesta',
+    'cuestan',
+    'cuanto',
+    'tarifa',
+    'tarifas',
+    'boleto',
+    'boletos',
+    'prix',
+    'coute',
+    'coutent',
+    'combien',
+    'tarif',
+    'billet',
+    'billets',
+    'preis',
+    'preise',
+    'kostet',
+    'kosten',
+    'gebuhr',
+    'eintrittskarte',
+    'prezzo',
+    'prezzi',
+    'costo',
+    'costa',
+    'biglietto',
+    'biglietti',
+    'preco',
+    'precos',
+    'custa',
+    'bilhete',
+    'bilhetes',
   ],
   // inclusion and free entry
   [
-    'included', 'include', 'includes', 'inclusive', 'free', 'covered', 'covers', 'cover',
-    'complimentary', 'extra', 'additional', 'incluido', 'incluida', 'incluye', 'gratis', 'gratuito',
-    'gratuita', 'inclus', 'incluse', 'compris', 'gratuit', 'gratuite', 'inbegriffen', 'enthalten',
-    'kostenlos', 'incluso', 'inclusa', 'compreso', 'incluidos',
+    'included',
+    'include',
+    'includes',
+    'inclusive',
+    'free',
+    'covered',
+    'covers',
+    'cover',
+    'complimentary',
+    'extra',
+    'additional',
+    'incluido',
+    'incluida',
+    'incluye',
+    'gratis',
+    'gratuito',
+    'gratuita',
+    'inclus',
+    'incluse',
+    'compris',
+    'gratuit',
+    'gratuite',
+    'inbegriffen',
+    'enthalten',
+    'kostenlos',
+    'incluso',
+    'inclusa',
+    'compreso',
+    'incluidos',
   ],
   // entry and admission
   [
-    'entry', 'entrance', 'enter', 'admission', 'admit', 'entrada', 'entree', 'eintritt', 'ingresso',
-    'ingreso', 'acceder',
+    'entry',
+    'entrance',
+    'enter',
+    'admission',
+    'admit',
+    'entrada',
+    'entree',
+    'eintritt',
+    'ingresso',
+    'ingreso',
+    'acceder',
   ],
   // photography
   [
-    'photo', 'photos', 'photograph', 'photographs', 'photography', 'camera', 'cameras', 'pictures',
-    'picture', 'selfie', 'flash', 'filming', 'video', 'foto', 'fotos', 'fotografia', 'fotografias',
-    'fotografiar', 'photographier', 'fotografieren', 'fotografare', 'fotografar', 'kamera',
+    'photo',
+    'photos',
+    'photograph',
+    'photographs',
+    'photography',
+    'camera',
+    'cameras',
+    'pictures',
+    'picture',
+    'selfie',
+    'flash',
+    'filming',
+    'video',
+    'foto',
+    'fotos',
+    'fotografia',
+    'fotografias',
+    'fotografiar',
+    'photographier',
+    'fotografieren',
+    'fotografare',
+    'fotografar',
+    'kamera',
   ],
   // food and drink
   [
-    'eat', 'eating', 'food', 'foods', 'dining', 'dine', 'restaurant', 'restaurants', 'cafe', 'cafes',
-    'meal', 'meals', 'snack', 'snacks', 'lunch', 'dinner', 'breakfast', 'hungry', 'menu', 'kiosk',
-    'sandwich', 'sandwiches', 'drink', 'drinks', 'coffee', 'tea', 'picnic', 'comida', 'comer',
-    'bocadillo', 'bocadillos', 'almuerzo', 'cena', 'bebida', 'bebidas', 'restaurante', 'manger',
-    'nourriture', 'repas', 'dejeuner', 'boisson', 'boissons', 'essen', 'speisen', 'imbiss',
-    'mittagessen', 'getranke', 'mangiare', 'cibo', 'pranzo', 'panino', 'panini', 'bevande',
-    'lanche', 'almoco', 'bebida',
+    'eat',
+    'eating',
+    'food',
+    'foods',
+    'dining',
+    'dine',
+    'restaurant',
+    'restaurants',
+    'cafe',
+    'cafes',
+    'meal',
+    'meals',
+    'snack',
+    'snacks',
+    'lunch',
+    'dinner',
+    'breakfast',
+    'hungry',
+    'menu',
+    'kiosk',
+    'sandwich',
+    'sandwiches',
+    'drink',
+    'drinks',
+    'coffee',
+    'tea',
+    'picnic',
+    'comida',
+    'comer',
+    'bocadillo',
+    'bocadillos',
+    'almuerzo',
+    'cena',
+    'bebida',
+    'bebidas',
+    'restaurante',
+    'manger',
+    'nourriture',
+    'repas',
+    'dejeuner',
+    'boisson',
+    'boissons',
+    'essen',
+    'speisen',
+    'imbiss',
+    'mittagessen',
+    'getranke',
+    'mangiare',
+    'cibo',
+    'pranzo',
+    'panino',
+    'panini',
+    'bevande',
+    'lanche',
+    'almoco',
+    'bebida',
   ],
   // step-free access
   [
-    'wheelchair', 'wheelchairs', 'accessible', 'accessibility', 'access', 'stepfree', 'lift',
-    'lifts', 'elevator', 'elevators', 'ramp', 'ramps', 'stairs', 'steps', 'mobility', 'scooter',
-    'silla', 'ruedas', 'accesible', 'accesibilidad', 'ascensor', 'rampa', 'escaleras', 'fauteuil',
-    'roulant', 'ascenseur', 'escalier', 'escaliers', 'rollstuhl', 'barrierefrei', 'aufzug',
-    'rampe', 'treppe', 'treppen', 'carrozzina', 'sedia', 'rotelle', 'ascensore', 'accessibile',
-    'scale', 'cadeira', 'rodas', 'elevador', 'acessivel', 'escadas',
+    'wheelchair',
+    'wheelchairs',
+    'accessible',
+    'accessibility',
+    'access',
+    'stepfree',
+    'lift',
+    'lifts',
+    'elevator',
+    'elevators',
+    'ramp',
+    'ramps',
+    'stairs',
+    'steps',
+    'mobility',
+    'scooter',
+    'silla',
+    'ruedas',
+    'accesible',
+    'accesibilidad',
+    'ascensor',
+    'rampa',
+    'escaleras',
+    'fauteuil',
+    'roulant',
+    'ascenseur',
+    'escalier',
+    'escaliers',
+    'rollstuhl',
+    'barrierefrei',
+    'aufzug',
+    'rampe',
+    'treppe',
+    'treppen',
+    'carrozzina',
+    'sedia',
+    'rotelle',
+    'ascensore',
+    'accessibile',
+    'cadeira',
+    'rodas',
+    'elevador',
+    'acessivel',
+    'escadas',
   ],
   // opening hours and closing
   [
-    'hours', 'opening', 'closing', 'open', 'opens', 'close', 'closes', 'closed', 'horario',
-    'horarios', 'abre', 'abierto', 'cierra', 'cerrado', 'horaires', 'ouvert', 'ouvre', 'ferme',
-    'offnungszeiten', 'geoffnet', 'offnet', 'geschlossen', 'schliesst', 'orari', 'orario', 'aperto',
-    'chiuso', 'chiude', 'aberto', 'fechado', 'fecha',
+    'hours',
+    'opening',
+    'closing',
+    'open',
+    'opens',
+    'close',
+    'closes',
+    'closed',
+    'horario',
+    'horarios',
+    'abre',
+    'abierto',
+    'cierra',
+    'cerrado',
+    'horaires',
+    'ouvert',
+    'ouvre',
+    'ferme',
+    'offnungszeiten',
+    'geoffnet',
+    'offnet',
+    'geschlossen',
+    'schliesst',
+    'orari',
+    'orario',
+    'aperto',
+    'chiuso',
+    'chiude',
+    'aberto',
+    'fechado',
+    'fecha',
   ],
   // ages, children and adults
   [
-    'age', 'ages', 'aged', 'old', 'year', 'years', 'child', 'children', 'kid', 'kids', 'toddler',
-    'toddlers', 'baby', 'babies', 'infant', 'infants', 'adult', 'adults', 'teen', 'teens',
-    'teenager', 'son', 'daughter', 'accompanied', 'accompanying', 'supervision', 'nino', 'ninos',
-    'nina', 'ninas', 'hijo', 'hija', 'hijos', 'edad', 'anos', 'adulto', 'adultos', 'enfant',
-    'enfants', 'ans', 'adulte', 'adultes', 'kind', 'kinder', 'alter', 'jahre', 'jahrige',
-    'erwachsene', 'erwachsener', 'bambino', 'bambini', 'bambina', 'eta', 'anni', 'adulto', 'adulti',
-    'crianca', 'criancas', 'idade', 'filho', 'filha',
+    'age',
+    'ages',
+    'aged',
+    'old',
+    'year',
+    'years',
+    'child',
+    'children',
+    'kid',
+    'kids',
+    'toddler',
+    'toddlers',
+    'baby',
+    'babies',
+    'infant',
+    'infants',
+    'adult',
+    'adults',
+    'teen',
+    'teens',
+    'teenager',
+    'son',
+    'daughter',
+    'accompanied',
+    'accompanying',
+    'supervision',
+    'nino',
+    'ninos',
+    'nina',
+    'ninas',
+    'hijo',
+    'hija',
+    'hijos',
+    'edad',
+    'anos',
+    'adulto',
+    'adultos',
+    'enfant',
+    'enfants',
+    'ans',
+    'adulte',
+    'adultes',
+    'kinder',
+    'alter',
+    'jahre',
+    'jahrige',
+    'erwachsene',
+    'erwachsener',
+    'bambino',
+    'bambini',
+    'bambina',
+    'eta',
+    'anni',
+    'adulto',
+    'adulti',
+    'crianca',
+    'criancas',
+    'idade',
+    'filho',
+    'filha',
   ],
   // height rules
   ['height', 'tall', 'taller', 'cm', 'inches', 'altura', 'taille', 'grosse', 'altezza'],
   // booking
   [
-    'book', 'booking', 'bookings', 'reserve', 'reservation', 'reservations', 'advance', 'reservar',
-    'reserva', 'reservas', 'reserver', 'buchen', 'buchung', 'reservieren', 'reservierung',
-    'prenotare', 'prenotazione',
+    'book',
+    'booking',
+    'bookings',
+    'reserve',
+    'reservation',
+    'reservations',
+    'advance',
+    'reservar',
+    'reserva',
+    'reservas',
+    'reserver',
+    'buchen',
+    'buchung',
+    'reservieren',
+    'reservierung',
+    'prenotare',
+    'prenotazione',
   ],
   // duration
   [
-    'minutes', 'minute', 'mins', 'duration', 'lasts', 'minutos', 'duracion', 'dure', 'duree',
-    'minuten', 'dauer', 'dauert', 'minuti', 'durata', 'dura', 'duracao',
+    'minutes',
+    'minute',
+    'mins',
+    'duration',
+    'lasts',
+    'minutos',
+    'duracion',
+    'dure',
+    'duree',
+    'minuten',
+    'dauer',
+    'dauert',
+    'minuti',
+    'durata',
+    'dura',
+    'duracao',
   ],
   // hands-on activity
   [
-    'touch', 'hands', 'interactive', 'tocar', 'interactivo', 'experimentar', 'toucher', 'interactif',
-    'anfassen', 'beruhren', 'interaktiv', 'ausprobieren', 'toccare', 'interattivo', 'interativo',
+    'touch',
+    'hands',
+    'interactive',
+    'tocar',
+    'interactivo',
+    'experimentar',
+    'toucher',
+    'interactif',
+    'anfassen',
+    'beruhren',
+    'interaktiv',
+    'ausprobieren',
+    'toccare',
+    'interattivo',
+    'interativo',
   ],
   // events, shows and schedules
   [
-    'event', 'events', 'show', 'shows', 'demonstration', 'demo', 'talk', 'tour', 'tours', 'schedule',
-    'evento', 'eventos', 'espectaculo', 'visita', 'evenement', 'spectacle', 'veranstaltung',
-    'vorfuhrung', 'fuhrung', 'spettacolo', 'espetaculo',
+    'event',
+    'events',
+    'show',
+    'shows',
+    'demonstration',
+    'demo',
+    'talk',
+    'tour',
+    'tours',
+    'schedule',
+    'evento',
+    'eventos',
+    'espectaculo',
+    'visita',
+    'evenement',
+    'spectacle',
+    'veranstaltung',
+    'vorfuhrung',
+    'fuhrung',
+    'spettacolo',
+    'espetaculo',
   ],
   // toilets
-  ['restroom', 'restrooms', 'bathroom', 'bathrooms', 'toilet', 'toilets', 'wc', 'bano', 'banos', 'aseo', 'toilettes', 'toiletten', 'bagno', 'bagni', 'banheiro'],
+  [
+    'restroom',
+    'restrooms',
+    'bathroom',
+    'bathrooms',
+    'toilet',
+    'toilets',
+    'wc',
+    'bano',
+    'banos',
+    'aseo',
+    'toilettes',
+    'toiletten',
+    'bagno',
+    'bagni',
+    'banheiro',
+  ],
   // pets
-  ['dog', 'dogs', 'pet', 'pets', 'perro', 'perros', 'mascota', 'chien', 'chiens', 'hund', 'hunde', 'cane', 'cani', 'cachorro'],
+  [
+    'dog',
+    'dogs',
+    'pet',
+    'pets',
+    'perro',
+    'perros',
+    'mascota',
+    'chien',
+    'chiens',
+    'hund',
+    'hunde',
+    'cane',
+    'cani',
+    'cachorro',
+  ],
   // strollers
-  ['stroller', 'strollers', 'pushchair', 'pram', 'buggy', 'cochecito', 'carrito', 'poussette', 'kinderwagen', 'passeggino', 'carrinho'],
+  [
+    'stroller',
+    'strollers',
+    'pushchair',
+    'pram',
+    'buggy',
+    'cochecito',
+    'carrito',
+    'poussette',
+    'kinderwagen',
+    'passeggino',
+    'carrinho',
+  ],
   // parking
-  ['parking', 'aparcamiento', 'estacionamiento', 'stationnement', 'parkplatz', 'parcheggio', 'estacionamento'],
+  [
+    'parking',
+    'aparcamiento',
+    'estacionamiento',
+    'stationnement',
+    'parkplatz',
+    'parcheggio',
+    'estacionamento',
+  ],
   // languages and guides
-  ['language', 'languages', 'audio', 'guide', 'guided', 'idioma', 'idiomas', 'langue', 'langues', 'sprache', 'sprachen', 'lingua', 'lingue'],
+  [
+    'language',
+    'languages',
+    'audio',
+    'guide',
+    'guided',
+    'idioma',
+    'idiomas',
+    'langue',
+    'langues',
+    'sprache',
+    'sprachen',
+    'lingua',
+    'lingue',
+  ],
 ]
 
 const STEM_CHARS = 5
@@ -134,6 +524,9 @@ const TITLE_REPEAT = 2
 const COVERED_TERM_WEIGHT = 0.4
 // A record must reach this share of the strongest record's score to be selected at all.
 const MIN_RELATIVE_SCORE = 0.25
+// A FULL guide already carries every body, so a topic name is pointed at only when it is close
+// to the strongest match: a loose focus list would steer the answer toward unrelated topics.
+const FULL_FOCUS_MIN_RELATIVE_SCORE = 0.5
 const FOLLOWUP_TERM_WEIGHT = 0.5
 const MAX_QUERY_TERMS = 24
 
@@ -146,7 +539,8 @@ export const QUESTION_EVIDENCE_MAX_FOCUS_TOPICS = 6
 
 function stem(token: string): string {
   if (/^\p{N}+$/u.test(token)) return token
-  const singular = token.length > 3 && token.endsWith('s') && !token.endsWith('ss') ? token.slice(0, -1) : token
+  const singular =
+    token.length > 3 && token.endsWith('s') && !token.endsWith('ss') ? token.slice(0, -1) : token
   return singular.length > STEM_CHARS ? singular.slice(0, STEM_CHARS) : singular
 }
 
@@ -154,33 +548,52 @@ function tokens(text: string): string[] {
   return normalizeGuestText(text).match(/[\p{L}\p{N}]+/gu) ?? []
 }
 
-const INTENT_STEMS = INTENT_GROUPS.map((group) => new Set(group.map((word) => stem(normalizeGuestText(word)))))
+const INTENT_STEMS = INTENT_GROUPS.map(
+  (group) => new Set(group.map((word) => stem(normalizeGuestText(word)))),
+)
 
 type QueryTerm = { key: string; stems: ReadonlySet<string>; weight: number }
 
 /** The distinct parts of a question: intent groups plus remaining content words, in any order. */
-export function guestQuestionTerms(query: string, previousQuery?: string | null): QueryTerm[] {
-  const own = questionTerms(query, 1)
+export function guestQuestionTerms(
+  query: string,
+  previousQuery?: string | null,
+  venueName?: string | null,
+): QueryTerm[] {
+  // The venue's own name never tells its records apart ("Can we buy sandwiches around <venue>?").
+  const venueStems = new Set(tokens(venueName ?? '').map(stem))
+  const own = questionTerms(query, 1, venueStems)
   if (!previousQuery || !guestQueryIsFollowup(query)) return own
   const keys = new Set(own.map((term) => term.key))
   return [
     ...own,
-    ...questionTerms(previousQuery, FOLLOWUP_TERM_WEIGHT).filter((term) => !keys.has(term.key)),
+    ...questionTerms(previousQuery, FOLLOWUP_TERM_WEIGHT, venueStems).filter(
+      (term) => !keys.has(term.key),
+    ),
   ].slice(0, MAX_QUERY_TERMS)
 }
 
-function questionTerms(query: string, weight: number): QueryTerm[] {
+function questionTerms(
+  query: string,
+  weight: number,
+  venueStems: ReadonlySet<string>,
+): QueryTerm[] {
   const terms = new Map<string, QueryTerm>()
   for (const token of tokens(query)) {
     if (GUEST_QUERY_FUNCTION_WORDS.has(token)) continue
     if (/^\p{N}+$/u.test(token) ? token.length > 4 : token.length < 3) continue
     const tokenStem = stem(token)
     const groupIndex = INTENT_STEMS.findIndex((group) => group.has(tokenStem))
+    if (groupIndex < 0 && venueStems.has(tokenStem)) continue
     if (groupIndex >= 0) {
       const key = `intent:${groupIndex}`
       if (!terms.has(key)) terms.set(key, { key, stems: INTENT_STEMS[groupIndex]!, weight })
     } else if (!terms.has(`word:${tokenStem}`)) {
-      terms.set(`word:${tokenStem}`, { key: `word:${tokenStem}`, stems: new Set([tokenStem]), weight })
+      terms.set(`word:${tokenStem}`, {
+        key: `word:${tokenStem}`,
+        stems: new Set([tokenStem]),
+        weight,
+      })
     }
   }
   return [...terms.values()].slice(0, MAX_QUERY_TERMS)
@@ -199,7 +612,15 @@ function candidateText(candidate: GuestEvidenceCandidate): { title: string; body
   const place = candidate.record
   return {
     title: place.name,
-    body: [place.type, place.itemType, place.areaName, place.shortDescription, place.longDescription, place.hours, ...(place.tags ?? [])]
+    body: [
+      place.type,
+      place.itemType,
+      place.areaName,
+      place.shortDescription,
+      place.longDescription,
+      place.hours,
+      ...(place.tags ?? []),
+    ]
       .filter(Boolean)
       .join(' '),
   }
@@ -220,9 +641,10 @@ export type GuestQuestionEvidenceRank = {
 export function rankGuestQuestionEvidence(params: {
   query: string
   previousQuery?: string | null
+  venueName?: string | null
   candidates: GuestEvidenceCandidate[]
 }): { terms: string[]; ranked: GuestQuestionEvidenceRank[] } {
-  const terms = guestQuestionTerms(params.query, params.previousQuery)
+  const terms = guestQuestionTerms(params.query, params.previousQuery, params.venueName)
   if (terms.length === 0 || params.candidates.length === 0)
     return { terms: terms.map((term) => term.key), ranked: [] }
   const docs = params.candidates.map((candidate) => {
@@ -275,7 +697,9 @@ export function rankGuestQuestionEvidence(params: {
     if (ranked.length === 0) firstScore = bestGain
     if (bestGain < firstScore * MIN_RELATIVE_SCORE) break
     remaining.delete(best)
-    const matched = contributions[best]!.flatMap((value, termIndex) => (value > 0 ? [termIndex] : []))
+    const matched = contributions[best]!.flatMap((value, termIndex) =>
+      value > 0 ? [termIndex] : [],
+    )
     for (const termIndex of matched) covered.add(termIndex)
     const { candidate } = docs[best]!
     ranked.push({
@@ -292,10 +716,11 @@ export function rankGuestQuestionEvidence(params: {
 export function uncoveredGuestQuestionTerms(params: {
   query: string
   previousQuery?: string | null
+  venueName?: string | null
   texts: ReadonlyArray<string>
 }): string[] {
   const present = new Set(params.texts.flatMap((text) => tokens(text).map(stem)))
-  return guestQuestionTerms(params.query, params.previousQuery)
+  return guestQuestionTerms(params.query, params.previousQuery, params.venueName)
     .filter((term) => ![...term.stems].some((value) => present.has(value)))
     .map((term) => term.key)
 }
@@ -319,6 +744,7 @@ export type GuestQuestionEvidenceTrace = {
 export function selectGuestQuestionEvidence<K extends { id?: string; content: string }>(params: {
   query: string
   previousQuery?: string | null
+  venueName?: string | null
   directory: GuestVenueDirectory
   mode: 'FULL' | 'DIRECTORY' | 'NONE'
   currentDate: string
@@ -343,10 +769,17 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
     },
   })
   if (params.mode === 'NONE') return empty()
-  const presentKnowledge = new Set(params.knowledgeInContext.flatMap((entry) => (entry.id ? [entry.id] : [])))
+  const presentKnowledge = new Set(
+    params.knowledgeInContext.flatMap((entry) => (entry.id ? [entry.id] : [])),
+  )
   const knowledgeCandidates: GuestEvidenceCandidate[] = params.directory.knowledge
     .filter((entry) => !isPastDatedGuestEvent(entry, params.currentDate))
-    .map((entry) => ({ kind: 'knowledge', id: entry.id, record: entry, chars: entry.content.length }))
+    .map((entry) => ({
+      kind: 'knowledge',
+      id: entry.id,
+      record: entry,
+      chars: entry.content.length,
+    }))
   // Same-name places stay name-only until identity resolution picks one; never hydrate them here.
   const nameCounts = new Map<string, number>()
   for (const place of params.directory.places) {
@@ -363,7 +796,8 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
     }))
   const { terms, ranked } = rankGuestQuestionEvidence({
     query: params.query,
-    ...(params.previousQuery !== undefined ? { previousQuery: params.previousQuery } : {}),
+    previousQuery: params.previousQuery ?? null,
+    venueName: params.venueName ?? null,
     candidates: [...knowledgeCandidates, ...placeCandidates],
   })
   const knowledgeById = new Map(params.directory.knowledge.map((entry) => [entry.id, entry]))
@@ -373,9 +807,11 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
   const budgetExcludedIds: string[] = []
   const maxChars = params.maxContextChars ?? QUESTION_EVIDENCE_MAX_CONTEXT_CHARS
   let contextChars = params.knowledgeInContext.reduce((sum, entry) => sum + entry.content.length, 0)
+  const focusFloor = (ranked[0]?.score ?? 0) * FULL_FOCUS_MIN_RELATIVE_SCORE
   for (const rank of ranked) {
     if (rank.kind === 'knowledge') {
       if (presentKnowledge.has(rank.id)) continue
+      if (params.mode === 'FULL' && rank.score < focusFloor) continue
       const limit =
         params.mode === 'FULL'
           ? QUESTION_EVIDENCE_MAX_FOCUS_TOPICS
@@ -407,6 +843,7 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
       uncoveredTerms: uncoveredGuestQuestionTerms({
         query: params.query,
         previousQuery: params.previousQuery ?? null,
+        venueName: params.venueName ?? null,
         texts: [
           ...params.knowledgeInContext.map((entry) => entry.content),
           ...knowledge.map((entry) => `${entry.title} ${entry.content}`),

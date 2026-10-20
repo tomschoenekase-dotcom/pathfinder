@@ -1579,6 +1579,7 @@ const chatReadRouter = router({
     const questionEvidence = selectGuestQuestionEvidence({
       query: retrievalQuery,
       previousQuery: previousGuestQuery,
+      venueName: venue.name,
       directory: guestDirectory,
       mode: venueGuide.mode,
       currentDate,
