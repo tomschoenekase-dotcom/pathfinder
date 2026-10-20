@@ -653,6 +653,7 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
 
 const MAX_NAMED_QUESTION_PLACES = 6
 const MAX_NAMED_PLACE_KNOWLEDGE = 2
+const MAX_NAMED_TITLE_KNOWLEDGE = 4
 
 /**
  * Records the visitor names exactly. A place whose full name appears in the question joins as a
@@ -693,7 +694,35 @@ export function guestQuestionNamedRecords(params: {
         .slice(0, MAX_NAMED_PLACE_KNOWLEDGE),
     )
   }
+  // A knowledge record is named when its title shares a long exact phrase with the question:
+  // three words, or two when one is a number ("Gallery 214"). The longest shared phrases win.
+  const questionWords = guestPlaceIdentityKey(params.query).split(' ').filter(Boolean)
+  const titled = params.directory.knowledge
+    .filter((entry) => !isPastDatedGuestEvent(entry, params.currentDate))
+    .flatMap((entry) => {
+      const run = longestSharedRun(questionWords, guestPlaceIdentityKey(entry.title).split(' '))
+      const named = run.length >= 3 || (run.length === 2 && run.some((word) => /\p{N}/u.test(word)))
+      return named ? [{ entry, length: run.length }] : []
+    })
+  const longest = Math.max(0, ...titled.map(({ length }) => length))
+  knowledge.push(
+    ...titled
+      .filter(({ length }) => length === longest)
+      .slice(0, MAX_NAMED_TITLE_KNOWLEDGE)
+      .map(({ entry }) => entry),
+  )
   return { places, knowledge: [...new Map(knowledge.map((entry) => [entry.id, entry])).values()] }
+}
+
+function longestSharedRun(a: string[], b: string[]): string[] {
+  let best: string[] = []
+  for (let i = 0; i < a.length; i++)
+    for (let j = 0; j < b.length; j++) {
+      let k = 0
+      while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++
+      if (k > best.length) best = a.slice(i, i + k)
+    }
+  return best
 }
 
 /**
