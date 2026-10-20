@@ -95,7 +95,7 @@ export const GUEST_QUERY_FUNCTION_WORDS: ReadonlySet<string> = new Set(
     'not now of on or our ours out please she should so some such than that the their them then ' +
     'there these they this those to too us very was we were what when where which while who whom ' +
     'whose why will with would you your yours also any anything something tell know want like ' +
-    'need go going able whats im ive id dont cant isnt arent ' +
+    'need go going able whats im ive id dont cant isnt arent about closest nearest nearby ' +
     'al algo como cual cuales cuando de del el ella ellos en es esta este esto estos la ' +
     'las le les lo los mas me mi mis muy nos nuestro o para pero por puede pueden podemos puedo ' +
     'que se si su sus te tu un una unos unas y ya hacer quiero queremos buscamos usted ' +

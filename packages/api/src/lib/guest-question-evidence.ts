@@ -33,10 +33,10 @@ import type {
 // Written from general venue vocabulary; words that are common English homographs are left out.
 const INTENT_GROUPS: readonly (readonly string[])[] = [
   // price and tickets
-  'price prices cost costs fee fees fare fares charge charges pay paid ticket tickets admission ' +
+  'price prices cost costs fee fees fare fares charges pay paid ticket tickets admission ' +
     'dollars precio precios cuesta cuestan cuanto tarifa tarifas boleto boletos prix coute ' +
     'coutent combien tarif tarifs billet billets preis preise kostet kosten gebuhr gebuhren ' +
-    'eintrittskarte prezzo prezzi costo costa biglietto biglietti quanto preco precos custa ' +
+    'eintrittskarte prezzo prezzi costo biglietto biglietti quanto preco precos custa ' +
     'bilhete bilhetes',
   // inclusion and free entry
   'included include includes inclusive free covered covers complimentary extra additional ' +
@@ -90,7 +90,7 @@ const INTENT_GROUPS: readonly (readonly string[])[] = [
   'restroom restrooms bathroom bathrooms toilet toilets bano banos aseo aseos toilettes ' +
     'toiletten bagno bagni banheiro',
   // pets
-  'dog dogs pet pets perro perros mascota mascotas chien chiens hund hunde cane cani cachorro',
+  'dog dogs pet pets perro perros mascota mascotas chien chiens hund hunde cani cachorro',
   // strollers
   'stroller strollers pushchair pushchairs pram prams buggy buggies cochecito carrito ' +
     'poussette kinderwagen passeggino carrinho',
@@ -101,6 +101,7 @@ const INTENT_GROUPS: readonly (readonly string[])[] = [
 ].map((group) => group.split(' '))
 
 const STEM_CHARS = 5
+const MAX_STEM_CHARS = 7
 const BM25_K1 = 1.2
 const BM25_B = 0.5
 const TITLE_REPEAT = 2
@@ -116,13 +117,14 @@ const MIN_RELATIVE_SCORE = 0.25
 const FULL_FOCUS_MIN_RELATIVE_SCORE = 0.5
 // A plain word found in more than this share of records says nothing about which record answers;
 // a question made only of such words ("ok thanks", "what next?") selects nothing.
-const INFORMATIVE_MAX_SHARE = 0.15
+const INFORMATIVE_MAX_SHARE = 0.35
 const INFORMATIVE_MIN_RECORDS = 3
 const FOLLOWUP_TERM_WEIGHT = 0.5
 const MAX_QUERY_TERMS = 24
 // Bounds the greedy selection; more picks than every budget below combined is never useful.
 const MAX_RANKED = 40
-const STEM_CACHE_MAX = 20_000
+// The term cache is bounded by the characters of record text it keys on, not by entry count.
+const TERM_CACHE_MAX_CHARS = 8_000_000
 
 export const QUESTION_EVIDENCE_MAX_KNOWLEDGE_RECORDS = 10
 export const QUESTION_EVIDENCE_MAX_PLACES = 3
@@ -139,11 +141,16 @@ function singular(token: string): string {
     : token
 }
 
-/** Prefix stem for plain words, so cognates and inflections meet ("supplement"/"supplément"). */
+/**
+ * Prefix stem for plain words, so inflections and cognates meet ("supplement"/"supplément",
+ * "información"/"information"). Longer words keep a longer prefix, so "restrictions" and
+ * "restrooms" stay apart.
+ */
 function stem(token: string): string {
   if (CJK.test(token)) return token
   const base = singular(token)
-  return base.length > STEM_CHARS ? base.slice(0, STEM_CHARS) : base
+  if (base.length <= STEM_CHARS) return base
+  return base.slice(0, Math.min(MAX_STEM_CHARS, Math.max(STEM_CHARS, base.length - 3)))
 }
 
 /** Words, with "step-free" kept whole and unspaced CJK text split into character pairs. */
@@ -250,12 +257,18 @@ type RecordTerms = {
 // Records arrive as fresh objects every turn (projection copies them), so the cache is keyed by
 // the searchable text itself: a record is tokenized once per content version, not once per turn.
 const termCache = new Map<string, RecordTerms>()
+let termCacheChars = 0
 
 function recordTerms(candidate: GuestEvidenceCandidate): RecordTerms {
   const { title, body } = candidateText(candidate)
   const key = `${title}\u0000${body}`
   const cached = termCache.get(key)
-  if (cached) return cached
+  if (cached) {
+    // Least recently used goes first: refresh the entry's position on every hit.
+    termCache.delete(key)
+    termCache.set(key, cached)
+    return cached
+  }
   const all = [...Array.from({ length: TITLE_REPEAT }, () => tokens(title)).flat(), ...tokens(body)]
   const words = new Map<string, number>()
   const stems = new Map<string, number>()
@@ -266,8 +279,13 @@ function recordTerms(candidate: GuestEvidenceCandidate): RecordTerms {
     stems.set(value, (stems.get(value) ?? 0) + 1)
   }
   const result = { length: all.length, words, stems }
-  if (termCache.size >= STEM_CACHE_MAX) termCache.delete(termCache.keys().next().value!)
   termCache.set(key, result)
+  termCacheChars += key.length
+  while (termCacheChars > TERM_CACHE_MAX_CHARS && termCache.size > 1) {
+    const oldest = termCache.keys().next().value!
+    termCache.delete(oldest)
+    termCacheChars -= oldest.length
+  }
   return result
 }
 
@@ -410,6 +428,10 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
   currentDate: string
   knowledgeInContext: ReadonlyArray<K>
   placesInContext: ReadonlyArray<GuestDirectoryPlace>
+  /** Only this many leading context places reach the prompt, so only they use the body budget. */
+  placesInContextLimit?: number
+  /** At most this many places may be added (the caller's free place slots). */
+  maxPlaces?: number
   /** False for recommendation or nearby questions, whose place list has its own ranking. */
   allowPlaces?: boolean
   maxContextChars?: number
@@ -466,7 +488,9 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
   const maxChars = params.maxContextChars ?? QUESTION_EVIDENCE_MAX_CONTEXT_CHARS
   let contextChars =
     params.knowledgeInContext.reduce((sum, entry) => sum + entry.content.length, 0) +
-    params.placesInContext.reduce((sum, place) => sum + placeChars(place), 0)
+    params.placesInContext
+      .slice(0, params.placesInContextLimit ?? params.placesInContext.length)
+      .reduce((sum, place) => sum + placeChars(place), 0)
   const focusFloor =
     Math.max(0, ...ranked.map((rank) => rank.score)) * FULL_FOCUS_MIN_RELATIVE_SCORE
   for (const rank of ranked) {
@@ -489,7 +513,8 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
     } else {
       // A FULL guide carries every place body already.
       if (params.mode !== 'DIRECTORY' || params.allowPlaces === false) continue
-      if (presentPlaces.has(rank.id) || places.length >= QUESTION_EVIDENCE_MAX_PLACES) continue
+      const placeLimit = Math.min(QUESTION_EVIDENCE_MAX_PLACES, params.maxPlaces ?? Infinity)
+      if (presentPlaces.has(rank.id) || places.length >= placeLimit) continue
       const place = placeById.get(rank.id)!
       if (contextChars + placeChars(place) > maxChars) {
         budgetExcludedIds.push(rank.id)
@@ -529,8 +554,10 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
 
 /**
  * The guide behind question evidence is cached for up to a minute. Before a hydrated body reaches
- * the model, re-read those rows through the live guest scope: a record unpublished, hidden or
- * withdrawn since the load is dropped, and a record edited since then is sent in its current form.
+ * the model, re-read those rows through the same live guest scope the directory loader uses
+ * (publication authority and adopted-legacy exclusion included): a record unpublished, hidden,
+ * adopted or withdrawn since the load is dropped, an edited record is sent in its current form,
+ * and an edit that dates it into the past drops it.
  */
 export async function revalidateGuestQuestionEvidence(params: {
   reader: unknown
@@ -538,35 +565,68 @@ export async function revalidateGuestQuestionEvidence(params: {
   venueId: string
   includeSecondLayer: boolean
   asOf: Date
+  currentDate: string
   knowledge: GuestDirectoryKnowledge[]
 }): Promise<GuestDirectoryKnowledge[]> {
   if (params.knowledge.length === 0) return []
   const reader = params.reader as GuestKnowledgeReader
-  const rows = await reader.venueKnowledgeEntry.findMany({
-    where: {
-      ...guestKnowledgeScope(params),
-      id: { in: params.knowledge.map((entry) => entry.id) },
-    },
-    select: guestKnowledgeSelectShape(),
-    take: params.knowledge.length,
-  })
+  const ids = params.knowledge.map((entry) => entry.id)
+  const [rows, activated] = await Promise.all([
+    reader.venueKnowledgeEntry.findMany({
+      where: { ...guestKnowledgeScope(params), id: { in: ids } },
+      select: guestKnowledgeSelectShape(),
+      take: ids.length,
+    }),
+    reader.legacyKnowledgeAdoptionActivation
+      ? reader.legacyKnowledgeAdoptionActivation.findMany({
+          where: { tenantId: params.tenantId, venueId: params.venueId },
+          select: { adoption: { select: { legacyKnowledgeEntryId: true } } },
+        })
+      : Promise.resolve([]),
+  ])
+  const adopted = new Set(activated.map((row) => row.adoption.legacyKnowledgeEntryId))
   const current = new Map(
-    rows.filter(hasCurrentGuestPublicationAuthority).map((row) => [row.id, row]),
+    rows
+      .filter((row) => hasCurrentGuestPublicationAuthority(row) && !adopted.has(row.id))
+      .map((row) => [row.id, row]),
   )
   return params.knowledge.flatMap((entry) => {
     const row = current.get(entry.id)
     if (!row) return []
-    return [
-      {
-        ...entry,
-        title: row.title,
-        category: row.category,
-        content: row.content,
-        sourceType: row.sourceType,
-        sourceName: row.sourceName,
-        sourceUrl: row.sourceUrl,
-        updatedAt: row.updatedAt,
-      },
-    ]
+    const refreshed = {
+      ...entry,
+      title: row.title,
+      category: row.category,
+      content: row.content,
+      sourceType: row.sourceType,
+      sourceName: row.sourceName,
+      sourceUrl: row.sourceUrl,
+      updatedAt: row.updatedAt,
+    }
+    return isPastDatedGuestEvent(refreshed, params.currentDate) ? [] : [refreshed]
   })
+}
+
+/**
+ * Joins question-evidence places to the retrieved place list without displacing it: a pinned
+ * entry place stays first, at least `retrievedSlots` retrieved places keep their order, and added
+ * places only take slots still free inside `limit`. Already present places are never repeated.
+ */
+export function mergeGuestQuestionEvidencePlaces<P extends { id: string }>(params: {
+  places: P[]
+  added: P[]
+  pinnedId?: string | null
+  limit: number
+  retrievedSlots: number
+}): P[] {
+  const pinned = params.places.filter((place) => place.id === params.pinnedId)
+  const retrieved = params.places.filter((place) => place.id !== params.pinnedId)
+  const present = new Set(params.places.map((place) => place.id))
+  const free = Math.max(
+    0,
+    params.limit - pinned.length - Math.min(retrieved.length, params.retrievedSlots),
+  )
+  const added = params.added.filter((place) => !present.has(place.id)).slice(0, free)
+  const kept = Math.max(0, params.limit - pinned.length - added.length)
+  return [...pinned, ...retrieved.slice(0, kept), ...added, ...retrieved.slice(kept)]
 }

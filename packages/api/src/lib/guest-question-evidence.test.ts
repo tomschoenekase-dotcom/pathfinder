@@ -4,6 +4,7 @@ import { guestQueryConcepts } from './guest-knowledge-retrieval'
 import {
   QUESTION_EVIDENCE_MAX_FOCUS_TOPICS,
   guestQuestionTerms,
+  mergeGuestQuestionEvidencePlaces,
   revalidateGuestQuestionEvidence,
   selectGuestQuestionEvidence,
 } from './guest-question-evidence'
@@ -279,6 +280,46 @@ describe('question evidence precision (independent review findings)', () => {
   })
 })
 
+describe('second review findings', () => {
+  it('keeps a real topic that several records mention', () => {
+    const lockers = Array.from({ length: 5 }, (_, index) =>
+      knowledge(
+        `locker-${index}`,
+        `Gate ${index} services`,
+        'Lockers are by the gate. Coins only.',
+      ),
+    )
+    const others = Array.from({ length: 25 }, (_, index) =>
+      knowledge(`other-${index}`, `Exhibit ${index}`, 'A quiet room with old maps and benches.'),
+    )
+    const result = select('Where are the lockers?', {
+      directory: directory({ knowledge: [...lockers, ...others], places: [] }),
+    })
+    expect(result.knowledge.length).toBeGreaterThan(0)
+    expect(result.knowledge.every((entry) => entry.id.startsWith('locker-'))).toBe(true)
+  })
+
+  it('keeps long words with a shared short prefix apart', () => {
+    const keys = guestQuestionTerms('What are the height restrictions?').map((term) => term.key)
+    const restroom = guestQuestionTerms('Where are the restrooms?').map((term) => term.key)
+    expect(keys.some((key) => restroom.includes(key))).toBe(false)
+  })
+
+  it('merges evidence places without displacing retrieved ones or exceeding the limit', () => {
+    const p = (id: string) => ({ id })
+    const merged = mergeGuestQuestionEvidencePlaces({
+      places: ['entry', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'].map(p),
+      added: ['a1', 'a2', 'r2'].map(p),
+      pinnedId: 'entry',
+      limit: 8,
+      retrievedSlots: 5,
+    }).map((place) => place.id)
+    expect(merged.slice(0, 8)).toEqual(['entry', 'r1', 'r2', 'r3', 'r4', 'r5', 'a1', 'a2'])
+    expect(new Set(merged).size).toBe(merged.length)
+    expect(merged).toContain('r7')
+  })
+})
+
 describe('question evidence revalidation', () => {
   it('drops withdrawn records and sends edited records in their current form', async () => {
     const edited = { ...governing[1]!, content: 'The glass-bottom boat costs 6 for adults.' }
@@ -296,6 +337,7 @@ describe('question evidence revalidation', () => {
       venueId: 'v',
       includeSecondLayer: false,
       asOf: new Date('2026-11-21T12:00:00Z'),
+      currentDate: '2026-11-21',
       knowledge: [governing[0]!, governing[1]!],
     })
     expect(result.map((entry) => entry.id)).toEqual(['boat-fares'])

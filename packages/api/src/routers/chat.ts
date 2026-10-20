@@ -128,6 +128,7 @@ import {
 } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
+  mergeGuestQuestionEvidencePlaces,
   revalidateGuestQuestionEvidence,
   selectGuestQuestionEvidence,
 } from '../lib/guest-question-evidence'
@@ -1584,6 +1585,7 @@ const chatReadRouter = router({
     // projected and stale-suppressed guide. A DIRECTORY guide gains their full bodies, so a
     // governing condition past a record's first sentence still reaches the model; a FULL guide
     // already has every body and only gains the relevant topic names.
+    const pinnedEntryPlaceId = entryPlace?.id ?? null
     const questionEvidence = selectGuestQuestionEvidence({
       query: retrievalQuery,
       previousQuery: previousGuestQuery,
@@ -1593,44 +1595,45 @@ const chatReadRouter = router({
       currentDate,
       knowledgeInContext: relevantKnowledgeEntries,
       placesInContext: relevantPlaces,
+      placesInContextLimit: NEAREST_PLACES_LIMIT,
+      maxPlaces: Math.max(
+        0,
+        NEAREST_PLACES_LIMIT -
+          (pinnedEntryPlaceId ? 1 : 0) -
+          QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS,
+      ),
       // Recommendation and nearby questions keep their own place ranking and slots.
       allowPlaces: !hasLiveLocation && !isGuestRecommendationQuery(effectiveIdentityQuery),
     })
     // FULL guides only gain names of records already in the cached guide. Hydrated DIRECTORY bodies
-    // are re-read live, so a record changed or withdrawn within the cache minute is never sent stale.
-    const questionKnowledge =
+    // are re-read live (in parallel with identity projection below), so a record changed or
+    // withdrawn within the cache minute is never sent stale.
+    const questionKnowledgePromise =
       venueGuide.mode === 'DIRECTORY' && directoryRead.path === 'LEGACY'
-        ? await revalidateGuestQuestionEvidence({
+        ? revalidateGuestQuestionEvidence({
             reader: ctx.db,
             tenantId: venue.tenantId,
             venueId: input.venueId,
             includeSecondLayer,
             asOf: operationalNow,
+            currentDate,
             knowledge: questionEvidence.knowledge,
-          }).catch(() => {
+          }).catch((error: unknown) => {
             logger.warn({
               action: 'guest-question-evidence-revalidation-failed',
               venueId: venue.id,
+              error: error instanceof Error ? error.message : String(error),
             })
             return []
           })
-        : questionEvidence.knowledge
-    if (questionKnowledge.length)
-      relevantKnowledgeEntries = [
-        ...relevantKnowledgeEntries,
-        ...questionKnowledge.map((entry) => ({ ...entry, distance: 1 })),
-      ]
-    if (questionEvidence.places.length) {
-      // Retrieved places keep the first slots; a scanned entry place stays first of all.
-      const pinned = entryPlace ? relevantPlaces.filter((place) => place.id === entryPlace.id) : []
-      const retrieved = relevantPlaces.filter((place) => !pinned.includes(place))
-      relevantPlaces = [
-        ...pinned,
-        ...retrieved.slice(0, QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS),
-        ...questionEvidence.places.map((place) => ({ ...place, distance: 1 })),
-        ...retrieved.slice(QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS),
-      ]
-    }
+        : Promise.resolve(questionEvidence.knowledge)
+    relevantPlaces = mergeGuestQuestionEvidencePlaces({
+      places: relevantPlaces,
+      added: questionEvidence.places.map((place) => ({ ...place, distance: 1 })),
+      pinnedId: pinnedEntryPlaceId,
+      limit: NEAREST_PLACES_LIMIT,
+      retrievedSlots: QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS,
+    })
     const directoryPrompt = venueGuide.prompt
     if (directoryPrompt.includes(GUEST_DATED_TITLE_RULE))
       logger.info({
@@ -1731,6 +1734,12 @@ const chatReadRouter = router({
         gateReason: nativeReadSnapshot.reason,
         releaseId: nativeReadSnapshot.releaseId,
       })
+    const questionKnowledge = await questionKnowledgePromise
+    if (questionKnowledge.length)
+      relevantKnowledgeEntries = [
+        ...relevantKnowledgeEntries,
+        ...questionKnowledge.map((entry) => ({ ...entry, distance: 1 })),
+      ]
     retrievalMs = elapsedMilliseconds(retrievalStartedAt)
 
     let featuredPlace: {
@@ -2263,7 +2272,7 @@ const chatReadRouter = router({
           // The trace describes the legacy retrieval; a native read replaces its entries.
           retrievalPath: retrievalTrace?.path ?? null,
           semanticStatus: retrievalTrace?.semanticStatus ?? null,
-          questionEvidenceKnowledgeCount: questionEvidence.trace.addedKnowledgeIds.length,
+          questionEvidenceKnowledgeCount: questionKnowledge.length,
           questionEvidencePlaceCount: questionEvidence.trace.addedPlaceIds.length,
           questionEvidenceBudgetExcludedCount: questionEvidence.trace.budgetExcludedIds.length,
           questionPartsUncoveredCount: questionEvidence.trace.uncoveredTerms.length,
