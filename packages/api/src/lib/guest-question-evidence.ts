@@ -529,6 +529,8 @@ const MIN_RELATIVE_SCORE = 0.25
 const FULL_FOCUS_MIN_RELATIVE_SCORE = 0.5
 const FOLLOWUP_TERM_WEIGHT = 0.5
 const MAX_QUERY_TERMS = 24
+// Bounds the greedy selection; more picks than every budget below combined is never useful.
+const MAX_RANKED = 40
 
 export const QUESTION_EVIDENCE_MAX_KNOWLEDGE_RECORDS = 10
 export const QUESTION_EVIDENCE_MAX_PLACES = 6
@@ -626,6 +628,28 @@ function candidateText(candidate: GuestEvidenceCandidate): { title: string; body
   }
 }
 
+// The cached directory hands every turn the same record objects for up to a minute, so each
+// record is tokenized once per load rather than once per question.
+const stemCache = new WeakMap<object, { length: number; counts: Map<string, number> }>()
+
+function recordStems(candidate: GuestEvidenceCandidate): {
+  length: number
+  counts: Map<string, number>
+} {
+  const cached = stemCache.get(candidate.record)
+  if (cached) return cached
+  const { title, body } = candidateText(candidate)
+  const stems = [
+    ...Array.from({ length: TITLE_REPEAT }, () => tokens(title)).flat(),
+    ...tokens(body),
+  ].map(stem)
+  const counts = new Map<string, number>()
+  for (const value of stems) counts.set(value, (counts.get(value) ?? 0) + 1)
+  const result = { length: stems.length, counts }
+  stemCache.set(candidate.record, result)
+  return result
+}
+
 export type GuestQuestionEvidenceRank = {
   kind: 'knowledge' | 'place'
   id: string
@@ -647,16 +671,7 @@ export function rankGuestQuestionEvidence(params: {
   const terms = guestQuestionTerms(params.query, params.previousQuery, params.venueName)
   if (terms.length === 0 || params.candidates.length === 0)
     return { terms: terms.map((term) => term.key), ranked: [] }
-  const docs = params.candidates.map((candidate) => {
-    const { title, body } = candidateText(candidate)
-    const stems = [
-      ...Array.from({ length: TITLE_REPEAT }, () => tokens(title)).flat(),
-      ...tokens(body),
-    ].map(stem)
-    const counts = new Map<string, number>()
-    for (const value of stems) counts.set(value, (counts.get(value) ?? 0) + 1)
-    return { candidate, length: stems.length, counts }
-  })
+  const docs = params.candidates.map((candidate) => ({ candidate, ...recordStems(candidate) }))
   const averageLength = docs.reduce((sum, doc) => sum + doc.length, 0) / docs.length || 1
   const termFrequency = (doc: (typeof docs)[number], term: QueryTerm) => {
     let tf = 0
@@ -680,7 +695,7 @@ export function rankGuestQuestionEvidence(params: {
   const remaining = new Set(docs.map((_, index) => index))
   const ranked: GuestQuestionEvidenceRank[] = []
   let firstScore = 0
-  while (remaining.size > 0) {
+  while (remaining.size > 0 && ranked.length < MAX_RANKED) {
     let best = -1
     let bestGain = 0
     for (const index of remaining) {
