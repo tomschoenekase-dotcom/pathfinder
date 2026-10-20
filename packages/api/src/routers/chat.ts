@@ -114,6 +114,13 @@ import {
   isGuestAnswerShapeEnabled,
 } from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
+import { guestDirectoryVersion } from '../lib/guest-directory-index-loader'
+import { parseFacetCollectionQuery } from '../lib/guest-facet-query'
+import {
+  selectGuestFacetCollection,
+  admitGuestDynamicRecords,
+} from '../lib/guest-facet-integration'
+import { facetCoverage, recognizedStatementCountLines } from '../lib/guest-facet-evidence'
 import { GUEST_DATED_TITLE_RULE, GUEST_DATED_TITLE_RULE_VERSION } from '../lib/guest-event-dates'
 import { GUEST_RECORD_DATES_VERSION, guestRecordDatesEnabled } from '../lib/guest-record-dates'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
@@ -1653,6 +1660,84 @@ const chatReadRouter = router({
       // Recommendation and nearby questions keep their own place ranking and slots.
       allowPlaces: !hasLiveLocation && !isGuestRecommendationQuery(effectiveIdentityQuery),
     })
+    const facetQuery = parseFacetCollectionQuery(trimmedInput)
+    const facetCollection =
+      facetQuery.recognized &&
+      venueGuide.mode === 'DIRECTORY' &&
+      !hasLiveLocation &&
+      !isGuestRecommendationQuery(effectiveIdentityQuery) &&
+      guideLoadStatus === 'READY' &&
+      directoryRead.path === nativeRead.path
+        ? selectGuestFacetCollection({
+            directory: guestDirectory,
+            currentDate,
+            constraints: facetQuery.constraints,
+            governingKeys: [
+              ...new Set([
+                ...relevantKnowledgeEntries.map((row) => `knowledge:${row.id}`),
+                ...questionEvidence.knowledge.map((row) => `knowledge:${row.id}`),
+                ...indexCoreKnowledge.map((row) => `knowledge:${row.id}`),
+              ]),
+            ],
+            maxChars: 30_000,
+          })
+        : null
+    if (facetCollection) {
+      questionEvidence.knowledge = [
+        ...new Map(
+          [...questionEvidence.knowledge, ...facetCollection.knowledge].map((row) => [row.id, row]),
+        ).values(),
+      ]
+      questionEvidence.places = [
+        ...new Map(
+          [...questionEvidence.places, ...facetCollection.places].map((row) => [row.id, row]),
+        ).values(),
+      ]
+    }
+    const facetVersionScope = {
+      reader: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      includeSecondLayer,
+      asOf: operationalNow,
+    }
+    // Metadata bracket begins BEFORE any collection hydration. NATIVE counts deliberately omitted.
+    const facetVersionBefore =
+      facetCollection &&
+      directoryRead.path === 'LEGACY' &&
+      guestDirectory.searchVersion &&
+      !guestDirectory.incomplete
+        ? await guestDirectoryVersion(facetVersionScope).catch(() => null)
+        : null
+    const factPlaceLimit = facetCollection
+      ? Math.max(NEAREST_PLACES_LIMIT, relevantPlaces.length + questionEvidence.places.length)
+      : NEAREST_PLACES_LIMIT
+    // A mixed native entry projection must not be replaced by legacy compatibility text.
+    const protectedNativeEntryId =
+      entryPlace && nativeReadSnapshot.path === 'NATIVE' && directoryRead.path !== 'NATIVE'
+        ? entryPlace.id
+        : null
+    const knowledgeToHydrate =
+      venueGuide.mode === 'DIRECTORY'
+        ? [
+            ...new Map(
+              [...relevantKnowledgeEntries, ...questionEvidence.knowledge].map((row) => [
+                row.id,
+                row,
+              ]),
+            ).values(),
+          ]
+        : questionEvidence.knowledge
+    const placesToHydrate =
+      venueGuide.mode === 'DIRECTORY'
+        ? [
+            ...new Map(
+              [...relevantPlaces, ...questionEvidence.places]
+                .filter((row) => row.id !== protectedNativeEntryId)
+                .map((row) => [row.id, row]),
+            ).values(),
+          ]
+        : questionEvidence.places
     // FULL guides only gain names of records already in the cached guide. Hydrated DIRECTORY bodies
     // are re-read live (in parallel with identity projection below), so a record changed or
     // withdrawn within the cache minute is never sent stale.
@@ -1671,8 +1756,8 @@ const chatReadRouter = router({
             // Core bodies already completed their live authority read for this generation.
             // A second read could otherwise disagree with the body still in the index.
             knowledge: evidenceStrategyEnabled
-              ? questionEvidence.knowledge.filter((entry) => !currentIndexCore.has(entry.id))
-              : questionEvidence.knowledge,
+              ? knowledgeToHydrate.filter((entry) => !currentIndexCore.has(entry.id))
+              : knowledgeToHydrate,
           })
             .catch((error: unknown) => {
               logger.warn({
@@ -1685,12 +1770,12 @@ const chatReadRouter = router({
             .then((entries) => {
               if (!evidenceStrategyEnabled) return entries
               const refreshed = new Map(entries.map((entry) => [entry.id, entry]))
-              return questionEvidence.knowledge.flatMap((entry) => {
+              return knowledgeToHydrate.flatMap((entry) => {
                 const current = currentIndexCore.get(entry.id) ?? refreshed.get(entry.id)
                 return current ? [current] : []
               })
             })
-        : Promise.resolve(questionEvidence.knowledge)
+        : Promise.resolve(knowledgeToHydrate)
     const questionPlaces =
       directoryRead.path === 'LEGACY'
         ? await revalidateGuestQuestionPlaces({
@@ -1698,17 +1783,29 @@ const chatReadRouter = router({
             tenantId: venue.tenantId,
             venueId: input.venueId,
             includeSecondLayer,
-            places: questionEvidence.places,
+            places: placesToHydrate,
           }).catch(() => {
             logger.warn({ action: 'guest-question-place-revalidation-failed', venueId: venue.id })
             return []
           })
-        : questionEvidence.places
+        : venueGuide.mode === 'DIRECTORY'
+          ? placesToHydrate
+          : questionEvidence.places
+    if (venueGuide.mode === 'DIRECTORY' && directoryRead.path === 'LEGACY') {
+      const current = new Map(questionPlaces.map((row) => [row.id, row]))
+      relevantPlaces = relevantPlaces.flatMap((row) =>
+        row.id === protectedNativeEntryId
+          ? [row]
+          : current.has(row.id)
+            ? [{ ...row, ...current.get(row.id)! }]
+            : [],
+      )
+    }
     relevantPlaces = mergeGuestQuestionEvidencePlaces({
       places: relevantPlaces,
       added: questionPlaces.map((place) => ({ ...place, distance: 1 })),
       pinnedId: pinnedEntryPlaceId,
-      limit: NEAREST_PLACES_LIMIT,
+      limit: factPlaceLimit,
       retrievedSlots: QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS,
     })
     const directoryPrompt = venueGuide.prompt
@@ -1792,7 +1889,7 @@ const chatReadRouter = router({
       query: effectiveIdentityQuery,
       places: relevantPlaces,
       identity: placeIdentity,
-      limit: NEAREST_PLACES_LIMIT,
+      limit: factPlaceLimit,
     }).map((place) => {
       const identity = placeIdentity.places.find((candidate) => candidate.id === place.id)
       const knownLocation = [
@@ -1812,7 +1909,9 @@ const chatReadRouter = router({
         releaseId: nativeReadSnapshot.releaseId,
       })
     const questionKnowledge = await questionKnowledgePromise
-    if (questionKnowledge.length)
+    if (venueGuide.mode === 'DIRECTORY')
+      relevantKnowledgeEntries = questionKnowledge.map((entry) => ({ ...entry, distance: 1 }))
+    else if (questionKnowledge.length)
       relevantKnowledgeEntries = [
         ...relevantKnowledgeEntries,
         ...questionKnowledge.map((entry) => ({ ...entry, distance: 1 })),
@@ -1984,7 +2083,10 @@ const chatReadRouter = router({
     }
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     let updatedGuideRecordCount = 0
-    const prepareVenuePrompt = () => {
+    const prepareVenuePrompt = (
+      promptPlaces = relevantPlaces,
+      promptKnowledge = relevantKnowledgeEntries,
+    ) => {
       // Retrieval is live while the guide's directory may be up to a minute old.
       // A released entry place compared with a fallback legacy guide would differ every turn.
       const entryPlaceFromOtherSource =
@@ -2030,20 +2132,23 @@ const chatReadRouter = router({
           ...venue,
           ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),
         },
-        relevantPlaces,
+        relevantPlaces: promptPlaces,
         ...(input.visitContext ? { visitContext: input.visitContext } : {}),
         authorizedVisitPlaces: recommendationSelection.authorizedVisitPlaces,
         recommendationOnly: recommendationSelection.recommendationOnly,
         placeIdentityAmbiguity: placeIdentity.ambiguity,
         placeIdentityDiscoveryIncomplete,
         adjacentPlaceIdentityRequestedName: acceptedAdjacentIdentityName,
-        knowledgeEntries: relevantKnowledgeEntries,
+        knowledgeEntries: promptKnowledge,
         activeUpdates,
         publishedUniversalContent,
         ...(recommendationContext ? { recommendationContext } : {}),
         userLat: liveLocation?.lat ?? null,
         userLng: liveLocation?.lng ?? null,
-        featuredPlace,
+        // DIRECTORY already renders retained current place bodies in the measured typed source
+        // lane. The optional featured blurb duplicates an entire description and may retain a
+        // dropped source, so omit that body lane. FULL cached-guide behavior is unchanged.
+        featuredPlace: venueGuide.mode === 'DIRECTORY' ? null : featuredPlace,
         ...(input.language ? { language: input.language } : {}),
         guideMode,
         responseIntent: guestResponseIntentForMessage(trimmedInput, input.responseIntent),
@@ -2064,11 +2169,74 @@ const chatReadRouter = router({
           : {}),
       })
     }
+    let collectionPromptRule = ''
+    let collectionCoveragePartial = false
+    let dynamicBudgetExcludedKeys: string[] = []
+    if (venueGuide.mode === 'DIRECTORY') {
+      // Revalidate returned whole bodies can grow after preselection. Admit the current combined
+      // arrays using the exact renderer sections before typed source snapshots are retained.
+      const admitted = admitGuestDynamicRecords({
+        knowledge: relevantKnowledgeEntries,
+        places: relevantPlaces,
+        priorityKeys: facetCollection
+          ? [...facetCollection.selection.governingKeys, ...facetCollection.selection.selectedKeys]
+          : [
+              ...relevantKnowledgeEntries.map((row) => `knowledge:${row.id}`),
+              ...relevantPlaces.map((row) => `place:${row.id}`),
+            ],
+        maxChars: 30_000,
+        measure: (knowledge, places) => prepareVenuePrompt(places, knowledge).recordContext,
+      })
+      relevantKnowledgeEntries = admitted.knowledge
+      relevantPlaces = admitted.places
+      dynamicBudgetExcludedKeys = admitted.excludedKeys
+      if (facetCollection) {
+        const after = facetVersionBefore
+          ? await guestDirectoryVersion(facetVersionScope).catch(() => null)
+          : null
+        const currentKnowledgeIds = new Set(guestDirectory.knowledge.map((row) => row.id))
+        const currentPlaceIds = new Set(guestDirectory.places.map((row) => row.id))
+        const membershipUnchanged =
+          loadedDirectory.knowledge.length === guestDirectory.knowledge.length &&
+          loadedDirectory.places.length === guestDirectory.places.length &&
+          loadedDirectory.knowledge.every((row) => currentKnowledgeIds.has(row.id)) &&
+          loadedDirectory.places.every((row) => currentPlaceIds.has(row.id))
+        const fresh = Boolean(
+          facetVersionBefore &&
+          after === facetVersionBefore &&
+          membershipUnchanged &&
+          guestDirectory.searchVersion?.endsWith(`:${facetVersionBefore}`) &&
+          !guestDirectory.incomplete,
+        )
+        const finalKeys = new Set([
+          ...venueGuide.recordIds,
+          ...prepareVenuePrompt().recordContext.fullBodyKeys,
+        ])
+        const coverage = facetCoverage({
+          selection: facetCollection.selection,
+          finalPromptKeys: finalKeys,
+          freshCompleteAuthorizedIndex: fresh,
+          hydrationVersionConsistent: fresh,
+        })
+        collectionCoveragePartial = !coverage.complete
+        collectionPromptRule = [
+          coverage.promptRule,
+          ...recognizedStatementCountLines({
+            records: facetCollection.index,
+            freshCompleteAuthorizedIndex: fresh,
+            hydrationVersionConsistent: fresh,
+          }),
+        ].join('\n')
+      }
+    }
     const preparePrompt = () => {
       const parts = prepareVenuePrompt()
-      return guestActionPrompt
-        ? { ...parts, dynamicPart: `${parts.dynamicPart}\n\n${guestActionPrompt}` }
-        : parts
+      return {
+        ...parts,
+        dynamicPart: [parts.dynamicPart, collectionPromptRule, guestActionPrompt]
+          .filter(Boolean)
+          .join('\n\n'),
+      }
     }
     let { staticPart, dynamicPart } = preparePrompt()
     const captureEvidence = () =>
@@ -2081,7 +2249,11 @@ const chatReadRouter = router({
         incomplete: guestDirectory.incomplete,
         rendererTruncated: venueGuide.rendererTruncated,
         updatedRecordCount: updatedGuideRecordCount,
-        retrievedCoveragePartial: retrievalTrace?.partialCoverage ?? false,
+        retrievedCoveragePartial:
+          (retrievalTrace?.partialCoverage ?? false) ||
+          dynamicBudgetExcludedKeys.length > 0 ||
+          collectionCoveragePartial ||
+          Boolean(facetCollection && !facetCollection.selection.selectionComplete),
       })
     let generationEvidence: ReturnType<typeof captureEvidence> | null = null
     let responseGenerationDispatched = false
@@ -2570,7 +2742,7 @@ const chatReadRouter = router({
       locationAware: guideMode === 'location_aware',
       hasLiveLocation,
       places: relevantPlaces,
-    })
+    }).slice(0, NEAREST_PLACES_LIMIT)
     if (venue.chatShowPhotos && mentionedPlaces.length > 0) {
       try {
         const approvedMedia = await readApprovedGuestPlaceMedia({
