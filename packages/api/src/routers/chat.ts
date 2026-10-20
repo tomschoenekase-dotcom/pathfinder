@@ -130,6 +130,7 @@ import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
   mergeGuestQuestionEvidencePlaces,
   revalidateGuestQuestionEvidence,
+  revalidateGuestQuestionPlaces,
   selectGuestQuestionEvidence,
 } from '../lib/guest-question-evidence'
 import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
@@ -1547,6 +1548,19 @@ const chatReadRouter = router({
             places: directoryRead.places,
             knowledge: directoryRead.knowledgeEntries,
             incomplete: loadedDirectory.incomplete,
+            ...(directoryRead.path === 'NATIVE' && nativeReadSnapshot.releaseId
+              ? {
+                  searchVersion: JSON.stringify([
+                    venue.tenantId,
+                    input.venueId,
+                    includeSecondLayer,
+                    'NATIVE',
+                    nativeReadSnapshot.releaseId,
+                  ]),
+                }
+              : loadedDirectory.searchVersion
+                ? { searchVersion: loadedDirectory.searchVersion }
+                : {}),
           }
         : emptyDirectory
     // Retrieval versions describe legacy reads only; never mix them into a native release.
@@ -1627,9 +1641,22 @@ const chatReadRouter = router({
             return []
           })
         : Promise.resolve(questionEvidence.knowledge)
+    const questionPlaces =
+      directoryRead.path === 'LEGACY'
+        ? await revalidateGuestQuestionPlaces({
+            reader: ctx.db,
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            includeSecondLayer,
+            places: questionEvidence.places,
+          }).catch(() => {
+            logger.warn({ action: 'guest-question-place-revalidation-failed', venueId: venue.id })
+            return []
+          })
+        : questionEvidence.places
     relevantPlaces = mergeGuestQuestionEvidencePlaces({
       places: relevantPlaces,
-      added: questionEvidence.places.map((place) => ({ ...place, distance: 1 })),
+      added: questionPlaces.map((place) => ({ ...place, distance: 1 })),
       pinnedId: pinnedEntryPlaceId,
       limit: NEAREST_PLACES_LIMIT,
       retrievedSlots: QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS,

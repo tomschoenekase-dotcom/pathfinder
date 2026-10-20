@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto'
 
+import {
+  loadVersionedGuestDirectory,
+  pageGuestRows,
+  guestPlaceScope,
+  guestPlaceSelect,
+} from './guest-directory-index-loader'
+
 import type { SemanticKnowledgeEntry, SemanticPlace } from '@pathfinder/db'
 
 import {
@@ -32,8 +39,6 @@ export { classifyGuestDatedEvent, isPastDatedGuestEvent } from './guest-event-da
  * venue, so it sits in the cached part of the prompt.
  */
 
-const MAX_DIRECTORY_KNOWLEDGE = 400
-const MAX_DIRECTORY_PLACES = 400
 const MAX_DIRECTORY_PROMPT_CHARS = 32_000
 const DESCRIPTOR_CHARS = 160
 const MAX_LINKED_ADDITIONS = 6
@@ -44,8 +49,6 @@ const MIN_LINK_NAME_CHARS = 4
 const MAX_FULL_GUIDE_PROMPT_CHARS = 120_000
 // Linked records stop once retrieved plus linked content reaches this many characters.
 const MAX_CONTEXT_CHARS_WITH_LINKS = 24_000
-const DIRECTORY_CACHE_TTL_MS = 60_000
-const DIRECTORY_CACHE_MAX_VENUES = 200
 // Database completeness is not an operator promise that every real-world offering was inventoried.
 const GUIDE_ABSENCE_RULE =
   'Coverage here means loaded guide records, not an exhaustive inventory of everything the place offers. For counts and lists, consider every relevant recorded entry, but do not infer a real-world absence from an omitted entry. If no matching entry exists, do not answer zero or none unless a supplied fact explicitly says so or expressly gives an exhaustive list for that specific kind. The same standard applies before saying any offering, amenity, service or policy is unavailable. Otherwise say naturally that you are not sure and point to staff when useful; never mention guide records to the visitor.'
@@ -61,6 +64,8 @@ export type GuestVenueDirectory = {
   places: GuestDirectoryPlace[]
   /** True when a bound was reached, so the directory may not list every record. */
   incomplete: boolean
+  /** Scoped metadata identity; changes with bodies, authority, adoption and temporal membership. */
+  searchVersion?: string
 }
 
 type DirectoryReader = GuestKnowledgeReader & {
@@ -76,39 +81,20 @@ export async function loadGuestVenueDirectory(params: {
 }): Promise<GuestVenueDirectory> {
   const reader = params.reader as DirectoryReader
   const [knowledgeRows, places, activated] = await Promise.all([
-    reader.venueKnowledgeEntry.findMany({
-      where: guestKnowledgeScope(params),
-      select: guestKnowledgeSelectShape(),
-      orderBy: [{ category: 'asc' }, { title: 'asc' }, { id: 'asc' }],
-      take: MAX_DIRECTORY_KNOWLEDGE,
-    }),
-    reader.place.findMany({
-      where: {
-        tenantId: params.tenantId,
-        venueId: params.venueId,
-        isActive: true,
-        ...(params.includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
-      },
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        itemType: true,
-        shortDescription: true,
-        longDescription: true,
-        lat: true,
-        lng: true,
-        tags: true,
-        areaName: true,
-        hours: true,
-        photoUrl: true,
-        sourceType: true,
-        sourceName: true,
-        sourceUrl: true,
-      },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      take: MAX_DIRECTORY_PLACES,
-    }),
+    pageGuestRows((page) =>
+      reader.venueKnowledgeEntry.findMany({
+        where: { ...guestKnowledgeScope(params), ...page.where },
+        select: guestKnowledgeSelectShape(),
+        ...page.args,
+      }),
+    ),
+    pageGuestRows((page) =>
+      reader.place.findMany({
+        where: { ...guestPlaceScope(params), ...page.where },
+        select: guestPlaceSelect,
+        ...page.args,
+      }),
+    ),
     reader.legacyKnowledgeAdoptionActivation
       ? reader.legacyKnowledgeAdoptionActivation.findMany({
           where: { tenantId: params.tenantId, venueId: params.venueId },
@@ -130,10 +116,14 @@ export async function loadGuestVenueDirectory(params: {
       updatedAt: row.updatedAt,
     }))
   return {
-    knowledge,
-    places,
-    incomplete:
-      knowledgeRows.length >= MAX_DIRECTORY_KNOWLEDGE || places.length >= MAX_DIRECTORY_PLACES,
+    knowledge: knowledge.sort(
+      (a, b) =>
+        a.category.localeCompare(b.category) ||
+        a.title.localeCompare(b.title) ||
+        a.id.localeCompare(b.id),
+    ),
+    places: places.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+    incomplete: false,
   }
 }
 
@@ -172,19 +162,11 @@ export function createGuestVenueDirectoryCache(options: {
   }
 }
 
-// Tests drive the database through per-test mocks, so the shared cache is off under test.
-const sharedDirectoryCache = createGuestVenueDirectoryCache({
-  ttlMs: process.env.NODE_ENV === 'test' ? 0 : DIRECTORY_CACHE_TTL_MS,
-  maxEntries: DIRECTORY_CACHE_MAX_VENUES,
-})
-
+/** Metadata is checked on every turn; TTL alone cannot establish body freshness. */
 export function loadGuestVenueDirectoryCached(
   params: Parameters<typeof loadGuestVenueDirectory>[0],
 ): Promise<GuestVenueDirectory> {
-  const scope = params.includeSecondLayer ? 'second-layer' : 'public'
-  return sharedDirectoryCache.get(`${params.tenantId}|${params.venueId}|${scope}`, () =>
-    loadGuestVenueDirectory(params),
-  )
+  return loadVersionedGuestDirectory(params, () => loadGuestVenueDirectory(params))
 }
 
 // Location-pin and wayfinding caveats say where a record sits, not what it is.

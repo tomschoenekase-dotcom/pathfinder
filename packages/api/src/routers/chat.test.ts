@@ -1712,8 +1712,18 @@ describe('chat router', () => {
         // The cached directory has the old version; live lexical retrieval observes a
         // newer whole record that exceeds its 20k content budget and must be omitted.
         venueKnowledgeEntryFindMany.mockImplementation(
-          async (args: { orderBy?: Array<Record<string, string>> }) =>
-            args.orderBy?.[0]?.category === 'asc' ? [staleHours] : [currentHours],
+          async (args: {
+            take?: number
+            orderBy?: Array<Record<string, string>>
+            select?: Record<string, unknown>
+          }) => {
+            const directoryPage = args.take === 500 && args.orderBy?.[0]?.id === 'asc'
+            if (!directoryPage) return [currentHours]
+            // Metadata identifies the cached version; only the body page supplies old text.
+            return args.select?.content
+              ? [staleHours]
+              : [{ id: staleHours.id, updatedAt: staleHours.updatedAt }]
+          },
         )
 
         const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
@@ -4538,11 +4548,19 @@ describe('chat router', () => {
     it('keeps a place edited after the cached guide loaded in full and marks it current', async () => {
       setupHappyPath('ok')
       placeFindMany.mockReset()
-      // The directory read (take 400) still holds the old hours; retrieval reads the edit.
-      placeFindMany.mockImplementation(async (args: { take?: number }) =>
-        args.take === 400
-          ? [{ ...placeRows[0]!, hours: '9am-5pm' }]
-          : [{ ...placeRows[0]!, hours: '9am-3pm' }],
+      // The ID-keyset body page still holds old hours; live retrieval reads the edit.
+      placeFindMany.mockImplementation(
+        async (args: {
+          take?: number
+          orderBy?: Array<Record<string, string>>
+          select?: Record<string, unknown>
+        }) => {
+          const directoryPage = args.take === 500 && args.orderBy?.[0]?.id === 'asc'
+          if (!directoryPage) return [{ ...placeRows[0]!, hours: '9am-3pm' }]
+          return args.select?.name
+            ? [{ ...placeRows[0]!, hours: '9am-5pm' }]
+            : [{ id: placeRows[0]!.id, updatedAt: new Date('2026-10-01T00:00:00Z') }]
+        },
       )
 
       await caller.chat.send(sendInput)
@@ -4594,7 +4612,9 @@ describe('chat router', () => {
             isActive: true,
             visibility: 'PUBLIC',
           }),
-          take: 400,
+          take: 500,
+          orderBy: [{ id: 'asc' }],
+          select: expect.objectContaining({ name: true, longDescription: true }),
         }),
       )
     })

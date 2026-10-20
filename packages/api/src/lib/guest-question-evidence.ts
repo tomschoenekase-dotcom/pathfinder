@@ -7,6 +7,7 @@ import {
   normalizeGuestText,
   type GuestKnowledgeReader,
 } from './guest-knowledge-retrieval'
+import { guestPlaceScope, guestPlaceSelect } from './guest-directory-index-loader'
 import { isPastDatedGuestEvent } from './guest-event-dates'
 import { guestPlaceIdentityKey } from './guest-place-identity'
 import type {
@@ -123,8 +124,6 @@ const FOLLOWUP_TERM_WEIGHT = 0.5
 const MAX_QUERY_TERMS = 24
 // Bounds the greedy selection; more picks than every budget below combined is never useful.
 const MAX_RANKED = 40
-// The term cache is bounded by the characters of record text it keys on, not by entry count.
-const TERM_CACHE_MAX_CHARS = 8_000_000
 
 export const QUESTION_EVIDENCE_MAX_KNOWLEDGE_RECORDS = 10
 export const QUESTION_EVIDENCE_MAX_PLACES = 3
@@ -254,21 +253,8 @@ type RecordTerms = {
   stems: Map<string, number>
 }
 
-// Records arrive as fresh objects every turn (projection copies them), so the cache is keyed by
-// the searchable text itself: a record is tokenized once per content version, not once per turn.
-const termCache = new Map<string, RecordTerms>()
-let termCacheChars = 0
-
 function recordTerms(candidate: GuestEvidenceCandidate): RecordTerms {
   const { title, body } = candidateText(candidate)
-  const key = `${title}\u0000${body}`
-  const cached = termCache.get(key)
-  if (cached) {
-    // Least recently used goes first: refresh the entry's position on every hit.
-    termCache.delete(key)
-    termCache.set(key, cached)
-    return cached
-  }
   const all = [...Array.from({ length: TITLE_REPEAT }, () => tokens(title)).flat(), ...tokens(body)]
   const words = new Map<string, number>()
   const stems = new Map<string, number>()
@@ -278,15 +264,103 @@ function recordTerms(candidate: GuestEvidenceCandidate): RecordTerms {
     const value = stem(token)
     stems.set(value, (stems.get(value) ?? 0) + 1)
   }
-  const result = { length: all.length, words, stems }
-  termCache.set(key, result)
-  termCacheChars += key.length
-  while (termCacheChars > TERM_CACHE_MAX_CHARS && termCache.size > 1) {
-    const oldest = termCache.keys().next().value!
-    termCache.delete(oldest)
-    termCacheChars -= oldest.length
+  return { length: all.length, words, stems }
+}
+
+type Posting = { ordinals: Uint32Array; frequencies: Uint32Array }
+type SearchIndex = {
+  lengths: number[]
+  averageLength: number
+  words: Map<string, Posting>
+  stems: Map<string, Posting>
+  bytes: number
+}
+const searchIndexes = new Map<string, SearchIndex>()
+let searchIndexBytes = 0
+let lastBuildBytes = 0
+let indexBuilds = 0
+let indexHits = 0
+const MAX_SEARCH_INDEX_BYTES = 128 * 1024 * 1024
+const MAX_VENUE_SEARCH_INDEX_BYTES = 32 * 1024 * 1024
+
+/** Build postings once per authorized content version. Unversioned callers always rebuild safely. */
+function questionSearchIndex(candidates: GuestEvidenceCandidate[], version?: string): SearchIndex {
+  // IDs discriminate projection, dated-event filtering, ambiguity and stale suppression. Bodies
+  // are not hashed or tokenized again on a warm turn with the same scoped version.
+  const key = version
+    ? JSON.stringify([version, candidates.map((row) => [row.kind, row.id])])
+    : null
+  const hit = key ? searchIndexes.get(key) : undefined
+  if (hit && key) {
+    indexHits++
+    searchIndexes.delete(key)
+    searchIndexes.set(key, hit)
+    return hit
   }
-  return result
+  const index: SearchIndex = {
+    lengths: [],
+    averageLength: 1,
+    words: new Map(),
+    stems: new Map(),
+    bytes: key ? key.length * 2 : 0,
+  }
+  indexBuilds++
+  const words = new Map<string, Array<[number, number]>>()
+  const stems = new Map<string, Array<[number, number]>>()
+  for (const [ordinal, candidate] of candidates.entries()) {
+    const terms = recordTerms(candidate)
+    index.lengths.push(terms.length)
+    index.bytes += 8
+    for (const [source, target] of [
+      [terms.words, words],
+      [terms.stems, stems],
+    ] as const) {
+      for (const [word, count] of source) {
+        let posting = target.get(word)
+        if (!posting) {
+          posting = []
+          target.set(word, posting)
+          index.bytes += word.length * 2 + 80
+        }
+        posting.push([ordinal, count])
+        index.bytes += 8
+      }
+    }
+  }
+  for (const [source, target] of [
+    [words, index.words],
+    [stems, index.stems],
+  ] as const) {
+    for (const [term, values] of source)
+      target.set(term, {
+        ordinals: Uint32Array.from(values.map(([ordinal]) => ordinal)),
+        frequencies: Uint32Array.from(values.map(([, frequency]) => frequency)),
+      })
+  }
+  lastBuildBytes = index.bytes
+  index.averageLength =
+    index.lengths.reduce((sum, length) => sum + length, 0) / candidates.length || 1
+  if (key && index.bytes <= MAX_VENUE_SEARCH_INDEX_BYTES) {
+    searchIndexes.set(key, index)
+    searchIndexBytes += index.bytes
+    while (searchIndexBytes > MAX_SEARCH_INDEX_BYTES || searchIndexes.size > 32) {
+      const oldest = searchIndexes.keys().next().value!
+      searchIndexBytes -= searchIndexes.get(oldest)!.bytes
+      searchIndexes.delete(oldest)
+    }
+  }
+  return index
+}
+
+/** Diagnostics describe retained estimated payload, not JavaScript heap/RSS or database latency. */
+export function guestQuestionSearchIndexStats() {
+  return {
+    entries: searchIndexes.size,
+    estimatedBytes: searchIndexBytes,
+    lastBuildBytes,
+    builds: indexBuilds,
+    hits: indexHits,
+  }
 }
 
 export type GuestQuestionEvidenceRank = {
@@ -307,33 +381,57 @@ export function rankGuestQuestionEvidence(params: {
   previousQuery?: string | null
   venueName?: string | null
   candidates: GuestEvidenceCandidate[]
+  searchVersion?: string
 }): { terms: string[]; ranked: GuestQuestionEvidenceRank[] } {
   const terms = guestQuestionTerms(params.query, params.previousQuery, params.venueName)
   if (terms.length === 0 || params.candidates.length === 0)
     return { terms: terms.map((term) => term.key), ranked: [] }
-  const docs = params.candidates.map((candidate) => ({ candidate, ...recordTerms(candidate) }))
-  const averageLength = docs.reduce((sum, doc) => sum + doc.length, 0) / docs.length || 1
-  const termFrequency = (doc: (typeof docs)[number], term: QueryTerm) => {
-    const counts = term.kind === 'intent' ? doc.words : doc.stems
-    let tf = 0
-    for (const value of term.forms) tf += counts.get(value) ?? 0
-    return tf
-  }
-  const frequencies = docs.map((doc) => terms.map((term) => termFrequency(doc, term)))
-  const documentFrequency = terms.map(
-    (_, index) => frequencies.filter((row) => row[index]! > 0).length,
+  const index = questionSearchIndex(params.candidates, params.searchVersion)
+  const frequencies = new Map<number, number[]>()
+  const documentFrequency = terms.map((term, termIndex) => {
+    const matching = new Set<number>()
+    const postings = term.kind === 'intent' ? index.words : index.stems
+    for (const form of term.forms) {
+      const posting = postings.get(form)
+      if (!posting) continue
+      for (let postingIndex = 0; postingIndex < posting.ordinals.length; postingIndex++) {
+        const ordinal = posting.ordinals[postingIndex]!
+        const tf = posting.frequencies[postingIndex]!
+        let row = frequencies.get(ordinal)
+        if (!row) {
+          row = Array<number>(terms.length).fill(0)
+          frequencies.set(ordinal, row)
+        }
+        row[termIndex] = row[termIndex]! + tf
+        matching.add(ordinal)
+      }
+    }
+    return matching.size
+  })
+  // Ordinal order keeps exact ties identical to the previous all-document ranker.
+  const matchingOrdinals = [...frequencies.keys()].sort((a, b) => a - b)
+  const docs = matchingOrdinals.map((ordinal) => ({
+    candidate: params.candidates[ordinal]!,
+    length: index.lengths[ordinal]!,
+    frequencies: frequencies.get(ordinal)!,
+  }))
+  const averageLength = index.averageLength
+  const idf = documentFrequency.map((df) =>
+    Math.log(1 + (params.candidates.length - df + 0.5) / (df + 0.5)),
   )
-  const idf = documentFrequency.map((df) => Math.log(1 + (docs.length - df + 0.5) / (df + 0.5)))
-  const informativeLimit = Math.max(INFORMATIVE_MIN_RECORDS, docs.length * INFORMATIVE_MAX_SHARE)
+  const informativeLimit = Math.max(
+    INFORMATIVE_MIN_RECORDS,
+    params.candidates.length * INFORMATIVE_MAX_SHARE,
+  )
   // Intent groups are curated question parts; a plain word must be rare among this venue's records.
   const informative = terms.map(
     (term, index) =>
       term.kind === 'intent' ||
       (documentFrequency[index]! > 0 && documentFrequency[index]! <= informativeLimit),
   )
-  const contributions = docs.map((doc, docIndex) =>
+  const contributions = docs.map((doc) =>
     terms.map((term, index) => {
-      const tf = frequencies[docIndex]![index]!
+      const tf = doc.frequencies[index]!
       if (tf === 0) return 0
       const norm = tf + BM25_K1 * (1 - BM25_B + (BM25_B * doc.length) / averageLength)
       return term.weight * idf[index]! * ((tf * (BM25_K1 + 1)) / norm)
@@ -479,6 +577,7 @@ export function selectGuestQuestionEvidence<K extends { id?: string; content: st
     previousQuery: params.previousQuery ?? null,
     venueName: params.venueName ?? null,
     candidates: [...knowledgeCandidates, ...placeCandidates],
+    ...(params.directory.searchVersion ? { searchVersion: params.directory.searchVersion } : {}),
   })
   const knowledgeById = new Map(params.directory.knowledge.map((entry) => [entry.id, entry]))
   const placeById = new Map(params.directory.places.map((place) => [place.id, place]))
@@ -604,6 +703,31 @@ export async function revalidateGuestQuestionEvidence(params: {
       updatedAt: row.updatedAt,
     }
     return isPastDatedGuestEvent(refreshed, params.currentDate) ? [] : [refreshed]
+  })
+}
+
+/** Live whole place bodies retain the same tenant, venue, visibility and activity fences. */
+export async function revalidateGuestQuestionPlaces(params: {
+  reader: unknown
+  tenantId: string
+  venueId: string
+  includeSecondLayer: boolean
+  places: GuestDirectoryPlace[]
+}): Promise<GuestDirectoryPlace[]> {
+  if (!params.places.length) return []
+  const reader = params.reader as {
+    place: { findMany(args: Record<string, unknown>): Promise<GuestDirectoryPlace[]> }
+  }
+  const ids = params.places.map((place) => place.id)
+  const rows = await reader.place.findMany({
+    where: { ...guestPlaceScope(params), id: { in: ids } },
+    select: guestPlaceSelect,
+    take: ids.length,
+  })
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  return ids.flatMap((id) => {
+    const row = byId.get(id)
+    return row ? [row] : []
   })
 }
 
