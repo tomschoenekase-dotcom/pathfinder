@@ -1494,7 +1494,7 @@ describe('facet actual chat independent boundaries', () => {
     return { ark, place, fillers }
   }
   it.each([false, true])(
-    'recovers initial Ark knowledge with authorized rarity (embedding=%s), loading directory once',
+    'reaches the named Ark records without corpus-rarity hints (embedding=%s), loading directory once',
     async (embedding) => {
       const { ark, place } = await rarityFixture()
       if (!embedding)
@@ -1502,28 +1502,18 @@ describe('facet actual chat independent boundaries', () => {
       await send(rarityQuery)
       expect(loadGuestVenueDirectoryCached).toHaveBeenCalledOnce()
       expect(w7Initial.knowledge).toHaveLength(1)
-      expect(w7Initial.knowledge[0]?.hasHints).toBe(true)
-      expect(w7Initial.knowledge[0]?.ids).toContain(ark.id)
-      const lexicalQueries = venueKnowledgeEntryFindMany.mock.calls.filter(([args]) =>
-        args.where?.AND?.some((clause: Record<string, unknown>) =>
-          JSON.stringify(clause).includes('contains'),
-        ),
-      )
-      expect(lexicalQueries.some(([args]) => JSON.stringify(args.where).includes('ark'))).toBe(true)
-      if (embedding) {
-        expect(w7Initial.places.flat()).toContain(place.id)
-        expect(
-          placeFindMany.mock.calls.some(([args]) => JSON.stringify(args.where?.OR).includes('ark')),
-        ).toBe(true)
-      } else {
-        expect(w7Initial.places).toEqual([]) // No-embedding place lane remains importance/geo.
-      }
+      // Initial lexical retrieval no longer reorders words by corpus rarity; the exact name the
+      // visitor typed is matched against the authorized directory in question evidence instead.
+      expect(w7Initial.knowledge[0]?.hasHints).toBe(false)
+      expect(w7Initial.knowledge[0]?.ids).not.toContain(ark.id)
       expect(prompt()).toContain('ARK_WHOLE_GOVERNING_BODY')
+      expect(prompt()).toContain('ARK_PLACE_WHOLE_BODY')
       expect(retainedBodyKeys()).toContain(`knowledge:${ark.id}`)
+      expect(retainedBodyKeys()).toContain(`place:${place.id}`)
       assertBodyBudgetAndTypedIdentity()
     },
   )
-  it('falls back to query-only initial retrieval after one directory failure without retry', async () => {
+  it('keeps query-only retrieval after one directory failure without retry', async () => {
     await rarityFixture()
     vi.mocked(loadGuestVenueDirectoryCached).mockRejectedValueOnce(
       new Error('synthetic directory unavailable'),
@@ -1532,13 +1522,10 @@ describe('facet actual chat independent boundaries', () => {
     expect(loadGuestVenueDirectoryCached).toHaveBeenCalledOnce()
     expect(w7Initial.knowledge).toHaveLength(1)
     expect(w7Initial.knowledge[0]?.hasHints).toBe(false)
-    expect(
-      configLogger.info.mock.calls.some(
-        ([row]) => row.action === 'guest-chat.lexical-rarity' && row.status === 'LOAD_FAILED',
-      ),
-    ).toBe(true)
+    // Without a loaded directory there is nothing authorized to match names against.
+    expect(prompt()).not.toContain('ARK_PLACE_WHOLE_BODY')
   })
-  it('distinguishes projected Ark hints from old compatibility initial IDs and later QE recovery', async () => {
+  it('matches the visitor-named Ark against the projected release, never the old compatibility text', async () => {
     const { ark, place, fillers } = await rarityFixture()
     const legacyArk = {
       ...ark,
@@ -1561,16 +1548,12 @@ describe('facet actual chat independent boundaries', () => {
       state: { knowledgeEntries: [ark, ...fillers], places: [place] },
     })
     await send(rarityQuery)
-    expect(w7Initial.knowledge[0]?.hasHints).toBe(true)
-    expect(
-      venueKnowledgeEntryFindMany.mock.calls.some(([args]) =>
-        JSON.stringify(args.where).includes('ark'),
-      ),
-    ).toBe(true)
+    expect(w7Initial.knowledge[0]?.hasHints).toBe(false)
     expect(w7Initial.knowledge[0]?.ids).not.toContain(ark.id)
     expect(w7Initial.places.flat()).not.toContain(place.id)
     expect(prompt()).toContain('ARK_WHOLE_GOVERNING_BODY')
     expect(prompt()).not.toContain('OLD_PAVILION_ONLY_BODY')
+    expect(prompt()).not.toContain('OLD_PAVILION_ONLY_PLACE')
     expect(retainedBodyKeys()).toContain(`knowledge:${ark.id}`)
     expect(loadGuestVenueDirectoryCached).toHaveBeenCalledOnce()
   })
@@ -1603,7 +1586,7 @@ describe('facet actual chat independent boundaries', () => {
     ).toBe(true)
     expect(loadGuestVenueDirectoryCached).toHaveBeenCalledOnce()
   })
-  it('updates native rarity after compatibility membership changes within one immutable release', async () => {
+  it('follows release membership for a visitor-named record within one immutable release', async () => {
     const { ark, place, fillers } = await rarityFixture()
     const snapshot = {
       path: 'NATIVE',
@@ -1617,14 +1600,13 @@ describe('facet actual chat independent boundaries', () => {
     semanticSearch.places.mockResolvedValue([])
     resolveNativeGuestReadSnapshotAction.mockResolvedValue(snapshot)
     await send(rarityQuery)
-    expect(w7Initial.knowledge.at(-1)?.ids).not.toContain(ark.id)
+    expect(prompt()).not.toContain('ARK_WHOLE_GOVERNING_BODY')
     anthropicCreate.mockClear()
     guestTurnActions.finalize.mockClear()
     venueRenderings.length = 0
     await install([ark, ...fillers], [place])
     fixture.strict = true
     await send(rarityQuery)
-    expect(w7Initial.knowledge.at(-1)?.ids).toContain(ark.id)
     expect(prompt()).toContain('ARK_WHOLE_GOVERNING_BODY')
     expect(retainedBodyKeys()).toContain(`knowledge:${ark.id}`)
     expect(loadGuestVenueDirectoryCached).toHaveBeenCalledTimes(2)
@@ -1634,7 +1616,6 @@ describe('facet actual chat independent boundaries', () => {
     await install(fillers, [])
     fixture.strict = true
     await send(rarityQuery)
-    expect(w7Initial.knowledge.at(-1)?.ids).not.toContain(ark.id)
     expect(prompt()).not.toContain('ARK_WHOLE_GOVERNING_BODY')
     expect(retainedBodyKeys()).not.toContain(`knowledge:${ark.id}`)
     expect(loadGuestVenueDirectoryCached).toHaveBeenCalledTimes(3)

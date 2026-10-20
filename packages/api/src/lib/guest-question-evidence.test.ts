@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { guestQueryConcepts } from './guest-knowledge-retrieval'
 import {
   QUESTION_EVIDENCE_MAX_FOCUS_TOPICS,
+  guestQuestionNamedRecords,
   guestQuestionTerms,
   mergeGuestQuestionEvidencePlaces,
   revalidateGuestQuestionEvidence,
@@ -10,6 +11,7 @@ import {
 } from './guest-question-evidence'
 import {
   buildGuestVenueGuidePrompt,
+  guestKnowledgeNamedPlaces,
   guestTopicPlaceLinks,
   type GuestDirectoryKnowledge,
   type GuestDirectoryPlace,
@@ -410,5 +412,91 @@ describe('subject grouping in the full guide', () => {
       knowledge: [knowledge('touchpoint', 'Touch Poolside cafe', 'Coffee and cakes.', 'dining')],
     })
     expect(guestTopicPlaceLinks(guide).size).toBe(0)
+  })
+})
+
+describe('records named by the visitor or by a context record', () => {
+  // Numbered names share every word with their neighbours, so search alone cannot tell them apart.
+  const hides = Array.from({ length: 60 }, (_, index) =>
+    place(`hide-${index}`, `Alder Hide ${String(900 + index).padStart(5, '0')}`, 'A bird hide.'),
+  )
+  const hideDetails = Array.from({ length: 60 }, (_, index) =>
+    knowledge(
+      `hide-k-${index}`,
+      `Birch Hide ${String(900 + index).padStart(5, '0')} visitor details`,
+      'Guests must be at least 6 years old.',
+    ),
+  )
+  const named = (query: string, extra: Partial<GuestVenueDirectory> = {}) =>
+    guestQuestionNamedRecords({
+      query,
+      currentDate: '2026-11-21',
+      directory: directory({
+        knowledge: [...governing, ...hideDetails],
+        places: [
+          ...hides,
+          place('p-wheel', 'Harvest Wheel', 'Main wheel.'),
+          place('p-wheel-junior', 'Harvest Wheel Junior', 'Small wheel.'),
+        ],
+        ...extra,
+      }),
+    })
+
+  it('finds a numbered place the visitor names, among neighbours sharing every other word', () => {
+    const result = named('Can my 9 year old visit Alder Hide 00958 on her own?')
+    expect(result.places.map((row) => row.id)).toEqual(['hide-58'])
+  })
+
+  it('lets a longer name claim its words before a shorter name inside it', () => {
+    expect(named('Is Harvest Wheel Junior step-free?').places.map((row) => row.id)).toEqual([
+      'p-wheel-junior',
+    ])
+    expect(
+      named('Compare Harvest Wheel and Harvest Wheel Junior for a 7 year old')
+        .places.map((row) => row.id)
+        .sort(),
+    ).toEqual(['p-wheel', 'p-wheel-junior'])
+  })
+
+  it('finds a knowledge-only item by a long exact title phrase, including a numbered pair', () => {
+    expect(named('How long is Birch Hide 00931?').knowledge.map((row) => row.id)).toEqual([
+      'hide-k-31',
+    ])
+    // Two shared words that are not a number name nothing.
+    expect(named('Which hide visitor rules apply?').knowledge).toEqual([])
+  })
+
+  it('names nothing for an ordinary topic question and skips same-name places', () => {
+    expect(named('What time does the otter talk start?').places).toEqual([])
+    const twins = [place('a', 'Twin Kiosk', 'East.'), place('b', 'Twin Kiosk', 'West.')]
+    expect(named('Where is Twin Kiosk?', { places: twins }).places).toEqual([])
+  })
+
+  it('follows the members a context record enumerates, not a lone subject or a long overview', () => {
+    const members = ['Copper Wheel', 'Copper Wheel Junior', 'Reed Walk', 'Story Barn'].map(
+      (name, index) => place(`m-${index}`, name, 'A stop.'),
+    )
+    const others = Array.from({ length: 12 }, (_, index) =>
+      place(`o-${index}`, `Lantern Stall ${index + 10}`, 'A stall.'),
+    )
+    const places = [...members, ...others]
+    const route = knowledge(
+      'route',
+      'Discovery route',
+      'The discovery route consists of Copper Wheel, Copper Wheel Junior, Reed Walk, and Story Barn.',
+    )
+    const lone = knowledge('lone', 'Reed Walk closure', 'Reed Walk closes on Mondays.')
+    const overview = knowledge(
+      'overview',
+      'Every stall',
+      others.map((row) => row.name).join(', ') + '.',
+    )
+    const followed = (rows: GuestDirectoryKnowledge[]) =>
+      guestKnowledgeNamedPlaces({ knowledge: rows, directory: directory({ places }) }).map(
+        (row) => row.id,
+      )
+    expect(followed([route])).toEqual(['m-0', 'm-1', 'm-2', 'm-3'])
+    expect(followed([lone])).toEqual([])
+    expect(followed([overview])).toEqual([])
   })
 })

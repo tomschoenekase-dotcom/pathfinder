@@ -114,7 +114,6 @@ import {
   isGuestAnswerShapeEnabled,
 } from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
-import { guestQueryRarity } from '../lib/guest-query-rarity'
 import { guestDirectoryVersion } from '../lib/guest-directory-index-loader'
 import { parseFacetCollectionQuery } from '../lib/guest-facet-query'
 import {
@@ -1455,57 +1454,12 @@ const chatReadRouter = router({
       })),
     })
     const effectiveDirectoryPath = directoryRead.path === 'NATIVE' ? 'NATIVE' : 'LEGACY'
-    const intendedContentPath = nativeReadSnapshot.path === 'NATIVE' ? 'NATIVE' : 'LEGACY'
-    const hintDirectory: GuestVenueDirectory = {
-      knowledge: directoryRead.knowledgeEntries,
-      places: directoryRead.places,
-      incomplete: loadedDirectory.incomplete,
-      ...(effectiveDirectoryPath === 'NATIVE' && nativeReadSnapshot.releaseId
-        ? {
-            searchVersion: JSON.stringify([
-              venue.tenantId,
-              input.venueId,
-              includeSecondLayer,
-              'NATIVE',
-              nativeReadSnapshot.releaseId,
-            ]),
-          }
-        : loadedDirectory.searchVersion
-          ? { searchVersion: loadedDirectory.searchVersion }
-          : {}),
-    }
-    const lexicalHintStatus =
-      guideLoadStatus !== 'READY'
-        ? guideLoadStatus
-        : hintDirectory.incomplete
-          ? 'INCOMPLETE'
-          : effectiveDirectoryPath !== intendedContentPath
-            ? 'PROJECTION_MISMATCH'
-            : 'READY'
-    const lexicalRarity =
-      process.env.LAB_DISABLE_RARITY !== '1' && lexicalHintStatus === 'READY'
-        ? {
-            current: guestQueryRarity(hintDirectory, retrievalQuery),
-            ...(previousGuestQuery
-              ? {
-                  previous: guestQueryRarity(hintDirectory, previousGuestQuery),
-                }
-              : {}),
-          }
-        : undefined
-    logger.info({
-      action: 'guest-chat.lexical-rarity',
-      status: lexicalHintStatus,
-      directoryPath: directoryRead.path,
-      snapshotPath: nativeReadSnapshot.path,
-    })
     if (queryEmbedding) {
       const [places, knowledge] = await Promise.all([
         fuseGuestPlacesWithLexical({
           reader: ctx.db,
           query: retrievalQuery,
           previousQuery: previousGuestQuery,
-          ...(lexicalRarity ? { lexicalRarity } : {}),
           tenantId: venue.tenantId,
           venueId: input.venueId,
           includeSecondLayer,
@@ -1527,7 +1481,6 @@ const chatReadRouter = router({
           reader: ctx.db,
           query: retrievalQuery,
           previousQuery: previousGuestQuery,
-          ...(lexicalRarity ? { lexicalRarity } : {}),
           queryEmbedding,
           venueId: input.venueId,
           tenantId: venue.tenantId,
@@ -1557,7 +1510,6 @@ const chatReadRouter = router({
         reader: ctx.db,
         query: retrievalQuery,
         previousQuery: previousGuestQuery,
-        ...(lexicalRarity ? { lexicalRarity } : {}),
         queryEmbedding: null,
         venueId: input.venueId,
         tenantId: venue.tenantId,
@@ -1778,7 +1730,7 @@ const chatReadRouter = router({
     })
     // Records the visitor names exactly lead the evidence, whatever search ranked.
     const namedQuestion =
-      process.env.LAB_DISABLE_NAMEDQ !== '1' && venueGuide.mode !== 'NONE'
+      venueGuide.mode !== 'NONE'
         ? guestQuestionNamedRecords({ query: trimmedInput, directory: guestDirectory, currentDate })
         : { places: [], knowledge: [] }
     namedQuestion.places = namedQuestion.places.filter((place) => place.id !== pinnedEntryPlaceId)
@@ -1789,7 +1741,7 @@ const chatReadRouter = router({
     ]
     // Members a context record enumerates join as whole place records ahead of looser matches.
     const namedPlaces =
-      process.env.LAB_DISABLE_NAMED !== '1' && venueGuide.mode === 'DIRECTORY' && !hasLiveLocation
+      venueGuide.mode === 'DIRECTORY' && !hasLiveLocation
         ? guestKnowledgeNamedPlaces({
             knowledge: [...relevantKnowledgeEntries, ...questionEvidence.knowledge],
             directory: guestDirectory,
