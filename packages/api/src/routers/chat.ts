@@ -2874,6 +2874,7 @@ const chatReadRouter = router({
         },
       })
     } catch (err) {
+      logger.error({ action: 'lab-debug', err: err instanceof Error ? err.stack : String(err) })
       if (err instanceof GuestChatTurnActionError) guestChatTurnError(err)
       if (!generationDispatched) {
         await failGuestChatTurnAction({
