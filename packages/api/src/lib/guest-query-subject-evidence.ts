@@ -138,7 +138,12 @@ export function prepareGuestSubjectEvidence(input: {
     spend()
     const id = queue[i]!,
       m = modules.get(id)!
-    if (m.payload.kind === 'SERVICE' && m.payload.placeId && visiblePlaces.has(m.payload.placeId))
+    if (
+      (m.payload.kind === 'SERVICE' ||
+        (m.payload.kind === 'ITEM' && m.payload.itemType !== 'PRODUCT')) &&
+      m.payload.placeId &&
+      visiblePlaces.has(m.payload.placeId)
+    )
       placeIds.add(m.payload.placeId)
     for (const offer of (m.kind === 'SERVICE' || namedModules.has(id)
       ? offersBySubject.get(id)
@@ -221,7 +226,7 @@ export function prepareGuestSubjectEvidence(input: {
     return {
       moduleId: id,
       kind: m.kind,
-      ...(p.kind === 'SERVICE'
+      ...(p.kind === 'SERVICE' || (p.kind === 'ITEM' && p.itemType !== 'PRODUCT')
         ? {
             location:
               p.placeId && visiblePlaces.has(p.placeId)
@@ -365,7 +370,7 @@ function subjectFactLines(input: {
         )
     } else if (p?.kind === 'ITEM') {
       lines.push(
-        `- ${p.itemType === 'PRODUCT' ? 'Product' : 'Item'} ${q(p.name)}: ${p.description ?? 'no description'}`,
+        `- ${p.itemType === 'PRODUCT' ? 'Product' : 'Item'} ${q(p.name)}: ${p.description ?? 'no description'}${p.itemType !== 'PRODUCT' ? ` Location: ${placeLabel(p.placeId) ?? 'not established in this guide; do not guess one'}.` : ''}`,
       )
       lines.push(...policyLinesFor(id, p.name))
       if (p.itemType !== 'PRODUCT') continue

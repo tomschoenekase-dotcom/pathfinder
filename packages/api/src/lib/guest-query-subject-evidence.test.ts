@@ -182,6 +182,120 @@ describe('whole named subject evidence', () => {
     expect(r.places.map((p) => p.id).sort()).toEqual(['a', 'b'])
     expect(r.prompt).not.toContain('exactEligibleCount')
   })
+  it.each(['ANIMAL', 'EXHIBIT', 'ARTWORK', 'COLLECTION_OBJECT'])(
+    'retains exact current %s aliases and explicit public location without seller or policy transfer',
+    async (itemType) => {
+      const s = graph()
+      append(s, 'subject-item', {
+        kind: 'ITEM',
+        itemType,
+        name: 'Comet subject',
+        description: 'Current visitor facts.',
+        placeId: 'a',
+      })
+      append(s, 'item-policy', {
+        kind: 'POLICY',
+        title: 'Subject-only condition',
+        rule: 'Keep two metres away.',
+        appliesTo: ['subject-item'],
+      })
+      const r = await subjects(s, ['Comet subject'])
+      expect(r.status).toBe('READY')
+      if (r.status !== 'READY') throw new Error('expected subject evidence')
+      expect(r.places.map((p) => p.id)).toEqual(['a'])
+      expect(r.prompt).toContain(
+        'Item "Comet subject": Current visitor facts. Location: "Public hall a".',
+      )
+      expect(r.prompt).toContain(
+        'Policy that applies to "Comet subject": "Subject-only condition": Keep two metres away.',
+      )
+      expect(r.prompt).not.toContain('Policy that applies to "Comet subject": "Aurora condition"')
+      expect(r.prompt).not.toContain('No refunds; minimum age nine.')
+      expect(r.prompt).not.toContain('Explicitly listed sellers of "Comet subject"')
+      expect(r.prompt).not.toContain('purchase and stock remain unknown')
+      expect('subjectStatus' in r.summary ? r.summary.subjectStatus : []).toContainEqual({
+        moduleId: 'subject-item',
+        kind: 'ITEM',
+        location: 'RESOLVED_PUBLIC',
+      })
+    },
+  )
+  it.each(['ANIMAL', 'EXHIBIT'])(
+    'retains public %s facts but never hydrates a hidden location',
+    async (itemType) => {
+      const s = source()
+      append(s, 'subject-item', {
+        kind: 'ITEM',
+        itemType,
+        name: 'Comet subject',
+        description: 'Public subject facts.',
+        placeId: 'hidden-place',
+      })
+      const r = await subjects(s, ['Comet subject'])
+      expect(r.status).toBe('READY')
+      if (r.status !== 'READY') throw new Error('expected subject evidence')
+      expect(r.places).toEqual([])
+      expect(r.prompt).toContain(
+        'Public subject facts. Location: not established in this guide; do not guess one.',
+      )
+      expect(r.prompt).not.toContain('Public hall')
+      expect('subjectStatus' in r.summary ? r.summary.subjectStatus : []).toContainEqual({
+        moduleId: 'subject-item',
+        kind: 'ITEM',
+        location: 'UNRESOLVED_IN_CURRENT_GUIDE',
+      })
+    },
+  )
+  it.each([
+    'title',
+    'category',
+    'content',
+    'sourceType',
+    'contentRevisionId',
+    'contentPublicationId',
+    'contentModuleId',
+  ] as const)('rejects a non-product ITEM alias with mismatched %s', (field) => {
+    const s = source()
+    append(s, 'subject-item', {
+      kind: 'ITEM',
+      itemType: 'ANIMAL',
+      name: 'Comet subject',
+      description: 'Public facts.',
+      placeId: 'a',
+    })
+    s.directory.knowledge[0]![field] = 'forged'
+    const compiled = compileGuestQueryCanonicalSource(s)
+    expect(() =>
+      prepareGuestSubjectEvidence({
+        source: s,
+        compiled,
+        keys: ['knowledge:alias-subject-item'],
+        mode: 'DETAILS',
+      }),
+    ).toThrow(/exact current canonical alias proof/)
+  })
+  it('rejects non-product aliases for withdrawn or expired canonical records', () => {
+    for (const state of ['withdrawn', 'expired']) {
+      const s = source()
+      const m = append(s, 'subject-item', {
+        kind: 'ITEM',
+        itemType: 'EXHIBIT',
+        name: 'Comet subject',
+        placeId: 'a',
+      })
+      if (state === 'withdrawn') s.canonicalModules!.modules = []
+      else s.canonicalModules!.modules[0] = { ...m, effectiveUntil: s.asOf }
+      const compiled = compileGuestQueryCanonicalSource(s)
+      expect(() =>
+        prepareGuestSubjectEvidence({
+          source: s,
+          compiled,
+          keys: ['knowledge:alias-subject-item'],
+          mode: 'DETAILS',
+        }),
+      ).toThrow(/exact current canonical alias proof/)
+    }
+  })
   it('product metadata expands only actual offers, not ITEM.placeId, and preserves zero-offer uncertainty', async () => {
     const s = graph(),
       offered = await subjects(s, ['Comet token'])
