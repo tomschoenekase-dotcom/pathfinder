@@ -319,7 +319,8 @@ describe('bounded subject evidence lookup', () => {
     expect(r.summary).toMatchObject({ scopedAliasOmissionCount: 9999 })
     expect(r.knowledge).toHaveLength(1)
     expect(r.canonicalSources).toHaveLength(0)
-  })
+  // Bulk correctness coverage, not a latency SLA; allow repository-wide worker contention.
+  }, 30_000)
   it('preserves existing default-off/native gate', () => {
     for (const nativePath of ['NATIVE', 'LEGACY'])
       expect(

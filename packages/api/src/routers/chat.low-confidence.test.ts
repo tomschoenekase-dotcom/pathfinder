@@ -365,7 +365,7 @@ describe('chat.send low-confidence flag', () => {
         visibility: 'PUBLIC',
       })
       if (args.select?.importanceScore === true)
-        expect(args).toMatchObject({ orderBy: { importanceScore: 'desc' }, take: 8 })
+        expect(args).toMatchObject({ orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }], take: 8 })
       return []
     })
 
