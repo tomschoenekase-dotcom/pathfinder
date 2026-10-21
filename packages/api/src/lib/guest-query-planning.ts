@@ -137,8 +137,9 @@ export function parseGuestQueryPlan(
       resolvedKey = prepared.resolveNamedReference(names.catalog, names.question, predicate.ref)
       resolved = { field: 'key', equals: resolvedKey }
     } else if (predicate.field === 'name' && names) {
-      if (typeof predicate.equals !== 'string') throw new Error('Invalid entity name')
+      if (typeof predicate.equals !== 'string' || Object.keys(predicate).length !== 2 || !Object.keys(predicate).every(key => ['field', 'equals'].includes(key))) throw new Error('Invalid entity name')
       resolvedKey = prepared.validateNamedValue(names.catalog, names.question, predicate.equals)
+      resolved = { field: 'key', equals: resolvedKey }
     }
     if (resolvedKey && domain !== 'ALL') {
       const origin = catalog!.groups.find(group => group.record?.key === resolvedKey)?.record?.domain

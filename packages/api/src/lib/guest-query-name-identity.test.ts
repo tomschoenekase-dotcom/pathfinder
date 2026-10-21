@@ -9,6 +9,28 @@ const context = (prepared: ReturnType<typeof prepareGuestStructuredSnapshot>, qu
 const count = (prepared: ReturnType<typeof prepareGuestStructuredSnapshot>) => prepared.evaluate({ tenantId: 'tenant', venueId: 'venue', mode: 'count', predicates: [] }).page().exactEligibleCount
 
 describe('current-question exact name identity', () => {
+  it.each(['list', 'count'] as const)('keeps a unique alias bound to its resolved key for %s, including copied canonical names', mode => {
+    const prepared = prepareGuestStructuredSnapshot(snapshot([
+      record('a', 'Alpha', ['Unique counter']),
+      record('b', 'Beta', ['Alpha']),
+    ]))
+    const names = context(prepared, 'Show Unique counter')
+    for (const name of ['Unique counter', 'Alpha']) {
+      const plan = parseGuestQueryPlan(JSON.stringify({ status: 'QUERY', mode, domain: 'PLACE', predicates: [{ field: 'name', equals: name }, { field: 'area', equals: 'Meadow Habitat' }] }), prepared, names)
+      if (plan.status !== 'QUERY') throw Error('Expected query')
+      expect(plan.query.predicates).toEqual([{ field: 'key', equals: 'place:a' }, { field: 'area', equals: 'Meadow Habitat' }])
+      expect(prepared.evaluate(plan.query).page().knownMatchCount).toBe(1)
+      const impossible = { ...plan.query, predicates: [...plan.query.predicates, { field: 'area' as const, equals: 'Other' }] }
+      expect(prepared.evaluate(impossible).page().knownMatchCount).toBe(0)
+    }
+  })
+  it('rejects unexpected name fields before replacing a validated name with a key', () => {
+    const prepared = prepareGuestStructuredSnapshot(snapshot([record('a', 'Alpha')]))
+    const names = context(prepared, 'Show Alpha')
+    for (const extra of [{ ref: 'n0' }, { value: false }, { scope: 'other' }]) {
+      expect(() => parseGuestQueryPlan(query([{ field: 'name', equals: 'Alpha', ...extra }]), prepared, names)).toThrow(/Invalid entity name/)
+    }
+  })
   it('resolves the full named identity without splitting or discarding any AND constraint', () => {
     const prepared = prepareGuestStructuredSnapshot(snapshot([record('target', 'Meadow Habitat event 00049')]))
     const names = context(prepared, 'Quote conditions for Meadow Habitat event 00049.')
