@@ -59,6 +59,62 @@ const rawPlan = JSON.stringify({
 const sha = (value: string) => createHash('sha256').update(value).digest('hex')
 
 describe('guest query evidence orchestration', () => {
+  it('count preserves the 10,000-record arithmetic while excluding row and legacy policy detail evidence', async () => {
+    const input = source()
+    input.directory.places = Array.from({ length: 10_000 }, (_, i) => ({
+      ...input.directory.places[0]!,
+      id: String(i),
+      name: `Ride ${i}`,
+    }))
+    input.directory.knowledge[0]!.content = 'POLICY_NOT_REQUESTED ' + 'x'.repeat(40_000)
+    const output = await prepareGuestQueryEvidence({
+      source: input,
+      question: 'How many attractions are listed?',
+      interpret: async () =>
+        JSON.stringify({
+          status: 'QUERY',
+          mode: 'count',
+          predicates: [{ field: 'kind', equals: 'ATTRACTION' }],
+        }),
+    })
+    if (output.status !== 'READY') throw new Error('Expected count')
+    expect(output.result).toMatchObject({
+      mode: 'count',
+      knownMatchCount: 10_000,
+      exactEligibleCount: 10_000,
+      rows: [],
+      hasMore: false,
+      nextCursor: null,
+    })
+    expect(output.result.matchingKeys).toHaveLength(10_000)
+    expect(output.evidence).toMatchObject({
+      includedKeys: [],
+      includedContextKeys: [],
+      omittedKeys: [],
+      omittedContextKeys: [],
+      completeContext: true,
+      completePage: true,
+    })
+    expect(output.canonicalSources).toEqual([])
+    expect(output.evidence.prompt).not.toContain('POLICY_NOT_REQUESTED')
+    expect(output.evidence.prompt).not.toContain('Ride 9999')
+    expect(output.evidence.prompt.length).toBeLessThan(3000)
+  })
+  it('count rejects a supplied continuation even though list still paginates', async () => {
+    await expect(
+      prepareGuestQueryEvidence({
+        source: source(),
+        question: 'How many attractions?',
+        page: { pageSize: 1 },
+        interpret: async () =>
+          JSON.stringify({
+            status: 'QUERY',
+            mode: 'count',
+            predicates: [{ field: 'kind', equals: 'ATTRACTION' }],
+          }),
+      }),
+    ).rejects.toThrow(/count mode does not support paging/)
+  })
   it('performs exactly one evaluation for QUERY and none for UNSUPPORTED', async () => {
     const exemplar = prepareGuestStructuredSnapshot({
       tenantId: 't',

@@ -63,6 +63,7 @@ export interface GuestStructuredQueryPage {
 }
 
 export interface GuestStructuredQueryResult {
+  mode: GuestStructuredQuery['mode']
   tenantId: string
   venueId: string
   sourceVersion: string
@@ -493,6 +494,7 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
     return new EvaluatedQuery(
       PREPARED_TOKEN,
       this.#snapshot,
+      query.mode,
       {
         ...this.scope,
         sourceVersion: this.sourceVersion,
@@ -506,6 +508,7 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
 }
 
 class EvaluatedQuery implements PreparedGuestQuery {
+  #mode: GuestStructuredQuery['mode']
   #snapshot: GuestStructuredSnapshot
   #binding: CursorBinding
   #matches: readonly GuestStructuredRecord[]
@@ -516,12 +519,14 @@ class EvaluatedQuery implements PreparedGuestQuery {
   constructor(
     token: symbol,
     snapshot: GuestStructuredSnapshot,
+    mode: GuestStructuredQuery['mode'],
     binding: CursorBinding,
     matches: GuestStructuredRecord[],
     unknownKeys: string[],
   ) {
     if (token !== PREPARED_TOKEN) fail('Invalid prepared query construction')
     this.#snapshot = snapshot
+    this.#mode = mode
     this.#binding = binding
     this.#matches = matches
     this.#matchingKeys = matches.map((record) => record.key)
@@ -535,6 +540,8 @@ class EvaluatedQuery implements PreparedGuestQuery {
 
   page(options: GuestStructuredQueryPage = {}): GuestStructuredQueryResult {
     validatePage(options)
+    if (this.#mode === 'count' && (options.cursor !== undefined || options.pageSize !== undefined))
+      fail('page: count mode does not support paging; query changed')
     let after: string | undefined
     if (options.cursor !== undefined) {
       let cursor: ObjectValue
@@ -558,8 +565,9 @@ class EvaluatedQuery implements PreparedGuestQuery {
     }
     const start = after === undefined ? 0 : this.#positions.get(after)
     if (start === undefined) fail('cursor: continuation key is not a known match')
-    const rows = this.#matches.slice(start, start + (options.pageSize ?? 50))
-    const hasMore = start + rows.length < this.#matches.length
+    const rows =
+      this.#mode === 'count' ? [] : this.#matches.slice(start, start + (options.pageSize ?? 50))
+    const hasMore = this.#mode === 'list' && start + rows.length < this.#matches.length
     const last = rows[rows.length - 1]
     const nextCursor =
       hasMore && last
@@ -570,6 +578,7 @@ class EvaluatedQuery implements PreparedGuestQuery {
     const exhaustiveAnswerEligible =
       this.#snapshot.coverage === 'COMPLETE' && this.#unknownKeys.length === 0
     return {
+      mode: this.#mode,
       tenantId: this.#binding.tenantId,
       venueId: this.#binding.venueId,
       sourceVersion: this.#binding.sourceVersion,

@@ -33,6 +33,19 @@ function snapshot(size = 1): GuestStructuredSnapshot {
 }
 
 describe('strict model query planning', () => {
+  it('limits count to numeric aggregates and chooses list for count plus names or detail evidence', () => {
+    const prompt = guestQueryPlanningPrompt(snapshot())
+    expect(prompt).toContain('Choose count only for a numeric aggregate over stored records')
+    expect(prompt).toContain('Count returns no record names, rows, details or policy bodies')
+    expect(prompt).toContain(
+      'Choose list for a count plus names, examples, descriptions, quoted conditions, policy details or other record details',
+    )
+    expect(prompt).toContain('list also supplies full-set counts')
+    expect(prompt).toContain('Never discard requested details to choose count')
+    expect(prompt).toContain(
+      'Neither mode supports selecting by unsupported eligibility conditions or live availability',
+    )
+  })
   it('states the server scope/current-snapshot distinction without inventing record filters', () => {
     const prompt = guestQueryPlanningPrompt(snapshot())
     expect(prompt).toContain('Authorized venue scope is already set by the server')

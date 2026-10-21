@@ -39,17 +39,20 @@ export async function prepareGuestQueryEvidence(input: {
   }
   if (plan.status === 'UNSUPPORTED') return { status: 'UNSUPPORTED' as const, trace }
   const result = prepared.evaluate(plan.query).page(page)
-  const sources = [
-    ...source.directory.places.map((place) => ({
-      key: `place:${place.id}`,
-      text: JSON.stringify(place),
-    })),
-    ...source.directory.knowledge.map((entry) => ({
-      key: `knowledge:${entry.id}`,
-      text: JSON.stringify(entry),
-    })),
-    ...compiled.canonicalSources,
-  ]
+  const aggregate = result.mode === 'count'
+  const sources = aggregate
+    ? []
+    : [
+        ...source.directory.places.map((place) => ({
+          key: `place:${place.id}`,
+          text: JSON.stringify(place),
+        })),
+        ...source.directory.knowledge.map((entry) => ({
+          key: `knowledge:${entry.id}`,
+          text: JSON.stringify(entry),
+        })),
+        ...compiled.canonicalSources,
+      ]
   const relatedKeys = new Set(
     result.rows.flatMap((row) => compiled.relatedKeysByPlace[row.key] ?? []),
   )
@@ -59,10 +62,9 @@ export async function prepareGuestQueryEvidence(input: {
     ...(compiled.canonicalAuthority ? { canonicalPolicyCoverage: compiled.policyCoverage } : {}),
     // Legacy rows do not expose authoritative policy-target relationships. Preserve whole topics
     // conservatively; never pretend a name match proves all applicable conditions were found.
-    contextKeys: [
-      ...relatedKeys,
-      ...source.directory.knowledge.map((entry) => `knowledge:${entry.id}`),
-    ],
+    contextKeys: aggregate
+      ? []
+      : [...relatedKeys, ...source.directory.knowledge.map((entry) => `knowledge:${entry.id}`)],
   })
   return {
     status: 'READY' as const,

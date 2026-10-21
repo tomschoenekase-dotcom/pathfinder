@@ -22,13 +22,14 @@ export function guestQueryPlanningPrompt(
     const selected: string[] = []
     for (const value of values) {
       if (selected.length === 200) break
-      if (JSON.stringify([...selected, value]).length <= 4000) selected.push(value)
+      if (JSON.stringify([...selected, value]).length <= 3700) selected.push(value)
     }
     return { values: selected, truncated: selected.length < values.length }
   }
   const prompt = [
     'Translate the guest question into a read-only query over stored venue records. Return JSON only.',
     'Supported operations are count and list; all predicates are combined with AND.',
+    'Choose count only for a numeric aggregate over stored records, optionally reporting unknown-candidate counts. Count returns no record names, rows, details or policy bodies. Choose list for a count plus names, examples, descriptions, quoted conditions, policy details or other record details; list also supplies full-set counts. Never discard requested details to choose count. Neither mode supports selecting by unsupported eligibility conditions or live availability.',
     'Authorized venue scope is already set by the server. A reference to the venue, such as "at the venue", is scope context, not a record-name predicate. Use name only to select an explicitly requested record or alias; keep an explicitly requested area filter. Never infer another venue scope. If venue-versus-record identity is genuinely ambiguous, return UNSUPPORTED rather than inventing a name filter.',
     'The supplied stored snapshot is already current at its server-selected asOf. Asking about current stored records does not add a historical-date or live-opening filter. A request to select records by another date, time, live opening status or future availability still requires UNSUPPORTED.',
     'A name predicate matches an exact name or explicit alias, not a substring. Kind and area match exact stored values, ignoring case and equivalent punctuation.',

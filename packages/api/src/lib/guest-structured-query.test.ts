@@ -178,6 +178,62 @@ describe('private immutable prepared snapshots', () => {
 })
 
 describe('guest structured query: exhaustive arithmetic and pagination', () => {
+  it('count aggregates all 10,000 stored matches without returning a 400/top-k sample or page', () => {
+    const s = snapshot(Array.from({ length: 10_000 }, (_, i) => record(String(i).padStart(5, '0'))))
+    const aggregate = count(s)
+    expect(aggregate).toMatchObject({
+      mode: 'count',
+      knownMatchCount: 10_000,
+      unknownCandidateCount: 0,
+      exactEligibleCount: 10_000,
+      rows: [],
+      returnedCount: 0,
+      hasMore: false,
+      nextCursor: null,
+      coverage: 'COMPLETE',
+      sourceVersion: s.version,
+    })
+    expect(aggregate.matchingKeys).toHaveLength(10_000)
+    expect(aggregate.matchingKeys.at(-1)).toBe('place:09999')
+    const list = execute(s, query(), { pageSize: 3 })
+    expect(list.mode).toBe('list')
+    expect(list.matchingKeys).toEqual(aggregate.matchingKeys)
+    expect(list.rows).toHaveLength(3)
+    expect(list.hasMore).toBe(true)
+  })
+  it('count preserves positive-only product unknowns without implying negative stock', () => {
+    const a = record('a'),
+      b = record('b')
+    a.products = {
+      state: 'KNOWN',
+      completeness: 'POSITIVE_ONLY',
+      sources: evidence(a.key),
+      offers: [{ name: 'Token', sources: evidence(a.key) }],
+    }
+    b.products = { state: 'UNKNOWN' }
+    const aggregate = count(snapshot([a, b]), { field: 'product', name: 'Token' })
+    expect(aggregate).toMatchObject({
+      mode: 'count',
+      knownMatchCount: 1,
+      unknownCandidateCount: 1,
+      exactEligibleCount: null,
+      exhaustiveAnswerEligible: false,
+      rows: [],
+      hasMore: false,
+    })
+    expect(aggregate.matchingKeys).toEqual(['place:a'])
+    expect(aggregate.unknownKeys).toEqual(['place:b'])
+    expect(
+      count(snapshot([a, b]), { field: 'product', name: 'Absent' }).unknownCandidateCount,
+    ).toBe(2)
+  })
+  it('rejects count cursor and page-size arguments instead of presenting a paged aggregate', () => {
+    const s = snapshot([record('a'), record('b')])
+    const cursor = execute(s, query(), { pageSize: 1 }).nextCursor!
+    const evaluated = prepareGuestStructuredSnapshot(s).evaluate({ ...query(), mode: 'count' })
+    expect(() => evaluated.page({ cursor })).toThrow(/count mode does not support paging/)
+    expect(() => evaluated.page({ pageSize: 1 })).toThrow(/count mode does not support paging/)
+  })
   it('counts the full 10,000-record set, including matches beyond prior 400/top-k bounds', () => {
     const records = Array.from({ length: 10_000 }, (_, i) => {
       const r = record(String(i).padStart(5, '0'))

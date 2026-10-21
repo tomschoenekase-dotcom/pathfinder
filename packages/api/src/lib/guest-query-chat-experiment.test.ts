@@ -100,6 +100,66 @@ function publishedSource(): GuestQuerySource {
   return value
 }
 describe('local structured chat experiment boundary', () => {
+  it('admits a broad count without overflowing on unrequested whole legacy condition bodies', async () => {
+    const value = source()
+    value.directory.places = Array.from({ length: 501 }, (_, i) => ({
+      ...value.directory.places[0]!,
+      id: String(i),
+      name: `Attraction ${i}`,
+    }))
+    value.directory.knowledge[0]!.content = 'OMITTED_DETAIL_MARKER ' + 'x'.repeat(40_000)
+    const output = await prepareGuestChatQueryExperiment({
+      source: value,
+      question: 'How many attractions are listed?',
+      interpret: async () => JSON.stringify({ status: 'QUERY', mode: 'count', predicates: [kind] }),
+    })
+    if (output.status !== 'READY') throw new Error('Expected count without detail fallback')
+    expect(output.summary).toMatchObject({
+      mode: 'count',
+      knownMatchCount: 501,
+      exactEligibleCount: 501,
+      hasMore: false,
+      omittedContextCount: 0,
+      omittedPageRecordCount: 0,
+    })
+    expect(output.partial).toBe(false)
+    expect(output.places).toEqual([])
+    expect(output.knowledge).toEqual([])
+    expect(output.canonicalSources).toEqual([])
+    expect(output.prompt).not.toContain('OMITTED_DETAIL_MARKER')
+    expect(output.prompt).not.toContain('Attraction 500')
+  })
+  it('canonical product count retains positive-only unknown arithmetic without item or policy bodies', async () => {
+    const value = publishedSource()
+    value.directory.places.push({
+      ...value.directory.places[0]!,
+      id: 'unknown-place',
+      name: 'Unreviewed place',
+    })
+    const output = await prepareGuestChatQueryExperiment({
+      source: value,
+      question: 'How many listed places offer a Sketch kit?',
+      interpret: async () =>
+        JSON.stringify({
+          status: 'QUERY',
+          mode: 'count',
+          predicates: [{ field: 'product', name: 'Sketch kit' }],
+        }),
+    })
+    if (output.status !== 'READY') throw new Error('Expected canonical count')
+    expect(output.summary).toMatchObject({
+      mode: 'count',
+      knownMatchCount: 1,
+      unknownCandidateCount: 2,
+      exactEligibleCount: null,
+      canonicalAuthority: true,
+    })
+    expect(output.partial).toBe(true)
+    expect(output.canonicalSources).toEqual([])
+    expect(output.prompt).not.toContain('Equipment sold separately')
+    expect(output.prompt).not.toContain('Each kit costs')
+    expect(output.prompt).toContain('unknown candidates may also match')
+  })
   it('uses published product relationships and retains whole seller/item/policy evidence', async () => {
     const result = await prepareGuestChatQueryExperiment({
       source: publishedSource(),

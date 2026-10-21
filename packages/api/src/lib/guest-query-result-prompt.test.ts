@@ -30,6 +30,52 @@ const result = (n: number, pageSize = 50) =>
 const payload = (prompt: string) => JSON.parse(prompt.slice(prompt.lastIndexOf('\n') + 1))
 
 describe('structured query result prompt boundary', () => {
+  it('renders a 10,000-record count without names, full match IDs or irrelevant policy bodies', () => {
+    const aggregate = executeGuestStructuredQuery(snapshot(10_000), {
+      tenantId: 'tenant-test',
+      venueId: 'venue-test',
+      mode: 'count',
+      predicates: [],
+    })
+    const output = renderGuestQueryResult({
+      result: aggregate,
+      sources: [{ key: 'knowledge:large', text: 'PRIVATE_DETAIL_MARKER' + 'x'.repeat(40_000) }],
+      contextKeys: ['knowledge:large'],
+    })
+    expect(payload(output.prompt)).toMatchObject({
+      mode: 'count',
+      knownMatchCount: 10_000,
+      exactEligibleCount: 10_000,
+      unknownCandidateCount: 0,
+      rows: [],
+      context: [],
+      hasMore: false,
+      detailCoverage: 'NOT_PROVIDED',
+      omittedContextCount: 0,
+    })
+    expect(output.prompt).not.toContain('PRIVATE_DETAIL_MARKER')
+    expect(output.prompt).not.toContain('place:9999')
+    expect(output.prompt).not.toContain('Ride 9999')
+    expect(output.prompt.length).toBeLessThan(3000)
+    expect(output).toMatchObject({
+      includedKeys: [],
+      includedContextKeys: [],
+      omittedKeys: [],
+      omittedContextKeys: [],
+      completePage: true,
+      completeContext: true,
+    })
+    expect(output.prompt).toContain('Do not name examples or answer omitted details')
+    expect(output.prompt).toContain(
+      'not a count of currently open, available, in-stock or eligible physical offerings',
+    )
+  })
+  it('rejects count-mode results that still carry rows or pagination', () => {
+    const list = result(2, 1)
+    expect(() =>
+      renderGuestQueryResult({ result: { ...list, mode: 'count' }, sources: [] }),
+    ).toThrow(/aggregate count presentation/)
+  })
   it('keeps whole context conditions separate from result membership and preserves stated topic scope', () => {
     const booking =
       'Moon Ride only: bookings are free but riders pay $8. Under 10 requires a paying adult; weekends only.'
@@ -211,7 +257,7 @@ describe('structured query result prompt boundary', () => {
       exactEligibleCount: null,
       rows: [],
     })
-    expect(output.prompt).toContain('Do not infer real-world absence')
+    expect(output.prompt).toContain('real-world absence')
   })
 
   it.each([0, 1023, 120001, NaN, Infinity, 2000.5])(

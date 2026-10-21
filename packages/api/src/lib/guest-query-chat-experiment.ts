@@ -77,6 +77,7 @@ export async function prepareGuestChatQueryExperiment(input: {
       questionSha256: prepared.trace.questionSha256,
       plannerPromptSha256: prepared.trace.plannerPromptSha256,
       query: prepared.trace.plan.query,
+      mode: prepared.result.mode,
       coverage: prepared.result.coverage,
       inventoryScope: prepared.result.inventoryScope,
       knownMatchCount: prepared.result.knownMatchCount,
