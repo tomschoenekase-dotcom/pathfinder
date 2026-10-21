@@ -74,7 +74,7 @@ export async function prepareGuestQueryEvidence(input: {
       unresolved: plan.unresolved,
     })
     const prompt =
-      'PARTIAL SUBJECT EVIDENCE: questionCoverage=PARTIAL. Answer supported facts for the explicitly selected subjects, and explicitly preserve the unresolved question excerpts as unanswered requests. They are not source facts. Do not identify an unresolved related record or apply its rules from co-location. Do not claim the entire question, an eligible count, or a complete eligible list has been established.\n' +
+      'PARTIAL SUBJECT EVIDENCE: questionCoverage=PARTIAL. The planner unresolved excerpts are requests still needing evidence. They are not source facts or proof that no answer exists. Answer any portion established by retained public records and explicit relationships; clearly state any remainder that those sources do not establish. An explicit public service-to-place link may establish that place record and its own facts. Do not infer a related identity or policy applicability from proximity. A proved service-to-place link does not transfer service policies to the place or place rules to the service. Preserve declared policy scopes and exceptions. Do not claim the entire question, an eligible count, or a complete eligible list has been established.\n' +
       evidence.prompt
     if (prompt.length > 30_000) throw new Error('Whole partial subject prompt bound; no truncation')
     return {

@@ -653,7 +653,9 @@ describe('explicit partial subject evidence at the chat boundary', () => {
     expect(r.prompt).toContain('Weekends only; confirm staffing.')
     expect(r.prompt).toContain('No refunds; minimum age nine.')
     expect(r.prompt).toContain('They are not source facts')
-    expect(r.prompt).toContain('Do not identify an unresolved related record')
+    expect(r.prompt).toContain(
+      'Do not infer a related identity or policy applicability from proximity',
+    )
     expect(r.prompt).not.toContain('Deposit required only for Borealis.')
     expect(r.summary).not.toHaveProperty('knownMatchCount')
   })
@@ -770,4 +772,84 @@ describe('explicit partial subject evidence at the chat boundary', () => {
       }),
     ).rejects.toThrow('PROVIDER_OR_ACCOUNTING_FAILURE')
   })
+})
+describe('partial question evidence can resolve an explicitly linked public place', () => {
+  const run = async (s: GuestQuerySource) => {
+    const question = 'Aurora service conditions and rules for its counter separately.'
+    const p = compileGuestQueryCanonicalSource(s).prepared
+    const catalog = p.discoverNamedCandidates(question)
+    const ref = p
+      .namedCatalogData(catalog, question)
+      .groups.find((g) => g.record?.name === 'Aurora service')!.ref
+    return prepareGuestChatQueryExperiment({
+      source: s,
+      question,
+      interpret: async () =>
+        JSON.stringify({
+          status: 'EVIDENCE_PARTIAL_SUBJECTS',
+          refs: [ref],
+          unresolved: ['rules for its counter separately'],
+        }),
+    })
+  }
+  it('retains explicitly linked public counter facts without transferring service policies', async () => {
+    const s = graph()
+    s.directory.places[0]!.name = 'Public workshop counter'
+    s.directory.places[0]!.longDescription = 'COUNTER_OWN_FACT: Card payments accepted.'
+    const r = await run(s)
+    expect(r.status).toBe('READY')
+    if (r.status !== 'READY') return
+    expect(r.places).toEqual([
+      expect.objectContaining({ id: 'a', name: 'Public workshop counter' }),
+    ])
+    expect(r.prompt).toContain('COUNTER_OWN_FACT: Card payments accepted.')
+    expect(r.prompt).toContain('Location: "Public workshop counter"')
+    expect(r.prompt).toContain(
+      'Answer any portion established by retained public records and explicit relationships',
+    )
+    expect(r.prompt).toContain(
+      'A proved service-to-place link does not transfer service policies to the place or place rules to the service',
+    )
+    expect(r.summary).toMatchObject({
+      questionCoverage: 'PARTIAL',
+      eligibilityEvaluated: false,
+      qualifiedCountAvailable: false,
+      unresolvedConstraints: ['rules for its counter separately'],
+    })
+    expect(r.summary.canonicalPolicyScopes).toContainEqual({
+      moduleId: 'policy-a',
+      targetModuleIds: ['service-a'],
+    })
+    expect(r.prompt).not.toContain(
+      'Policy that applies to "Public workshop counter": "Aurora condition"',
+    )
+  })
+  it.each(['hidden', 'missing-link', 'unrelated'])(
+    'does not hydrate or identify a counter from %s evidence',
+    async (mode) => {
+      const s = graph()
+      const place = s.directory.places[0]!
+      place.name = 'Public workshop counter'
+      place.longDescription = 'COUNTER_UNPROVED: Card payments accepted.'
+      if (mode === 'hidden') s.directory.places = s.directory.places.filter((p) => p.id !== 'a')
+      else {
+        const service = s.canonicalModules!.modules.find((m) => m.moduleId === 'service-a')!
+        if (service.payload.kind !== 'SERVICE') throw new Error('fixture')
+        service.payload.placeId = null
+        const alias = s.directory.knowledge.find((k) => k.contentModuleId === service.moduleId)!
+        const body = guestCanonicalAliasBody(service)!
+        alias.content = body.content
+        if (mode === 'unrelated') place.id = 'unrelated-public-counter'
+      }
+      const r = await run(s)
+      expect(r.status).toBe('READY')
+      if (r.status !== 'READY') return
+      expect(r.places).toEqual([])
+      expect(r.prompt).not.toContain('Public workshop counter')
+      expect(r.prompt).not.toContain('COUNTER_UNPROVED')
+      expect(r.prompt).toContain('not established in this guide')
+      expect(r.prompt).toContain('clearly state any remainder that those sources do not establish')
+      expect(r.summary.questionCoverage).toBe('PARTIAL')
+    },
+  )
 })
