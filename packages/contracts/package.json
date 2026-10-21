@@ -19,6 +19,7 @@
     "./guest-answer-attribution-node": "./src/guest-answer-attribution-node.ts",
     "./support-workflow": "./src/support-workflow.ts",
     "./content-model": "./src/content-model.ts",
+    "./guest-query-canonical": "./src/guest-query-canonical.ts",
     "./intake-engine": "./src/intake-engine.ts",
     "./intake-upload": "./src/intake-upload.ts",
     "./staff-interview": "./src/staff-interview.ts",

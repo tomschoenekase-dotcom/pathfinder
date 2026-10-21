@@ -1310,11 +1310,13 @@ export type {
 export {
   publishUniversalContentAction,
   resolveEffectivePublishedUniversalContent,
+  resolveEffectivePublishedUniversalContentSnapshot,
   UniversalContentResolverError,
   withdrawUniversalContentAction,
 } from './helpers/universal-content-publication-actions'
 export type {
   EffectivePublishedUniversalContent,
+  EffectivePublishedUniversalContentSnapshot,
   UniversalContentPublicationResult,
 } from './helpers/universal-content-publication-actions'
 export {

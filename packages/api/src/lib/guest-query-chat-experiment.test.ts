@@ -5,6 +5,7 @@ import {
   prepareGuestChatQueryExperiment,
 } from './guest-query-chat-experiment'
 import type { GuestQuerySource } from './guest-query-source'
+import type { GeneralizedContentPayload } from '@pathfinder/contracts/universal-content-actions'
 function source(): GuestQuerySource {
   return {
     tenantId: 'fictional-tenant',
@@ -55,7 +56,86 @@ function source(): GuestQuerySource {
 const plan = (predicates: unknown[]) =>
   JSON.stringify({ status: 'QUERY', mode: 'list', predicates })
 const kind = { field: 'kind', equals: 'ATTRACTION' }
+function publishedSource(): GuestQuerySource {
+  const value = source()
+  const bodies: GeneralizedContentPayload[] = [
+    { kind: 'SERVICE', name: 'Moon counter', placeId: 'ride', availability: 'Weekends only' },
+    {
+      kind: 'ITEM',
+      name: 'Sketch kit',
+      itemType: 'PRODUCT',
+      description: 'Equipment sold separately.',
+    },
+    {
+      kind: 'RELATIONSHIP',
+      fromModuleId: 'module-0',
+      toModuleId: 'module-1',
+      relationshipType: 'OFFERS_PRODUCT_V1',
+    },
+    {
+      kind: 'POLICY',
+      title: 'Kit purchase',
+      rule: 'Each kit costs $8. No refunds.',
+      appliesTo: ['module-0'],
+    },
+  ]
+  value.canonicalModules = {
+    contract: 'published-query-source-v1',
+    modules: bodies.map((payload, i) => ({
+      moduleId: `module-${i}`,
+      revisionId: `revision-${i}`,
+      publicationId: `publication-${i}`,
+      publicationOrder: String(i + 1),
+      version: 1,
+      kind: payload.kind,
+      payload,
+      audience: 'PUBLIC',
+      effectiveFrom: null,
+      effectiveUntil: null,
+      evidence: [
+        { sourceId: 'operator-review', locator: null, capturedAt: value.asOf, excerptHash: null },
+      ],
+    })),
+  }
+  return value
+}
 describe('local structured chat experiment boundary', () => {
+  it('uses published product relationships and retains whole seller/item/policy evidence', async () => {
+    const result = await prepareGuestChatQueryExperiment({
+      source: publishedSource(),
+      question: 'Where can I get a Sketch kit?',
+      interpret: async () => plan([{ field: 'product', name: 'Sketch kit' }]),
+    })
+    expect(result.status).toBe('READY')
+    if (result.status !== 'READY') throw new Error('Expected canonical query')
+    expect(result.places.map((place) => place.id)).toEqual(['ride'])
+    expect(result.canonicalSources).toHaveLength(4)
+    expect(result.prompt).toContain('Equipment sold separately.')
+    expect(result.prompt).toContain('Each kit costs $8. No refunds.')
+    expect(result.prompt).toContain('Weekends only')
+    expect(result.prompt).toContain('Closed October 20')
+    expect(result.summary.policyCoverage).toBe('UNKNOWN')
+    expect(result.summary.canonicalAuthority).toBe(true)
+  })
+
+  it('declines the entire augmentation when a governing whole policy cannot fit', async () => {
+    const value = publishedSource()
+    const policy = value.canonicalModules!.modules[3]!
+    if (policy.payload.kind !== 'POLICY') throw new Error('Expected policy')
+    policy.payload.rule = 'Whole condition. '.repeat(1100)
+    const second = structuredClone(policy)
+    second.moduleId = 'second-policy'
+    second.revisionId = 'second-policy-revision'
+    second.publicationId = 'second-policy-publication'
+    second.publicationOrder = '5'
+    value.canonicalModules!.modules.push(second)
+    const result = await prepareGuestChatQueryExperiment({
+      source: value,
+      question: 'Where can I get a Sketch kit?',
+      interpret: async () => plan([{ field: 'product', name: 'Sketch kit' }]),
+    })
+    expect(result.status).toBe('BASELINE')
+  })
   it('rejects differing same-ID bodies while allowing equal duplicates and new IDs', () => {
     const previous = [{ id: 'same', content: 'Old whole body', title: 'Topic' }]
     expect(guestQuerySourcesAgree(previous, [{ ...previous[0]! }])).toBe(true)

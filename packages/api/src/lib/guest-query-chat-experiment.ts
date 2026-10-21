@@ -45,7 +45,9 @@ export async function prepareGuestChatQueryExperiment(input: {
   if (
     prepared.trace.plan.status !== 'QUERY' ||
     prepared.trace.plan.query.predicates.some(
-      (predicate) => predicate.field === 'product' || predicate.field === 'feature',
+      (predicate) =>
+        predicate.field === 'feature' ||
+        (predicate.field === 'product' && !prepared.canonicalAuthority),
     )
   )
     return { status: 'BASELINE' as const, reason: 'UNSUPPORTED_LEGACY_FIELD' as const }
@@ -62,6 +64,7 @@ export async function prepareGuestChatQueryExperiment(input: {
     prompt: prepared.evidence.prompt,
     places: source.directory.places.filter((row) => admittedKeys.has(`place:${row.id}`)),
     knowledge: source.directory.knowledge.filter((row) => admittedKeys.has(`knowledge:${row.id}`)),
+    canonicalSources: prepared.canonicalSources,
     partial:
       !prepared.evidence.completePage ||
       !prepared.evidence.completeContext ||
@@ -82,6 +85,8 @@ export async function prepareGuestChatQueryExperiment(input: {
       hasMore: prepared.result.hasMore,
       omittedPageRecordCount: prepared.evidence.omittedKeys.length,
       omittedContextCount: prepared.evidence.omittedContextKeys.length,
+      canonicalAuthority: prepared.canonicalAuthority,
+      policyCoverage: prepared.policyCoverage,
     },
   }
 }

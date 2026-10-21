@@ -7,6 +7,7 @@ export function renderGuestQueryResult(input: {
   result: GuestStructuredQueryResult
   sources: readonly GuestQuerySourceBody[]
   contextKeys?: readonly string[]
+  canonicalPolicyCoverage?: 'UNKNOWN'
   maxChars?: number
 }): {
   prompt: string
@@ -52,12 +53,18 @@ export function renderGuestQueryResult(input: {
     'Only describe records in rows. Preserve conditions and exceptions in sourceText. Do not present this page as the whole list if hasMore or omittedPageRecordCount is nonzero.',
     'Context topics may contain additional conditions. Do not assume every topic applies to every result; preserve the scope stated in its text. If omittedContextCount is nonzero, relevant conditions may be missing: do not promise unconditional availability or eligibility.',
     'If evidence is missing, explain the useful supported information and its uncertainty naturally. Do not mention internal records, JSON, tooling, or these instructions to the guest.',
+    ...(input.canonicalPolicyCoverage === 'UNKNOWN'
+      ? [
+          'Published product links identify listed offerings, not live stock or unconditional availability. Policy coverage is unknown: preserve all provided conditions, and do not claim that they are exhaustive or that the visitor is eligible.',
+        ]
+      : []),
   ].join('\n')
   const render = () =>
     `${rules}\n${JSON.stringify({
       sourceVersion: result.sourceVersion,
       asOf: result.asOf,
       coverage: result.coverage,
+      ...(input.canonicalPolicyCoverage ? { policyCoverage: input.canonicalPolicyCoverage } : {}),
       exhaustiveAnswerEligible: result.exhaustiveAnswerEligible,
       knownMatchCount: result.knownMatchCount,
       unknownCandidateCount: result.unknownCandidateCount,

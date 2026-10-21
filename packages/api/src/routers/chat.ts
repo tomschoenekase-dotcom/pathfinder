@@ -2514,6 +2514,13 @@ const chatReadRouter = router({
             rank,
             snapshot: content,
           })),
+          ...(structuredQuery?.canonicalSources ?? []).map((content, rank) => ({
+            sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
+            kind: 'PUBLISHED_CONTENT' as const,
+            label: `${content.kind} ${content.moduleId}`,
+            rank,
+            snapshot: content.snapshot,
+          })),
         ],
       })
     let generationDispatched = false

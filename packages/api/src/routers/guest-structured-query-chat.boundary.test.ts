@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 import type { GuestQuerySource } from '../lib/guest-query-source'
+import type { GeneralizedContentPayload } from '@pathfinder/contracts/universal-content-actions'
 
 import {
   AI_MODEL_REGISTRY,
@@ -583,6 +584,86 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
     // The receipt must preserve the exact strings actually dispatched, including cache partitions.
     expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(system())
     expect(structuredSummary().knownMatchCount).toBe(1)
+  })
+  it('retains exact canonical publication evidence through the accounted real chat path', async () => {
+    const current = source()
+    const payloads: GeneralizedContentPayload[] = [
+      {
+        kind: 'SERVICE',
+        name: 'Moon counter',
+        placeId: 'moon',
+        availability: 'Staffed Saturdays only',
+      },
+      {
+        kind: 'ITEM',
+        name: 'Sketch kit',
+        itemType: 'PRODUCT',
+        description: 'Equipment rental is separate.',
+      },
+      {
+        kind: 'RELATIONSHIP',
+        fromModuleId: 'module-0',
+        toModuleId: 'module-1',
+        relationshipType: 'OFFERS_PRODUCT_V1',
+      },
+      {
+        kind: 'POLICY',
+        title: 'Kit terms',
+        rule: 'No refunds. Children require an adult.',
+        appliesTo: ['module-0'],
+      },
+    ]
+    current.canonicalModules = {
+      contract: 'published-query-source-v1',
+      modules: payloads.map((payload, i) => ({
+        moduleId: `module-${i}`,
+        revisionId: `revision-${i}`,
+        publicationId: `publication-${i}`,
+        publicationOrder: String(i + 1),
+        kind: payload.kind,
+        payload,
+        version: 1,
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: null,
+        evidence: [
+          {
+            sourceId: 'operator-source',
+            locator: null,
+            capturedAt: current.asOf,
+            excerptHash: null,
+          },
+        ],
+      })),
+    }
+    loadQuerySource.mockResolvedValue(current)
+    queue(
+      JSON.stringify({
+        status: 'QUERY',
+        mode: 'list',
+        predicates: [{ field: 'product', name: 'Sketch kit' }],
+      }),
+    )
+    await caller.chat.send(input)
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(structuredSummary().canonicalAuthority).toBe(true)
+    expect(structuredSummary().policyCoverage).toBe('UNKNOWN')
+    const evidence = metadata().answerEvidence
+    const canonical = evidence.sources.filter(
+      (row: { kind: string }) => row.kind === 'PUBLISHED_CONTENT',
+    )
+    expect(canonical).toHaveLength(4)
+    for (const module of current.canonicalModules.modules) {
+      const retained = canonical.find(
+        (row: { sourceId: string }) =>
+          row.sourceId === `published-content:${module.moduleId}:${module.revisionId}`,
+      )
+      expect(JSON.parse(retained.snapshot)).toEqual(module)
+    }
+    expect(system()).toContain('Equipment rental is separate.')
+    expect(system()).toContain('No refunds. Children require an adult.')
+    expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(system())
+    expect(accounting.exact.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
   it.each([
     JSON.stringify({ status: 'UNSUPPORTED', reason: 'age and date unsupported' }),

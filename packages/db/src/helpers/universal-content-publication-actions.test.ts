@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   publishUniversalContentAction,
   resolveEffectivePublishedUniversalContent,
+  resolveEffectivePublishedUniversalContentSnapshot,
   UniversalContentActionError,
   UniversalContentResolverError,
   withdrawUniversalContentAction,
@@ -271,6 +272,282 @@ describe('effective published universal content resolver', () => {
       relationship: null,
     }
   }
+
+  function snapshotRevision(id = 'revision-1', moduleId = 'module-1') {
+    return {
+      ...operationalRevision(id, moduleId),
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      evidence: [
+        {
+          id: `evidence-${id}`,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          revisionId: id,
+          moduleKind: 'OPERATIONAL_FACT',
+          sourceId: 'official-source',
+          locator: 'policy section',
+          capturedAt: new Date('2026-08-10T18:00:00.000Z'),
+          excerptHash: 'a'.repeat(64),
+        },
+      ],
+    }
+  }
+  function snapshotDb(revision = snapshotRevision()) {
+    const db = resolverDb([], [])
+    db.$queryRaw.mockResolvedValue([
+      {
+        moduleId: revision.moduleId,
+        revisionId: revision.id,
+        publicationId: 'publication-1',
+        publicationOrder: '9007199254740993',
+      },
+    ])
+    db.contentModuleRevision.findMany.mockResolvedValue([revision])
+    return db
+  }
+  const snapshotScope = {
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    asOf: new Date('2026-08-11T18:00:00.000Z'),
+  }
+
+  it('returns exact current publication and revision-scoped evidence without BigInt loss', async () => {
+    const db = snapshotDb()
+    const result = await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope })
+    expect(result).toEqual([
+      {
+        moduleId: 'module-1',
+        revisionId: 'revision-1',
+        kind: 'OPERATIONAL_FACT',
+        version: 2,
+        payload: {
+          kind: 'OPERATIONAL_FACT',
+          label: 'Entry',
+          value: 'North door',
+          expiresAt: '2026-08-11T19:00:00.000Z',
+        },
+        publicationId: 'publication-1',
+        publicationOrder: '9007199254740993',
+        audience: 'PUBLIC',
+        effectiveFrom: '2026-08-11T17:00:00.000Z',
+        effectiveUntil: '2026-08-11T19:00:00.000Z',
+        evidence: [
+          {
+            sourceId: 'official-source',
+            locator: 'policy section',
+            capturedAt: '2026-08-10T18:00:00.000Z',
+            excerptHash: 'a'.repeat(64),
+          },
+        ],
+      },
+    ])
+    expect(db.contentModuleRevision.findMany.mock.calls[0]![0]).toMatchObject({
+      where: { tenantId: 'tenant-1', venueId: 'venue-1', id: { in: ['revision-1'] } },
+      select: {
+        tenantId: true,
+        venueId: true,
+        evidence: { select: { revisionId: true, moduleKind: true } },
+      },
+    })
+  })
+
+  it('preserves legacy result keys and expired-operational-fact behavior', async () => {
+    const revision = snapshotRevision()
+    revision.operationalFact!.expiresAt = snapshotScope.asOf
+    const db = snapshotDb(revision)
+    expect(
+      await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+    ).toEqual([])
+    const legacy = await resolveEffectivePublishedUniversalContent({ db, ...snapshotScope })
+    expect(legacy).toHaveLength(1)
+    expect(Object.keys(legacy[0]!).sort()).toEqual([
+      'kind',
+      'moduleId',
+      'payload',
+      'revisionId',
+      'version',
+    ])
+    expect(db.contentModuleRevision.findMany.mock.calls[1]![0].select).not.toHaveProperty(
+      'evidence',
+    )
+  })
+
+  it('keeps null evidence locators/hashes and supports an explicitly empty evidence array', async () => {
+    const revision = snapshotRevision()
+    revision.evidence[0]!.locator = null as never
+    revision.evidence[0]!.excerptHash = null as never
+    const db = snapshotDb(revision)
+    expect(
+      (await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }))[0]!
+        .evidence[0],
+    ).toMatchObject({ locator: null, excerptHash: null })
+    revision.evidence = []
+    expect(
+      (await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }))[0]!
+        .evidence,
+    ).toEqual([])
+  })
+
+  it('supports 10000 detailed heads with scoped batches and exact publication identities', async () => {
+    const heads = Array.from({ length: 10000 }, (_, i) => ({
+      moduleId: `m-${String(i).padStart(5, '0')}`,
+      revisionId: `r-${i}`,
+      publicationId: `p-${i}`,
+      publicationOrder: String(i + 1),
+    }))
+    const db = resolverDb([], [])
+    db.$queryRaw.mockResolvedValue(heads)
+    db.contentModuleRevision.findMany.mockImplementation(async (args) =>
+      args.where.id.in.map((id: string) => {
+        const i = Number(id.slice(2))
+        return { ...snapshotRevision(id, heads[i]!.moduleId), evidence: [] }
+      }),
+    )
+    const result = await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope })
+    expect(result).toHaveLength(10000)
+    expect(result[9999]!.publicationId).toBe('p-9999')
+    expect(db.$queryRaw).toHaveBeenCalledOnce()
+    expect(db.contentModuleRevision.findMany).toHaveBeenCalledTimes(20)
+  })
+
+  it('rejects evidence overflow rather than truncating a revision proof', async () => {
+    const revision = snapshotRevision()
+    revision.evidence = Array.from({ length: 101 }, (_, index) => ({
+      ...revision.evidence[0]!,
+      id: `e-${index}`,
+      locator: `section-${index}`,
+    }))
+    await expect(
+      resolveEffectivePublishedUniversalContentSnapshot({
+        db: snapshotDb(revision),
+        ...snapshotScope,
+      }),
+    ).rejects.toThrow('revision evidence is invalid')
+  })
+
+  it('preserves effective date boundaries and rejects malformed operational expiry', async () => {
+    const revision = snapshotRevision()
+    revision.effectiveFrom = snapshotScope.asOf
+    expect(
+      await resolveEffectivePublishedUniversalContentSnapshot({
+        db: snapshotDb(revision),
+        ...snapshotScope,
+      }),
+    ).toHaveLength(1)
+    revision.effectiveFrom = new Date('2026-08-11T17:00:00.000Z')
+    revision.effectiveUntil = snapshotScope.asOf
+    expect(
+      await resolveEffectivePublishedUniversalContentSnapshot({
+        db: snapshotDb(revision),
+        ...snapshotScope,
+      }),
+    ).toEqual([])
+    revision.effectiveUntil = new Date('2026-08-11T19:00:00.000Z')
+    revision.operationalFact!.expiresAt = new Date('invalid')
+    await expect(
+      resolveEffectivePublishedUniversalContentSnapshot({
+        db: snapshotDb(revision),
+        ...snapshotScope,
+      }),
+    ).rejects.toBeInstanceOf(UniversalContentResolverError)
+  })
+
+  it.each([
+    ['missing publication', { publicationId: undefined }],
+    ['invalid publication order', { publicationOrder: '1.5' }],
+    ['zero publication order', { publicationOrder: '0' }],
+    ['numeric publication order', { publicationOrder: 123 }],
+  ])('fails closed for %s in detailed heads', async (_label, patch) => {
+    const db = snapshotDb()
+    db.$queryRaw.mockResolvedValue([
+      {
+        moduleId: 'module-1',
+        revisionId: 'revision-1',
+        publicationId: 'p-1',
+        publicationOrder: '1',
+        ...patch,
+      },
+    ])
+    await expect(
+      resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+    ).rejects.toBeInstanceOf(UniversalContentResolverError)
+    expect(db.contentModuleRevision.findMany).not.toHaveBeenCalled()
+  })
+
+  it.each(['publicationId', 'publicationOrder'])(
+    'rejects duplicate %s across detailed heads',
+    async (field) => {
+      const db = snapshotDb()
+      db.$queryRaw.mockResolvedValue([
+        { moduleId: 'm-1', revisionId: 'r-1', publicationId: 'p-1', publicationOrder: '1' },
+        {
+          moduleId: 'm-2',
+          revisionId: 'r-2',
+          publicationId: field === 'publicationId' ? 'p-1' : 'p-2',
+          publicationOrder: field === 'publicationOrder' ? '1' : '2',
+        },
+      ])
+      await expect(
+        resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+      ).rejects.toBeInstanceOf(UniversalContentResolverError)
+    },
+  )
+
+  it.each([
+    'missing',
+    'duplicate',
+    'scope',
+    'version',
+    'date',
+    'payload',
+    'evidence-missing',
+    'evidence-scope',
+    'evidence-revision',
+    'evidence-kind',
+    'evidence-date',
+    'evidence-hash',
+    'evidence-duplicate',
+    'evidence-id-duplicate',
+  ])('rejects malformed detailed %s', async (change) => {
+    const revision = snapshotRevision()
+    const db = snapshotDb(revision)
+    if (change === 'missing') db.contentModuleRevision.findMany.mockResolvedValue([])
+    if (change === 'duplicate')
+      db.contentModuleRevision.findMany.mockResolvedValue([revision, revision])
+    if (change === 'scope') revision.tenantId = 'other-tenant'
+    if (change === 'version') revision.version = 0
+    if (change === 'date') revision.effectiveUntil = new Date('invalid')
+    if (change === 'payload') revision.operationalFact!.value = ''
+    if (change === 'evidence-missing') revision.evidence = undefined as never
+    if (change === 'evidence-scope') revision.evidence[0]!.venueId = 'other-venue'
+    if (change === 'evidence-revision') revision.evidence[0]!.revisionId = 'other-revision'
+    if (change === 'evidence-kind') revision.evidence[0]!.moduleKind = 'POLICY'
+    if (change === 'evidence-date') revision.evidence[0]!.capturedAt = new Date('invalid')
+    if (change === 'evidence-hash') revision.evidence[0]!.excerptHash = 'invalid'
+    if (change === 'evidence-duplicate')
+      revision.evidence.push({ ...revision.evidence[0]!, id: 'another-id' })
+    if (change === 'evidence-id-duplicate')
+      revision.evidence.push({ ...revision.evidence[0]!, locator: 'another-locator' })
+    await expect(
+      resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+    ).rejects.toBeInstanceOf(UniversalContentResolverError)
+  })
+
+  it('selects latest events before filtering publication and never hydrates withdrawn predecessors', async () => {
+    const db = resolverDb([], [])
+    expect(
+      await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+    ).toEqual([])
+    expect(db.contentModuleRevision.findMany).not.toHaveBeenCalled()
+    const sql = (db.$queryRaw.mock.calls[0]![0] as TemplateStringsArray).join('?')
+    const split = sql.indexOf(') AS latest')
+    expect(sql.slice(0, split)).toContain('publication."event_order" DESC')
+    expect(sql.slice(0, split)).not.toContain("'PUBLISH'")
+    expect(sql.slice(split)).toContain('WHERE latest."action"')
+    expect(sql).toContain('AS "publicationId"')
+    expect(sql).toContain('::text AS "publicationOrder"')
+  })
 
   it.each([
     ['missing input', undefined],

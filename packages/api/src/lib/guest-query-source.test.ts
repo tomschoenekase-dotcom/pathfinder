@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolveEffectivePublishedUniversalContentSnapshot } from '@pathfinder/db'
 import { guestDirectoryVersion } from './guest-directory-index-loader'
 import { loadGuestVenueDirectory, type GuestVenueDirectory } from './guest-venue-directory'
-import { loadGuestQuerySource, type GuestQueryTransactionClient } from './guest-query-source'
+import {
+  loadGuestQuerySource,
+  MAX_GUEST_QUERY_SOURCE_BYTES,
+  type GuestQueryTransactionClient,
+} from './guest-query-source'
 
 vi.mock('./guest-directory-index-loader', () => ({ guestDirectoryVersion: vi.fn() }))
 vi.mock('./guest-venue-directory', () => ({ loadGuestVenueDirectory: vi.fn() }))
+vi.mock('@pathfinder/db', () => ({ resolveEffectivePublishedUniversalContentSnapshot: vi.fn() }))
 
 const scope = {
   tenantId: 'tenant-fictional',
@@ -54,10 +60,12 @@ function client() {
 }
 const loadDirectory = vi.mocked(loadGuestVenueDirectory)
 const loadVersion = vi.mocked(guestDirectoryVersion)
+const loadModules = vi.mocked(resolveEffectivePublishedUniversalContentSnapshot)
 beforeEach(() => {
   vi.resetAllMocks()
   loadDirectory.mockResolvedValue(directory())
   loadVersion.mockResolvedValue('metadata-version-1')
+  loadModules.mockResolvedValue([])
 })
 
 describe('complete guest query source', () => {
@@ -75,6 +83,16 @@ describe('complete guest query source', () => {
       expect(loadVersion).toHaveBeenCalledExactlyOnceWith(expected)
       expect(loadDirectory.mock.calls[0]![0].reader).toBe(reader)
       expect(loadVersion.mock.calls[0]![0].reader).toBe(reader)
+      expect(loadModules).toHaveBeenCalledExactlyOnceWith({
+        db: reader,
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        asOf: scope.asOf,
+      })
+      expect(result.canonicalModules).toEqual({
+        contract: 'published-query-source-v1',
+        modules: [],
+      })
       expect(loadDirectory.mock.invocationCallOrder[0]).toBeLessThan(
         loadVersion.mock.invocationCallOrder[0]!,
       )
@@ -159,6 +177,65 @@ describe('complete guest query source', () => {
     expect(later.version).toBe(first.version)
     expect(later.asOf).not.toBe(first.asOf)
   })
+
+  it('fails the whole snapshot when canonical publication resolution fails', async () => {
+    loadModules.mockRejectedValueOnce(new Error('publication read failed'))
+    await expect(
+      loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
+    ).rejects.toThrow('publication read failed')
+    expect(loadModules).toHaveBeenCalledOnce()
+  })
+
+  it('rejects excessive UTF-8 source bytes instead of truncating membership', async () => {
+    const rows = directory()
+    rows.knowledge[0]!.content = '界'.repeat(Math.ceil(MAX_GUEST_QUERY_SOURCE_BYTES / 3))
+    loadDirectory.mockResolvedValueOnce(rows)
+    await expect(
+      loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
+    ).rejects.toThrow('Guest query source exceeds byte bound')
+  })
+
+  it.each(['publicationId', 'publicationOrder', 'evidence', 'payload', 'withdrawal'])(
+    'binds canonical %s changes even when directory metadata is unchanged',
+    async (change) => {
+      const module = {
+        moduleId: 'item-1',
+        revisionId: 'revision-1',
+        kind: 'ITEM' as const,
+        version: 1,
+        publicationId: 'publication-1',
+        publicationOrder: '1',
+        audience: 'PUBLIC' as const,
+        effectiveFrom: null,
+        effectiveUntil: null,
+        evidence: [
+          {
+            sourceId: 'source-1',
+            locator: null,
+            capturedAt: '2026-10-20T00:00:00.000Z',
+            excerptHash: null,
+          },
+        ],
+        payload: {
+          kind: 'ITEM' as const,
+          name: 'Sketch kit',
+          description: null,
+          placeId: null,
+          itemType: 'PRODUCT',
+        },
+      }
+      loadModules.mockResolvedValueOnce([module])
+      const first = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
+      const next = structuredClone(module)
+      if (change === 'publicationId') next.publicationId = 'publication-2'
+      if (change === 'publicationOrder') next.publicationOrder = '2'
+      if (change === 'evidence') next.evidence[0]!.capturedAt = '2026-10-20T01:00:00.000Z'
+      if (change === 'payload') next.payload.name = 'Field kit'
+      loadModules.mockResolvedValueOnce(change === 'withdrawal' ? [] : [next])
+      const second = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
+      expect(second.version).not.toBe(first.version)
+    },
+  )
 
   it.each(['body', 'membership', 'metadata', 'tenant', 'venue', 'audience', 'path'])(
     'binds version to %s',

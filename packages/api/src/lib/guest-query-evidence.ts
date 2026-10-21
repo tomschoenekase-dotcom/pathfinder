@@ -1,12 +1,9 @@
 import { createHash } from 'node:crypto'
 import { guestQueryPlanningPrompt, parseGuestQueryPlan } from './guest-query-planning'
-import { projectGuestQuerySource } from './guest-query-projection'
+import { compileGuestQueryCanonicalSource } from './guest-query-canonical-projection'
 import { renderGuestQueryResult } from './guest-query-result-prompt'
 import type { GuestQuerySource } from './guest-query-source'
-import {
-  prepareGuestStructuredSnapshot,
-  type GuestStructuredQueryPage,
-} from './guest-structured-query'
+import type { GuestStructuredQueryPage } from './guest-structured-query'
 
 /**
  * Dependency-injected query path: the existing admitted/accounted AI gateway owns interpretation.
@@ -28,7 +25,8 @@ export async function prepareGuestQueryEvidence(input: {
   const page = structuredClone(input.page ?? {})
   // The model callback cannot mutate the authoritative source used for execution and rendering.
   const source = structuredClone(input.source)
-  const prepared = prepareGuestStructuredSnapshot(projectGuestQuerySource(source))
+  const compiled = compileGuestQueryCanonicalSource(source)
+  const prepared = compiled.prepared
   const system = guestQueryPlanningPrompt(prepared)
   const rawPlan = await input.interpret({ system, question })
   const plan = parseGuestQueryPlan(rawPlan, prepared)
@@ -50,13 +48,31 @@ export async function prepareGuestQueryEvidence(input: {
       key: `knowledge:${entry.id}`,
       text: JSON.stringify(entry),
     })),
+    ...compiled.canonicalSources,
   ]
+  const relatedKeys = new Set(
+    result.rows.flatMap((row) => compiled.relatedKeysByPlace[row.key] ?? []),
+  )
   const evidence = renderGuestQueryResult({
     result,
     sources,
+    ...(compiled.canonicalAuthority ? { canonicalPolicyCoverage: compiled.policyCoverage } : {}),
     // Legacy rows do not expose authoritative policy-target relationships. Preserve whole topics
     // conservatively; never pretend a name match proves all applicable conditions were found.
-    contextKeys: source.directory.knowledge.map((entry) => `knowledge:${entry.id}`),
+    contextKeys: [
+      ...relatedKeys,
+      ...source.directory.knowledge.map((entry) => `knowledge:${entry.id}`),
+    ],
   })
-  return { status: 'READY' as const, trace, result, evidence }
+  return {
+    status: 'READY' as const,
+    trace,
+    result,
+    evidence,
+    canonicalAuthority: compiled.canonicalAuthority,
+    canonicalSources: compiled.canonicalSources.filter((body) =>
+      evidence.includedContextKeys.includes(body.key),
+    ),
+    policyCoverage: compiled.policyCoverage,
+  }
 }

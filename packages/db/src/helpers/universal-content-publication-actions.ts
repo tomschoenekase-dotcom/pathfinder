@@ -1,4 +1,5 @@
-import type { GeneralizedContentPayload } from '@pathfinder/contracts/universal-content-actions'
+import { GeneralizedContentPayload } from '@pathfinder/contracts/universal-content-actions'
+import { ContentEvidenceReference } from '@pathfinder/contracts/content-model'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -379,11 +380,32 @@ export type EffectivePublishedUniversalContent = {
   payload: GeneralizedContentPayload
 }
 
+export type EffectivePublishedUniversalContentSnapshot = EffectivePublishedUniversalContent & {
+  publicationId: string
+  publicationOrder: string
+  audience: 'PUBLIC'
+  effectiveFrom: string | null
+  effectiveUntil: string | null
+  evidence: Array<{
+    sourceId: string
+    locator: string | null
+    capturedAt: string
+    excerptHash: string | null
+  }>
+}
+
 // Prisma's extended transaction client does not expose a stable public raw-query type.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type UniversalContentResolverClient = any
-type PublishedHead = { moduleId: string; revisionId: string }
+type PublishedHead = {
+  moduleId: string
+  revisionId: string
+  publicationId?: string
+  publicationOrder?: string
+}
 type ResolverRevision = {
+  tenantId?: string
+  venueId?: string
   id: string
   moduleId: string
   kind: GeneralizedContentPayload['kind']
@@ -391,6 +413,17 @@ type ResolverRevision = {
   audience: string
   effectiveFrom: Date | null
   effectiveUntil: Date | null
+  evidence?: Array<{
+    id: string
+    tenantId: string
+    venueId: string
+    revisionId: string
+    moduleKind: string
+    sourceId: string
+    locator: string | null
+    capturedAt: Date
+    excerptHash: string | null
+  }>
   item: null | {
     name: string
     description: string | null
@@ -435,13 +468,33 @@ const REVISION_BATCH_SIZE = 500
  * immutable revisions in batches. Concurrent later publication events belong to
  * the next read; asOf controls effective dates, not historical publication state.
  */
-export async function resolveEffectivePublishedUniversalContent(params: {
+type UniversalContentResolverInput = {
   db: UniversalContentResolverClient
   tenantId: string
   venueId: string
   asOf?: Date
   maximumModules?: number
-}): Promise<EffectivePublishedUniversalContent[]> {
+}
+
+export function resolveEffectivePublishedUniversalContent(
+  params: UniversalContentResolverInput,
+): Promise<EffectivePublishedUniversalContent[]> {
+  return resolvePublishedContent(params, false)
+}
+
+/** Exact current publication/revision evidence, with expired operational facts excluded. */
+export function resolveEffectivePublishedUniversalContentSnapshot(
+  params: UniversalContentResolverInput,
+): Promise<EffectivePublishedUniversalContentSnapshot[]> {
+  return resolvePublishedContent(params, true) as Promise<
+    EffectivePublishedUniversalContentSnapshot[]
+  >
+}
+
+async function resolvePublishedContent(
+  params: UniversalContentResolverInput,
+  detailed: boolean,
+): Promise<EffectivePublishedUniversalContent[]> {
   if (
     typeof params !== 'object' ||
     params === null ||
@@ -469,9 +522,11 @@ export async function resolveEffectivePublishedUniversalContent(params: {
   }
   const client = params.db
   const heads = (await client.$queryRaw`
-    SELECT latest."module_id" AS "moduleId", latest."revision_id" AS "revisionId"
+    SELECT latest."module_id" AS "moduleId", latest."revision_id" AS "revisionId",
+      latest."id" AS "publicationId", latest."event_order"::text AS "publicationOrder"
     FROM (
       SELECT DISTINCT ON (publication."module_id")
+        publication."id",
         publication."module_id",
         publication."revision_id",
         publication."action",
@@ -485,6 +540,11 @@ export async function resolveEffectivePublishedUniversalContent(params: {
     ORDER BY latest."module_id" ASC
     LIMIT ${maximumModules + 1}
   `) as PublishedHead[]
+  if (
+    detailed &&
+    (!Array.isArray(heads) || heads.some((head) => !head || typeof head !== 'object'))
+  )
+    throw new UniversalContentResolverError('Published content heads are inconsistent.')
   if (heads.length > maximumModules) {
     throw new UniversalContentResolverError('Published content module count exceeds safe bounds.')
   }
@@ -496,6 +556,26 @@ export async function resolveEffectivePublishedUniversalContent(params: {
   ) {
     throw new UniversalContentResolverError('Published content heads are inconsistent.')
   }
+  const headModulesByRevision = new Map(heads.map((head) => [head.revisionId, head.moduleId]))
+  if (
+    detailed &&
+    (heads.some(
+      (head) =>
+        typeof head.moduleId !== 'string' ||
+        !head.moduleId.trim() ||
+        typeof head.revisionId !== 'string' ||
+        !head.revisionId.trim() ||
+        typeof head.publicationId !== 'string' ||
+        !head.publicationId.trim() ||
+        typeof head.publicationOrder !== 'string' ||
+        !/^[1-9]\d*$/u.test(head.publicationOrder),
+    ) ||
+      new Set(heads.map((head) => head.publicationId)).size !== heads.length ||
+      new Set(heads.map((head) => head.publicationOrder)).size !== heads.length)
+  )
+    throw new UniversalContentResolverError(
+      'Published content publication identities are inconsistent.',
+    )
   const revisions: ResolverRevision[] = []
   for (let offset = 0; offset < heads.length; offset += REVISION_BATCH_SIZE) {
     revisions.push(
@@ -508,6 +588,27 @@ export async function resolveEffectivePublishedUniversalContent(params: {
           },
         },
         select: {
+          ...(detailed
+            ? {
+                tenantId: true,
+                venueId: true,
+                evidence: {
+                  orderBy: [{ sourceId: 'asc' }, { locator: 'asc' }, { id: 'asc' }],
+                  take: 101,
+                  select: {
+                    id: true,
+                    tenantId: true,
+                    venueId: true,
+                    revisionId: true,
+                    moduleKind: true,
+                    sourceId: true,
+                    locator: true,
+                    capturedAt: true,
+                    excerptHash: true,
+                  },
+                },
+              }
+            : {}),
           moduleId: true,
           id: true,
           kind: true,
@@ -525,12 +626,42 @@ export async function resolveEffectivePublishedUniversalContent(params: {
       })) as ResolverRevision[]),
     )
   }
+  if (
+    detailed &&
+    (revisions.length !== heads.length ||
+      new Set(revisions.map((revision) => revision?.id)).size !== revisions.length ||
+      revisions.some(
+        (revision) =>
+          !revision ||
+          typeof revision !== 'object' ||
+          revision.tenantId !== params.tenantId ||
+          revision.venueId !== params.venueId ||
+          headModulesByRevision.get(revision.id) !== revision.moduleId,
+      ))
+  )
+    throw new UniversalContentResolverError(
+      'Published content revisions are inconsistent or out of scope.',
+    )
   const revisionsById = new Map(revisions.map((revision) => [revision.id, revision]))
   const result: EffectivePublishedUniversalContent[] = []
   for (const head of heads) {
     const revision = revisionsById.get(head.revisionId)
     if (!revision || revision.moduleId !== head.moduleId)
       throw new UniversalContentResolverError('A published revision is missing or out of scope.')
+    const validDate = (value: unknown): value is Date =>
+      value instanceof Date && Number.isFinite(value.getTime())
+    if (
+      detailed &&
+      (!Number.isSafeInteger(revision.version) ||
+        revision.version < 1 ||
+        !['PUBLIC', 'CLIENT', 'OPERATOR'].includes(revision.audience) ||
+        (revision.effectiveFrom !== null && !validDate(revision.effectiveFrom)) ||
+        (revision.effectiveUntil !== null && !validDate(revision.effectiveUntil)) ||
+        (revision.effectiveFrom &&
+          revision.effectiveUntil &&
+          revision.effectiveFrom >= revision.effectiveUntil))
+    )
+      throw new UniversalContentResolverError('Published content revision metadata is invalid.')
     if (
       revision.audience !== 'PUBLIC' ||
       (revision.effectiveFrom && revision.effectiveFrom > asOf) ||
@@ -538,6 +669,18 @@ export async function resolveEffectivePublishedUniversalContent(params: {
     ) {
       continue
     }
+    if (
+      detailed &&
+      ((revision.kind === 'EVENT' &&
+        revision.event &&
+        (!validDate(revision.event.startsAt) ||
+          (revision.event.endsAt !== null && !validDate(revision.event.endsAt)))) ||
+        (revision.kind === 'OPERATIONAL_FACT' &&
+          revision.operationalFact &&
+          revision.operationalFact.expiresAt !== null &&
+          !validDate(revision.operationalFact.expiresAt)))
+    )
+      throw new UniversalContentResolverError('Published content typed dates are invalid.')
     const payload = (() => {
       switch (revision.kind) {
         case 'ITEM':
@@ -603,12 +746,70 @@ export async function resolveEffectivePublishedUniversalContent(params: {
     })()
     if (!payload)
       throw new UniversalContentResolverError('A published revision has no typed payload.')
+    let details: Partial<EffectivePublishedUniversalContentSnapshot> = {}
+    if (detailed) {
+      const parsedPayload = GeneralizedContentPayload.safeParse(payload)
+      if (!parsedPayload.success)
+        throw new UniversalContentResolverError('Published content typed payload is invalid.')
+      if (!Array.isArray(revision.evidence) || revision.evidence.length > 100)
+        throw new UniversalContentResolverError('Published content revision evidence is invalid.')
+      const identities = new Set<string>()
+      const ids = new Set<string>()
+      const evidence = revision.evidence.map((entry) => {
+        if (
+          !entry ||
+          typeof entry !== 'object' ||
+          entry.tenantId !== params.tenantId ||
+          entry.venueId !== params.venueId ||
+          entry.revisionId !== revision.id ||
+          entry.moduleKind !== revision.kind ||
+          typeof entry.id !== 'string' ||
+          !entry.id.trim() ||
+          !validDate(entry.capturedAt) ||
+          !(entry.locator === null || typeof entry.locator === 'string') ||
+          !(entry.excerptHash === null || typeof entry.excerptHash === 'string')
+        )
+          throw new UniversalContentResolverError('Published content revision evidence is invalid.')
+        const parsed = ContentEvidenceReference.safeParse({
+          sourceId: entry.sourceId,
+          capturedAt: entry.capturedAt.toISOString(),
+          ...(entry.locator === null ? {} : { locator: entry.locator }),
+          ...(entry.excerptHash === null ? {} : { excerptHash: entry.excerptHash }),
+        })
+        const identity = JSON.stringify([entry.sourceId, entry.locator])
+        if (!parsed.success || identities.has(identity) || ids.has(entry.id))
+          throw new UniversalContentResolverError('Published content revision evidence is invalid.')
+        identities.add(identity)
+        ids.add(entry.id)
+        return {
+          sourceId: parsed.data.sourceId,
+          locator: parsed.data.locator ?? null,
+          capturedAt: parsed.data.capturedAt,
+          excerptHash: parsed.data.excerptHash ?? null,
+        }
+      })
+      if (
+        payload.kind === 'OPERATIONAL_FACT' &&
+        payload.expiresAt &&
+        new Date(payload.expiresAt) <= asOf
+      )
+        continue
+      details = {
+        publicationId: head.publicationId!,
+        publicationOrder: head.publicationOrder!,
+        audience: 'PUBLIC',
+        effectiveFrom: revision.effectiveFrom?.toISOString() ?? null,
+        effectiveUntil: revision.effectiveUntil?.toISOString() ?? null,
+        evidence,
+      }
+    }
     result.push({
       moduleId: head.moduleId,
       revisionId: head.revisionId,
       kind: revision.kind,
       version: revision.version,
       payload,
+      ...details,
     })
   }
   return result.sort((left, right) => left.moduleId.localeCompare(right.moduleId, 'en-US'))

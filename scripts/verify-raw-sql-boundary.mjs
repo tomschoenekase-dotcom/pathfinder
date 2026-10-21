@@ -1002,7 +1002,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/universal-content-publication-actions.ts',
     method: '$queryRaw',
-    hash: '6ca3fda67d8916a7bb39fcb8dce89f5e51ea5b3c8010980ef9dfde622b0f8206',
+    hash: 'bcfff2fa3551169d270badfa1b73b030b9b9be0498656bf83b667fbc3e6c787e',
     policy: 'tenant-and-venue',
   },
   {
