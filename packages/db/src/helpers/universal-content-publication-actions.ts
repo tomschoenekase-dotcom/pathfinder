@@ -427,6 +427,14 @@ export class UniversalContentResolverError extends Error {
   }
 }
 
+const MAXIMUM_PUBLISHED_MODULES = 10_000
+const REVISION_BATCH_SIZE = 500
+
+/**
+ * Select all bounded current heads in one statement snapshot, then hydrate their
+ * immutable revisions in batches. Concurrent later publication events belong to
+ * the next read; asOf controls effective dates, not historical publication state.
+ */
 export async function resolveEffectivePublishedUniversalContent(params: {
   db: UniversalContentResolverClient
   tenantId: string
@@ -447,15 +455,17 @@ export async function resolveEffectivePublishedUniversalContent(params: {
     throw new UniversalContentResolverError('Exact tenant and venue scope is required.')
   }
   const asOf = params.asOf ?? new Date()
-  const maximumModules = params.maximumModules ?? 100
+  const maximumModules = params.maximumModules ?? MAXIMUM_PUBLISHED_MODULES
   if (
     !(asOf instanceof Date) ||
     !Number.isFinite(asOf.getTime()) ||
     !Number.isInteger(maximumModules) ||
     maximumModules < 1 ||
-    maximumModules > 100
+    maximumModules > MAXIMUM_PUBLISHED_MODULES
   ) {
-    throw new UniversalContentResolverError('Maximum published modules must be between 1 and 100.')
+    throw new UniversalContentResolverError(
+      'Maximum published modules must be between 1 and 10000.',
+    )
   }
   const client = params.db
   const heads = (await client.$queryRaw`
@@ -486,28 +496,35 @@ export async function resolveEffectivePublishedUniversalContent(params: {
   ) {
     throw new UniversalContentResolverError('Published content heads are inconsistent.')
   }
-  const revisions = (await client.contentModuleRevision.findMany({
-    where: {
-      tenantId: params.tenantId,
-      venueId: params.venueId,
-      id: { in: heads.map((head) => head.revisionId) },
-    },
-    select: {
-      moduleId: true,
-      id: true,
-      kind: true,
-      version: true,
-      audience: true,
-      effectiveFrom: true,
-      effectiveUntil: true,
-      item: true,
-      service: true,
-      policy: true,
-      event: true,
-      operationalFact: true,
-      relationship: true,
-    },
-  })) as ResolverRevision[]
+  const revisions: ResolverRevision[] = []
+  for (let offset = 0; offset < heads.length; offset += REVISION_BATCH_SIZE) {
+    revisions.push(
+      ...((await client.contentModuleRevision.findMany({
+        where: {
+          tenantId: params.tenantId,
+          venueId: params.venueId,
+          id: {
+            in: heads.slice(offset, offset + REVISION_BATCH_SIZE).map((head) => head.revisionId),
+          },
+        },
+        select: {
+          moduleId: true,
+          id: true,
+          kind: true,
+          version: true,
+          audience: true,
+          effectiveFrom: true,
+          effectiveUntil: true,
+          item: true,
+          service: true,
+          policy: true,
+          event: true,
+          operationalFact: true,
+          relationship: true,
+        },
+      })) as ResolverRevision[]),
+    )
+  }
   const revisionsById = new Map(revisions.map((revision) => [revision.id, revision]))
   const result: EffectivePublishedUniversalContent[] = []
   for (const head of heads) {

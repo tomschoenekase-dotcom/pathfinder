@@ -399,7 +399,117 @@ describe('effective published universal content resolver', () => {
     expect(sql).toContain('WHERE latest."action" = \'PUBLISH\'')
     expect(sql).toContain('ORDER BY latest."module_id" ASC')
     expect(sql).toContain('LIMIT ?')
-    expect(db.$queryRaw.mock.calls[0]?.slice(1)).toEqual(['tenant-1', 'venue-1', 101])
+    expect(db.$queryRaw.mock.calls[0]?.slice(1)).toEqual(['tenant-1', 'venue-1', 10001])
+  })
+
+  it('resolves 10000 current modules from one head snapshot with bounded revision batches', async () => {
+    const heads = Array.from({ length: 10_000 }, (_, index) => ({
+      moduleId: `module-${String(index).padStart(5, '0')}`,
+      revisionId: `revision-${index}`,
+    }))
+    const revisions = new Map(
+      heads.map((head) => [head.revisionId, operationalRevision(head.revisionId, head.moduleId)]),
+    )
+    const db = resolverDb(heads, [])
+    db.contentModuleRevision.findMany.mockImplementation(async (args) =>
+      args.where.id.in.map((id: string) => revisions.get(id)),
+    )
+    const result = await resolveEffectivePublishedUniversalContent({
+      db,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      asOf: new Date('2026-08-11T18:00:00.000Z'),
+    })
+    expect(result.map((row) => row.moduleId)).toEqual(heads.map((head) => head.moduleId))
+    expect(db.$queryRaw).toHaveBeenCalledOnce()
+    expect(db.contentModuleRevision.findMany).toHaveBeenCalledTimes(20)
+    for (const [args] of db.contentModuleRevision.findMany.mock.calls) {
+      expect(args.where).toEqual({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        id: { in: expect.any(Array) },
+      })
+      expect(args.where.id.in).toHaveLength(500)
+    }
+  })
+
+  it('suppresses an older publication when the newest event withdraws it', async () => {
+    // The database returns only current PUBLISH heads. Keep the older revision
+    // available to prove hydration cannot accidentally revive it.
+    const db = resolverDb(
+      [{ moduleId: 'active', revisionId: 'active-r2' }],
+      [operationalRevision('active-r2', 'active')],
+    )
+    const retired = operationalRevision('withdrawn-r1', 'withdrawn')
+    db.contentModuleRevision.findMany.mockImplementation(async (args) =>
+      [operationalRevision('active-r2', 'active'), retired].filter((revision) =>
+        args.where.id.in.includes(revision.id),
+      ),
+    )
+    const result = await resolveEffectivePublishedUniversalContent({
+      db,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      asOf: new Date('2026-08-11T18:00:00.000Z'),
+    })
+    expect(result.map((row) => row.moduleId)).toEqual(['active'])
+    const sql = (db.$queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join('?')
+    const latestSelectionEnd = sql.indexOf(') AS latest')
+    expect(latestSelectionEnd).toBeGreaterThan(0)
+    expect(sql.slice(0, latestSelectionEnd)).toContain('publication."event_order" DESC')
+    expect(sql.slice(0, latestSelectionEnd)).not.toContain("'PUBLISH'")
+    expect(sql.slice(latestSelectionEnd)).toContain('WHERE latest."action" = \'PUBLISH\'')
+  })
+
+  it('rejects the whole read if a later revision batch fails', async () => {
+    const heads = Array.from({ length: 501 }, (_, index) => ({
+      moduleId: `module-${index}`,
+      revisionId: `revision-${index}`,
+    }))
+    const db = resolverDb(heads, [])
+    db.contentModuleRevision.findMany
+      .mockResolvedValueOnce(
+        heads.slice(0, 500).map((head) => operationalRevision(head.revisionId, head.moduleId)),
+      )
+      .mockRejectedValueOnce(new Error('revision read failed'))
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      }),
+    ).rejects.toThrow('revision read failed')
+  })
+
+  it.each([0, 10001, 1.5])('rejects invalid maximum %s before querying', async (maximumModules) => {
+    const db = resolverDb([], [])
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        maximumModules,
+      }),
+    ).rejects.toBeInstanceOf(UniversalContentResolverError)
+    expect(db.$queryRaw).not.toHaveBeenCalled()
+  })
+
+  it('rejects overflow at the hard bound before hydrating revisions', async () => {
+    const db = resolverDb(
+      Array.from({ length: 10_001 }, (_, index) => ({
+        moduleId: `module-${index}`,
+        revisionId: `revision-${index}`,
+      })),
+      [],
+    )
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      }),
+    ).rejects.toThrow('Published content module count exceeds safe bounds.')
+    expect(db.contentModuleRevision.findMany).not.toHaveBeenCalled()
   })
 
   it('does not load revisions for latest WITHDRAW heads or noisy withdrawn history', async () => {
