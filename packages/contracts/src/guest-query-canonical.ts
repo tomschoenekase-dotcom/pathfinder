@@ -27,3 +27,8 @@ export function guestQueryCanonicalRelationship(
     return 'EXCEPTION'
   return null
 }
+
+/** PRODUCT description is governed metadata about its own item identity, never a global
+ * guest rule or sale/location proof. Arbitrary prose is not syntactically verified;
+ * operators must publish global/applicable rules through POLICY. Missing offers stay unknown. */
+export const GUEST_QUERY_PRODUCT_METADATA_CONTRACT = 'identity-scoped-product-metadata-v1' as const

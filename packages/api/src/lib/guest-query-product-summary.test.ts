@@ -145,7 +145,7 @@ describe('explicit record units and positive-only per-place product names', () =
       'not an exhaustive product inventory or a live availability check',
     )
     expect(output.receipt).toMatchObject({
-      formatterVersion: 'guest-query-direct-answer-v3',
+      formatterVersion: 'guest-query-direct-answer-v4',
       recordCountUnit: 'place',
       knownMatchCount: 1,
     })

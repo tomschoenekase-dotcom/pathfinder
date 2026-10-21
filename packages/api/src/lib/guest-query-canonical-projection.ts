@@ -16,7 +16,7 @@ import {
 } from './guest-structured-query'
 
 export const GUEST_QUERY_CANONICAL_COMPILER_CONTRACT =
-  `${GUEST_QUERY_CANONICAL_CONTRACT}:entity-domain-v1:scoped-alias-v1` as const
+  `${GUEST_QUERY_CANONICAL_CONTRACT}:entity-domain-v1:scoped-alias-v2:product-identity-metadata-v1` as const
 
 const id = z.string().trim().min(1).max(191)
 const timestamp = z.string().datetime({ offset: true })
@@ -67,6 +67,30 @@ export type GuestCanonicalKnowledgeScope = {
   disposition: 'FULLY_SCOPED'
   snapshot: EffectivePublishedUniversalContentSnapshot
   placeKeys: string[]
+} | {
+  disposition: 'IDENTITY_SCOPED_PRODUCT_METADATA'
+  snapshot: EffectivePublishedUniversalContentSnapshot
+}
+
+// Opaque proof is owned by this exact private prepared snapshot, never caller-authored scopes.
+const productMetadataIssuer = Symbol('product-metadata-compiler-issuer')
+class ProductMetadataProof {
+  #prepared: ReturnType<typeof prepareGuestStructuredSnapshot>
+  #rows: Map<string, EffectivePublishedUniversalContentSnapshot>
+  constructor(prepared: ReturnType<typeof prepareGuestStructuredSnapshot>, rows: EffectivePublishedUniversalContentSnapshot[], issuer: symbol) {
+    if (issuer !== productMetadataIssuer) throw new Error('Product metadata proof requires compiler authority')
+    this.#prepared = prepared
+    this.#rows = new Map(rows.map(row => [row.moduleId, structuredClone(row)]))
+    Object.freeze(this)
+  }
+  static read(proof: unknown, prepared: ReturnType<typeof prepareGuestStructuredSnapshot>, id: string) {
+    if (!proof || typeof proof !== 'object' || !(#rows in proof) || proof.#prepared !== prepared) return undefined
+    const row = proof.#rows.get(id)
+    return row ? structuredClone(row) : undefined
+  }
+}
+export function identityScopedProductMetadata(proof: unknown, prepared: ReturnType<typeof prepareGuestStructuredSnapshot>, moduleId: string) {
+  return ProductMetadataProof.read(proof, prepared, moduleId)
 }
 
 /** Pure compilation of an admitted source, never a publication or visibility grant. */
@@ -78,6 +102,7 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
   const related = new Map<string, Set<string>>()
   const emitted = new Map<string, GuestCanonicalSourceBody>()
   const knowledgeScopes: GuestCanonicalKnowledgeScope[] = []
+  const productMetadata: EffectivePublishedUniversalContentSnapshot[] = []
   let graphWork = 0
   const work = (amount = 1) => {
     graphWork += amount
@@ -101,10 +126,12 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       ...snapshot.records.map((record) => record.key),
       ...canonicalSources.map((body) => body.key),
     ]
+    const prepared = prepareGuestStructuredSnapshot(snapshot)
     return {
       contract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
       snapshot,
-      prepared: prepareGuestStructuredSnapshot(snapshot),
+      prepared,
+      productMetadataProof: new ProductMetadataProof(prepared, productMetadata, productMetadataIssuer),
       canonicalAuthority,
       canonicalSources,
       knowledgeScopes,
@@ -435,6 +462,17 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       }
     }
     if (bound.size) completePlaces.set(policy.row.moduleId, bound)
+  }
+  // Governed PRODUCT descriptions describe only their own identity. This is not a
+  // syntax proof about prose, an offer, or a complete policy applicability declaration.
+  for (const module of modules.values()) {
+    work()
+    const payload = module.payload
+    if (payload.kind !== 'ITEM' || payload.itemType !== 'PRODUCT' || tainted.has(module.moduleId) || productNames.get(normalizeGuestQueryText(payload.name)) !== 1) continue
+    productMetadata.push(module)
+    if (!completePlaces.has(module.moduleId)) knowledgeScopes.push({
+      disposition: 'IDENTITY_SCOPED_PRODUCT_METADATA', snapshot: structuredClone(module),
+    })
   }
   for (const [moduleId, bound] of completePlaces) {
     const module = modules.get(moduleId)!
