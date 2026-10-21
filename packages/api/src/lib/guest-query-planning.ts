@@ -16,6 +16,7 @@ export type GuestNamePlanningContext = {
 export type GuestQueryPlan =
   | { status: 'QUERY'; query: GuestStructuredQuery }
   | { status: 'EVIDENCE_LOOKUP'; anchor: GuestStructuredQuery; unresolved: string[] }
+  | { status: 'EVIDENCE_SUBJECTS'; keys: string[] }
   | { status: 'UNSUPPORTED'; reason: string }
 
 /** Interpretation remains an independently measured model decision, not an authority proof. */
@@ -90,7 +91,8 @@ export function guestQueryPlanningPrompt(
       ? [
           'The question-bound namedCandidates catalog contains exact current full names or authoritative aliases mentioned in the question, not fuzzy or partial completions. A surface mention may still be ordinary vocabulary, venue context or negated; do not assume it selects an entity.',
           'When a unique catalog entity is selected, prefer {"field":"entity","ref":"n0"} with that catalog ref, or copy its exact full name. Never split a full entity name into a shortened name plus kind/area filters. Every other actual selection constraint must still be retained and ANDed; catalog identity does not waive unsupported conditions.',
-          'A requested named selection with an ambiguous group, BOUNDED name capability, unresolved name or multiple entities requiring OR requires UNSUPPORTED. Non-name queries remain supported when name capability is bounded. Never invent a ref or record key, select the first duplicate, repair a substring, or infer absence from a missing/bounded catalog.',
+          'A requested named selection with an ambiguous group, BOUNDED name capability or unresolved name requires UNSUPPORTED. Multiple entities cannot form a QUERY OR. Non-name queries remain supported when name capability is bounded. Never invent a ref or record key, select the first duplicate, repair a substring, or infer absence from a missing/bounded catalog.',
+          'For full facts/details, conditions, or mixed questions about one or several explicitly named subjects, prefer exactly {"status":"EVIDENCE_SUBJECTS","refs":["n0","n1"]}, using1 to8 unique supplied question-bound catalog refs. This unions whole subject evidence for the normal answer model; it never evaluates OR, eligibility, qualified counts or selection conditions. Copy only refs, never answers. Every requested named subject must be represented; ambiguous, missing or bounded refs require UNSUPPORTED.',
         ]
       : []),
     'When a request has unsupported age, height, price, date or live-status selection but ONE positive subject anchor is expressible, you may return EVIDENCE_LOOKUP instead of evaluating eligibility. This retrieves useful source evidence only, never a qualified answer or count. Anchor is one list query using positive name/entity/product/kind/area predicates combined with AND; never feature predicates. Keep OR, negated selection, missing or ambiguous subject anchors UNSUPPORTED. Do not select a narrower anchor that excludes a requested alternative.',
@@ -146,6 +148,16 @@ export function parseGuestQueryPlan(
     if (typeof plan.reason !== 'string' || !plan.reason.trim() || plan.reason.length > 1024)
       throw new Error('Invalid unsupported query reason')
     return { status: 'UNSUPPORTED', reason: plan.reason }
+  }
+  if (plan.status === 'EVIDENCE_SUBJECTS') {
+    exactKeys(['status', 'refs'])
+    if (!names || !Array.isArray(plan.refs) || plan.refs.length < 1 || plan.refs.length > 8 ||
+      new Set(plan.refs).size !== plan.refs.length || plan.refs.some(ref => typeof ref !== 'string'))
+      throw new Error('Subjects require1 to8 unique question-bound refs')
+    const prepared = isPreparedGuestSnapshot(snapshot) ? snapshot : prepareGuestStructuredSnapshot(snapshot)
+    const keys = plan.refs.map(ref => prepared.resolveNamedReference(names.catalog, names.question, ref as string))
+    if (new Set(keys).size !== keys.length) throw new Error('Duplicate evidence subject identity')
+    return { status: 'EVIDENCE_SUBJECTS', keys }
   }
   if (plan.status === 'EVIDENCE_LOOKUP') {
     exactKeys(['status', 'anchor', 'unresolved'])

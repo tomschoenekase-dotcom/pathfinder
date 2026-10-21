@@ -25,6 +25,9 @@ const ownedEvidence = new WeakMap<
     currentModules: EffectivePublishedUniversalContentSnapshot[]
     relatedKeysByPlace: Record<string, string[]>
     canonicalSources: GuestCanonicalSourceBody[]
+    subjectModules: EffectivePublishedUniversalContentSnapshot[]
+    subjectOffers: Array<{ edgeId: string; serviceId: string; productId: string; placeId: string }>
+    subjectPolicyScopes: Array<{ moduleId: string; targetModuleIds: string[] }>
   }
 >()
 /** Compiler-issued whole-source scope only; public metadata cannot authorize omissions. */
@@ -41,6 +44,9 @@ export function guestCanonicalEvidenceAuthority(
     currentModules: proof.currentModules,
     relatedKeysByPlace: proof.relatedKeysByPlace,
     canonicalSources: proof.canonicalSources,
+    subjectModules: proof.subjectModules,
+    subjectOffers: proof.subjectOffers,
+    subjectPolicyScopes: proof.subjectPolicyScopes,
   })
 }
 
@@ -149,6 +155,9 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
   const knowledgeScopes: GuestCanonicalKnowledgeScope[] = []
   const lookupRelationshipScopes: GuestCanonicalKnowledgeScope[] = []
   const lookupCurrentModules: EffectivePublishedUniversalContentSnapshot[] = []
+  const subjectModules: EffectivePublishedUniversalContentSnapshot[] = []
+  const subjectOffers: Array<{ edgeId: string; serviceId: string; productId: string; placeId: string }> = []
+  const subjectPolicyScopes: Array<{ moduleId: string; targetModuleIds: string[] }> = []
   const productMetadata: EffectivePublishedUniversalContentSnapshot[] = []
   let graphWork = 0
   const work = (amount = 1) => {
@@ -185,6 +194,9 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
           .map(([key, values]) => [key, [...values].sort()]),
       ),
       canonicalSources: structuredClone(canonicalSources),
+      subjectModules: structuredClone(subjectModules),
+      subjectOffers: structuredClone(subjectOffers),
+      subjectPolicyScopes: structuredClone(subjectPolicyScopes),
     })
     return {
       contract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
@@ -239,6 +251,9 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       unresolved(raw.moduleId, 'NOT_CURRENT')
       continue
     }
+    // A public subject body remains evidence even if its location is not guest-authorized.
+    // It does not enter QUERY compilation or grant access to that place.
+    subjectModules.push(raw)
     if ('placeId' in raw.payload && raw.payload.placeId && !places.has(raw.payload.placeId)) {
       unresolved(raw.moduleId, 'PLACE_NOT_AUTHORIZED')
       continue
@@ -317,6 +332,7 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
         unresolved(edge.moduleId, 'AMBIGUOUS_PRODUCT_NAME')
         continue
       }
+      subjectOffers.push({ edgeId: edge.moduleId, serviceId: from.moduleId, productId: to.moduleId, placeId })
       const sources: GuestQueryEvidence[] = [
         { sourceKey: sourceKey(edge), fieldPath: 'payload.relationshipType' },
         { sourceKey: sourceKey(from), fieldPath: 'payload.placeId' },
@@ -554,6 +570,9 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
     })
   }
   lookupCurrentModules.push(...modules.values())
+  for (const [moduleId, targets] of effectiveTargets)
+    if (completePlaces.has(moduleId))
+      subjectPolicyScopes.push({ moduleId, targetModuleIds: [...targets].sort() })
   // Lookup-only whole relationship scope. No new query facts or policy applicability
   // are created: both endpoints must already have complete compiler-issued scope.
   // This optional omission proof has its own budget. Exhaustion keeps remaining

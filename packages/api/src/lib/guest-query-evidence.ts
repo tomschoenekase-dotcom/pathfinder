@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { prepareGuestQueryLookup } from './guest-query-lookup'
+import { prepareGuestSubjectEvidence } from './guest-query-subject-evidence'
 import { guestQueryPlanningPrompt, parseGuestQueryPlan } from './guest-query-planning'
 import { compileGuestQueryCanonicalSource } from './guest-query-canonical-projection'
 import { renderGuestQueryResult } from './guest-query-result-prompt'
@@ -48,6 +49,11 @@ export async function prepareGuestQueryEvidence(input: {
     nameCatalog: prepared.namedCatalogData(names.catalog, question),
   }
   if (plan.status === 'UNSUPPORTED') return { status: 'UNSUPPORTED' as const, trace }
+  if (plan.status === 'EVIDENCE_SUBJECTS') {
+    if (input.page && Object.keys(input.page).length) throw new Error('Subject evidence does not support paging')
+    return { status: 'LOOKUP_READY' as const, trace,
+      lookup: prepareGuestSubjectEvidence({ source, compiled, keys: plan.keys, mode: 'DETAILS' }) }
+  }
   if (plan.status === 'EVIDENCE_LOOKUP') {
     if (input.page && Object.keys(input.page).length)
       throw new Error('Lookup does not support paging')
@@ -63,11 +69,17 @@ export async function prepareGuestQueryEvidence(input: {
       }),
     }
   }
+  const result = prepared.evaluate(plan.query).page(page)
+  if (result.mode === 'list' && result.matchingKeys.some(key => key.startsWith('knowledge:'))) {
+    if (result.matchingKeys.length > 50 || (input.page && Object.keys(input.page).length))
+      throw new Error('Whole Knowledge subject evidence bound')
+    return { status: 'LOOKUP_READY' as const, trace,
+      lookup: prepareGuestSubjectEvidence({ source, compiled, keys: result.matchingKeys, mode: 'DETAILS' }) }
+  }
   if (input.directAnswer) {
     const direct = formatGuestQueryDirectAnswer({ source, compiled, query: plan.query })
     if (direct.status === 'READY') return { ...direct, status: 'DIRECT_READY' as const, trace }
   }
-  const result = prepared.evaluate(plan.query).page(page)
   const aggregate = result.mode === 'count'
   const sources = aggregate
     ? []
