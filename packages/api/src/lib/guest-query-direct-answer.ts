@@ -6,11 +6,12 @@ import type {
 import type { GuestQuerySource } from './guest-query-source'
 import {
   isPreparedGuestSnapshot,
+  normalizeGuestQueryText,
   type GuestStructuredQuery,
   type GuestStructuredQueryResult,
 } from './guest-structured-query'
 
-export const GUEST_QUERY_DIRECT_ANSWER_VERSION = 'guest-query-direct-answer-v2'
+export const GUEST_QUERY_DIRECT_ANSWER_VERSION = 'guest-query-direct-answer-v3'
 export const DIRECT_ANSWER_MAX_MATCHES = 200
 // Must not exceed the real guest-chat-turn-actions finalizeSchema assistantResponse bound.
 export const DIRECT_ANSWER_MAX_CHARS = 10_000
@@ -50,7 +51,11 @@ const quote = (text: string) =>
 const canonicalKey = (row: EffectivePublishedUniversalContentSnapshot) =>
   `canonical:${row.revisionId}`
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-const unit = (count: number) => (count === 1 ? 'entry' : 'entries')
+function recordUnit(domain: GuestStructuredQueryResult['domain'], count: number) {
+  if (domain === 'PLACE') return count === 1 ? 'place' : 'places'
+  if (domain === 'KNOWLEDGE') return count === 1 ? 'knowledge topic' : 'knowledge topics'
+  return count === 1 ? 'record' : 'records'
+}
 
 /** Mirrors the protected SQL projection for only the kinds whose whole scope we compile. */
 function aliasBody(snapshot: EffectivePublishedUniversalContentSnapshot) {
@@ -75,11 +80,11 @@ function aliasBody(snapshot: EffectivePublishedUniversalContentSnapshot) {
 
 function countText(result: GuestStructuredQueryResult): string {
   if (result.exactEligibleCount !== null)
-    return `${result.exactEligibleCount} matching listed ${unit(result.exactEligibleCount)}.`
+    return `${result.exactEligibleCount} matching listed ${recordUnit(result.domain, result.exactEligibleCount)}.`
   return (
-    `${result.knownMatchCount} confirmed matching listed ${unit(result.knownMatchCount)}. ` +
+    `${result.knownMatchCount} confirmed matching listed ${recordUnit(result.domain, result.knownMatchCount)}. ` +
     (result.unknownCandidateCount
-      ? `${result.unknownCandidateCount} other listed ${unit(result.unknownCandidateCount)} ${result.unknownCandidateCount === 1 ? 'has' : 'have'} unknown matching status. `
+      ? `${result.unknownCandidateCount} other listed ${recordUnit(result.domain, result.unknownCandidateCount)} ${result.unknownCandidateCount === 1 ? 'has' : 'have'} unknown matching status. `
       : '') +
     'An exact total is not available.'
   )
@@ -275,6 +280,51 @@ export function formatGuestQueryDirectAnswer(input: {
             if (text) add(quote(text))
           if (place.hours) add(`Hours as stated:\n${quote(place.hours)}`)
           for (const key of compiled.relatedKeysByPlace[row.key] ?? []) add(renderCanonical(key))
+          const products = row.products
+          if (products?.state === 'KNOWN' && products.offers.length > 0) {
+            const names = new Map<string, string>()
+            for (const offer of products.offers) {
+              // The count is of validated names, not product identities or exhaustive stock.
+              // Every summary proof must be among the exact current sources retained above.
+              const bodies = offer.sources.map((proof) => {
+                const body = canonical.get(proof.sourceKey)
+                if (!body || !retained.has(proof.sourceKey)) throw new Decline('SOURCE_MISMATCH')
+                return { proof, body }
+              })
+              const items = bodies.filter(
+                ({ proof, body }) =>
+                  proof.fieldPath === 'payload.name' &&
+                  body.snapshot.payload.kind === 'ITEM' &&
+                  body.snapshot.payload.itemType === 'PRODUCT' &&
+                  body.snapshot.payload.name === offer.name,
+              )
+              const services = bodies.filter(
+                ({ proof, body }) =>
+                  proof.fieldPath === 'payload.placeId' &&
+                  body.snapshot.payload.kind === 'SERVICE' &&
+                  body.snapshot.payload.placeId === place.id,
+              )
+              const supported =
+                items.length === 1 &&
+                bodies.some(({ proof, body }) => {
+                  const payload = body.snapshot.payload
+                  return (
+                    proof.fieldPath === 'payload.relationshipType' &&
+                    payload.kind === 'RELATIONSHIP' &&
+                    payload.relationshipType === 'OFFERS_PRODUCT_V1' &&
+                    payload.toModuleId === items[0]!.body.moduleId &&
+                    services.some(({ body: service }) => service.moduleId === payload.fromModuleId)
+                  )
+                })
+              if (!supported) throw new Decline('SOURCE_MISMATCH')
+              names.set(normalizeGuestQueryText(offer.name), literal(offer.name))
+            }
+            add(
+              `${names.size} confirmed distinct listed product ${names.size === 1 ? 'name' : 'names'}: ${[...names.values()].map((name) => `"${name}"`).join('; ')}. This is not an exhaustive product inventory or a live availability check.`,
+            )
+          } else {
+            add('Listed product names/count: unknown; no exhaustive inventory is established.')
+          }
         } else if (topic) {
           if (row.name !== topic.title) throw new Decline('SOURCE_MISMATCH')
           retain(row.key)
@@ -335,6 +385,7 @@ export function formatGuestQueryDirectAnswer(input: {
         mode: query.mode,
         domain: result.domain,
         candidateCount: result.candidateCount,
+        recordCountUnit: recordUnit(result.domain, 1),
         domainContract: result.domainContract,
         knownMatchCount: result.knownMatchCount,
         unknownCandidateCount: result.unknownCandidateCount,

@@ -7,7 +7,11 @@ import {
   type GuestNamedCandidateCatalog,
 } from './guest-structured-query'
 
-export type GuestNamePlanningContext = { question: string; catalog: GuestNamedCandidateCatalog }
+export type GuestNamePlanningContext = {
+  question: string
+  catalog: GuestNamedCandidateCatalog
+  directoryVisibility?: 'PUBLIC' | 'AUTHORIZED'
+}
 
 export type GuestQueryPlan =
   | { status: 'QUERY'; query: GuestStructuredQuery }
@@ -50,9 +54,15 @@ export function guestQueryPlanningPrompt(
     'domain is ALL, PLACE or KNOWLEDGE, a structural source domain independent of kind. Default ALL preserves generic name/kind queries. Product seller queries always use PLACE; knowledge topics supply conditions but cannot be seller candidates. Never guess kind SHOP: any place kind may offer a product. KNOWLEDGE with a product predicate is unsupported.',
     'Choose count only for a numeric aggregate over stored records, optionally reporting unknown-candidate counts. Count returns no record names, rows, details or policy bodies. Choose list for a count plus names, examples, descriptions, quoted conditions, policy details or other record details; list also supplies full-set counts. Never discard requested details to choose count. Neither mode supports selecting by unsupported eligibility conditions or live availability.',
     'Authorized venue scope is already set by the server. A reference to the venue, such as "at the venue", is scope context, not a record-name predicate. Use name only to select an explicitly requested record or alias; keep an explicitly requested area filter. Never infer another venue scope. If venue-versus-record identity is genuinely ambiguous, return UNSUPPORTED rather than inventing a name filter.',
+    ...(names?.directoryVisibility === 'PUBLIC' ? [
+      'This supplied directory already contains only active public guest-visible records. Asking for publicly listed or visitor-visible directory locations restates this admitted scope; it does not require another selection predicate. Hidden or staff-only records are outside this scope. Preserve any genuinely narrower selection condition.',
+    ] : names?.directoryVisibility === 'AUTHORIZED' ? [
+      'This supplied directory follows the authorized access scope and may include non-public records. Do not assume all records are public or erase a requested visibility restriction; this query schema has no visibility predicate.',
+    ] : []),
     'The supplied stored snapshot is already current at its server-selected asOf. Asking about current stored records does not add a historical-date or live-opening filter. A request to select records by another date, time, live opening status or future availability still requires UNSUPPORTED.',
     'A name predicate matches an exact name or explicit alias, not a substring. Kind and area match exact stored values, ignoring case and equivalent punctuation.',
     'A product predicate asks which records offer that named product. A feature predicate asks for a known boolean value; unknown is never false.',
+    'Product names are literal query values, not field names, and are not enumerated in the kind/area/feature vocabulary. Copy the requested product name into the product predicate even when it is absent from that vocabulary; the executor determines known offers and unknown matching status. A request for sellers does not by itself restrict their place kind. Do not invent a SHOP or pickup-service restriction from a generic request for a sales location.',
     'The executor computes full-set known-match and unknown-candidate counts and pagination. Requests to disclose unknowns, an incomplete list or the full count are supported reporting requests, not extra selection predicates and not reasons for UNSUPPORTED. Reporting conflicts visible in retained whole sources is also presentation; selecting or counting conflicting records, or requesting an exhaustive conflict report, is unsupported because this query schema has no conflict predicate or conflict count. Do not turn unknown into false or claim a displayed page is exhaustive.',
     'Separate record selection from answer presentation. A request to quote or display source conditions, or answer follow-up details about selected records, does not itself add selection predicates. Select the records using supported fields; the answer step will use whole source bodies for their booking, availability, equipment and other details, preserving stated scope, conditions and omissions. Do not answer those details in the plan.',
     'Preserve every true selection constraint. Do not discard age, height, date, distance, price, exceptions, OR, negation of unknown, conditional eligibility or other selection conditions this schema cannot express. Return UNSUPPORTED for the entire request when any required selection constraint is unsupported; never drop a conjunct. Do not guess an unsupported feature or silently turn recommendations into exact filters. Asking which records satisfy an eligibility or policy condition is selection, even if phrased as a follow-up detail.',

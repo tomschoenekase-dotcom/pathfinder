@@ -207,15 +207,15 @@ describe('deterministic direct stored-query answers', () => {
   it('count returns complete numeric membership without descriptions or invented negative stock', () => {
     const exact = render(source(501), query('count'))
     if (exact.status !== 'READY') throw new Error(exact.reason)
-    expect(exact.answer).toContain('501 matching listed entries')
+    expect(exact.answer).toContain('501 matching listed records')
     expect(exact.answer).not.toContain('Whole description')
     expect(exact.places).toEqual([])
     expect(exact.knowledge).toEqual([])
     expect(exact.canonicalSources).toEqual([])
     const unknown = render(products(), { ...productQuery, mode: 'count' })
     if (unknown.status !== 'READY') throw new Error(unknown.reason)
-    expect(unknown.answer).toContain('3 confirmed matching listed entries')
-    expect(unknown.answer).toContain('1 other listed entry has unknown matching status')
+    expect(unknown.answer).toContain('3 confirmed matching listed records')
+    expect(unknown.answer).toContain('1 other listed record has unknown matching status')
     expect(unknown.answer).toContain('An exact total is not available')
     expect(unknown.answer).not.toContain('No refunds')
     expect(unknown.receipt.exactEligibleCount).toBeNull()
@@ -350,7 +350,9 @@ describe('deterministic direct stored-query answers', () => {
     expect(blocks[0]).not.toHaveProperty('links')
   })
   it('declines when whole retained sources would exceed the 99-source allowance', () => {
-    expect(render(source(100))).toMatchObject({ status: 'UNSUPPORTED', reason: 'SOURCE_BOUND' })
+    const value = source(100)
+    for (const place of value.directory.places) place.longDescription = null
+    expect(render(value)).toMatchObject({ status: 'UNSUPPORTED', reason: 'SOURCE_BOUND' })
   })
   it('rejects source scope/version/clock mismatches against the actual private prepared handle', () => {
     const value = source()

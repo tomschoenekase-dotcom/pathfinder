@@ -106,7 +106,7 @@ describe('local structured chat experiment boundary', () => {
     expect(interpret).toHaveBeenCalledOnce()
     expect(output.status).toBe('DIRECT_READY')
     if (output.status !== 'DIRECT_READY') throw new Error('Expected direct count')
-    expect(output.answer).toBe('1 matching listed entry.\n\nThis describes listed entries, not a complete physical inventory or a live availability check.')
+    expect(output.answer).toBe('1 matching listed record.\n\nThis describes listed entries, not a complete physical inventory or a live availability check.')
     expect(output.places).toEqual([])
     expect(output.knowledge).toEqual([])
     expect(output.summary).toMatchObject({ answerMode: 'LOCAL_DETERMINISTIC', notDispatchedModelPrompt: true, sourceVersion: 'v1', query: { mode: 'count' } })

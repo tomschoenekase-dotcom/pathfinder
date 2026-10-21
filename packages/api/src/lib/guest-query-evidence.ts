@@ -29,7 +29,11 @@ export async function prepareGuestQueryEvidence(input: {
   const source = structuredClone(input.source)
   const compiled = compileGuestQueryCanonicalSource(source)
   const prepared = compiled.prepared
-  const names = { question, catalog: prepared.discoverNamedCandidates(question) }
+  const names = {
+    question,
+    catalog: prepared.discoverNamedCandidates(question),
+    directoryVisibility: source.includeSecondLayer ? 'AUTHORIZED' as const : 'PUBLIC' as const,
+  }
   const system = guestQueryPlanningPrompt(prepared, names)
   const rawPlan = await input.interpret({ system, question })
   const plan = parseGuestQueryPlan(rawPlan, prepared, names)
