@@ -1020,4 +1020,63 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
     expect(events.filter(e => e.type === 'delta').map(e => e.type === 'delta' ? e.delta : '').join('')).toBe(answer)
     expect(metadata()).not.toHaveProperty('actionPlacements')
   })
+  it('resolves a current-question entity ref through the one-planner direct path and retains its catalog receipt', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const raw = JSON.stringify({ status: 'QUERY', mode: 'list', domain: 'PLACE', predicates: [{ field: 'entity', ref: 'n0' }, { field: 'kind', equals: 'ATTRACTION' }, { field: 'area', equals: 'North' }] })
+    anthropicCreate.mockResolvedValueOnce(message(raw))
+    const question = 'Quote every condition for Moon Ride.'
+    const events = []
+    for await (const event of streamChatTurn(ctx, { ...input, message: question })) events.push(event)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    const planner = gatewayCalls[0]!.system as Array<{ text: string }>
+    expect(planner[0]!.text).toContain('"ref":"n0"')
+    expect(planner[0]!.text).toContain('"name":"Moon Ride"')
+    expect(planner[0]!.text).not.toContain('place:moon')
+    const profile = JSON.parse(metadata().answerEvidence.sources.find((s: { kind: string }) => s.kind === 'VENUE_PROFILE').snapshot)
+    expect(profile.structuredQuery.query.predicates).toEqual([{ field: 'key', equals: 'place:moon' }, { field: 'kind', equals: 'ATTRACTION' }, { field: 'area', equals: 'North' }])
+    expect(profile.structuredQuery.nameCatalog).toMatchObject({ contract: 'guest-named-catalog-v1', sourceVersion: 'v1', status: 'READY', coordinates: 'NORMALIZED_UNICODE_CODEPOINTS' })
+    expect(profile.structuredQuery.nameCatalog.questionSha256).toBe(profile.structuredQuery.questionSha256)
+    expect(profile.structuredQuery.nameCatalog.groups[0].record.key).toBe('place:moon')
+    const text = events.filter(e => e.type === 'delta').map(e => e.type === 'delta' ? e.delta : '').join('')
+    expect(text).toBe(guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse)
+    expect(text).toContain('closed October 20–22')
+  })
+  it.each(['partial', 'ambiguous', 'domain'])('rejects %s named plans before a misleading direct zero', async mode => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const current = source()
+    if (mode === 'ambiguous') current.directory.places.push({ ...current.directory.places[0]!, id: 'other-moon' })
+    loadQuerySource.mockResolvedValue(current)
+    queue(JSON.stringify({ status: 'QUERY', mode: 'list', domain: mode === 'domain' ? 'KNOWLEDGE' : 'PLACE', predicates: [mode === 'partial' ? { field: 'name', equals: 'Ride' } : { field: 'entity', ref: 'n0' }] }))
+    const response = await caller.chat.send({ ...input, message: 'Quote every condition for Moon Ride.' })
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(response.response).toBe('ANSWER_VISIBLE')
+    expect(metadata().answerEvidence.system.staticPart).not.toContain('LOCAL_DETERMINISTIC')
+  })
+  it('does not obtain name aliases from place tags or whole descriptive prose', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const current = source()
+    current.directory.places[0]!.tags = ['Secret Alias']
+    current.directory.places[0]!.longDescription = 'Staff sometimes say Secret Alias. ' + restriction
+    loadQuerySource.mockResolvedValue(current)
+    queue(JSON.stringify({ status: 'QUERY', mode: 'list', predicates: [{ field: 'entity', ref: 'n0' }] }))
+    await caller.chat.send({ ...input, message: 'Show Secret Alias.' })
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    const planner = gatewayCalls[0]!.system as Array<{ text: string }>
+    expect(planner[0]!.text).toContain('"groups":[]')
+    expect(planner[0]!.text).not.toContain('Secret Alias')
+  })
+  it('rechecks native/source authority after a named planner before emitting direct text', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    anthropicCreate.mockImplementationOnce(async () => {
+      const withdrawn = source('v2')
+      withdrawn.directory.places = []
+      loadQuerySource.mockResolvedValue(withdrawn)
+      return message(JSON.stringify({ status: 'QUERY', mode: 'list', predicates: [{ field: 'entity', ref: 'n0' }] }))
+    })
+    const events = []
+    for await (const event of streamChatTurn(ctx, { ...input, message: 'Show Moon Ride.' })) events.push(event)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(events.filter(e => e.type === 'delta')).toEqual([])
+    expect(metadata()).not.toHaveProperty('answerEvidence')
+  })
 })

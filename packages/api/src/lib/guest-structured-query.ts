@@ -49,6 +49,7 @@ export interface GuestStructuredSnapshot {
 }
 
 export type GuestStructuredPredicate =
+  | { field: 'key'; equals: string }
   | { field: 'name'; equals: string }
   | { field: 'kind'; equals: string }
   | { field: 'area'; equals: string }
@@ -336,7 +337,10 @@ function validateQuery(scope: { tenantId: string; venueId: string }, query: unkn
     fail('query: invalid predicate count')
   for (const value of q.predicates) {
     const p = object(value, 'predicate')
-    if (['name', 'kind', 'area'].includes(p.field as string)) {
+    if (p.field === 'key') {
+      fields(p, ['field', 'equals'], 'predicate')
+      key(p.equals, 'predicate.equals')
+    } else if (['name', 'kind', 'area'].includes(p.field as string)) {
       fields(p, ['field', 'equals'], 'predicate')
       string(p.equals, 'predicate.equals')
     } else if (p.field === 'product') {
@@ -380,6 +384,7 @@ function test(
   predicate: GuestStructuredPredicate,
   keys: ReadonlySet<string>,
 ): Truth {
+  if (predicate.field === 'key') return record.key === predicate.equals ? 'TRUE' : 'FALSE'
   if (predicate.field === 'name')
     return [record.name, ...(record.aliases ?? [])].some(
       (name) => normalizeGuestQueryText(name) === normalizeGuestQueryText(predicate.equals),
@@ -411,6 +416,59 @@ export interface PreparedGuestPlanningVocabulary {
   features: readonly string[]
 }
 
+export const GUEST_NAMED_CATALOG_CONTRACT = 'guest-named-catalog-v1' as const
+export const MAX_NAMED_INDEX_CHARS = 2_000_000
+export const MAX_NAMED_INDEX_ENTRIES = 100_000
+export const MAX_NAMED_INDEX_NODES = 250_000
+export const MAX_NAMED_DISCOVERY_STEPS = 2_000_000
+export const MAX_NAMED_DISCOVERY_HITS = 64
+export const MAX_NAMED_CATALOG_GROUPS = 8
+export const MAX_NAMED_CATALOG_CHARS = 4000
+
+export interface GuestNamedCatalogGroup {
+  ref: string
+  normalizedMention: string
+  normalizedSpans: Array<{ start: number; end: number }>
+  candidateCount: number
+  /** Absent for ambiguous groups: never select an arbitrary duplicate identity. */
+  record?: { key: string; name: string; domain?: Exclude<GuestQueryDomain, 'ALL'>; kind?: string; area?: string }
+}
+export interface GuestNamedCatalogData {
+  contract: typeof GUEST_NAMED_CATALOG_CONTRACT
+  sourceVersion: string
+  snapshotIdentity: string
+  questionSha256: string
+  catalogIdentity: string
+  coordinates: 'NORMALIZED_UNICODE_CODEPOINTS'
+  status: 'READY' | 'BOUNDED'
+  reason: string | null
+  groups: GuestNamedCatalogGroup[]
+}
+/** An opaque, prepared-instance-owned catalog. A deserialized lookalike has no authority. */
+export interface GuestNamedCandidateCatalog {
+  readonly data: GuestNamedCatalogData
+}
+const namedQuestionHash = (question: string) => createHash('sha256').update(question).digest('hex')
+
+class NamedCatalog implements GuestNamedCandidateCatalog {
+  #owner: object
+  #data: GuestNamedCatalogData
+  constructor(owner: object, data: GuestNamedCatalogData) {
+    this.#owner = owner
+    this.#data = data
+    Object.freeze(this)
+  }
+  get data() { return structuredClone(this.#data) }
+  static owned(value: unknown, owner: object, question: string): NamedCatalog {
+    if (!value || typeof value !== 'object' || !(#owner in value) ||
+      value.#owner !== owner || value.#data.questionSha256 !== namedQuestionHash(question))
+      fail('name catalog: source or question binding mismatch')
+    return value
+  }
+}
+type NameNode = { children: Map<string, NameNode>; terminal?: { name: string; keys: Set<string> } }
+type NameIndex = { root: NameNode } | { reason: string }
+
 /** One immutable admitted-turn snapshot, not a cache or a source-authority grant. */
 export interface PreparedGuestSnapshot {
   readonly scope: Readonly<{ tenantId: string; venueId: string }>
@@ -419,6 +477,10 @@ export interface PreparedGuestSnapshot {
   readonly coverage: GuestStructuredSnapshot['coverage']
   readonly snapshotIdentity: string
   planningVocabulary(): PreparedGuestPlanningVocabulary
+  discoverNamedCandidates(question: string): GuestNamedCandidateCatalog
+  namedCatalogData(catalog: GuestNamedCandidateCatalog, question: string): GuestNamedCatalogData
+  resolveNamedReference(catalog: GuestNamedCandidateCatalog, question: string, ref: string): string
+  validateNamedValue(catalog: GuestNamedCandidateCatalog, question: string, value: string): string
   validateQuery(raw: unknown): GuestStructuredQuery
   evaluate(rawQuery: unknown): PreparedGuestQuery
 }
@@ -444,6 +506,10 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
   #keys: ReadonlySet<string>
   #identity: string
   #vocabulary: PreparedGuestPlanningVocabulary
+  #recordsByKey: ReadonlyMap<string, GuestStructuredRecord>
+  #hasUntrustedDomain: boolean
+  #nameOwner = Object.freeze({})
+  #nameIndex: NameIndex | undefined
 
   constructor(token: symbol, snapshot: GuestStructuredSnapshot) {
     if (token !== PREPARED_TOKEN) fail('Invalid prepared snapshot construction')
@@ -452,6 +518,8 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
       a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
     )
     this.#keys = new Set(snapshot.evidenceKeys ?? this.#records.map((record) => record.key))
+    this.#recordsByKey = new Map(this.#records.map(record => [record.key, record]))
+    this.#hasUntrustedDomain = this.#records.some(record => record.entityDomain === undefined)
     // Preserve format-1 cursor identity exactly; observation time remains excluded.
     this.#identity = hash({
       tenantId: snapshot.tenantId,
@@ -500,12 +568,110 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
     return structuredClone(this.#vocabulary)
   }
 
+  #buildNameIndex(): NameIndex {
+    const root: NameNode = { children: new Map() }
+    let rawChars = 0, normalizedChars = 0, entries = 0, nodes = 1
+    const add = (value: string, recordKey: string): boolean => {
+      // Check before normalization or spreading an arbitrarily large alias array.
+      if (++entries > MAX_NAMED_INDEX_ENTRIES || (rawChars += value.length) > MAX_NAMED_INDEX_CHARS) return false
+      const name = normalizeGuestQueryText(value)
+      if ((normalizedChars += name.length) > MAX_NAMED_INDEX_CHARS) return false
+      let node = root
+      for (const character of name) {
+        let child = node.children.get(character)
+        if (!child) {
+          if (++nodes > MAX_NAMED_INDEX_NODES) return false
+          node.children.set(character, child = { children: new Map() })
+        }
+        node = child
+      }
+      node.terminal ??= { name, keys: new Set() }
+      node.terminal.keys.add(recordKey)
+      return true
+    }
+    for (const record of this.#records) {
+      if (!add(record.name, record.key)) return { reason: 'NAME_INDEX_BOUND' }
+      for (const alias of record.aliases ?? []) if (!add(alias, record.key)) return { reason: 'NAME_INDEX_BOUND' }
+    }
+    return { root }
+  }
+
+  discoverNamedCandidates(question: string): GuestNamedCandidateCatalog {
+    if (typeof question !== 'string' || !question.trim() || question.length > 16_000) fail('name catalog: invalid question')
+    const finish = (groups: GuestNamedCatalogGroup[], reason: string | null = null) => {
+      const body = { contract: GUEST_NAMED_CATALOG_CONTRACT, sourceVersion: this.sourceVersion,
+        snapshotIdentity: this.snapshotIdentity, questionSha256: namedQuestionHash(question),
+        coordinates: 'NORMALIZED_UNICODE_CODEPOINTS' as const,
+        status: reason ? 'BOUNDED' as const : 'READY' as const, reason, groups }
+      return new NamedCatalog(this.#nameOwner, { ...body, catalogIdentity: hash(body) })
+    }
+    this.#nameIndex ??= this.#buildNameIndex()
+    if ('reason' in this.#nameIndex) return finish([], this.#nameIndex.reason)
+    const normalized = normalizeGuestQueryText(question)
+    if (normalized.length > 32_000) return finish([], 'QUESTION_NORMALIZATION_BOUND')
+    const characters = [...normalized]
+    const word = (character: string | undefined) => character !== undefined && /[\p{L}\p{N}\p{M}_]/u.test(character)
+    const hits: Array<{ start: number; end: number; terminal: NonNullable<NameNode['terminal']> }> = []
+    let steps = 0
+    for (let start = 0; start < characters.length; start++) {
+      if (word(characters[start - 1])) continue
+      let node: NameNode | undefined = this.#nameIndex.root
+      for (let end = start; end < characters.length; end++) {
+        if (++steps > MAX_NAMED_DISCOVERY_STEPS) return finish([], 'NAME_DISCOVERY_WORK_BOUND')
+        node = node.children.get(characters[end]!)
+        if (!node) break
+        if (node.terminal && !word(characters[end + 1])) {
+          if (hits.length >= MAX_NAMED_DISCOVERY_HITS) return finish([], 'NAME_DISCOVERY_HIT_BOUND')
+          hits.push({ start, end: end + 1, terminal: node.terminal })
+        }
+      }
+    }
+    const maximal = hits.filter(a => !hits.some(b => b.start <= a.start && b.end >= a.end && (b.start < a.start || b.end > a.end)))
+    if (maximal.some((a, i) => maximal.some((b, j) => i !== j && a.start < b.end && b.start < a.end))) return finish([], 'OVERLAPPING_NAMES')
+    const groups: GuestNamedCatalogGroup[] = []
+    for (const hit of maximal) {
+      let group = groups.find(group => group.normalizedMention === hit.terminal.name)
+      if (!group) {
+        if (groups.length === MAX_NAMED_CATALOG_GROUPS) return finish([], 'NAME_CATALOG_BOUND')
+        const unique = hit.terminal.keys.size === 1 ? this.#recordsByKey.get(hit.terminal.keys.values().next().value!) : undefined
+        group = { ref: `n${groups.length}`, normalizedMention: hit.terminal.name, normalizedSpans: [], candidateCount: hit.terminal.keys.size,
+          ...(unique ? { record: { key: unique.key, name: unique.name, ...(unique.entityDomain ? { domain: unique.entityDomain } : {}),
+            ...(unique.kind?.state === 'KNOWN' && supported(unique.kind.sources, this.#keys) ? { kind: unique.kind.value } : {}),
+            ...(unique.area?.state === 'KNOWN' && supported(unique.area.sources, this.#keys) ? { area: unique.area.value } : {}) } } : {}) }
+        groups.push(group)
+      }
+      if (group.normalizedSpans.length === 8) return finish([], 'NAME_CATALOG_BOUND')
+      group.normalizedSpans.push({ start: hit.start, end: hit.end })
+    }
+    if (JSON.stringify(groups).length > MAX_NAMED_CATALOG_CHARS) return finish([], 'NAME_CATALOG_BOUND')
+    return finish(groups)
+  }
+
+  namedCatalogData(catalog: GuestNamedCandidateCatalog, question: string): GuestNamedCatalogData {
+    return NamedCatalog.owned(catalog, this.#nameOwner, question).data
+  }
+  resolveNamedReference(catalog: GuestNamedCandidateCatalog, question: string, ref: string): string {
+    const data = this.namedCatalogData(catalog, question)
+    const group = data.groups.find(group => group.ref === ref)
+    if (data.status !== 'READY' || !group?.record || group.candidateCount !== 1) fail('name catalog: unresolved or ambiguous reference')
+    return group.record.key
+  }
+  validateNamedValue(catalog: GuestNamedCandidateCatalog, question: string, value: string): string {
+    const data = this.namedCatalogData(catalog, question), normalized = normalizeGuestQueryText(value)
+    const groups = data.groups.filter(group => group.normalizedMention === normalized || (group.record && normalizeGuestQueryText(group.record.name) === normalized))
+    if (data.status !== 'READY' || groups.length === 0 || groups.some(group => !group.record || group.candidateCount !== 1) || new Set(groups.map(group => group.record!.key)).size !== 1)
+      fail('name catalog: unresolved or ambiguous full name')
+    return groups[0]!.record!.key
+  }
+
   validateQuery(raw: unknown): GuestStructuredQuery {
     const query = structuredClone(raw)
     validateQuery(this.scope, query)
     const domain = (query as GuestStructuredQuery).domain ?? 'ALL'
-    if (domain !== 'ALL' && this.#records.some((record) => record.entityDomain === undefined))
+    if (domain !== 'ALL' && this.#hasUntrustedDomain)
       fail('query: explicit domain requires trusted record domains')
+    for (const predicate of (query as GuestStructuredQuery).predicates)
+      if (predicate.field === 'key' && !this.#recordsByKey.has(predicate.equals)) fail('query: key is not a current scoped record')
     return query as GuestStructuredQuery
   }
 

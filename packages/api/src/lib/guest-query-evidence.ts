@@ -29,15 +29,17 @@ export async function prepareGuestQueryEvidence(input: {
   const source = structuredClone(input.source)
   const compiled = compileGuestQueryCanonicalSource(source)
   const prepared = compiled.prepared
-  const system = guestQueryPlanningPrompt(prepared)
+  const names = { question, catalog: prepared.discoverNamedCandidates(question) }
+  const system = guestQueryPlanningPrompt(prepared, names)
   const rawPlan = await input.interpret({ system, question })
-  const plan = parseGuestQueryPlan(rawPlan, prepared)
+  const plan = parseGuestQueryPlan(rawPlan, prepared, names)
   const trace = {
     sourceVersion: source.version,
     questionSha256: createHash('sha256').update(question).digest('hex'),
     plannerPromptSha256: createHash('sha256').update(system).digest('hex'),
     rawPlan,
     plan,
+    nameCatalog: prepared.namedCatalogData(names.catalog, question),
   }
   if (plan.status === 'UNSUPPORTED') return { status: 'UNSUPPORTED' as const, trace }
   if (input.directAnswer) {
