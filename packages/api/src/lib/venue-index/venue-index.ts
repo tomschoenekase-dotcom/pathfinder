@@ -7,7 +7,15 @@
  */
 import { createHash } from 'node:crypto'
 
-import { isStopword, normalizeText, phraseKey, singleDeletions, stem, stemTokens } from './text'
+import {
+  containsVerbatim,
+  isStopword,
+  normalizeText,
+  phraseKey,
+  singleDeletions,
+  stem,
+  stemTokens,
+} from './text'
 
 export type VenueSourceRecord = {
   id: string
@@ -51,7 +59,7 @@ export type SoldItem = {
   span: string
 }
 
-/** One accepted, validated enrichment claim. `span` is verbatim text from the record. */
+/** Untrusted retrieval proposal. A located quote never establishes semantic truth. */
 export type EnrichmentClaim =
   | {
       type: 'sells'
@@ -64,7 +72,71 @@ export type EnrichmentClaim =
   | { type: 'alias'; targetKey: string; alias: string }
   | { type: 'applies_to'; targetKey: string; span: string }
 
-export type RecordEnrichment = { recordId: string; bodySha256: string; claims: EnrichmentClaim[] }
+export type RecordEnrichment = {
+  recordId: string
+  bodySha256: string
+  claims: EnrichmentClaim[]
+  sourceFingerprint?: string
+  targets?: Array<{ recordId: string; fingerprint: string }>
+}
+
+/** Metadata as well as body text participates in proposal invalidation. */
+export const proposalSourceFingerprint = (record: VenueSourceRecord): string =>
+  sha256(
+    JSON.stringify([
+      record.id,
+      record.source,
+      record.title,
+      record.body,
+      record.category,
+      record.areaName,
+      record.placeType,
+      record.itemType,
+      record.tags,
+      record.hours,
+    ]),
+  )
+
+/** Runtime gate also covers callers bypassing validateEnrichment via build/setEnrichment. */
+function locatedProposals(
+  record: VenueSourceRecord,
+  value: RecordEnrichment | undefined,
+): EnrichmentClaim[] {
+  if (
+    !value ||
+    value.recordId !== record.id ||
+    value.bodySha256 !== sha256(record.body) ||
+    value.sourceFingerprint !== proposalSourceFingerprint(record) ||
+    !Array.isArray(value.claims) ||
+    value.claims.length > 100 ||
+    !Array.isArray(value.targets) ||
+    value.targets.length > 100 ||
+    value.targets.some(
+      (target) =>
+        !target ||
+        typeof target.recordId !== 'string' ||
+        typeof target.fingerprint !== 'string' ||
+        !/^[a-f0-9]{64}$/u.test(target.fingerprint),
+    )
+  )
+    return []
+  const text = (v: unknown, max = 2048): v is string =>
+    typeof v === 'string' && !!v.trim() && v.length <= max
+  return value.claims.filter((claim) => {
+    if (!claim || typeof claim !== 'object') return false
+    if (claim.type === 'alias') return text(claim.alias, 128) && text(claim.targetKey)
+    if (
+      !('span' in claim) ||
+      !text(claim.span, 20000) ||
+      !containsVerbatim(record.body, claim.span)
+    )
+      return false
+    if (claim.type === 'sells') return text(claim.productDisplay) && text(claim.seller)
+    if (claim.type === 'fact')
+      return text(claim.targetKey) && text(claim.field, 128) && text(claim.value)
+    return claim.type === 'applies_to' && text(claim.targetKey)
+  })
+}
 
 export type Contribution = {
   recordId: string
@@ -180,10 +252,7 @@ export function buildContribution(
   const subject = /^(.{3,80}?)\s+(?:at|[\u2014\u2013:-])\s+\S/u.exec(record.title)?.[1]
   if (record.source === 'knowledge' && subject) aliases.push(subject)
   const bodySha256 = sha256(record.body)
-  const claims = enrichment && enrichment.bodySha256 === bodySha256 ? enrichment.claims : []
-  for (const claim of claims)
-    if (claim.type === 'alias' && claim.targetKey === phraseKey(record.title))
-      aliases.push(claim.alias)
+  const claims = locatedProposals(record, enrichment)
   const aliasKeys = [
     ...new Set(
       aliases.flatMap((alias) => {
@@ -227,10 +296,7 @@ export function buildContribution(
     sold,
     speciesKeys,
     livesInKeys: value('lives in').flatMap(splitList).map(phraseKey).filter(Boolean),
-    appliesToKeys: [
-      ...value('applies to').flatMap(splitList).map(phraseKey),
-      ...claims.flatMap((claim) => (claim.type === 'applies_to' ? [claim.targetKey] : [])),
-    ].filter(Boolean),
+    appliesToKeys: [...value('applies to').flatMap(splitList).map(phraseKey)].filter(Boolean),
     valueKeys: [...valueKeys].filter(Boolean),
     terms,
     length: tokens.length,
@@ -310,19 +376,29 @@ export class VenueIndex {
     enrichment: RecordEnrichment[] = [],
   ): VenueIndex {
     const index = new VenueIndex(venueName)
-    for (const item of enrichment) index.enrichmentByRecord.set(item.recordId, item)
+    for (const item of enrichment) index.setEnrichment(item)
     for (const record of [...records].sort((a, b) => a.id.localeCompare(b.id))) index.upsert(record)
     return index
   }
 
   setEnrichment(item: RecordEnrichment): void {
-    this.enrichmentByRecord.set(item.recordId, item)
+    if (
+      !item ||
+      typeof item.recordId !== 'string' ||
+      !item.recordId.trim() ||
+      item.recordId.length > 512 ||
+      !Array.isArray(item.claims) ||
+      item.claims.length > 100
+    )
+      throw new Error('Invalid enrichment cache')
+    this.enrichmentByRecord.set(item.recordId, structuredClone(item))
     const record = this.records.get(item.recordId)
     if (record) this.upsert(record)
   }
 
   enrichmentFor(recordId: string): RecordEnrichment | undefined {
-    return this.enrichmentByRecord.get(recordId)
+    const value = this.enrichmentByRecord.get(recordId)
+    return value ? structuredClone(value) : undefined
   }
 
   /** Add or replace one record. Only this record's own contribution is recomputed. */
@@ -378,18 +454,6 @@ export class VenueIndex {
     for (const key of c.livesInKeys) set(this.livesIn, key, c.recordId)
     for (const key of c.appliesToKeys) set(this.appliesTo, key, c.recordId)
     for (const key of c.valueKeys) set(this.byValue, key, c.recordId)
-    for (const claim of c.enrichment) {
-      if (claim.type === 'sells') {
-        const key = phraseKey(claim.productDisplay)
-        set(this.enrichmentSellers, key, c.recordId)
-        if (sign === 1) registryAdd(this.products, key, c.recordId, claim.productDisplay)
-        else registryRemove(this.products, key, c.recordId)
-        this.aliasAdd(key, PRODUCT_PREFIX + key, sign)
-      } else if (claim.type === 'fact') set(this.enrichmentFacts, claim.targetKey, c.recordId)
-      else if (claim.type === 'alias' && claim.targetKey !== phraseKey(c.name)) {
-        set(this.enrichmentAliases, phraseKey(claim.alias), `${claim.targetKey}\u0000${c.recordId}`)
-      }
-    }
     for (const [term, tf] of c.terms) {
       let entry = this.postings.get(term)
       if (!entry) this.postings.set(term, (entry = new Map()))
@@ -423,13 +487,61 @@ export class VenueIndex {
     return null
   }
 
-  /** Entities whose alias equals `key`, plus targets of validated enrichment aliases. */
+  /** Exact source identity aliases only; model aliases never establish identity. */
   resolveKey(key: string): string[] {
-    const direct = [...(this.aliases.get(key)?.keys() ?? [])]
-    const viaEnrichment = [...(this.enrichmentAliases.get(key) ?? [])].flatMap((value) => [
-      ...(this.aliases.get(value.split('\u0000')[0] ?? '')?.keys() ?? []),
-    ])
-    return [...new Set([...direct, ...viaEnrichment])].sort()
+    return [...(this.aliases.get(key)?.keys() ?? [])].sort()
+  }
+
+  /** Neutral candidate bodies only: no proposal value enters a fact or governing index. */
+  proposalRecordIds(question: string, limit = 6): string[] {
+    if (!Number.isSafeInteger(limit) || limit < 0 || limit > 100)
+      throw new Error('Invalid proposal limit')
+    const query = ` ${phraseKey(question)} `
+    const ids: string[] = []
+    for (const [id, contribution] of [...this.contributions].sort(([a], [b]) =>
+      a.localeCompare(b),
+    )) {
+      const cached = this.enrichmentByRecord.get(id)
+      if (
+        !cached ||
+        cached.sourceFingerprint !== proposalSourceFingerprint(this.records.get(id)!) ||
+        !Array.isArray(cached.targets) ||
+        cached.targets.some((target) => {
+          if (!target || typeof target.recordId !== 'string') return true
+          const current = this.records.get(target.recordId)
+          return !current || proposalSourceFingerprint(current) !== target.fingerprint
+        })
+      )
+        continue
+      const currentClaims = contribution.enrichment.filter((claim) => {
+        const targetKey = claim.type === 'sells' ? phraseKey(claim.seller) : claim.targetKey
+        const resolved = this.resolveKey(targetKey).filter((entityId) =>
+          entityId.startsWith(RECORD_PREFIX),
+        )
+        if (claim.type !== 'sells' && resolved.length !== 1) return false
+        return resolved.every((entityId) =>
+          cached.targets!.some(
+            (target) => target.recordId === entityId.slice(RECORD_PREFIX.length),
+          ),
+        )
+      })
+      const keys = currentClaims.flatMap((claim) =>
+        claim.type === 'alias'
+          ? [claim.alias, claim.targetKey]
+          : claim.type === 'sells'
+            ? [claim.productDisplay, claim.seller]
+            : [claim.targetKey],
+      )
+      if (
+        keys.some((key) => {
+          const normalized = phraseKey(key)
+          return normalized && query.includes(` ${normalized} `)
+        })
+      )
+        ids.push(id)
+      if (ids.length >= limit) break
+    }
+    return limit === 0 ? [] : ids
   }
 
   aliasKeysFor(entityId: string): string[] {
@@ -578,7 +690,12 @@ export function validateVenueIndex(index: VenueIndex): {
   const staleEnrichment = [...index.contributions.values()]
     .filter((c) => {
       const enrichment = index.enrichmentFor(c.recordId)
-      return enrichment !== undefined && enrichment.bodySha256 !== c.bodySha256
+      return (
+        enrichment !== undefined &&
+        (enrichment.bodySha256 !== c.bodySha256 ||
+          enrichment.sourceFingerprint !==
+            proposalSourceFingerprint(index.records.get(c.recordId)!))
+      )
     })
     .map((c) => c.recordId)
   return { unresolvedReferences, duplicateNames, staleEnrichment, conflicts: findConflicts(index) }

@@ -98,6 +98,13 @@ import { resolveGuestGeneralWebConfiguration } from '../lib/guest-general-web-co
 import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
 import { loadGuestLiveDataContext } from '../lib/guest-live-data'
 import { loadGuestSourceConnections } from '../lib/guest-source-connections'
+import { loadGuestQuerySource, type GuestQuerySource } from '../lib/guest-query-source'
+import {
+  guestQueryChatExperimentEnabled,
+  guestQuerySourcesAgree,
+  prepareGuestChatQueryExperiment,
+  type GuestChatQueryExperiment,
+} from '../lib/guest-query-chat-experiment'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import {
   appendGuestAnswerCheckInstruction,
@@ -2369,11 +2376,17 @@ const chatReadRouter = router({
         ].join('\n')
       }
     }
+    let structuredQuery: GuestChatQueryExperiment | null = null
+    let structuredQueryFence: (() => Promise<void>) | null = null
     const preparePrompt = () => {
       const parts = prepareVenuePrompt()
       return {
         ...parts,
-        dynamicPart: [parts.dynamicPart, collectionPromptRule, guestActionPrompt]
+        dynamicPart: [
+          parts.dynamicPart,
+          structuredQuery?.prompt ?? collectionPromptRule,
+          guestActionPrompt,
+        ]
           .filter(Boolean)
           .join('\n\n'),
       }
@@ -2393,6 +2406,7 @@ const chatReadRouter = router({
           (retrievalTrace?.partialCoverage ?? false) ||
           dynamicBudgetExcludedKeys.length > 0 ||
           collectionCoveragePartial ||
+          Boolean(structuredQuery?.partial) ||
           Boolean(facetCollection && !facetCollection.selection.selectionComplete),
       })
     let generationEvidence: ReturnType<typeof captureEvidence> | null = null
@@ -2459,16 +2473,27 @@ const chatReadRouter = router({
               guideMode,
               guideCoverage,
               contextPacket: evidence.contextPacket,
+              ...(structuredQuery ? { structuredQuery: structuredQuery.summary } : {}),
             },
           },
-          ...relevantPlaces.map((place, rank) => ({
+          ...[
+            ...relevantPlaces,
+            ...(structuredQuery?.places ?? []).filter(
+              (place) => !relevantPlaces.some((row) => row.id === place.id),
+            ),
+          ].map((place, rank) => ({
             sourceId: `place:${place.id}`,
             kind: 'PLACE' as const,
             label: place.name,
             rank,
             snapshot: place,
           })),
-          ...relevantKnowledgeEntries.map((entry, rank) => ({
+          ...[
+            ...relevantKnowledgeEntries,
+            ...(structuredQuery?.knowledge ?? []).filter(
+              (entry) => !relevantKnowledgeEntries.some((row) => row.id === entry.id),
+            ),
+          ].map((entry, rank) => ({
             sourceId: `knowledge:${entry.id}`,
             kind: 'KNOWLEDGE' as const,
             label: entry.title,
@@ -2529,16 +2554,22 @@ const chatReadRouter = router({
         if (JSON.stringify(currentConfiguration) !== configurationSnapshot) {
           throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
         }
+        await structuredQueryFence?.()
       }
       const webSearchInvocationId = randomUUID()
+      const queryPlannerInvocationId = randomUUID()
       // Require the underlying durable reservation before a cumulative wrapper
       // can replace a null reservation with its own invocation-local reference.
       const governedBudgetGate: typeof chatAccounting.budgetGate = {
         ...chatAccounting.budgetGate,
         reserve: async (attempt) => {
           const reservation = await chatAccounting.budgetGate.reserve(attempt)
-          if (attempt.invocationId === webSearchInvocationId && !reservation)
-            throw new Error('Web search requires durable accounting')
+          if (
+            (attempt.invocationId === webSearchInvocationId ||
+              attempt.invocationId === queryPlannerInvocationId) &&
+            !reservation
+          )
+            throw new Error('Guest subcall requires durable accounting')
           return reservation
         },
       }
@@ -2549,9 +2580,107 @@ const chatReadRouter = router({
               governedBudgetGate,
               BigInt(configuration.requestBudgetCeilingE8Usd),
             )
+      if (
+        guestQueryChatExperimentEnabled({
+          nodeEnv: process.env.NODE_ENV,
+          enabled: process.env.TORCHIKO_LOCAL_STRUCTURED_QUERY,
+          experienceScope: ctx.experienceScope,
+          nativePath: nativeReadSnapshot.path,
+        })
+      ) {
+        // Gate on original admission, never an effective LEGACY projection fallback.
+        const readPath = nativeReadSnapshot.path === 'DARK' ? 'DARK' : 'LEGACY'
+        const readQuerySource = () =>
+          loadGuestQuerySource({
+            client: ctx.db,
+            scope: {
+              tenantId: venue.tenantId,
+              venueId: input.venueId,
+              includeSecondLayer,
+              asOf: new Date(),
+            },
+            readPath,
+          })
+        let querySource: GuestQuerySource | null = null
+        try {
+          querySource = await readQuerySource()
+        } catch {
+          logger.info({ action: 'guest-chat.structured-query', status: 'SOURCE_UNAVAILABLE' })
+        }
+        if (querySource) {
+          const candidate = await prepareGuestChatQueryExperiment({
+            source: querySource,
+            question: trimmedInput,
+            interpret: async ({ system, question }) => {
+              const planned = await generateTextForCapability({
+                route,
+                timeoutMs: configuration.timeoutMs,
+                maxAttempts: 1,
+                maxOutputTokens: Math.min(
+                  1024,
+                  configuration.maxOutputTokens ?? 1024,
+                  ...route.candidates.map(
+                    (candidate) => AI_MODEL_REGISTRY[candidate.modelKey].maxOutputTokens,
+                  ),
+                ),
+                admissionGuard: assertGenerationAvailable,
+                budgetGate: sharedBudgetGate,
+                system: [{ type: 'text', text: system }],
+                messages: [{ role: 'user', content: question }],
+                usageSink: chatAccounting.sink,
+                invocationId: queryPlannerInvocationId,
+                onBeforeFirstDispatch: async () => {
+                  if (generationDispatched) return
+                  await markGuestChatProviderDispatchedAction({
+                    client: ctx.db,
+                    operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
+                  })
+                  generationDispatched = true
+                },
+              })
+              return planned.text
+            },
+          })
+          if (
+            candidate.status === 'READY' &&
+            guestQuerySourcesAgree(relevantPlaces, candidate.places) &&
+            guestQuerySourcesAgree(relevantKnowledgeEntries, candidate.knowledge)
+          ) {
+            structuredQuery = candidate
+            ;({ staticPart, dynamicPart } = preparePrompt())
+            try {
+              // Preserve exact retained sources and existing source/prompt bounds.
+              buildAnswerEvidence('Structured evidence preflight.', captureEvidence())
+              structuredQueryFence = async () => {
+                const currentNative = await resolveNativeGuestReadSnapshotAction({
+                  client: ctx.db,
+                  tenantId: venue.tenantId,
+                  venueId: input.venueId,
+                })
+                if (currentNative.path !== readPath)
+                  throw new AiRoutingError(
+                    'CAPABILITY_UNAVAILABLE',
+                    'Guest source admission changed',
+                  )
+                const currentSource = await readQuerySource()
+                if (currentSource.version !== candidate.sourceVersion)
+                  throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest query source changed')
+              }
+            } catch {
+              structuredQuery = null
+              ;({ staticPart, dynamicPart } = preparePrompt())
+              logger.info({
+                action: 'guest-chat.structured-query',
+                status: 'EVIDENCE_BOUND_FALLBACK',
+              })
+            }
+          }
+        }
+      }
       // Search is an optional first subcall of this durable generation operation.
       // Once dispatched, uncertain turns retain the existing no-duplicate replay fence.
       if (
+        !structuredQuery &&
         isFeatureEnabled('guestGeneralWebFallback') &&
         ctx.experienceScope === 'PUBLIC' &&
         venue.chatShowLinks &&
@@ -2622,13 +2751,14 @@ const chatReadRouter = router({
                 )
                 if (JSON.stringify(fresh) !== JSON.stringify(webConfiguration))
                   throw new Error('Web search permission changed')
-                await markGuestChatProviderDispatchedAction({
-                  client: ctx.db,
-                  operation: {
-                    ...turnOperationBase,
-                    kind: 'RESPONSE_GENERATION',
-                  },
-                })
+                if (!generationDispatched)
+                  await markGuestChatProviderDispatchedAction({
+                    client: ctx.db,
+                    operation: {
+                      ...turnOperationBase,
+                      kind: 'RESPONSE_GENERATION',
+                    },
+                  })
                 generationDispatched = true
               },
               usageSink: chatAccounting.sink,

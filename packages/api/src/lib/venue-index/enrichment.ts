@@ -1,15 +1,15 @@
 /**
  * Setup-time enrichment. A strong model reads records whose facts are in prose and proposes
- * structured claims. Nothing it says is trusted: each claim must quote its record verbatim, name
- * entities that already exist in the index, and carry values that appear in the quote. Rejected
- * claims are reported, never served. Results are keyed by record body hash, so editing a record
- * invalidates only that record's claims.
+ * structured claims. Proposals select whole source bodies for retrieval only. A quote locates evidence;
+ * it does not establish sale polarity, fact values or governing relationships. Source metadata and
+ * resolved target fingerprints invalidate stale hints without promoting proposals into facts.
  */
-import { GUEST_KIND_WORD_SET, linkText } from './guest-retrieval'
+import { GUEST_KIND_WORD_SET } from './guest-retrieval'
 import { containsVerbatim, normalizeText, phraseKey } from './text'
 import {
   RECORD_PREFIX,
   sha256,
+  proposalSourceFingerprint,
   type EnrichmentClaim,
   type RecordEnrichment,
   type VenueIndex,
@@ -61,12 +61,34 @@ function resolveSubject(index: VenueIndex, name: string): { id: string } | { rea
   return { reason: targets.length ? 'subject is ambiguous' : 'subject not found' }
 }
 
-function numbers(value: string): string[] {
-  return value.match(/\d+(?:[.:]\d+)?/gu) ?? []
-}
-
 const FIELD_ALIASES: Record<string, string> = { time: 'when', times: 'when', when: 'when' }
 
+function validProposal(value: unknown): value is EnrichmentProposal {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const p = value as Record<string, unknown>
+  const shape =
+    p.type === 'sells'
+      ? ['type', 'product', 'seller', 'quote']
+      : p.type === 'fact'
+        ? ['type', 'subject', 'field', 'value', 'quote']
+        : p.type === 'alias'
+          ? ['type', 'subject', 'alias']
+          : p.type === 'applies_to'
+            ? ['type', 'subject', 'quote']
+            : []
+  return (
+    shape.length > 0 &&
+    Object.keys(p).length === shape.length &&
+    shape.every(
+      (key) =>
+        typeof p[key] === 'string' &&
+        !!(p[key] as string).trim() &&
+        (p[key] as string).length <= (key === 'quote' ? 20000 : 2048),
+    )
+  )
+}
+
+/** Compatibility name: validates evidence location, never semantic entailment or authority. */
 export function validateEnrichment(
   index: VenueIndex,
   record: VenueSourceRecord,
@@ -75,85 +97,46 @@ export function validateEnrichment(
   enrichment: RecordEnrichment
   rejected: Array<{ proposal: EnrichmentProposal; reason: string }>
 } {
-  const accepted: EnrichmentClaim[] = []
+  if (!Array.isArray(proposals) || proposals.length > 100)
+    throw new Error('Invalid enrichment proposal bound')
+  const claims: EnrichmentClaim[] = []
   const rejected: Array<{ proposal: EnrichmentProposal; reason: string }> = []
+  const targets = new Map<string, string>()
   const reject = (proposal: EnrichmentProposal, reason: string) =>
     rejected.push({ proposal, reason })
+  // Only original source identity names resolve a subject. Proposed aliases never feed validation.
   const inQuote = (quote: string, phrase: string) =>
     phrase.trim().length > 0 && ` ${normalizeText(quote)} `.includes(` ${normalizeText(phrase)} `)
-  // Pass 1: aliases. They only help retrieval, so they need no quote, but they must name one
-  // existing thing, must not be a general category word, and must not already name something else.
-  const namesOf = new Map<string, string[]>()
-  const names = (id: string) => {
-    if (!namesOf.has(id)) {
-      const own = id.startsWith(RECORD_PREFIX)
-        ? (index.contributions.get(id.slice(RECORD_PREFIX.length))?.aliases ?? [])
-        : [index.entity(id)?.name ?? '']
-      // Aliases already validated from other records ("planetarium" from the planetarium's page).
-      const learned = [...index.enrichmentAliases.entries()]
-        .filter(([, targets]) =>
-          [...targets].some((value) =>
-            index.resolveKey(value.split('\u0000')[0] ?? '').includes(id),
-          ),
-        )
-        .map(([aliasKey]) => aliasKey)
-      namesOf.set(id, [...own, ...learned])
-    }
-    return namesOf.get(id)!
-  }
-  const isPlace = (id: string) =>
-    id.startsWith(RECORD_PREFIX) &&
-    index.records.get(id.slice(RECORD_PREFIX.length))?.source === 'place'
-  const nameTokens = (id: string) => new Set(phraseKey(index.entity(id)?.name ?? '').split(' '))
   for (const proposal of proposals) {
-    if (proposal.type !== 'alias') continue
-    const subject = resolveSubject(index, proposal.subject)
-    const alias = proposal.alias.trim()
-    const tokens = phraseKey(alias).split(' ')
-    if ('reason' in subject) reject(proposal, subject.reason)
-    else if (!alias || tokens.length > 6) reject(proposal, 'alias empty or too long')
-    else if (tokens.length === 1 && GUEST_KIND_WORD_SET.has(tokens[0] ?? ''))
-      reject(proposal, 'alias is a general category word')
-    else if (
-      isPlace(subject.id) &&
-      GUEST_KIND_WORD_SET.has(tokens[tokens.length - 1] ?? '') &&
-      !tokens.some((token) => nameTokens(subject.id).has(token))
-    )
-      reject(proposal, 'alias is a category phrase for one place')
-    else {
-      const existing = index.resolveKey(phraseKey(alias))
-      if (existing.length && !existing.includes(subject.id))
-        reject(proposal, 'alias already names something else')
-      else {
-        accepted.push({ type: 'alias', targetKey: phraseKey(proposal.subject), alias })
-        names(subject.id).push(alias)
-      }
+    if (!validProposal(proposal)) {
+      reject(proposal, 'invalid proposal shape')
+      continue
     }
-  }
-  // Pass 2: claims about facts must quote the record and name their subject in the quote.
-  const mentioned = (quote: string, id: string) => names(id).some((name) => inQuote(quote, name))
-  for (const proposal of proposals) {
-    if (proposal.type === 'alias') continue
-    if (!proposal.quote || !containsVerbatim(record.body, proposal.quote)) {
+    if (proposal.type !== 'alias' && !containsVerbatim(record.body, proposal.quote)) {
       reject(proposal, 'quote is not verbatim in the record')
       continue
     }
     if (proposal.type === 'sells') {
-      if (!inQuote(proposal.quote, proposal.product)) reject(proposal, 'product not in quote')
-      else if (!inQuote(proposal.quote, proposal.seller) && !inQuote(record.title, proposal.seller))
-        reject(proposal, 'seller not in quote')
-      else {
-        const seller = linkText(index, proposal.seller)
-          .flatMap((mention) => mention.entityIds)
-          .find((id) => id.startsWith(RECORD_PREFIX))
-        accepted.push({
-          type: 'sells',
-          productDisplay: proposal.product,
-          seller: proposal.seller,
-          sellerTargetKey: seller ? phraseKey(index.entity(seller)?.name ?? '') : null,
-          span: proposal.quote,
-        })
+      if (!inQuote(proposal.quote, proposal.product)) {
+        reject(proposal, 'product not in quote')
+        continue
       }
+      if (!inQuote(proposal.quote, proposal.seller) && !inQuote(record.title, proposal.seller)) {
+        reject(proposal, 'seller not in quote')
+        continue
+      }
+      const seller = resolveSubject(index, proposal.seller)
+      if (!('reason' in seller) && seller.id.startsWith(RECORD_PREFIX)) {
+        const target = index.records.get(seller.id.slice(RECORD_PREFIX.length))!
+        targets.set(target.id, proposalSourceFingerprint(target))
+      }
+      claims.push({
+        type: 'sells',
+        productDisplay: proposal.product,
+        seller: proposal.seller,
+        sellerTargetKey: null,
+        span: proposal.quote,
+      })
       continue
     }
     const subject = resolveSubject(index, proposal.subject)
@@ -161,45 +144,76 @@ export function validateEnrichment(
       reject(proposal, subject.reason)
       continue
     }
-    if (!mentioned(proposal.quote, subject.id)) {
-      reject(proposal, 'subject not in quote')
+    // Area-only/model aliases are not stable subject identities for proposals.
+    const target = subject.id.startsWith(RECORD_PREFIX)
+      ? index.records.get(subject.id.slice(RECORD_PREFIX.length))
+      : undefined
+    if (!target) {
+      reject(proposal, 'subject has no source identity')
       continue
     }
-    if (proposal.type === 'fact') {
-      const field = FIELD_ALIASES[proposal.field.toLowerCase()] ?? proposal.field.toLowerCase()
-      if (!(ENRICHMENT_FIELDS as readonly string[]).includes(field))
-        reject(proposal, 'field not allowed')
-      else if (numbers(proposal.value).some((number) => !numbers(proposal.quote).includes(number)))
-        reject(proposal, 'value not in quote')
-      else
-        accepted.push({
+    if (proposal.type === 'alias') {
+      const tokens = phraseKey(proposal.alias).split(' ')
+      const existing = index.resolveKey(phraseKey(proposal.alias))
+      if (
+        proposal.alias.length > 128 ||
+        tokens.length > 6 ||
+        (tokens.length === 1 && GUEST_KIND_WORD_SET.has(tokens[0] ?? ''))
+      ) {
+        reject(proposal, 'alias empty, general or too long')
+        continue
+      }
+      if (existing.length && !existing.includes(subject.id)) {
+        reject(proposal, 'alias already names something else')
+        continue
+      }
+      claims.push({ type: 'alias', targetKey: phraseKey(target.title), alias: proposal.alias })
+    } else {
+      const sourceNames = index.contributions.get(target.id)?.aliases ?? [target.title]
+      if (!sourceNames.some((name) => inQuote(proposal.quote, name))) {
+        reject(proposal, 'subject not in quote')
+        continue
+      }
+      if (proposal.type === 'fact') {
+        const field = FIELD_ALIASES[proposal.field.toLowerCase()] ?? proposal.field.toLowerCase()
+        if (!(ENRICHMENT_FIELDS as readonly string[]).includes(field)) {
+          reject(proposal, 'field not allowed')
+          continue
+        }
+        // Value is unverified proposal text and is never used as an answer fact.
+        claims.push({
           type: 'fact',
-          targetKey: phraseKey(index.entity(subject.id)?.name ?? proposal.subject),
+          targetKey: phraseKey(target.title),
           field,
           value: proposal.value,
           span: proposal.quote,
         })
-    } else if (proposal.type === 'applies_to') {
-      accepted.push({
-        type: 'applies_to',
-        targetKey: phraseKey(index.entity(subject.id)?.name ?? proposal.subject),
-        span: proposal.quote,
-      })
+      } else
+        claims.push({
+          type: 'applies_to',
+          targetKey: phraseKey(target.title),
+          span: proposal.quote,
+        })
     }
+    targets.set(target.id, proposalSourceFingerprint(target))
   }
   return {
-    enrichment: { recordId: record.id, bodySha256: sha256(record.body), claims: accepted },
+    enrichment: {
+      recordId: record.id,
+      bodySha256: sha256(record.body),
+      sourceFingerprint: proposalSourceFingerprint(record),
+      targets: [...targets]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([recordId, fingerprint]) => ({ recordId, fingerprint })),
+      claims,
+    },
     rejected,
   }
 }
 
 export type CachedProposals = { recordId: string; bodySha256: string; claims: EnrichmentProposal[] }
 
-/**
- * Apply cached model proposals to an index. Proposals made from a different version of a record
- * are skipped as stale (that record needs re-enrichment). Aliases from every record are learned
- * first, so a fact can name its subject by an alias another record supplied.
- */
+/** Re-locate bounded legacy model proposals against current sources; never promote their authority. */
 export function applyEnrichmentProposals(
   index: VenueIndex,
   cached: CachedProposals[],
@@ -209,26 +223,30 @@ export function applyEnrichmentProposals(
   accepted: number
   rejected: Array<{ recordId: string; proposal: EnrichmentProposal; reason: string }>
 } {
-  const current = cached.filter((item) => {
-    const record = index.records.get(item.recordId)
-    return record !== undefined && sha256(record.body) === item.bodySha256
-  })
-  const stale = cached
-    .filter((item) => index.records.has(item.recordId) && !current.includes(item))
-    .map((item) => item.recordId)
-  for (const item of current) {
-    const record = index.records.get(item.recordId)!
-    const aliases = item.claims.filter((claim) => claim.type === 'alias')
-    index.setEnrichment(validateEnrichment(index, record, aliases).enrichment)
-  }
+  if (!Array.isArray(cached) || cached.length > 10000)
+    throw new Error('Invalid cached proposal bound')
+  let applied = 0
   let accepted = 0
+  const stale: string[] = []
   const rejected: Array<{ recordId: string; proposal: EnrichmentProposal; reason: string }> = []
-  for (const item of current) {
-    const record = index.records.get(item.recordId)!
+  for (const item of cached) {
+    if (
+      !item ||
+      typeof item.recordId !== 'string' ||
+      typeof item.bodySha256 !== 'string' ||
+      !Array.isArray(item.claims)
+    )
+      throw new Error('Invalid cached proposals')
+    const record = index.records.get(item.recordId)
+    if (!record || sha256(record.body) !== item.bodySha256) {
+      stale.push(item.recordId)
+      continue
+    }
     const result = validateEnrichment(index, record, item.claims)
     index.setEnrichment(result.enrichment)
+    applied += 1
     accepted += result.enrichment.claims.length
     for (const entry of result.rejected) rejected.push({ recordId: item.recordId, ...entry })
   }
-  return { applied: current.length, stale, accepted, rejected }
+  return { applied, stale, accepted, rejected }
 }

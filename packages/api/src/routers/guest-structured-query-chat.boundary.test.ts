@@ -1,0 +1,764 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
+import type { GuestQuerySource } from '../lib/guest-query-source'
+
+import {
+  AI_MODEL_REGISTRY,
+  textAttemptCostCeilingUnits,
+  setOpenAiEmbeddingsClientForTesting,
+  setOpenAiResponsesClientForTesting,
+  type AnthropicCreateParams,
+  type AnthropicMessagesClient,
+  type OpenAiEmbeddingsClient,
+} from '@pathfinder/ai'
+
+const configLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}))
+
+// Mock @pathfinder/config so env validation doesn't fail in the test environment
+vi.mock('@pathfinder/config', () => ({
+  env: { ANTHROPIC_API_KEY: 'test-key' },
+  logger: configLogger,
+}))
+
+const { emitEvent } = vi.hoisted(() => ({
+  emitEvent: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('@pathfinder/analytics', () => ({
+  emitEvent,
+}))
+
+const { checkRateLimit, checkRateLimitsOrdered } = vi.hoisted(() => ({
+  checkRateLimit: vi.fn(),
+  checkRateLimitsOrdered: vi.fn(),
+}))
+
+vi.mock('../lib/rate-limit', () => ({ checkRateLimit, checkRateLimitsOrdered }))
+
+const readApprovedGuestPlaceMedia = vi.hoisted(() => vi.fn())
+vi.mock('../lib/guest-place-media', () => ({ readApprovedGuestPlaceMedia }))
+
+const searchGuestWebWithAccounting = vi.hoisted(() => vi.fn())
+vi.mock('@pathfinder/ai/guest-web-search-accounting', () => ({ searchGuestWebWithAccounting }))
+
+const coverageReadControls = vi.hoisted(() => ({ fail: false, mismatch: false, projections: 0 }))
+const fixtureDirectory = vi.hoisted(() => ({
+  knowledge: [] as Array<Record<string, unknown>>,
+  places: [] as Array<Record<string, unknown>>,
+  incomplete: false,
+  searchVersion: 'independent-stale-directory',
+}))
+vi.mock('../lib/guest-venue-directory', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/guest-venue-directory')>()
+  return { ...original, loadGuestVenueDirectoryCached: vi.fn(async () => fixtureDirectory) }
+})
+const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
+const guestTurnActions = vi.hoisted(() => ({
+  reserve: vi.fn(),
+  claim: vi.fn(),
+  dispatch: vi.fn(),
+  skip: vi.fn(),
+  observe: vi.fn(),
+  fail: vi.fn(),
+  finalize: vi.fn(),
+  readAdjacentIdentity: vi.fn(),
+}))
+const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
+const resolveNativeGuestReadSnapshotAction = vi.hoisted(() => vi.fn())
+const readActiveUnhealthyAiProviders = vi.hoisted(() => vi.fn())
+const isGuestConversationDisposed = vi.hoisted(() => vi.fn())
+const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
+const recordConversationLearningCandidate = vi.hoisted(() => vi.fn())
+vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }))
+vi.mock('@pathfinder/db', async (importOriginal) => {
+  const originalDb = await importOriginal<typeof import('@pathfinder/db')>()
+  return {
+    ...originalDb,
+    reserveAiCostAttempt: accounting.reserve,
+    markAiCostAttemptDispatched: accounting.dispatch,
+    settleAiCostAttemptExact: accounting.exact,
+    settleAiCostAttemptAmbiguous: accounting.ambiguous,
+    releaseUndispatchedAiCostAttempt: accounting.release,
+    applyNativeGuestContentRead: (
+      input: Parameters<typeof import('@pathfinder/db').applyNativeGuestContentRead>[0],
+    ) => {
+      const original = originalDb.applyNativeGuestContentRead(input)
+      coverageReadControls.projections += 1
+      return coverageReadControls.mismatch && coverageReadControls.projections === 2
+        ? { ...original, path: 'LEGACY' as const }
+        : original
+    },
+    searchPlacesByEmbedding: semanticSearch.places,
+    searchKnowledgeByEmbedding: semanticSearch.knowledge,
+    reserveGuestChatTurnAction: guestTurnActions.reserve,
+    claimGuestChatTurnAction: guestTurnActions.claim,
+    markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+    skipGuestChatProviderOperationAction: guestTurnActions.skip,
+    observeGuestChatProviderOperationAction: guestTurnActions.observe,
+    failGuestChatTurnAction: guestTurnActions.fail,
+    finalizeGuestChatTurnAction: guestTurnActions.finalize,
+    readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
+    resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
+    resolveNativeGuestReadSnapshotAction,
+    readActiveUnhealthyAiProviders,
+    isGuestConversationDisposed,
+    recordConversationLearningCandidate,
+  }
+})
+
+const loadQuerySource = vi.hoisted(() => vi.fn())
+vi.mock('../lib/guest-query-source', () => ({ loadGuestQuerySource: loadQuerySource }))
+const gatewayCalls = vi.hoisted(() => [] as Array<Record<string, unknown>>)
+vi.mock('@pathfinder/ai', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@pathfinder/ai')>()
+  return {
+    ...original,
+    generateTextForCapability: (...args: Parameters<typeof original.generateTextForCapability>) => {
+      gatewayCalls.push(args[0] as unknown as Record<string, unknown>)
+      return original.generateTextForCapability(...args)
+    },
+  }
+})
+const accounting = vi.hoisted(() => ({
+  reserve: vi.fn(),
+  dispatch: vi.fn(),
+  exact: vi.fn(),
+  ambiguous: vi.fn(),
+  release: vi.fn(),
+}))
+
+import { router } from '../core'
+import type { TRPCContext } from '../context'
+import { _setAnthropicClientForTesting, chatRouter, streamChatTurn } from './chat'
+
+// ---------------------------------------------------------------------------
+// DB mock
+// ---------------------------------------------------------------------------
+
+const dbQueryRaw = vi.fn()
+const sessionUpsert = vi.fn()
+const sessionFindFirst = vi.fn()
+const sessionUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
+const placeFindMany = vi.fn()
+const placeFindFirst = vi.fn()
+const venueLocationFindMany = vi.fn()
+const messageFindMany = vi.fn()
+const voiceTranscriptSegmentFindMany = vi.fn()
+const messageCreate = vi.fn()
+const messageFindFirst = vi.fn()
+const guestChatTurnFindFirst = vi.fn()
+const tenantFindUnique = vi.fn()
+const engagementQuestionFindMany = vi.fn()
+const engagementQuestionFindFirst = vi.fn()
+const engagementQuestionResponseCreate = vi.fn().mockResolvedValue({})
+const aiUsageEventCreate = vi.fn().mockResolvedValue({})
+const platformConfigFindUnique = vi.fn()
+const aiWorkloadConfigurationOverrideFindFirst = vi.fn()
+const aiScopedWorkloadConfigurationOverrideFindFirst = vi.fn()
+const aiCostBudgetFindFirst = vi.fn()
+const operationalEventUpsert = vi.fn()
+const venueFindFirst = vi.fn()
+const venueFindMany = vi.fn()
+const tenantFeatureFlagFindMany = vi.fn()
+const tenantFeatureFlagFindUnique = vi.fn()
+const venueKnowledgeEntryFindMany = vi.fn()
+const dbTransaction = vi.fn()
+const recommendationPolicyFindFirst = vi.fn()
+const catalogItemFindMany = vi.fn()
+const catalogPriorityFindMany = vi.fn()
+const analyticsEventFindMany = vi.fn()
+
+const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
+
+const liveDataConnectorFindMany = vi.hoisted(() => vi.fn())
+
+const mockDb = {
+  liveDataConnector: { findMany: liveDataConnectorFindMany },
+  platformConfig: { findUnique: platformConfigFindUnique },
+  aiWorkloadConfigurationOverride: { findFirst: aiWorkloadConfigurationOverrideFindFirst },
+  aiScopedWorkloadConfigurationOverride: {
+    findFirst: aiScopedWorkloadConfigurationOverrideFindFirst,
+  },
+  venue: { findFirst: venueFindFirst, findMany: venueFindMany },
+  tenantFeatureFlag: {
+    findMany: tenantFeatureFlagFindMany,
+    findUnique: tenantFeatureFlagFindUnique,
+  },
+  visitorSession: {
+    upsert: sessionUpsert,
+    updateMany: sessionUpdateMany,
+    findFirst: sessionFindFirst,
+  },
+  tenant: { findUnique: tenantFindUnique },
+  engagementQuestion: {
+    findMany: engagementQuestionFindMany,
+    findFirst: engagementQuestionFindFirst,
+  },
+  engagementQuestionResponse: { create: engagementQuestionResponseCreate },
+  aiUsageEvent: { create: aiUsageEventCreate },
+  aiCostBudget: { findFirst: aiCostBudgetFindFirst },
+  aiCostReservation: {},
+  operationalEvent: { upsert: operationalEventUpsert },
+  place: { findMany: placeFindMany, findFirst: placeFindFirst },
+  venueLocation: { findMany: venueLocationFindMany },
+  message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
+  voiceTranscriptSegment: { findMany: voiceTranscriptSegmentFindMany },
+  guestChatTurn: { findFirst: guestChatTurnFindFirst },
+  operationalUpdate: { findMany: operationalUpdateFindMany },
+  venueKnowledgeEntry: { findMany: venueKnowledgeEntryFindMany },
+  venueRecommendationPolicy: { findFirst: recommendationPolicyFindFirst },
+  venueCatalogItem: { findMany: catalogItemFindMany },
+  venueCatalogItemPriority: { findMany: catalogPriorityFindMany },
+  analyticsEvent: { findMany: analyticsEventFindMany },
+  $queryRaw: dbQueryRaw,
+  $transaction: dbTransaction,
+} as unknown as TRPCContext['db']
+
+// ---------------------------------------------------------------------------
+// Anthropic mock
+// ---------------------------------------------------------------------------
+
+const anthropicCreate = vi.fn()
+const mockAnthropicClient = {
+  messages: { create: anthropicCreate },
+} as AnthropicMessagesClient
+const embeddingCreate = vi.fn()
+const mockOpenAiClient = { embeddings: { create: embeddingCreate } } as OpenAiEmbeddingsClient
+
+// ---------------------------------------------------------------------------
+// Context
+// ---------------------------------------------------------------------------
+
+const ctx: TRPCContext = {
+  db: mockDb,
+  headers: new Headers(),
+  session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+}
+
+const testRouter = router({ chat: chatRouter })
+const caller = testRouter.createCaller(ctx)
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const VENUE_ID = 'cvenueabc123456789012'
+const TOKEN = '123e4567-e89b-12d3-a456-426614174000'
+const SESSION_ID = 'csessionabc1234567890'
+const TENANT_ID = 'tenant_1'
+
+const venueRow = {
+  id: VENUE_ID,
+  tenantId: TENANT_ID,
+  name: 'City Zoo',
+  description: 'A great zoo.',
+  category: 'zoo',
+  isActive: true,
+}
+
+const placeRows = [
+  {
+    id: 'p1',
+    name: 'Elephants',
+    type: 'attraction',
+    shortDescription: null,
+    lat: 40.7,
+    lng: -74.0,
+    tags: [],
+    areaName: null,
+    hours: null,
+  },
+]
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('structured query actual chat boundary (source/DB loaders mocked)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    Object.assign(coverageReadControls, { fail: false, mismatch: false, projections: 0 })
+    _setAnthropicClientForTesting(mockAnthropicClient)
+    setOpenAiEmbeddingsClientForTesting(mockOpenAiClient)
+    embeddingCreate.mockResolvedValue({
+      data: [{ embedding: Array.from({ length: 1_536 }, () => 0.1), index: 0 }],
+      usage: { prompt_tokens: 5, total_tokens: 5 },
+    })
+    semanticSearch.places.mockResolvedValue(placeRows)
+    semanticSearch.knowledge.mockResolvedValue([])
+    // Lexical place recall shares this delegate; tests queue explicit rows where they matter.
+    placeFindMany.mockResolvedValue([])
+    venueKnowledgeEntryFindMany.mockResolvedValue([])
+    operationalUpdateFindMany.mockResolvedValue([])
+    venueLocationFindMany.mockResolvedValue([])
+    resolvePublishedUniversalContent.mockResolvedValue([])
+    resolveNativeGuestReadSnapshotAction.mockResolvedValue({
+      path: 'LEGACY',
+      reason: 'SERVER_DISABLED',
+      releaseId: null,
+      state: null,
+    })
+    readActiveUnhealthyAiProviders.mockResolvedValue([])
+    isGuestConversationDisposed.mockResolvedValue(false)
+    tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
+    engagementQuestionFindMany.mockResolvedValue([])
+    sessionUpdateMany.mockResolvedValue({ count: 1 })
+    engagementQuestionResponseCreate.mockResolvedValue({})
+    aiUsageEventCreate.mockResolvedValue({})
+    platformConfigFindUnique.mockResolvedValue(null)
+    aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
+    aiScopedWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
+    aiCostBudgetFindFirst.mockResolvedValue(null)
+    operationalEventUpsert.mockResolvedValue({ id: 'event_1', state: 'OPEN', occurrenceCount: 1 })
+    venueFindFirst.mockResolvedValue({ isActive: true })
+    venueFindMany.mockResolvedValue([])
+    resolveSystemCharacterProjection.mockReturnValue(null)
+    tenantFeatureFlagFindMany.mockResolvedValue([])
+    voiceTranscriptSegmentFindMany.mockResolvedValue([])
+    sessionFindFirst.mockResolvedValue({ id: SESSION_ID, experienceScope: 'PUBLIC' })
+    dbTransaction.mockImplementation((callback: (client: typeof mockDb) => unknown) =>
+      callback(mockDb),
+    )
+    guestTurnActions.reserve.mockImplementation(async () => {
+      const prior = await sessionUpsert({
+        where: {
+          venueId_anonymousToken: { venueId: VENUE_ID, anonymousToken: TOKEN },
+          tenantId: TENANT_ID,
+        },
+        create: { tenantId: TENANT_ID, venueId: VENUE_ID },
+      })
+      return {
+        state: 'RESERVED',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        sessionId: prior?.id ?? SESSION_ID,
+        replayed: false,
+      }
+    })
+    guestTurnActions.claim.mockResolvedValue({
+      state: 'GENERATING',
+      turnId: '11111111-1111-4111-8111-111111111111',
+      turnSequence: 2,
+      sessionId: SESSION_ID,
+      claimId: '22222222-2222-4222-8222-222222222222',
+      providerOperations: [
+        { kind: 'QUERY_EMBEDDING', invocationId: '33333333-3333-4333-8333-333333333333' },
+        { kind: 'RESPONSE_GENERATION', invocationId: '44444444-4444-4444-8444-444444444444' },
+      ],
+      replayed: false,
+    })
+    guestTurnActions.dispatch.mockResolvedValue({ dispatched: true })
+    guestTurnActions.skip.mockResolvedValue({ skipped: true })
+    guestTurnActions.observe.mockResolvedValue({ observed: true })
+    guestTurnActions.fail.mockResolvedValue({ failed: true })
+    guestTurnActions.readAdjacentIdentity.mockResolvedValue(null)
+    guestTurnActions.finalize.mockImplementation(async ({ input }) => {
+      await messageCreate({ data: { role: 'user', content: input.message } })
+      await messageCreate({ data: { role: 'assistant', content: input.assistantResponse } })
+      return {
+        state: 'COMPLETE',
+        turnId: input.turnId,
+        sessionId: SESSION_ID,
+        userMessageId: '55555555-5555-4555-8555-555555555555',
+        response: input.assistantResponse,
+        replyKind: guestReplyKindFromFallbackCode(input.fallbackCode),
+        places: input.replayMetadata.places,
+        citations: input.replayMetadata.citations,
+        actionPlacements: input.replayMetadata.actionPlacements,
+        replayed: false,
+      }
+    })
+    checkRateLimit.mockResolvedValue(true)
+    checkRateLimitsOrdered.mockResolvedValue(0)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    _setAnthropicClientForTesting(null)
+    setOpenAiEmbeddingsClientForTesting(null)
+    setOpenAiResponsesClientForTesting(null)
+  })
+
+  const restriction =
+    'STRUCTURED_ONLY: minimum 48 inches; under 10 with a paid adult; closed October 20–22. Booking never waives restrictions.'
+  const policy = 'STRUCTURED_POLICY: $8 per rider; weekends only; no exceptions to age or height.'
+  const baseline = 'BASELINE_ONLY: Please consult the desk for the current conditions.'
+  const input = { venueId: VENUE_ID, anonymousToken: TOKEN, message: 'List attractions.' }
+  const rawPlan = JSON.stringify({
+    status: 'QUERY',
+    mode: 'list',
+    predicates: [{ field: 'kind', equals: 'ATTRACTION' }],
+  })
+  const message = (text: string) => ({
+    content: [{ type: 'text', text }],
+    usage: { input_tokens: 20, output_tokens: 10 },
+  })
+  function topic(id = 'baseline', content = baseline) {
+    return {
+      id,
+      title: 'Visitor conditions',
+      category: 'VISIT',
+      content,
+      sourceType: 'MANUAL',
+      sourceName: null,
+      sourceUrl: null,
+      updatedAt: new Date('2026-10-01'),
+      lastReviewedAt: null,
+      contentModuleId: null,
+      contentRevisionId: null,
+      contentPublicationId: null,
+    }
+  }
+  function source(version = 'v1'): GuestQuerySource {
+    return {
+      tenantId: TENANT_ID,
+      venueId: VENUE_ID,
+      version,
+      asOf: '2026-10-21T05:00:00.000Z',
+      coverage: 'COMPLETE',
+      readPath: 'LEGACY',
+      includeSecondLayer: false,
+      directory: {
+        searchVersion: version,
+        incomplete: false,
+        places: [
+          {
+            id: 'moon',
+            name: 'Moon Ride',
+            type: 'ATTRACTION',
+            itemType: 'ride',
+            shortDescription: null,
+            longDescription: restriction,
+            lat: null,
+            lng: null,
+            tags: [],
+            areaName: 'North',
+            hours: null,
+            photoUrl: null,
+            sourceType: 'MANUAL',
+            sourceName: null,
+            sourceUrl: null,
+          },
+        ],
+        knowledge: [topic('booking', policy)],
+      },
+    }
+  }
+  beforeEach(() => {
+    vi.stubEnv('NODE_ENV', 'test')
+    vi.stubEnv('TORCHIKO_LOCAL_STRUCTURED_QUERY', '1')
+    vi.stubEnv('GUEST_GUIDE_STRATEGY', 'evidence')
+    gatewayCalls.length = 0
+    accounting.reserve.mockImplementation(async (args) => ({
+      id: args.reservationId,
+      reservedUnits: args.reservedUnits,
+      tenantId: args.identity.tenantId,
+      venueId: args.identity.venueId,
+    }))
+    accounting.dispatch.mockResolvedValue(undefined)
+    accounting.exact.mockResolvedValue(undefined)
+    accounting.ambiguous.mockResolvedValue(undefined)
+    accounting.release.mockResolvedValue(undefined)
+    loadQuerySource.mockResolvedValue(source())
+    fixtureDirectory.places = []
+    fixtureDirectory.knowledge = [topic()]
+    fixtureDirectory.incomplete = false
+    semanticSearch.places.mockResolvedValue([])
+    semanticSearch.knowledge.mockResolvedValue([{ ...topic(), distance: 0.1 }])
+    venueKnowledgeEntryFindMany.mockResolvedValue([topic()])
+    dbQueryRaw.mockResolvedValue([
+      {
+        ...venueRow,
+        name: 'Fictional Moon Museum',
+        chatAppearance: { timeZone: 'America/Chicago' },
+      },
+    ])
+    sessionUpsert.mockResolvedValue({ id: SESSION_ID, experienceScope: 'PUBLIC' })
+    messageFindMany.mockResolvedValue([])
+    messageCreate.mockResolvedValue({})
+    aiUsageEventCreate.mockResolvedValue({ id: 'usage-record' })
+    anthropicCreate.mockResolvedValue(message('ANSWER_VISIBLE'))
+  })
+  const system = (index = -1) =>
+    (
+      (anthropicCreate.mock.calls.at(index)![0] as AnthropicCreateParams).system as Array<{
+        text: string
+      }>
+    )
+      .map((block) => block.text)
+      .join('')
+  function queue(plan = rawPlan) {
+    anthropicCreate
+      .mockResolvedValueOnce(message(plan))
+      .mockResolvedValueOnce(message('ANSWER_VISIBLE'))
+  }
+  function metadata() {
+    return guestTurnActions.finalize.mock.calls[0]![0].input.replayMetadata
+  }
+  function structuredSummary() {
+    const profile = metadata().answerEvidence.sources.find(
+      (row: { kind: string }) => row.kind === 'VENUE_PROFILE',
+    )
+    return JSON.parse(profile.snapshot).structuredQuery
+  }
+  it.each(['absent', 'production'])('keeps baseline without eligible opt-in: %s', async (mode) => {
+    if (mode === 'absent') vi.stubEnv('TORCHIKO_LOCAL_STRUCTURED_QUERY', '')
+    else vi.stubEnv('NODE_ENV', 'production')
+    await caller.chat.send(input)
+    expect(loadQuerySource).not.toHaveBeenCalled()
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(system()).not.toContain('Translate the guest question')
+    expect(system()).toContain(baseline)
+  })
+  it.each([false, true])(
+    'excludes original native admission even with projection mismatch=%s',
+    async (mismatch) => {
+      const state = { places: [], knowledgeEntries: [topic()], generalizedModules: [] }
+      resolveNativeGuestReadSnapshotAction.mockResolvedValue({
+        path: 'NATIVE',
+        reason: 'NATIVE_READY',
+        releaseId: 'release-native',
+        state,
+      })
+      coverageReadControls.mismatch = mismatch
+      await caller.chat.send(input)
+      expect(loadQuerySource).not.toHaveBeenCalled()
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+    },
+  )
+  it('uses distinct accounted planner/answer IDs with the same budget and admission guard', async () => {
+    queue()
+    await caller.chat.send(input)
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(gatewayCalls).toHaveLength(2)
+    const [planner, answer] = gatewayCalls
+    expect(planner!.invocationId).not.toBe(answer!.invocationId)
+    expect(planner!.budgetGate).toBe(answer!.budgetGate)
+    expect(planner!.admissionGuard).toBe(answer!.admissionGuard)
+    expect(planner!.usageSink).toBe(answer!.usageSink)
+    expect(planner!.maxAttempts).toBe(1)
+    expect(planner!.maxOutputTokens).toBeGreaterThan(0)
+    const route = planner!.route as {
+      candidates: Array<{ modelKey: keyof typeof AI_MODEL_REGISTRY }>
+    }
+    for (const candidate of route.candidates)
+      expect(planner!.maxOutputTokens).toBeLessThanOrEqual(
+        AI_MODEL_REGISTRY[candidate.modelKey].maxOutputTokens,
+      )
+    expect(planner).not.toHaveProperty('onTextDelta')
+    const invocationIds = accounting.reserve.mock.calls
+      .filter(([args]) => args.identity.feature === 'guest-chat')
+      .map(([args]) => args.identity.invocationId)
+    expect(new Set(invocationIds).size).toBe(2)
+    expect(accounting.exact.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(
+      guestTurnActions.dispatch.mock.calls.filter(
+        ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+      ),
+    ).toHaveLength(1)
+  })
+  it('retains exact answer system and source restriction bodies in finalized evidence', async () => {
+    queue()
+    await caller.chat.send(input)
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    const evidence = metadata().answerEvidence
+    expect(JSON.stringify(evidence)).toContain(restriction)
+    expect(JSON.stringify(evidence)).toContain(policy)
+    expect(
+      JSON.parse(
+        evidence.sources.find((row: { sourceId: string }) => row.sourceId === 'place:moon')
+          .snapshot,
+      ),
+    ).toEqual(source().directory.places[0])
+    expect(
+      JSON.parse(
+        evidence.sources.find((row: { sourceId: string }) => row.sourceId === 'knowledge:booking')
+          .snapshot,
+      ),
+    ).toEqual(JSON.parse(JSON.stringify(source().directory.knowledge[0])))
+    // The receipt must preserve the exact strings actually dispatched, including cache partitions.
+    expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(system())
+    expect(structuredSummary().knownMatchCount).toBe(1)
+  })
+  it.each([
+    JSON.stringify({ status: 'UNSUPPORTED', reason: 'age and date unsupported' }),
+    JSON.stringify({
+      status: 'QUERY',
+      mode: 'list',
+      predicates: [
+        { field: 'kind', equals: 'ATTRACTION' },
+        { field: 'feature', name: 'wheelchairAccessible', value: true },
+      ],
+    }),
+    JSON.stringify({
+      status: 'QUERY',
+      mode: 'list',
+      predicates: [
+        { field: 'name', equals: 'Moon Ride' },
+        { field: 'product', name: 'pizza' },
+      ],
+    }),
+  ])(
+    'falls back whole unsupported conjunction without partial structured evidence %#',
+    async (plan) => {
+      queue(plan)
+      await caller.chat.send(input)
+      expect(anthropicCreate).toHaveBeenCalledTimes(2)
+      expect(system()).toContain(baseline)
+      expect(system()).not.toContain(restriction)
+      expect(structuredSummary()).toBeUndefined()
+    },
+  )
+  it.each(['version', 'native', 'read-failure'])(
+    'blocks stale answer when source changes between planner and answer: %s',
+    async (change) => {
+      anthropicCreate.mockImplementationOnce(async () => {
+        if (change === 'version') loadQuerySource.mockResolvedValue(source('v2'))
+        if (change === 'native')
+          resolveNativeGuestReadSnapshotAction.mockResolvedValue({
+            path: 'NATIVE',
+            reason: 'NATIVE_READY',
+            releaseId: 'new',
+            state: null,
+          })
+        if (change === 'read-failure')
+          loadQuerySource.mockRejectedValue(new Error('source unreadable'))
+        return message(rawPlan)
+      })
+      await caller.chat.send(input)
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+      expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+      expect(guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse).not.toBe(
+        'ANSWER_VISIBLE',
+      )
+    },
+  )
+  it('falls back to bounded baseline if retained sources exceed attribution source count', async () => {
+    const many = source()
+    many.directory.knowledge = Array.from({ length: 101 }, (_, index) =>
+      topic(`policy-${index}`, `Condition ${index}: weekends only.`),
+    )
+    loadQuerySource.mockResolvedValue(many)
+    queue()
+    await caller.chat.send(input)
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(system()).toContain(baseline)
+    expect(system()).not.toContain(restriction)
+    expect(structuredSummary()).toBeUndefined()
+  })
+  it('enforces one cumulative request ceiling across planner and answer', async () => {
+    const spec = AI_MODEL_REGISTRY['guest-chat']
+    const ceiling = textAttemptCostCeilingUnits({
+      spec,
+      system: [],
+      messages: [],
+      maxOutputTokens: spec.maxOutputTokens,
+    })
+    aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
+      enabled: true,
+      isTombstone: false,
+      requestBudgetCeilingE8UsdSet: true,
+      requestBudgetCeilingE8Usd: ceiling.toString(),
+      unsafeChangesEnabled: false,
+      reason: 'Synthetic cumulative ceiling',
+    })
+    queue()
+    await caller.chat.send(input)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(gatewayCalls).toHaveLength(2)
+    expect(gatewayCalls[0]!.budgetGate).toBe(gatewayCalls[1]!.budgetGate)
+    expect(
+      accounting.reserve.mock.calls.filter(([args]) => args.identity.feature === 'guest-chat'),
+    ).toHaveLength(1)
+    expect(accounting.exact.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse).not.toBe(
+      'ANSWER_VISIBLE',
+    )
+  })
+  it('rechecks source admission after answer budget reservation before dispatch', async () => {
+    let chatReserves = 0
+    accounting.reserve.mockImplementation(async (args) => {
+      if (args.identity.feature === 'guest-chat' && ++chatReserves === 2)
+        loadQuerySource.mockResolvedValue(source('withdrawn-version'))
+      return { id: args.reservationId, reservedUnits: args.reservedUnits }
+    })
+    queue()
+    await caller.chat.send(input)
+    expect(chatReserves).toBe(2)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(accounting.release).toHaveBeenCalled()
+  })
+  it('falls back when current same-ID content differs from baseline prompt content', async () => {
+    const current = source()
+    current.directory.knowledge = [topic('baseline', policy)]
+    loadQuerySource.mockResolvedValue(current)
+    queue()
+    await caller.chat.send(input)
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(system()).toContain(baseline)
+    expect(system()).not.toContain(policy)
+    expect(structuredSummary()).toBeUndefined()
+  })
+  it('falls back when a whole required condition exceeds the result prompt bound', async () => {
+    const current = source()
+    current.directory.knowledge[0]!.content =
+      'OVERSIZED_CONDITION_START ' + 'x'.repeat(35000) + ' OVERSIZED_CONDITION_END'
+    loadQuerySource.mockResolvedValue(current)
+    queue()
+    await caller.chat.send(input)
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(system()).toContain(baseline)
+    expect(system()).not.toContain('OVERSIZED_CONDITION_START')
+    expect(structuredSummary()).toBeUndefined()
+  })
+  it('keeps an equal same-ID body once in the retained attribution sources', async () => {
+    const current = source()
+    current.directory.knowledge = [
+      {
+        id: 'baseline',
+        title: 'Visitor conditions',
+        category: 'VISIT',
+        content: baseline,
+        sourceType: 'MANUAL',
+        sourceName: null,
+        sourceUrl: null,
+      },
+    ]
+    loadQuerySource.mockResolvedValue(current)
+    queue()
+    await caller.chat.send(input)
+    expect(structuredSummary().knownMatchCount).toBe(1)
+    expect(
+      metadata().answerEvidence.sources.filter(
+        (row: { sourceId: string }) => row.sourceId === 'knowledge:baseline',
+      ),
+    ).toHaveLength(1)
+  })
+  it('does not stream planner JSON to guests', async () => {
+    anthropicCreate.mockResolvedValueOnce(message(rawPlan))
+    const stream = vi.fn(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'ANSWER_VISIBLE' } }
+      },
+      finalMessage: vi.fn().mockResolvedValue(message('ANSWER_VISIBLE')),
+    }))
+    _setAnthropicClientForTesting({
+      messages: { create: anthropicCreate, stream },
+    } as unknown as AnthropicMessagesClient)
+    const events = []
+    for await (const event of streamChatTurn(ctx, input)) events.push(event)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(stream).toHaveBeenCalledOnce()
+    expect(
+      events
+        .filter((event) => event.type === 'delta')
+        .map((event) => (event.type === 'delta' ? event.delta : ''))
+        .join(''),
+    ).toBe('ANSWER_VISIBLE')
+    expect(JSON.stringify(events)).not.toContain('"predicates"')
+  })
+})

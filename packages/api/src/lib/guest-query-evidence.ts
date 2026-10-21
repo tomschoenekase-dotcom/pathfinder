@@ -4,7 +4,7 @@ import { projectGuestQuerySource } from './guest-query-projection'
 import { renderGuestQueryResult } from './guest-query-result-prompt'
 import type { GuestQuerySource } from './guest-query-source'
 import {
-  executeGuestStructuredQuery,
+  prepareGuestStructuredSnapshot,
   type GuestStructuredQueryPage,
 } from './guest-structured-query'
 
@@ -28,10 +28,10 @@ export async function prepareGuestQueryEvidence(input: {
   const page = structuredClone(input.page ?? {})
   // The model callback cannot mutate the authoritative source used for execution and rendering.
   const source = structuredClone(input.source)
-  const snapshot = projectGuestQuerySource(source)
-  const system = guestQueryPlanningPrompt(snapshot)
+  const prepared = prepareGuestStructuredSnapshot(projectGuestQuerySource(source))
+  const system = guestQueryPlanningPrompt(prepared)
   const rawPlan = await input.interpret({ system, question })
-  const plan = parseGuestQueryPlan(rawPlan, snapshot)
+  const plan = parseGuestQueryPlan(rawPlan, prepared)
   const trace = {
     sourceVersion: source.version,
     questionSha256: createHash('sha256').update(question).digest('hex'),
@@ -40,7 +40,7 @@ export async function prepareGuestQueryEvidence(input: {
     plan,
   }
   if (plan.status === 'UNSUPPORTED') return { status: 'UNSUPPORTED' as const, trace }
-  const result = executeGuestStructuredQuery(snapshot, plan.query, page)
+  const result = prepared.evaluate(plan.query).page(page)
   const sources = [
     ...source.directory.places.map((place) => ({
       key: `place:${place.id}`,

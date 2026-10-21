@@ -282,7 +282,7 @@ describe('incremental updates', () => {
     }
   })
 
-  it('drops validated enrichment when its record changes', () => {
+  it('drops retrieval proposals when their source changes', () => {
     const records = park()
     const index = VenueIndex.build('Park', records)
     const record = records.find((item) => item.id === 'k1')!
@@ -317,16 +317,16 @@ describe('incremental updates', () => {
     ])
     index.setEnrichment(enrichment)
     expect(
-      retrieveForGuest(index, { question: 'is there an ice cream cart' }).focusRecordIds,
+      retrieveForGuest(index, { question: 'is there an ice cream cart' }).proposalRecordIds,
     ).toEqual(['k1'])
     index.upsert({ ...record, body: `${record.body}\nThe cart is cash only.` })
     expect(validateVenueIndex(index).staleEnrichment).toEqual(['k1'])
     expect(
-      retrieveForGuest(index, { question: 'is there an ice cream cart' }).focusRecordIds,
+      retrieveForGuest(index, { question: 'is there an ice cream cart' }).proposalRecordIds,
     ).toEqual([])
   })
 
-  it('reports a validated claim that contradicts a record', () => {
+  it('keeps a disagreeing proposal as source retrieval, never an authoritative conflict', () => {
     const records = park()
     const index = VenueIndex.build('Park', records)
     const chart = records.find((item) => item.id === 'k3')!
@@ -340,16 +340,8 @@ describe('incremental updates', () => {
       },
     ])
     index.setEnrichment(enrichment)
-    expect(validateVenueIndex(index).conflicts).toEqual([
-      {
-        entity: 'Thunder Gulch',
-        field: 'height',
-        values: [
-          { value: 'at least 48 inches', recordId: 'p1' },
-          { value: 'at least 50 inches', recordId: 'k3' },
-        ],
-      },
-    ])
+    expect(validateVenueIndex(index).conflicts).toEqual([])
+    expect(index.proposalRecordIds('Thunder Gulch')).toContain('k3')
   })
 })
 

@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   executeGuestStructuredQuery as execute,
   GuestStructuredQueryError,
+  prepareGuestStructuredSnapshot,
+  isPreparedGuestSnapshot,
   type GuestQueryEvidence,
   type GuestQueryFact,
   type GuestStructuredPredicate,
@@ -41,6 +43,140 @@ const query = (...predicates: GuestStructuredPredicate[]): GuestStructuredQuery 
 const count = (s: GuestStructuredSnapshot, ...ps: GuestStructuredPredicate[]) =>
   execute(s, { ...query(...ps), mode: 'count' })
 
+describe('private immutable prepared snapshots', () => {
+  it('owns source arrays, nested facts and evidence independently of later caller mutation', () => {
+    const r = record('a', 'Shop')
+    r.aliases = ['Alias']
+    r.kind = known('SHOP', 'revision:1')
+    r.features = { family: known(true, 'revision:1') }
+    r.products = {
+      state: 'KNOWN',
+      completeness: 'COMPLETE',
+      sources: evidence('revision:1'),
+      offers: [{ name: 'Poncho', sources: evidence('revision:1') }],
+    }
+    const s = { ...snapshot([r]), evidenceKeys: ['revision:1'] }
+    const before = structuredClone(s)
+    const prepared = prepareGuestStructuredSnapshot(s)
+    const identity = prepared.snapshotIdentity
+    s.tenantId = 'changed'
+    s.version = 'changed'
+    s.evidenceKeys.length = 0
+    r.name = 'Changed'
+    ;(r.aliases as string[])[0] = 'Changed alias'
+    if (r.kind.state === 'KNOWN') r.kind.value = 'RIDE'
+    if (r.features.family?.state === 'KNOWN') r.features.family.value = false
+    r.products.offers[0]!.name = 'Changed product'
+    ;(s.records as GuestStructuredRecord[]).length = 0
+    const q = query(
+      { field: 'name', equals: 'Alias' },
+      { field: 'kind', equals: 'SHOP' },
+      { field: 'product', name: 'Poncho' },
+      { field: 'feature', name: 'family', value: true },
+    )
+    expect(prepared.evaluate(q).page()).toEqual(execute(before, q))
+    expect(prepared.snapshotIdentity).toBe(identity)
+  })
+
+  it('returns fresh scope/vocabulary/query/results rather than writable internal state', () => {
+    const r = record('a')
+    r.kind = known('SHOP', r.key)
+    const prepared = prepareGuestStructuredSnapshot(snapshot([r]))
+    const scope = prepared.scope as { tenantId: string; venueId: string }
+    scope.tenantId = 'bad'
+    const vocab = prepared.planningVocabulary()
+    ;(vocab.kinds as string[])[0] = 'bad'
+    const q = prepared.validateQuery(query({ field: 'kind', equals: 'SHOP' }))
+    const evaluated = prepared.evaluate(q)
+    q.tenantId = 'bad'
+    const predicate = q.predicates[0]!
+    if (predicate.field === 'kind') predicate.equals = 'RIDE'
+    const first = evaluated.page()
+    first.rows[0]!.name = 'Changed row'
+    first.matchingKeys.length = 0
+    first.unknownKeys.push('place:forged')
+    expect(prepared.scope.tenantId).toBe('tenant1')
+    expect(prepared.planningVocabulary().kinds).toEqual(['SHOP'])
+    expect(evaluated.page()).toMatchObject({
+      knownMatchCount: 1,
+      unknownCandidateCount: 0,
+      matchingKeys: ['place:a'],
+      unknownKeys: [],
+    })
+    expect(evaluated.page().rows[0]!.name).toBe('a')
+  })
+
+  it('cannot be forged by JSON, a copied object, a forged prototype or a public constructor token', () => {
+    const prepared = prepareGuestStructuredSnapshot(snapshot([record('a')]))
+    expect(isPreparedGuestSnapshot(prepared)).toBe(true)
+    expect(isPreparedGuestSnapshot(JSON.parse(JSON.stringify(prepared)))).toBe(false)
+    expect(isPreparedGuestSnapshot({ ...prepared, validated: true })).toBe(false)
+    expect(isPreparedGuestSnapshot(Object.create(Object.getPrototypeOf(prepared)))).toBe(false)
+    const Constructor = prepared.constructor as new (...args: unknown[]) => unknown
+    expect(() => new Constructor(Symbol('forged'), snapshot([]))).toThrow(/construction/)
+    expect(Object.isFrozen(prepared)).toBe(true)
+    expect(() => prepareGuestStructuredSnapshot(snapshot([record('a'), record('a')]))).toThrow(
+      /duplicate/,
+    )
+  })
+
+  it('does no predicate normalization during small-query validation or repeated pagination', () => {
+    const prepared = prepareGuestStructuredSnapshot(
+      snapshot([record('a', 'Same'), record('b', 'Same'), record('c', 'Same')]),
+    )
+    const normalization = vi.spyOn(String.prototype, 'normalize')
+    try {
+      const q = prepared.validateQuery(query({ field: 'name', equals: 'Same' }))
+      expect(normalization).not.toHaveBeenCalled()
+      const evaluated = prepared.evaluate(q)
+      expect(normalization.mock.calls.length).toBeGreaterThan(0)
+      const afterEvaluation = normalization.mock.calls.length
+      const first = evaluated.page({ pageSize: 1 })
+      const second = evaluated.page({ cursor: first.nextCursor!, pageSize: 1 })
+      const third = evaluated.page({ cursor: second.nextCursor!, pageSize: 1 })
+      expect(third.hasMore).toBe(false)
+      expect(normalization.mock.calls.length).toBe(afterEvaluation)
+    } finally {
+      normalization.mockRestore()
+    }
+  })
+
+  it('preserves exact wrapper results/cursors and later-asOf continuation across prepared instances', () => {
+    const s = snapshot([record('c'), record('a'), record('b')])
+    const prepared = prepareGuestStructuredSnapshot(s)
+    const q = query()
+    const first = prepared.evaluate(q).page({ pageSize: 1 })
+    expect(first).toEqual(execute(s, q, { pageSize: 1 }))
+    const later = prepareGuestStructuredSnapshot({ ...s, asOf: '2026-10-21T06:00:00.000Z' })
+    expect(later.snapshotIdentity).toBe(prepared.snapshotIdentity)
+    const second = later.evaluate(q).page({ cursor: first.nextCursor!, pageSize: 1 })
+    expect(second.rows[0]!.key).toBe('place:b')
+    expect(second.asOf).toBe('2026-10-21T06:00:00.000Z')
+    expect(() =>
+      later.evaluate({ ...q, mode: 'count' }).page({ cursor: first.nextCursor! }),
+    ).toThrow(/changed/)
+  })
+
+  it('keeps withdrawn evidence UNKNOWN in new leases and does not mutate an older admitted lease', () => {
+    const a = record('a'),
+      b = record('b')
+    a.kind = known('SHOP', 'revision:1')
+    b.kind = known('SHOP', 'revision:1')
+    const s = { ...snapshot([a, b]), evidenceKeys: ['revision:1'] }
+    const q = query({ field: 'kind', equals: 'SHOP' })
+    const old = prepareGuestStructuredSnapshot(s).evaluate(q)
+    const first = old.page({ pageSize: 1 })
+    const withdrawn = prepareGuestStructuredSnapshot({ ...s, evidenceKeys: [] }).evaluate(q)
+    expect(withdrawn.page()).toMatchObject({
+      knownMatchCount: 0,
+      unknownCandidateCount: 2,
+      exactEligibleCount: null,
+    })
+    expect(() => withdrawn.page({ cursor: first.nextCursor! })).toThrow(/changed/)
+    expect(old.page().knownMatchCount).toBe(2)
+  })
+})
+
 describe('guest structured query: exhaustive arithmetic and pagination', () => {
   it('counts the full 10,000-record set, including matches beyond prior 400/top-k bounds', () => {
     const records = Array.from({ length: 10_000 }, (_, i) => {
@@ -69,7 +205,10 @@ describe('guest structured query: exhaustive arithmetic and pagination', () => {
     const keys: string[] = []
     let cursor: string | undefined
     do {
-      const result = execute(s, query(), { pageSize: 2, ...(cursor === undefined ? {} : { cursor }) })
+      const result = execute(s, query(), {
+        pageSize: 2,
+        ...(cursor === undefined ? {} : { cursor }),
+      })
       keys.push(...result.rows.map((r) => r.key))
       expect(result.knownMatchCount).toBe(5)
       expect(result.matchingKeys).toEqual(['place:a', 'place:b', 'place:c', 'place:m', 'place:z'])

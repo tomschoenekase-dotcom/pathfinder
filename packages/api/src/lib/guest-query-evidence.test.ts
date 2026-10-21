@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { prepareGuestQueryEvidence } from './guest-query-evidence'
 import type { GuestQuerySource } from './guest-query-source'
+import { prepareGuestStructuredSnapshot } from './guest-structured-query'
 
 function source(): GuestQuerySource {
   return {
@@ -58,6 +59,36 @@ const rawPlan = JSON.stringify({
 const sha = (value: string) => createHash('sha256').update(value).digest('hex')
 
 describe('guest query evidence orchestration', () => {
+  it('performs exactly one evaluation for QUERY and none for UNSUPPORTED', async () => {
+    const exemplar = prepareGuestStructuredSnapshot({
+      tenantId: 't',
+      venueId: 'v',
+      version: '1',
+      asOf: '2026-10-21T05:00:00.000Z',
+      coverage: 'COMPLETE',
+      records: [],
+    })
+    const evaluate = vi.spyOn(Object.getPrototypeOf(exemplar), 'evaluate')
+    try {
+      const ready = await prepareGuestQueryEvidence({
+        source: source(),
+        question: 'List rides',
+        interpret: async () => rawPlan,
+      })
+      expect(ready.status).toBe('READY')
+      expect(evaluate).toHaveBeenCalledOnce()
+      evaluate.mockClear()
+      const unsupported = await prepareGuestQueryEvidence({
+        source: source(),
+        question: 'Which ride at my height?',
+        interpret: async () => '{"status":"UNSUPPORTED","reason":"Height condition"}',
+      })
+      expect(unsupported.status).toBe('UNSUPPORTED')
+      expect(evaluate).not.toHaveBeenCalled()
+    } finally {
+      evaluate.mockRestore()
+    }
+  })
   it('uses one interpreter call, authorized scope and pinned question/prompt trace', async () => {
     const input = source()
     const before = structuredClone(input)

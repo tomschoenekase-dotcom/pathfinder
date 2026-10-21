@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { guestQueryPlanningPrompt, parseGuestQueryPlan } from './guest-query-planning'
-import { executeGuestStructuredQuery, type GuestStructuredSnapshot } from './guest-structured-query'
+import {
+  executeGuestStructuredQuery,
+  prepareGuestStructuredSnapshot,
+  type GuestStructuredSnapshot,
+} from './guest-structured-query'
 
 function snapshot(size = 1): GuestStructuredSnapshot {
   return {
@@ -29,6 +33,101 @@ function snapshot(size = 1): GuestStructuredSnapshot {
 }
 
 describe('strict model query planning', () => {
+  it('states the server scope/current-snapshot distinction without inventing record filters', () => {
+    const prompt = guestQueryPlanningPrompt(snapshot())
+    expect(prompt).toContain('Authorized venue scope is already set by the server')
+    expect(prompt).toContain('scope context, not a record-name predicate')
+    expect(prompt).toContain('keep an explicitly requested area filter')
+    expect(prompt).toContain('already current at its server-selected asOf')
+    expect(prompt).toContain('does not add a historical-date or live-opening filter')
+    expect(prompt).toContain(
+      'another date, time, live opening status or future availability still requires UNSUPPORTED',
+    )
+  })
+
+  it('states full-set unknown/pagination reporting support and separates quoted details from selection', () => {
+    const prompt = guestQueryPlanningPrompt(snapshot())
+    expect(prompt).toContain('full-set known-match and unknown-candidate counts and pagination')
+    expect(prompt).toContain('supported reporting requests, not extra selection predicates')
+    expect(prompt).toContain(
+      'Reporting conflicts visible in retained whole sources is also presentation',
+    )
+    expect(prompt).toContain(
+      'selecting or counting conflicting records, or requesting an exhaustive conflict report, is unsupported',
+    )
+    expect(prompt).toContain('quote or display source conditions')
+    expect(prompt).toContain('does not itself add selection predicates')
+    expect(prompt).toContain('whole source bodies')
+    expect(prompt).toContain('preserving stated scope, conditions and omissions')
+  })
+
+  it('retains unsupported selection constraints as an entire-request refusal instruction', () => {
+    const prompt = guestQueryPlanningPrompt(snapshot())
+    expect(prompt).toContain(
+      'age, height, date, distance, price, exceptions, OR, negation of unknown, conditional eligibility',
+    )
+    expect(prompt).toContain(
+      'entire request when any required selection constraint is unsupported; never drop a conjunct',
+    )
+    expect(prompt).toContain(
+      'Asking which records satisfy an eligibility or policy condition is selection',
+    )
+    expect(prompt).toContain('Do not answer those details in the plan')
+  })
+
+  it('does not silently rewrite or remove explicit model name/area/product/feature predicates', () => {
+    const predicates = [
+      { field: 'name', equals: 'Explicit named target' },
+      { field: 'area', equals: 'Explicit area' },
+      { field: 'product', name: 'Explicit product' },
+      { field: 'feature', name: 'Explicit boolean feature', value: false },
+    ]
+    const plan = parseGuestQueryPlan(
+      JSON.stringify({ status: 'QUERY', mode: 'list', predicates }),
+      snapshot(),
+    )
+    expect(plan.status).toBe('QUERY')
+    if (plan.status !== 'QUERY') throw new Error('Expected QUERY')
+    expect(plan.query.predicates).toEqual(predicates)
+  })
+
+  it('validates a prepared QUERY without evaluating and preserves compatible prompt bytes', () => {
+    const s = snapshot(205)
+    const prepared = prepareGuestStructuredSnapshot(s)
+    expect(guestQueryPlanningPrompt(prepared)).toBe(guestQueryPlanningPrompt(s))
+    const evaluate = vi.spyOn(Object.getPrototypeOf(prepared), 'evaluate')
+    try {
+      const raw = JSON.stringify({
+        status: 'QUERY',
+        mode: 'count',
+        predicates: [{ field: 'kind', equals: 'KIND_000' }],
+      })
+      const plan = parseGuestQueryPlan(raw, prepared)
+      expect(evaluate).not.toHaveBeenCalled()
+      expect(
+        parseGuestQueryPlan(
+          '{"status":"UNSUPPORTED","reason":"unrepresentable condition"}',
+          prepared,
+        ).status,
+      ).toBe('UNSUPPORTED')
+      expect(evaluate).not.toHaveBeenCalled()
+      if (plan.status !== 'QUERY') throw new Error('Expected query')
+      expect(prepared.evaluate(plan.query).page().knownMatchCount).toBe(1)
+      expect(evaluate).toHaveBeenCalledOnce()
+    } finally {
+      evaluate.mockRestore()
+    }
+  })
+
+  it('cannot accept a JSON object masquerading as a validated prepared handle', () => {
+    const fake = {
+      scope: { tenantId: 'tenant-test', venueId: 'venue-test' },
+      validateQuery: () => ({}),
+    }
+    const raw = '{"status":"QUERY","mode":"count","predicates":[{"field":"kind","equals":"SHOP"}]}'
+    expect(() => parseGuestQueryPlan(raw, fake as never)).toThrow()
+    expect(() => guestQueryPlanningPrompt(fake as never)).toThrow()
+  })
   it('injects only authorized scope, validates through executor and preserves all AND predicates', () => {
     const s = snapshot()
     const predicates = [

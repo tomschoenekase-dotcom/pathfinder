@@ -246,6 +246,7 @@ export type GuestRetrieval = {
   sellers: SellerGroup[]
   lists: RetrievalList[]
   relatedRecordIds: string[]
+  proposalRecordIds: string[]
   searchRecordIds: string[]
   coreRecordIds: string[]
   kindWords: EntityKind[]
@@ -563,6 +564,7 @@ export function retrieveForGuest(
     sellers,
     lists,
     relatedRecordIds: related,
+    proposalRecordIds: index.proposalRecordIds(query, limits.search),
     searchRecordIds,
     coreRecordIds,
     kindWords,

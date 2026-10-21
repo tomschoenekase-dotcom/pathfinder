@@ -106,6 +106,11 @@ export function buildGuestPacket(
   // Preserve whole governing/context bodies before spending the remaining space on list rows.
   for (const id of retrieval.relatedRecordIds) record(id, '## RELATED POLICY OR TOPIC')
   for (const id of retrieval.coreRecordIds) record(id, '## ADMISSION OR HOURS RECORD')
+  for (const id of retrieval.proposalRecordIds)
+    record(
+      id,
+      '## MODEL-SELECTED SOURCE: relevance and proposed relationships unverified; use only what the whole body states',
+    )
   for (const id of retrieval.focusRecordIds) record(id, '## NAMED RECORD')
   for (const item of retrieval.ambiguous)
     push(

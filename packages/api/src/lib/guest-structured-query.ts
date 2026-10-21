@@ -247,7 +247,7 @@ function validTimestamp(value: string): boolean {
   )
 }
 
-function validate(snapshot: unknown, query: unknown, page: unknown) {
+function validateSnapshot(snapshot: unknown) {
   const s = object(snapshot, 'snapshot')
   fields(
     s,
@@ -300,9 +300,12 @@ function validate(snapshot: unknown, query: unknown, page: unknown) {
       }
     }
   }
+}
+
+function validateQuery(scope: { tenantId: string; venueId: string }, query: unknown) {
   const q = object(query, 'query')
   fields(q, ['tenantId', 'venueId', 'mode', 'predicates'], 'query')
-  if (q.tenantId !== s.tenantId || q.venueId !== s.venueId) fail('query: scope mismatch')
+  if (q.tenantId !== scope.tenantId || q.venueId !== scope.venueId) fail('query: scope mismatch')
   if (!['count', 'list'].includes(q.mode as string)) fail('query: invalid mode')
   if (!Array.isArray(q.predicates) || q.predicates.length > MAX_PREDICATES)
     fail('query: invalid predicate count')
@@ -320,6 +323,9 @@ function validate(snapshot: unknown, query: unknown, page: unknown) {
       if (typeof p.value !== 'boolean') fail('predicate: expected boolean value')
     } else fail('predicate: unsupported field')
   }
+}
+
+function validatePage(page: unknown) {
   const options = object(page, 'page')
   fields(options, ['pageSize', 'cursor'], 'page')
   if (options.pageSize !== undefined) integer(options.pageSize, 'page.pageSize', 1, MAX_PAGE_SIZE)
@@ -373,86 +379,235 @@ function test(
   return p.completeness === 'COMPLETE' && supported(p.sources, keys) ? 'FALSE' : 'UNKNOWN'
 }
 
+export interface PreparedGuestPlanningVocabulary {
+  kinds: readonly string[]
+  areas: readonly string[]
+  features: readonly string[]
+}
+
+/** One immutable admitted-turn snapshot, not a cache or a source-authority grant. */
+export interface PreparedGuestSnapshot {
+  readonly scope: Readonly<{ tenantId: string; venueId: string }>
+  readonly sourceVersion: string
+  readonly asOf: string
+  readonly coverage: GuestStructuredSnapshot['coverage']
+  readonly snapshotIdentity: string
+  planningVocabulary(): PreparedGuestPlanningVocabulary
+  validateQuery(raw: unknown): GuestStructuredQuery
+  evaluate(rawQuery: unknown): PreparedGuestQuery
+}
+
+export interface PreparedGuestQuery {
+  readonly queryIdentity: string
+  page(options?: GuestStructuredQueryPage): GuestStructuredQueryResult
+}
+
+// No registry/cache: the private brand and unexported construction token establish runtime identity.
+const PREPARED_TOKEN = Symbol('private guest query construction')
+type CursorBinding = {
+  tenantId: string
+  venueId: string
+  sourceVersion: string
+  snapshotIdentity: string
+  queryIdentity: string
+}
+
+class PreparedSnapshot implements PreparedGuestSnapshot {
+  #snapshot: GuestStructuredSnapshot
+  #records: readonly GuestStructuredRecord[]
+  #keys: ReadonlySet<string>
+  #identity: string
+  #vocabulary: PreparedGuestPlanningVocabulary
+
+  constructor(token: symbol, snapshot: GuestStructuredSnapshot) {
+    if (token !== PREPARED_TOKEN) fail('Invalid prepared snapshot construction')
+    this.#snapshot = snapshot
+    this.#records = [...snapshot.records].sort((a, b) =>
+      a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
+    )
+    this.#keys = new Set(snapshot.evidenceKeys ?? this.#records.map((record) => record.key))
+    // Preserve format-1 cursor identity exactly; observation time remains excluded.
+    this.#identity = hash({
+      tenantId: snapshot.tenantId,
+      venueId: snapshot.venueId,
+      version: snapshot.version,
+      coverage: snapshot.coverage,
+      records: this.#records,
+      evidenceKeys:
+        snapshot.evidenceKeys === undefined ? undefined : [...snapshot.evidenceKeys].sort(),
+    })
+    const kinds = new Set<string>(),
+      areas = new Set<string>(),
+      features = new Set<string>()
+    for (const record of this.#records) {
+      if (record.kind?.state === 'KNOWN') kinds.add(record.kind.value)
+      if (record.area?.state === 'KNOWN') areas.add(record.area.value)
+      for (const name of Object.keys(record.features ?? {})) features.add(name)
+    }
+    this.#vocabulary = {
+      kinds: [...kinds].sort(),
+      areas: [...areas].sort(),
+      features: [...features].sort(),
+    }
+    Object.freeze(this)
+  }
+
+  static is(value: unknown): value is PreparedSnapshot {
+    return value !== null && typeof value === 'object' && #snapshot in value
+  }
+  get scope() {
+    return { tenantId: this.#snapshot.tenantId, venueId: this.#snapshot.venueId }
+  }
+  get sourceVersion() {
+    return this.#snapshot.version
+  }
+  get asOf() {
+    return this.#snapshot.asOf
+  }
+  get coverage() {
+    return this.#snapshot.coverage
+  }
+  get snapshotIdentity() {
+    return this.#identity
+  }
+  planningVocabulary(): PreparedGuestPlanningVocabulary {
+    return structuredClone(this.#vocabulary)
+  }
+
+  validateQuery(raw: unknown): GuestStructuredQuery {
+    const query = structuredClone(raw)
+    validateQuery(this.scope, query)
+    return query as GuestStructuredQuery
+  }
+
+  evaluate(rawQuery: unknown): PreparedGuestQuery {
+    const query = this.validateQuery(rawQuery)
+    const matches: GuestStructuredRecord[] = [],
+      unknownKeys: string[] = []
+    for (const record of this.#records) {
+      const values = query.predicates.map((predicate) => test(record, predicate, this.#keys))
+      if (values.includes('FALSE')) continue
+      if (values.includes('UNKNOWN')) unknownKeys.push(record.key)
+      else matches.push(record)
+    }
+    return new EvaluatedQuery(
+      PREPARED_TOKEN,
+      this.#snapshot,
+      {
+        ...this.scope,
+        sourceVersion: this.sourceVersion,
+        snapshotIdentity: this.snapshotIdentity,
+        queryIdentity: hash(query),
+      },
+      matches,
+      unknownKeys,
+    )
+  }
+}
+
+class EvaluatedQuery implements PreparedGuestQuery {
+  #snapshot: GuestStructuredSnapshot
+  #binding: CursorBinding
+  #matches: readonly GuestStructuredRecord[]
+  #matchingKeys: readonly string[]
+  #unknownKeys: readonly string[]
+  #positions: ReadonlyMap<string, number>
+
+  constructor(
+    token: symbol,
+    snapshot: GuestStructuredSnapshot,
+    binding: CursorBinding,
+    matches: GuestStructuredRecord[],
+    unknownKeys: string[],
+  ) {
+    if (token !== PREPARED_TOKEN) fail('Invalid prepared query construction')
+    this.#snapshot = snapshot
+    this.#binding = binding
+    this.#matches = matches
+    this.#matchingKeys = matches.map((record) => record.key)
+    this.#unknownKeys = unknownKeys
+    this.#positions = new Map(matches.map((record, index) => [record.key, index + 1]))
+    Object.freeze(this)
+  }
+  get queryIdentity() {
+    return this.#binding.queryIdentity
+  }
+
+  page(options: GuestStructuredQueryPage = {}): GuestStructuredQueryResult {
+    validatePage(options)
+    let after: string | undefined
+    if (options.cursor !== undefined) {
+      let cursor: ObjectValue
+      try {
+        if (!/^[A-Za-z0-9_-]+$/u.test(options.cursor)) fail('cursor: invalid encoding')
+        cursor = object(
+          JSON.parse(Buffer.from(options.cursor, 'base64url').toString('utf8')),
+          'cursor',
+        )
+      } catch {
+        fail('cursor: invalid encoding or payload')
+      }
+      fields(cursor, ['format', ...Object.keys(this.#binding), 'lastKey'], 'cursor')
+      if (
+        cursor.format !== 1 ||
+        Object.entries(this.#binding).some(([key, value]) => cursor[key] !== value)
+      )
+        fail('cursor: snapshot, scope or query changed')
+      key(cursor.lastKey, 'cursor.lastKey')
+      after = cursor.lastKey
+    }
+    const start = after === undefined ? 0 : this.#positions.get(after)
+    if (start === undefined) fail('cursor: continuation key is not a known match')
+    const rows = this.#matches.slice(start, start + (options.pageSize ?? 50))
+    const hasMore = start + rows.length < this.#matches.length
+    const last = rows[rows.length - 1]
+    const nextCursor =
+      hasMore && last
+        ? Buffer.from(canonical({ format: 1, ...this.#binding, lastKey: last.key })).toString(
+            'base64url',
+          )
+        : null
+    const exhaustiveAnswerEligible =
+      this.#snapshot.coverage === 'COMPLETE' && this.#unknownKeys.length === 0
+    return {
+      tenantId: this.#binding.tenantId,
+      venueId: this.#binding.venueId,
+      sourceVersion: this.#binding.sourceVersion,
+      asOf: this.#snapshot.asOf,
+      coverage: this.#snapshot.coverage,
+      queryIdentity: this.queryIdentity,
+      knownMatchCount: this.#matches.length,
+      unknownCandidateCount: this.#unknownKeys.length,
+      // The compatibility result contract intentionally still allocates O(matches + unknowns) IDs.
+      matchingKeys: [...this.#matchingKeys],
+      unknownKeys: [...this.#unknownKeys],
+      rows: structuredClone(rows),
+      returnedCount: rows.length,
+      hasMore,
+      nextCursor,
+      exhaustiveAnswerEligible,
+      exactEligibleCount: exhaustiveAnswerEligible ? this.#matches.length : null,
+      inventoryScope: 'STORED_RECORDS_ONLY',
+    }
+  }
+}
+
+/** Defensive ownership and full validation happen once before a handle is exposed. */
+export function prepareGuestStructuredSnapshot(raw: unknown): PreparedGuestSnapshot {
+  const snapshot = structuredClone(raw)
+  validateSnapshot(snapshot)
+  return new PreparedSnapshot(PREPARED_TOKEN, snapshot as GuestStructuredSnapshot)
+}
+
+export function isPreparedGuestSnapshot(value: unknown): value is PreparedGuestSnapshot {
+  return PreparedSnapshot.is(value)
+}
+
+/** Safe compatibility entry point; optimized callers retain only their private per-turn handle. */
 export function executeGuestStructuredQuery(
   snapshot: GuestStructuredSnapshot,
   query: GuestStructuredQuery,
   page: GuestStructuredQueryPage = {},
 ): GuestStructuredQueryResult {
-  validate(snapshot, query, page)
-  const records = [...snapshot.records].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-  const keys = new Set(snapshot.evidenceKeys ?? records.map((record) => record.key))
-  const queryIdentity = hash(query)
-  // Observation time is not a content version. A later read of the same scoped inventory
-  // may continue; a changed record or coverage declaration still invalidates the cursor.
-  const snapshotIdentity = hash({
-    tenantId: snapshot.tenantId,
-    venueId: snapshot.venueId,
-    version: snapshot.version,
-    coverage: snapshot.coverage,
-    records,
-    evidenceKeys:
-      snapshot.evidenceKeys === undefined ? undefined : [...snapshot.evidenceKeys].sort(),
-  })
-  const binding = {
-    tenantId: snapshot.tenantId,
-    venueId: snapshot.venueId,
-    sourceVersion: snapshot.version,
-    snapshotIdentity,
-    queryIdentity,
-  }
-  let after: string | undefined
-  if (page.cursor !== undefined) {
-    let cursor: ObjectValue
-    try {
-      if (!/^[A-Za-z0-9_-]+$/u.test(page.cursor)) fail('cursor: invalid encoding')
-      cursor = object(JSON.parse(Buffer.from(page.cursor, 'base64url').toString('utf8')), 'cursor')
-    } catch {
-      fail('cursor: invalid encoding or payload')
-    }
-    fields(cursor, ['format', ...Object.keys(binding), 'lastKey'], 'cursor')
-    if (
-      cursor.format !== 1 ||
-      Object.entries(binding).some(([key, value]) => cursor[key] !== value)
-    )
-      fail('cursor: snapshot, scope or query changed')
-    key(cursor.lastKey, 'cursor.lastKey')
-    after = cursor.lastKey
-  }
-  const matches: GuestStructuredRecord[] = []
-  const unknownKeys: string[] = []
-  for (const record of records) {
-    const values = query.predicates.map((predicate) => test(record, predicate, keys))
-    if (values.includes('FALSE')) continue
-    if (values.includes('UNKNOWN')) unknownKeys.push(record.key)
-    else matches.push(record)
-  }
-  const start = after === undefined ? 0 : matches.findIndex((record) => record.key === after) + 1
-  if (after !== undefined && start === 0) fail('cursor: continuation key is not a known match')
-  const rows = matches.slice(start, start + (page.pageSize ?? 50))
-  const hasMore = start + rows.length < matches.length
-  const last = rows[rows.length - 1]
-  const nextCursor =
-    hasMore && last
-      ? Buffer.from(canonical({ format: 1, ...binding, lastKey: last.key })).toString('base64url')
-      : null
-  const exhaustiveAnswerEligible = snapshot.coverage === 'COMPLETE' && unknownKeys.length === 0
-  return {
-    tenantId: snapshot.tenantId,
-    venueId: snapshot.venueId,
-    sourceVersion: snapshot.version,
-    asOf: snapshot.asOf,
-    coverage: snapshot.coverage,
-    queryIdentity,
-    knownMatchCount: matches.length,
-    unknownCandidateCount: unknownKeys.length,
-    matchingKeys: matches.map((record) => record.key),
-    unknownKeys,
-    rows: structuredClone(rows),
-    returnedCount: rows.length,
-    hasMore,
-    nextCursor,
-    exhaustiveAnswerEligible,
-    exactEligibleCount: exhaustiveAnswerEligible ? matches.length : null,
-    inventoryScope: 'STORED_RECORDS_ONLY',
-  }
+  return prepareGuestStructuredSnapshot(snapshot).evaluate(query).page(page)
 }
