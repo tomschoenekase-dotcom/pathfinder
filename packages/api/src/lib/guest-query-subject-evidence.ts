@@ -267,9 +267,12 @@ export function prepareGuestSubjectEvidence(input: {
     rootPlaceIds: [...rootPlaces].map((key) => key.slice('place:'.length)),
     modules,
     visiblePlaces,
-    selectedModules,
-    offers: summary.validatedOfferLinks,
-    policyScopes: summary.canonicalPolicyScopes,
+    retained: canonicalSources.map((body) => body.snapshot),
+    retainedServiceIds: new Set(
+      [...retainedAliases, ...canonicalSources.map((body) => body.moduleId)].filter(
+        (id): id is string => !!id,
+      ),
+    ),
   })
   const prompt = [
     `${input.mode === 'CONDITIONAL' ? 'SUBJECT EVIDENCE LOOKUP' : 'SUBJECT DETAILS'}: WHOLE SUBJECT EVIDENCE ONLY. Answer the original guest question from the complete source bodies below. This is not an evaluated eligible/qualified count or complete eligible list.`,
@@ -286,41 +289,46 @@ export function prepareGuestSubjectEvidence(input: {
 }
 
 type SubjectModule = ReturnType<typeof guestCanonicalEvidenceAuthority>['subjectModules'][number]
-type SubjectOffer = ReturnType<typeof guestCanonicalEvidenceAuthority>['subjectOffers'][number]
 
 /**
- * Name-resolved restatement of the already validated subject graph. Guests ask by name, while the
- * JSON below links records by ID; a model can otherwise attach an offer or policy to the wrong
- * similarly named record. Adds no record, relationship or inference beyond the selected sources.
+ * Name-resolved restatement of the whole canonical bodies already retained in this prompt. Guests
+ * ask by name while those bodies link records by ID, so a model can attach an offer or policy to
+ * the wrong similarly named record. Reads only retained bodies: adds no record, link or inference.
  */
 function subjectFactLines(input: {
   named: readonly string[]
   rootPlaceIds: readonly string[]
   modules: ReadonlyMap<string, SubjectModule>
   visiblePlaces: ReadonlyMap<string, GuestQuerySource['directory']['places'][number]>
-  selectedModules: ReadonlySet<string>
-  offers: readonly SubjectOffer[]
-  policyScopes: readonly { moduleId: string; targetModuleIds: readonly string[] }[]
+  retained: readonly SubjectModule[]
+  retainedServiceIds: ReadonlySet<string>
 }) {
   const q = (text: string) => JSON.stringify(text)
   const nameOf = (id: string) => {
     const p = input.modules.get(id)?.payload
-    if (!p) return undefined
-    if (p.kind === 'SERVICE' || p.kind === 'ITEM') return p.name
-    if (p.kind === 'POLICY') return p.title
-    return undefined
+    return p?.kind === 'SERVICE' || p?.kind === 'ITEM' ? p.name : undefined
   }
   const placeLabel = (id: string | null | undefined) => {
     const place = id ? input.visiblePlaces.get(id) : undefined
     return place ? `${q(place.name)}${place.areaName ? ` in ${place.areaName}` : ''}` : undefined
   }
+  const offers = input.retained.flatMap((m) => {
+    const p = m.payload
+    if (p.kind !== 'RELATIONSHIP') return []
+    const from = input.modules.get(p.fromModuleId),
+      to = input.modules.get(p.toModuleId)
+    if (!from || !to || guestQueryCanonicalRelationship(p, from.payload, to.payload) !== 'OFFER')
+      return []
+    return [{ serviceId: from.moduleId, productId: to.moduleId }]
+  })
   const policiesFor = (id: string) =>
-    input.policyScopes
-      .filter((scope) => scope.targetModuleIds.includes(id))
-      .flatMap((scope) => {
-        const p = input.modules.get(scope.moduleId)?.payload
-        return p?.kind === 'POLICY' ? [p] : []
-      })
+    input.retained.flatMap((m) =>
+      m.payload.kind === 'POLICY' && (m.payload.appliesTo ?? []).includes(id) ? [m.payload] : [],
+    )
+  const serviceLocation = (id: string) => {
+    const p = input.modules.get(id)?.payload
+    return p?.kind === 'SERVICE' ? placeLabel(p.placeId) : undefined
+  }
   const lines: string[] = []
   const namedServices = input.named.filter(
     (id) => input.modules.get(id)?.payload.kind === 'SERVICE',
@@ -328,33 +336,30 @@ function subjectFactLines(input: {
   for (const id of input.named) {
     const p = input.modules.get(id)?.payload
     if (p?.kind === 'SERVICE') {
-      const location = placeLabel(p.placeId)
       lines.push(
-        `- Service ${q(p.name)}: ${[p.description, p.availability].filter(Boolean).join(' ')} Location: ${location ?? 'not established in this guide; do not guess one'}.`,
+        `- Service ${q(p.name)}: ${[p.description, p.availability].filter(Boolean).join(' ')} Location: ${serviceLocation(id) ?? 'not established in this guide; do not guess one'}.`,
       )
       const policies = policiesFor(id)
-      lines.push(
-        policies.length
-          ? `  Policies that apply to ${q(p.name)}: ${policies.map((policy) => `${q(policy.title)}: ${policy.rule}`).join(' | ')}`
-          : `  No policy in this guide explicitly targets ${q(p.name)}.`,
-      )
-      const products = input.offers
+      if (policies.length)
+        lines.push(
+          `  Policies that apply to ${q(p.name)}: ${policies.map((policy) => `${q(policy.title)}: ${policy.rule}`).join(' | ')}`,
+        )
+      const products = offers
         .filter((offer) => offer.serviceId === id)
         .flatMap((offer) => nameOf(offer.productId) ?? [])
-      lines.push(
-        products.length
-          ? `  ${q(p.name)} is explicitly listed as offering: ${products.map(q).join(', ')} (stock is not guaranteed).`
-          : `  ${q(p.name)} has no explicit current product offer in this guide.`,
-      )
+      if (products.length)
+        lines.push(
+          `  ${q(p.name)} is explicitly listed as offering: ${products.map(q).join(', ')} (stock is not guaranteed).`,
+        )
     } else if (p?.kind === 'ITEM') {
       lines.push(
         `- ${p.itemType === 'PRODUCT' ? 'Product' : 'Item'} ${q(p.name)}: ${p.description ?? 'no description'}`,
       )
       if (p.itemType !== 'PRODUCT') continue
-      const sellers = input.offers.filter((offer) => offer.productId === id)
+      const sellers = offers.filter((offer) => offer.productId === id)
       lines.push(
         sellers.length
-          ? `  Explicitly listed sellers of ${q(p.name)}: ${sellers.map((offer) => `${q(nameOf(offer.serviceId) ?? 'unnamed service')}${placeLabel(offer.placeId) ? ` at ${placeLabel(offer.placeId)}` : ''}`).join(', ')}.`
+          ? `  Explicitly listed sellers of ${q(p.name)}: ${sellers.map((offer) => `${q(nameOf(offer.serviceId) ?? 'unnamed service')}${serviceLocation(offer.serviceId) ? ` at ${serviceLocation(offer.serviceId)}` : ' (location not established in this guide)'}`).join(', ')}.`
           : `  No current explicit seller of ${q(p.name)} is established; purchase and stock remain unknown, not unavailable.`,
       )
       for (const service of namedServices)
@@ -370,7 +375,7 @@ function subjectFactLines(input: {
     lines.push(
       `- Place ${q(place.name)}${place.type ? ` (${place.type})` : ''}: ${[place.areaName && `area ${place.areaName}`, place.hours && `hours: ${place.hours}`, place.shortDescription, place.longDescription].filter(Boolean).join('; ')}`,
     )
-    const based = [...input.selectedModules].flatMap((id) => {
+    const based = [...input.retainedServiceIds].flatMap((id) => {
       const m = input.modules.get(id)?.payload
       return m?.kind === 'SERVICE' && m.placeId === placeId ? [m.name] : []
     })

@@ -400,6 +400,19 @@ describe('whole named subject evidence', () => {
     )
     expect(r.prompt).not.toContain('Public hall a')
   })
+  it('facts keep a retained policy and offer whose service location is hidden', async () => {
+    const s = graph()
+    s.directory.places = s.directory.places.filter((p) => p.id !== 'a')
+    const r = await subjects(s, ['Aurora service', 'Comet token'])
+    expect(r.status).toBe('READY')
+    if (r.status !== 'READY') return
+    expect(r.prompt).toContain('No refunds; minimum age nine.')
+    expect(r.prompt).toContain(
+      'Policies that apply to "Aurora service": "Aurora condition": No refunds; minimum age nine.',
+    )
+    expect(r.prompt).not.toContain('No current offer links "Aurora service"')
+    expect(r.prompt).not.toContain('Public hall a')
+  })
   it('separates services based at a named place from the place conditions', async () => {
     const s = graph(),
       p = compileGuestQueryCanonicalSource(s).prepared,
