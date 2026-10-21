@@ -1,6 +1,6 @@
 /**
  * Renders a GuestRetrieval as the evidence block the guest model reads, plus the answer rules and
- * the one bounded follow-up tool. Lists carry explicit totals so the model knows when it has all.
+ * bounded candidate rows. Parser matches never establish exhaustive answer inventories.
  */
 import { escapeUntrustedPromptData } from '../venue-context'
 import {
@@ -12,48 +12,21 @@ import {
 import { isStopword, phraseKey, stemTokens } from './text'
 import { AREA_PREFIX, RECORD_PREFIX, type EntityKind, type VenueIndex } from './venue-index'
 
-export const VENUE_INDEX_PACKET_VERSION = 'venue-index-packet-v1'
-
-const ROW_LABELS: Record<string, string[]> = {
-  food: ['sells', 'hours', 'days', 'status'],
-  shop: ['sells', 'hours', 'status'],
-  restroom: ['features', 'status'],
-  ride: ['height', 'ages', 'price', 'single rider', 'status', 'access'],
-  exhibit: ['animals', 'access', 'price', 'status'],
-  activity: ['price', 'ages', 'height', 'hours', 'reservation', 'status'],
-  show: ['shows', 'price', 'ages', 'status'],
-  service: ['rentals', 'services', 'price', 'status'],
-  event: ['when', 'price', 'ages'],
-  animal: ['lives in'],
-}
+export const VENUE_INDEX_PACKET_VERSION = 'venue-index-packet-v2'
 
 function kindLabel(kind: EntityKind): string {
   return kind === 'food' ? 'food' : kind === 'topic' ? 'topic' : kind
 }
 
-export function renderRow(
-  index: VenueIndex,
-  recordId: string,
-  extra?: string,
-  options: { firstSentence?: boolean } = {},
-): string {
+export function renderRow(index: VenueIndex, recordId: string, extra?: string): string {
   const c = index.contributions.get(recordId)
   if (!c) return ''
-  const wanted = ROW_LABELS[c.kind] ?? []
-  const facts = c.labels
-    .filter((label) => wanted.includes(label.label))
-    .map((label) => `${label.label[0]!.toUpperCase()}${label.label.slice(1)}: ${label.value}`)
-  const first = index.records.get(recordId)?.body.split(/\r?\n/u)[0] ?? ''
+  const record = index.records.get(recordId)
+  if (!record) return ''
   const where = c.areaDisplay ? `, ${c.areaDisplay}` : ''
-  // The first sentence says where and what the thing is; short lists keep it so a location is
-  // never left for the model to fill in.
-  const detail = facts.length
-    ? [...(options.firstSentence && first ? [first] : []), ...facts].join(' | ')
-    : first
-  return `- ${c.name} (${kindLabel(c.kind)}${where})${extra ? ` ${extra}` : ''}: ${detail}`.slice(
-    0,
-    520,
-  )
+  const hours = record.hours ? ` | listed hours: ${record.hours}` : ''
+  // Rows are evidence units, not clipped summaries: retain every condition and exception.
+  return `- ${c.name} (${kindLabel(c.kind)}${where}${hours})${extra ? ` ${extra}` : ''}:\n${record.body}`
 }
 
 function renderRecord(index: VenueIndex, recordId: string): string {
@@ -80,6 +53,7 @@ export type GuestPacket = {
   text: string
   retrieval: GuestRetrieval
   includedRecordIds: string[]
+  omittedRecordIds: string[]
   chars: number
 }
 
@@ -95,169 +69,85 @@ export function buildGuestPacket(
 ): GuestPacket {
   const retrieval = retrieveForGuest(index, params)
   const maxChars = params.maxChars ?? 30_000
+  if (!Number.isSafeInteger(maxChars) || maxChars < 0) throw new Error('Invalid packet budget')
   const sections: string[] = []
   const included = new Set<string>()
-  const push = (text: string) => {
-    sections.push(text)
+  const omitted = new Set<string>()
+  const footer = escapeUntrustedPromptData(
+    'INDEX COVERAGE IS NOT VERIFIED: candidates may be omitted or unknown. No exhaustive list, eligible total, or absence claim is established.',
+  )
+  const push = (unit: string, ids: string[] = []) => {
+    const escaped = escapeUntrustedPromptData(unit)
+    const proposed = [...sections, escaped, footer].join('\n\n')
+    if (!unit || proposed.length > maxChars) {
+      for (const id of ids) if (!included.has(id)) omitted.add(id)
+      return false
+    }
+    sections.push(escaped)
+    for (const id of ids) {
+      included.add(id)
+      omitted.delete(id)
+    }
+    return true
   }
   push(
-    `VENUE INDEX RESULTS for ${index.venueName} (built from this venue's published records only)`,
+    `VENUE INDEX CANDIDATES for ${index.venueName}. Parsed record matches only; membership and all requested predicates are not proven complete.`,
   )
   push(params.todayLine)
-  const matched = [...retrieval.mentions, ...retrieval.carriedMentions].filter(
-    (mention, position, all) => all.findIndex((other) => other.key === mention.key) === position,
-  )
-  if (matched.length) {
-    push(
-      'Recognized in the conversation: ' +
-        matched
-          .map((mention) => {
-            const names = [...new Set(mention.entityIds.map((id) => index.entity(id)?.name ?? id))]
-            return `"${mention.text}" means ${names.slice(0, 6).join(' / ')}${names.length > 6 ? ` (+${names.length - 6} more)` : ''}${mention.fuzzy ? ' (spelling interpreted)' : ''}`
-          })
-          .join('; '),
-    )
-  } else push('Recognized in the conversation: no specific named place, product or animal.')
+  const record = (id: string, heading: string) => {
+    if (included.has(id)) return
+    const body = renderRecord(index, id)
+    if (!body) {
+      omitted.add(id)
+      return
+    }
+    push(`${heading}\n${body}`, [id])
+  }
+  // Preserve whole governing/context bodies before spending the remaining space on list rows.
+  for (const id of retrieval.relatedRecordIds) record(id, '## RELATED POLICY OR TOPIC')
+  for (const id of retrieval.coreRecordIds) record(id, '## ADMISSION OR HOURS RECORD')
+  for (const id of retrieval.focusRecordIds) record(id, '## NAMED RECORD')
   for (const item of retrieval.ambiguous)
     push(
-      `AMBIGUOUS: "${item.text}" matches more than one record: ${item.names.join('; ')}. If it matters, ask which one or answer for each.`,
+      `AMBIGUOUS: "${item.text}" matches ${item.names.join('; ')}. Ask which record is intended.`,
     )
   for (const group of retrieval.sellers) {
-    const total = group.sellerRecordIds.length + group.enrichedSellerRecordIds.length
-    const rows = group.sellerRecordIds.map((id) =>
-      renderRow(index, id, sellerExtra(index, id, group.productNames), {
-        firstSentence: group.sellerRecordIds.length <= 30,
-      }),
-    )
-    for (const id of group.sellerRecordIds) included.add(id)
-    const shown = rows.slice(0, params.limits?.sellerRows ?? DEFAULT_LIMITS.sellerRows)
     push(
-      `## SELLERS of ${group.productNames.join(' / ')}: ${total === 0 ? 'no record lists a seller' : `${group.sellerRecordIds.length} record(s) list it for sale`}${shown.length < rows.length ? ` (showing ${shown.length}; the rest are available with venue_query)` : ' (complete list)'}\n${shown.join('\n')}`,
+      `## SELLER CANDIDATES for ${group.productNames.join(' / ')}. Parsed sale mentions are not a proven complete or currently available seller inventory.`,
     )
-    if (group.enrichedSellerRecordIds.length)
-      push(
-        `Other sellers described in prose (verified quotes):\n${group.enrichedSellerRecordIds.map((id) => renderRow(index, id)).join('\n')}`,
-      )
-    if (group.mentioningRecordIds.length) {
-      push(
-        `Other records that mention ${group.productNames[0]} (may describe more places, days or limits):`,
-      )
-      for (const id of group.mentioningRecordIds) {
-        push(renderRecord(index, id))
-        included.add(id)
-      }
-    }
+    const ids = [...new Set([...group.sellerRecordIds, ...group.enrichedSellerRecordIds])]
+    for (const id of ids.slice(0, params.limits?.sellerRows ?? DEFAULT_LIMITS.sellerRows))
+      if (!included.has(id))
+        push(renderRow(index, id, sellerExtra(index, id, group.productNames)), [id])
+    for (const id of ids.slice(params.limits?.sellerRows ?? DEFAULT_LIMITS.sellerRows))
+      if (!included.has(id)) omitted.add(id)
+    for (const id of group.mentioningRecordIds) record(id, '## OTHER PRODUCT MENTION')
   }
   for (const list of retrieval.lists) {
-    const label = [
-      list.title,
-      list.kinds.length ? `kinds: ${list.kinds.join('/')}` : '',
-      list.filters.length ? `filters: ${list.filters.join(', ')}` : '',
-    ]
-      .filter(Boolean)
-      .join(' | ')
-    const complete = list.recordIds.length >= list.total
     push(
-      `## LIST (${label}): ${list.total} match(es)${complete ? ' (complete list)' : ` (showing ${list.recordIds.length}; use venue_query for the rest, or give the total and ask how to narrow it)`}\n${list.recordIds.map((id) => renderRow(index, id, undefined, { firstSentence: list.recordIds.length <= 30 })).join('\n')}`,
+      `## CANDIDATE RECORDS: ${list.title}. Parsed filters: ${list.filters.join(', ') || 'none'}. These matches do not prove eligibility, complete membership, or an exhaustive answer count.`,
     )
-    for (const id of list.recordIds) included.add(id)
+    for (const id of list.recordIds) if (!included.has(id)) push(renderRow(index, id), [id])
   }
-  if (retrieval.focusRecordIds.length) {
-    push('## RECORDS FOR WHAT THE GUEST NAMED')
-    for (const id of retrieval.focusRecordIds) {
-      push(renderRecord(index, id))
-      included.add(id)
-    }
-  }
-  if (retrieval.relatedRecordIds.length) {
-    push('## POLICIES AND TOPICS THAT NAME THEM')
-    for (const id of retrieval.relatedRecordIds) {
-      push(renderRecord(index, id))
-      included.add(id)
-    }
-  }
-  const core = retrieval.coreRecordIds.filter((id) => !included.has(id))
-  if (core.length) {
-    push('## ADMISSION AND HOURS')
-    for (const id of core) {
-      push(renderRecord(index, id))
-      included.add(id)
-    }
-  }
-  const search = retrieval.searchRecordIds.filter((id) => !included.has(id))
-  if (search.length) {
-    push('## OTHER RECORDS MATCHING THE QUESTION WORDS (may or may not be relevant)')
-    for (const id of search) {
-      push(renderRecord(index, id))
-      included.add(id)
-    }
-  }
-  const digest = policyDigest(index, included, params.question)
-  if (digest) push(`## OTHER VENUE POLICIES (first line of each; full text not shown)\n${digest}`)
-  push(
-    `## VENUE SUMMARY\n${summary(index)}\nFor a list or count this packet does not already answer, call venue_query once.`,
-  )
-  let text = sections.join('\n\n')
-  if (text.length > maxChars) text = `${text.slice(0, maxChars)}\n[packet truncated]`
+  for (const id of retrieval.searchRecordIds) record(id, '## WORD MATCH: relevance not established')
+  const text = sections.length ? [...sections, footer].join('\n\n') : ''
   return {
     version: VENUE_INDEX_PACKET_VERSION,
-    text: escapeUntrustedPromptData(text),
+    text,
     retrieval,
     includedRecordIds: [...included],
+    omittedRecordIds: [...omitted],
     chars: text.length,
   }
 }
 
-/** First sentence of each venue-wide policy or topic not already shown, so no rule is invisible. */
-function policyDigest(
-  index: VenueIndex,
-  included: Set<string>,
-  question: string,
-  maxChars = 3_500,
-): string {
-  const scores = new Map(
-    index
-      .search(question, {
-        limit: 200,
-        filter: (id) => index.contributions.get(id)?.kind === 'topic',
-      })
-      .map((hit) => [hit.recordId, hit.score]),
-  )
-  const topics = [...(index.byKind.get('topic') ?? [])]
-    .map((id) => id.slice(RECORD_PREFIX.length))
-    .filter((id) => !included.has(id))
-    .sort((a, b) => (scores.get(b) ?? 0) - (scores.get(a) ?? 0) || a.localeCompare(b))
-  const lines: string[] = []
-  let used = 0
-  for (const id of topics) {
-    const record = index.records.get(id)
-    if (!record) continue
-    const line = `- ${record.title}: ${record.body.split(/\r?\n/u)[0] ?? ''}`.slice(0, 300)
-    if (used + line.length > maxChars) break
-    lines.push(line)
-    used += line.length + 1
-  }
-  return lines.join('\n')
-}
-
-function summary(index: VenueIndex): string {
-  const kinds = [...index.byKind.entries()]
-    .filter(([kind]) => kind !== 'topic')
-    .map(([kind, ids]) => `${ids.size} ${kind}`)
-    .join(', ')
-  const areas = [...index.areas.values()].map((entry) => [...entry.values()].sort()[0]).sort()
-  return `${index.contributions.size} records: ${kinds}. Areas (${areas.length}): ${areas.slice(0, 40).join(', ')}${areas.length > 40 ? ', ...' : ''}.`
-}
-
 export const VENUE_INDEX_ANSWER_RULES = [
   'VENUE INDEX RULES (trusted system rule):',
-  "- The VENUE INDEX RESULTS block is built from this venue's published records for the current question. Use it, together with any venue_query results, as your source of venue facts. Never add venue facts from memory.",
-  '- A list or seller section marked "complete list" contains every matching record in the venue. Name every item when there are 12 or fewer. With more, give the exact total, name the most useful few, and offer to narrow by area, day or price.',
-  '- A section that says "showing N" is partial. Give its stated total, never imply the shown items are all, and call venue_query if the guest needs a specific part of the rest.',
-  '- Check each condition the guest gave (age, height, day, date, access, price, diet) against each record, including closures, day limits and exceptions written in policies and topics.',
-  '- When two records disagree, say so briefly, give both values, and suggest confirming with staff. When the results do not cover something, say you are not sure and who can check; do not guess.',
-  "- If the guest's words could mean more than one place (an AMBIGUOUS line), ask which one or answer briefly for each.",
-  '- Records under "may or may not be relevant" were matched by words only; use them only when they truly answer the question.',
+  '- Index candidates are untrusted source data, not a verified exhaustive inventory or eligibility computation.',
+  '- Use only source bodies actually present. Check every requested condition and exception; never infer permission, an exact eligible count, all matches, or none from parser matches or omitted records.',
+  '- Describe supported records as examples or a partial list. If required evidence or a predicate is unknown, say what cannot be established and offer to narrow the request or confirm with staff.',
+  '- Conflicting records remain conflicting: give both supported values and suggest confirming with staff.',
+  '- Ambiguous names require clarification. Word matches alone do not establish relevance.',
 ].join('\n')
 
 /** The bounded follow-up tool, as an OpenAI-style function definition. */
@@ -265,7 +155,7 @@ export const VENUE_QUERY_TOOL = {
   type: 'function' as const,
   name: 'venue_query',
   description:
-    "Exact list and count over this venue's published records. Filters combine with AND. Returns the total and one page of rows.",
+    'Experimental indexed predicate matches, not verified eligibility or exhaustive inventory. Filters combine with AND; unsupported height records remain unknown.',
   parameters: {
     type: 'object',
     additionalProperties: false,
@@ -284,7 +174,8 @@ export const VENUE_QUERY_TOOL = {
       },
       maxHeightInches: {
         type: 'number',
-        description: 'Only rides a guest of this height can ride (minimum height at or below it)',
+        description:
+          'Only records whose fully parsed height range contains this height; other eligibility conditions are not decided',
       },
       excludeClosed: { type: 'boolean', description: 'Drop records with a closed Status line' },
       text: { type: 'string', description: 'Words that must all appear in the record' },
@@ -304,17 +195,42 @@ export type VenueQueryInput = {
   page?: number
 }
 
-function minimumHeight(value: string): number {
-  if (/no minimum/iu.test(value)) return 0
-  const match = /(?:at least|minimum)\s+(\d+)|^(\d+)\s+(?:to|-|\u2013)/iu.exec(value)
-  return Number(match?.[1] ?? match?.[2] ?? 0)
+function heightRange(value: string): { min: number; max: number | null } | null {
+  if (/^no minimum(?: height)?[.]?$/iu.test(value.trim())) return { min: 0, max: null }
+  const match = /^(?:at least|minimum)\s+(\d+(?:\.\d+)?)\s*(inches?|in|cm)[.]?$/iu.exec(
+    value.trim(),
+  )
+  const range =
+    /^(\d+(?:\.\d+)?)\s*(?:to|-|\u2013)\s*(\d+(?:\.\d+)?)\s*(inches?|in|cm)[.]?$/iu.exec(
+      value.trim(),
+    )
+  const suffix = /^(\d+(?:\.\d+)?)\s*(inches?|in|cm)\s+minimum[.]?$/iu.exec(value.trim())
+  if (match || suffix) {
+    const row = (match ?? suffix)!
+    return { min: Number(row[1]) / (row[2]!.toLowerCase() === 'cm' ? 2.54 : 1), max: null }
+  }
+  if (!range) return null
+  const unit = range[3]!.toLowerCase() === 'cm' ? 2.54 : 1
+  const min = Number(range[1]) / unit
+  const max = Number(range[2]) / unit
+  return min <= max ? { min, max } : null
 }
 
 export function runVenueQuery(
   index: VenueIndex,
   input: VenueQueryInput,
-): { total: number; page: number; pages: number; rows: string[]; text: string } {
+): {
+  total: number
+  page: number
+  pages: number
+  rows: string[]
+  text: string
+  unknownHeightRecordIds: string[]
+  includedRecordIds: string[]
+  omittedRecordIds: string[]
+} {
   let ids = [...index.contributions.keys()]
+  const unknownHeightRecordIds: string[] = []
   const keep = (predicate: (recordId: string) => boolean) => {
     ids = ids.filter(predicate)
   }
@@ -340,13 +256,6 @@ export function runVenueQuery(
     const hits = index.byValue.get(key)
     keep((id) => hits?.has(id) ?? false)
   }
-  if (typeof input.maxHeightInches === 'number') {
-    const limit = input.maxHeightInches
-    keep((id) => {
-      const height = index.contributions.get(id)?.labels.find((label) => label.label === 'height')
-      return height ? minimumHeight(height.value) <= limit : false
-    })
-  }
   if (input.excludeClosed)
     keep(
       (id) =>
@@ -358,6 +267,20 @@ export function runVenueQuery(
     const words = stemTokens(input.text).filter((token) => !isStopword(token))
     keep((id) => words.every((word) => index.postings.get(word)?.has(id) ?? false))
   }
+  if (typeof input.maxHeightInches === 'number') {
+    const limit = input.maxHeightInches
+    if (!Number.isFinite(limit) || limit < 0) throw new Error('Invalid height')
+    keep((id) => {
+      const heights =
+        index.contributions.get(id)?.labels.filter((label) => label.label === 'height') ?? []
+      const height = heights.length === 1 ? heightRange(heights[0]!.value) : null
+      if (!height) {
+        unknownHeightRecordIds.push(id)
+        return false
+      }
+      return height.min <= limit && (height.max === null || limit <= height.max)
+    })
+  }
   ids.sort((a, b) => {
     const ca = index.contributions.get(a)!
     const cb = index.contributions.get(b)!
@@ -367,9 +290,35 @@ export function runVenueQuery(
   })
   const pages = Math.max(1, Math.ceil(ids.length / 25))
   const page = Math.min(Math.max(1, Math.floor(input.page ?? 1)), pages)
-  const rows = ids.slice((page - 1) * 25, page * 25).map((id) => renderRow(index, id))
-  const text = `venue_query ${JSON.stringify(input)}: ${ids.length} match(es); page ${page} of ${pages}\n${rows.join('\n')}`
-  return { total: ids.length, page, pages, rows, text: escapeUntrustedPromptData(text) }
+  const rows: string[] = []
+  const includedRecordIds: string[] = []
+  const omittedRecordIds: string[] = []
+  const header = `Indexed predicate matches only, not verified eligible totals: ${ids.length}; unknown height records: ${unknownHeightRecordIds.length}; page ${page} of ${pages}. Other conditions and complete membership are not established.`
+  const footer =
+    'Page evidence is bounded and may omit whole rows. Never infer all matches, none or eligibility from this page.'
+  for (const id of ids.slice((page - 1) * 25, page * 25)) {
+    const row = renderRow(index, id)
+    if (
+      !row ||
+      escapeUntrustedPromptData([header, ...rows, row, footer].join('\n')).length > 30_000
+    ) {
+      omittedRecordIds.push(id)
+      continue
+    }
+    rows.push(row)
+    includedRecordIds.push(id)
+  }
+  const text = escapeUntrustedPromptData([header, ...rows, footer].join('\n'))
+  return {
+    total: ids.length,
+    page,
+    pages,
+    rows,
+    text,
+    unknownHeightRecordIds,
+    includedRecordIds,
+    omittedRecordIds,
+  }
 }
 
 export { AREA_PREFIX, RECORD_PREFIX }

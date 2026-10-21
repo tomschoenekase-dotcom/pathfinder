@@ -164,7 +164,7 @@ describe('guest retrieval', () => {
     expect(packet.retrieval.sellers[0]?.sellerRecordIds.sort()).toEqual(['p5', 'p6', 'p9'])
   })
 
-  it('counts filtered lists exactly and says when rows are partial', () => {
+  it('counts parser matches without claiming a verified complete guest answer', () => {
     const records = park()
     for (let i = 0; i < 300; i += 1)
       records.push(
@@ -181,7 +181,8 @@ describe('guest retrieval', () => {
       todayLine: 'Today: Tuesday',
     })
     expect(packet.retrieval.lists[0]?.total).toBe(101)
-    expect(packet.text).toContain('101 match(es) (showing 100;')
+    expect(packet.text).toContain('INDEX COVERAGE IS NOT VERIFIED')
+    expect(packet.text).not.toContain('complete list')
     expect(runVenueQuery(index, { kind: 'restroom', has: 'adult changing table' }).total).toBe(101)
   })
 

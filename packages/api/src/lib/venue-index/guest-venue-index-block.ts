@@ -1,8 +1,8 @@
 /**
- * Guest-chat entry point for the venue index. Off unless GUEST_VENUE_INDEX=append. The index is
- * built only from the directory rows this turn already authorized and is cached by the identity of
- * those row arrays, so one venue's index can never serve another venue, and a directory reload or
- * stale-record suppression (new arrays) builds a fresh index.
+ * Experimental packet builder, deliberately disconnected from the guest router. Array identity
+ * caching is a lab optimization, not proof of tenant scope, publication, freshness or complete
+ * membership. A future integration must revalidate current source authority and admit the final
+ * combined prompt before dispatch. Never use a cached directory as that authority proof.
  */
 import { performance } from 'node:perf_hooks'
 

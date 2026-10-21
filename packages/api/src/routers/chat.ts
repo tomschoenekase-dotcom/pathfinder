@@ -143,10 +143,6 @@ import {
 } from '../lib/guest-question-evidence'
 import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
 import {
-  buildGuestVenueIndexBlock,
-  guestVenueIndexMode,
-} from '../lib/venue-index/guest-venue-index-block'
-import {
   selectGuestVenueIndexCoreKnowledge,
   prepareGuestVenueIndexCoreKnowledge,
 } from '../lib/guest-venue-index'
@@ -2373,39 +2369,11 @@ const chatReadRouter = router({
         ].join('\n')
       }
     }
-    // Off by default. When on, complete seller and member lists, counts and the policies that
-    // name what the guest asked about are added from the same authorized directory rows.
-    const venueIndexBlock =
-      guestVenueIndexMode() === 'append' && guideLoadStatus === 'READY'
-        ? buildGuestVenueIndexBlock({
-            venueName: venue.name,
-            directory: guestDirectory,
-            question: trimmedInput,
-            history: previousGuestQuery ? [previousGuestQuery] : [],
-            todayLine: `Today: ${venueClock.localTime ?? currentDate}`,
-          })
-        : null
-    if (venueIndexBlock)
-      logger.info({
-        action: 'guest-chat.venue-index',
-        tenantId: venue.tenantId,
-        venueId: venue.id,
-        version: venueIndexBlock.version,
-        chars: venueIndexBlock.chars,
-        records: venueIndexBlock.includedRecordIds.length,
-        elapsedMs: venueIndexBlock.elapsedMs,
-        cached: venueIndexBlock.cached,
-      })
     const preparePrompt = () => {
       const parts = prepareVenuePrompt()
       return {
         ...parts,
-        dynamicPart: [
-          parts.dynamicPart,
-          collectionPromptRule,
-          guestActionPrompt,
-          venueIndexBlock?.block,
-        ]
+        dynamicPart: [parts.dynamicPart, collectionPromptRule, guestActionPrompt]
           .filter(Boolean)
           .join('\n\n'),
       }

@@ -32,7 +32,7 @@ export function venueRecordsFromDirectory(params: {
   return [
     ...params.places.map(
       (place): VenueSourceRecord => ({
-        id: place.id,
+        id: `place:${place.id}`,
         source: 'place',
         title: place.name,
         body: place.longDescription || place.shortDescription || place.name,
@@ -46,7 +46,7 @@ export function venueRecordsFromDirectory(params: {
     ),
     ...params.knowledge.map(
       (entry): VenueSourceRecord => ({
-        id: entry.id,
+        id: `knowledge:${entry.id}`,
         source: 'knowledge',
         title: entry.title,
         body: entry.content,
