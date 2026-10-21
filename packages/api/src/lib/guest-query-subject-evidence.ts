@@ -269,7 +269,9 @@ export function prepareGuestSubjectEvidence(input: {
     modules,
     visiblePlaces,
     retained: canonicalSources.map((body) => body.snapshot),
-    policyScopes,
+    policyApplicability: new Map(
+      authority.subjectPolicyApplicability.map((s) => [s.moduleId, s.targetModuleIds]),
+    ),
     retainedServiceIds: new Set(
       [...retainedAliases, ...canonicalSources.map((body) => body.moduleId)].filter(
         (id): id is string => !!id,
@@ -303,7 +305,7 @@ function subjectFactLines(input: {
   modules: ReadonlyMap<string, SubjectModule>
   visiblePlaces: ReadonlyMap<string, GuestQuerySource['directory']['places'][number]>
   retained: readonly SubjectModule[]
-  policyScopes: ReadonlyMap<string, readonly string[]>
+  policyApplicability: ReadonlyMap<string, readonly string[]>
   retainedServiceIds: ReadonlySet<string>
 }) {
   const q = (text: string) => JSON.stringify(text)
@@ -325,14 +327,15 @@ function subjectFactLines(input: {
     return [{ serviceId: from.moduleId, productId: to.moduleId }]
   })
   // Raw appliesTo is a declaration, not effective applicability: exceptions may inherit,
-  // narrow or conflict with that scope. Only compiler-issued scopes certify applicability.
+  // narrow or conflict with that scope. Only compiler-issued applicability certifies it; that
+  // proof is independent of place binding, which governs omission, not what a rule governs.
   const policyLinesFor = (id: string, name: string) =>
     input.retained.flatMap((m) => {
       if (m.payload.kind !== 'POLICY') return []
       const policy = m.payload
-      if (input.policyScopes.get(m.moduleId)?.includes(id))
+      if (input.policyApplicability.get(m.moduleId)?.includes(id))
         return [`  Policy that applies to ${q(name)}: ${q(policy.title)}: ${policy.rule}`]
-      if (!input.policyScopes.has(m.moduleId) && policy.appliesTo.includes(id))
+      if (!input.policyApplicability.has(m.moduleId) && policy.appliesTo.includes(id))
         return [
           `  Policy record declares ${q(name)} as a target, but applicability is unresolved: ${q(policy.title)}: ${policy.rule}`,
         ]

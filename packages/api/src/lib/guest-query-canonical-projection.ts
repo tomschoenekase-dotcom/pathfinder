@@ -28,6 +28,7 @@ const ownedEvidence = new WeakMap<
     subjectModules: EffectivePublishedUniversalContentSnapshot[]
     subjectOffers: Array<{ edgeId: string; serviceId: string; productId: string; placeId: string }>
     subjectPolicyScopes: Array<{ moduleId: string; targetModuleIds: string[] }>
+    subjectPolicyApplicability: Array<{ moduleId: string; targetModuleIds: string[] }>
   }
 >()
 /** Compiler-issued whole-source scope only; public metadata cannot authorize omissions. */
@@ -47,6 +48,7 @@ export function guestCanonicalEvidenceAuthority(
     subjectModules: proof.subjectModules,
     subjectOffers: proof.subjectOffers,
     subjectPolicyScopes: proof.subjectPolicyScopes,
+    subjectPolicyApplicability: proof.subjectPolicyApplicability,
   })
 }
 
@@ -156,8 +158,14 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
   const lookupRelationshipScopes: GuestCanonicalKnowledgeScope[] = []
   const lookupCurrentModules: EffectivePublishedUniversalContentSnapshot[] = []
   const subjectModules: EffectivePublishedUniversalContentSnapshot[] = []
-  const subjectOffers: Array<{ edgeId: string; serviceId: string; productId: string; placeId: string }> = []
+  const subjectOffers: Array<{
+    edgeId: string
+    serviceId: string
+    productId: string
+    placeId: string
+  }> = []
   const subjectPolicyScopes: Array<{ moduleId: string; targetModuleIds: string[] }> = []
+  const subjectPolicyApplicability: Array<{ moduleId: string; targetModuleIds: string[] }> = []
   const productMetadata: EffectivePublishedUniversalContentSnapshot[] = []
   let graphWork = 0
   const work = (amount = 1) => {
@@ -197,6 +205,7 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       subjectModules: structuredClone(subjectModules),
       subjectOffers: structuredClone(subjectOffers),
       subjectPolicyScopes: structuredClone(subjectPolicyScopes),
+      subjectPolicyApplicability: structuredClone(subjectPolicyApplicability),
     })
     return {
       contract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
@@ -332,7 +341,12 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
         unresolved(edge.moduleId, 'AMBIGUOUS_PRODUCT_NAME')
         continue
       }
-      subjectOffers.push({ edgeId: edge.moduleId, serviceId: from.moduleId, productId: to.moduleId, placeId })
+      subjectOffers.push({
+        edgeId: edge.moduleId,
+        serviceId: from.moduleId,
+        productId: to.moduleId,
+        placeId,
+      })
       const sources: GuestQueryEvidence[] = [
         { sourceKey: sourceKey(edge), fieldPath: 'payload.relationshipType' },
         { sourceKey: sourceKey(from), fieldPath: 'payload.placeId' },
@@ -601,5 +615,71 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
         placeKeys: targets.sort().map((placeId) => `place:${placeId}`),
       })
   }
+  subjectPolicyApplicability.push(...certifySubjectPolicyApplicability(subjectModules))
   return finish(true)
+}
+
+/**
+ * Which current public subjects each current public policy governs, for name-resolved subject
+ * facts only. This is separate from place-complete omission scope: a service whose place is
+ * hidden or absent, or that sells an ambiguously named product, still has exactly its declared
+ * rules. It never authorizes omitting a body or attaching evidence to a place. Any missing,
+ * malformed, cyclic or repeated exception path, any non-current target, or an empty scope
+ * intersection certifies nothing. Its own budget never changes QUERY compilation admission.
+ */
+function certifySubjectPolicyApplicability(
+  current: readonly EffectivePublishedUniversalContentSnapshot[],
+) {
+  const byId = new Map(current.map((m) => [m.moduleId, m]))
+  const basesOf = new Map<string, string[]>()
+  const broken = new Set<string>()
+  let budget = 0
+  const spend = (amount = 1) => (budget += amount) <= MAX_CANONICAL_QUERY_GRAPH_WORK
+  for (const edge of current) {
+    if (!spend()) return []
+    const p = edge.payload
+    if (p.kind !== 'RELATIONSHIP' || p.relationshipType !== GUEST_QUERY_EXCEPTION_RELATIONSHIP)
+      continue
+    const from = byId.get(p.fromModuleId),
+      to = byId.get(p.toModuleId)
+    // A non-current exception does not narrow a current base policy.
+    if (!from) continue
+    if (to && guestQueryCanonicalRelationship(p, from.payload, to.payload) === 'EXCEPTION') {
+      const bases = basesOf.get(from.moduleId) ?? []
+      bases.push(to.moduleId)
+      basesOf.set(from.moduleId, bases)
+    } else if (from.payload.kind === 'POLICY') broken.add(from.moduleId)
+    // A malformed current exception claim leaves its policy target's effective scope unknown.
+    else if (to?.payload.kind === 'POLICY') broken.add(to.moduleId)
+  }
+  const certified: Array<{ moduleId: string; targetModuleIds: string[] }> = []
+  for (const policy of current) {
+    if (policy.payload.kind !== 'POLICY') continue
+    const queue = [policy.moduleId]
+    const seen = new Set<string>()
+    let intersection: Set<string> | undefined
+    let valid = true
+    for (let i = 0; valid && i < queue.length; i++) {
+      if (!spend()) return certified
+      const id = queue[i]!
+      const ancestor = byId.get(id)
+      if (seen.has(id) || broken.has(id) || ancestor?.payload.kind !== 'POLICY') {
+        valid = false
+        break
+      }
+      seen.add(id)
+      const targets = new Set(ancestor.payload.appliesTo)
+      if (!spend(targets.size + (intersection?.size ?? 0))) return certified
+      if ([...targets].some((target) => !byId.has(target))) valid = false
+      else if (targets.size)
+        intersection =
+          intersection === undefined
+            ? targets
+            : new Set([...intersection].filter((target) => targets.has(target)))
+      queue.push(...(basesOf.get(id) ?? []))
+    }
+    if (valid && intersection?.size)
+      certified.push({ moduleId: policy.moduleId, targetModuleIds: [...intersection].sort() })
+  }
+  return certified
 }

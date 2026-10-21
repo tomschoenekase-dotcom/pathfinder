@@ -408,9 +408,16 @@ describe('whole named subject evidence', () => {
     expect(r.status).toBe('READY')
     if (r.status !== 'READY') return
     expect(r.prompt).toContain('No refunds; minimum age nine.')
+    // A hidden location limits place evidence and omission proof, not what the rule governs.
     expect(r.prompt).toContain(
-      'Policy record declares "Aurora service" as a target, but applicability is unresolved: "Aurora condition": No refunds; minimum age nine.',
+      'Policy that applies to "Aurora service": "Aurora condition": No refunds; minimum age nine.',
     )
+    expect(r.prompt).not.toContain('applicability is unresolved')
+    expect(
+      'canonicalPolicyScopes' in r.summary
+        ? r.summary.canonicalPolicyScopes.map((p) => p.moduleId)
+        : undefined,
+    ).not.toContain('policy-a')
     expect(r.prompt).not.toContain('No current offer links "Aurora service"')
     expect(r.prompt).not.toContain('Public hall a')
   })
@@ -479,6 +486,109 @@ describe('whole named subject evidence', () => {
     expect(conflictingFacts).toContain(
       'Policy record declares "Borealis service" as a target, but applicability is unresolved: "Group exception"',
     )
+  })
+  it('certifies declared applicability for unlocated services and ambiguous-offer sellers', async () => {
+    const factsOf = (prompt: string) =>
+      prompt.split('<untrusted_venue_data>')[1]!.split('</untrusted_venue_data>')[0]!
+    const unlocated = graph()
+    const service = unlocated.canonicalModules!.modules.find((m) => m.moduleId === 'service-a')!
+    if (service.payload.kind !== 'SERVICE') throw Error('fixture')
+    service.payload.placeId = null
+    const u = await subjects(unlocated, ['Aurora service'])
+    expect(u.status).toBe('READY')
+    if (u.status !== 'READY') return
+    expect(factsOf(u.prompt)).toContain(
+      'Policy that applies to "Aurora service": "Aurora condition": No refunds; minimum age nine.',
+    )
+    expect(factsOf(u.prompt)).toContain('Location: not established in this guide')
+    const ambiguous = graph()
+    append(ambiguous, 'product-twin', {
+      kind: 'ITEM',
+      itemType: 'PRODUCT',
+      name: 'Comet token',
+      description: 'A second record with the same name.',
+      placeId: 'a',
+    })
+    const a = await subjects(ambiguous, ['Aurora service'])
+    expect(a.status).toBe('READY')
+    if (a.status !== 'READY') return
+    expect(factsOf(a.prompt)).toContain(
+      'Policy that applies to "Aurora service": "Aurora condition": No refunds; minimum age nine.',
+    )
+    expect(factsOf(a.prompt)).not.toContain('Policy that applies to "Aurora service": "Borealis')
+  })
+  it('certifies no applicability through a broken exception path or non-current target', async () => {
+    const factsOf = (prompt: string) =>
+      prompt.split('<untrusted_venue_data>')[1]!.split('</untrusted_venue_data>')[0]!
+    const policy = (s: GuestQuerySource, id: string, title: string, appliesTo: string[]) =>
+      append(s, id, { kind: 'POLICY', title, rule: `${title} rule.`, appliesTo }, false)
+    const edge = (s: GuestQuerySource, id: string, from: string, to: string) =>
+      append(
+        s,
+        id,
+        {
+          kind: 'RELATIONSHIP',
+          fromModuleId: from,
+          toModuleId: to,
+          relationshipType: 'EXCEPTION_TO_V1',
+        },
+        false,
+      )
+    const s = graph()
+    // Exception to a base policy that is no longer current: inherited scope is unknown.
+    const expire = (m: { effectiveUntil: string | null }) => {
+      m.effectiveUntil = '2026-10-01T00:00:00.000Z'
+    }
+    expire(policy(s, 'expired-base', 'Expired base', ['service-a']))
+    policy(s, 'orphan-exception', 'Orphan exception', ['service-a'])
+    edge(s, 'orphan-edge', 'orphan-exception', 'expired-base')
+    // Exception cycle: neither policy has a governing root.
+    policy(s, 'cycle-x', 'Cycle x', ['service-a'])
+    policy(s, 'cycle-y', 'Cycle y', ['service-a'])
+    edge(s, 'cycle-xy', 'cycle-x', 'cycle-y')
+    edge(s, 'cycle-yx', 'cycle-y', 'cycle-x')
+    // One declared target is not a current public record.
+    policy(s, 'partial-target', 'Partial target', ['service-a', 'withdrawn-service'])
+    // A non-current exception does not narrow the current base policy.
+    expire(policy(s, 'expired-exception', 'Expired exception', ['service-a']))
+    edge(s, 'expired-exception-edge', 'expired-exception', 'policy-a')
+    const r = await subjects(s, ['Aurora service'])
+    expect(r.status).toBe('READY')
+    if (r.status !== 'READY') return
+    const facts = factsOf(r.prompt)
+    for (const title of ['Orphan exception', 'Cycle x', 'Cycle y', 'Partial target']) {
+      expect(facts).toContain(
+        `Policy record declares "Aurora service" as a target, but applicability is unresolved: "${title}"`,
+      )
+      expect(facts).not.toContain(`Policy that applies to "Aurora service": "${title}"`)
+    }
+    expect(facts).toContain('Policy that applies to "Aurora service": "Aurora condition"')
+    expect(facts).not.toContain('Expired')
+  })
+  it('applicability agrees with every place-complete policy scope', () => {
+    const s = graph()
+    append(
+      s,
+      'exception',
+      { kind: 'POLICY', title: 'Group exception', rule: 'No deposit.', appliesTo: [] },
+      false,
+    )
+    append(
+      s,
+      'exception-edge',
+      {
+        kind: 'RELATIONSHIP',
+        fromModuleId: 'exception',
+        toModuleId: 'policy-a',
+        relationshipType: 'EXCEPTION_TO_V1',
+      },
+      false,
+    )
+    const compiled = compileGuestQueryCanonicalSource(s)
+    const authority = guestCanonicalEvidenceAuthority(compiled.prepared, s)
+    expect(authority.subjectPolicyScopes.length).toBeGreaterThan(0)
+    for (const scope of authority.subjectPolicyScopes)
+      expect(authority.subjectPolicyApplicability).toContainEqual(scope)
   })
   it('facts include policies targeting the named product without moving them to its seller', async () => {
     const s = graph()
