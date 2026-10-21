@@ -2619,9 +2619,17 @@ const chatReadRouter = router({
                 maxOutputTokens: Math.min(
                   1024,
                   configuration.maxOutputTokens ?? 1024,
-                  ...route.candidates.map(
-                    (candidate) => AI_MODEL_REGISTRY[candidate.modelKey].maxOutputTokens,
-                  ),
+                  ...route.candidates.map((candidate) => {
+                    const registered = Object.entries(AI_MODEL_REGISTRY).find(
+                      ([key]) => key === candidate.modelKey,
+                    )?.[1]
+                    if (!registered)
+                      throw new AiRoutingError(
+                        'CAPABILITY_UNAVAILABLE',
+                        'Guest query planner requires a registered text model',
+                      )
+                    return registered.maxOutputTokens
+                  }),
                 ),
                 admissionGuard: assertGenerationAvailable,
                 budgetGate: sharedBudgetGate,

@@ -59,12 +59,10 @@ describe('local structured chat experiment boundary', () => {
   it('rejects differing same-ID bodies while allowing equal duplicates and new IDs', () => {
     const previous = [{ id: 'same', content: 'Old whole body', title: 'Topic' }]
     expect(guestQuerySourcesAgree(previous, [{ ...previous[0]! }])).toBe(true)
-    expect(guestQuerySourcesAgree(previous, [{ id: 'new', content: 'New independent body' }])).toBe(
-      true,
-    )
-    expect(guestQuerySourcesAgree(previous, [{ id: 'same', content: 'New whole body' }])).toBe(
-      false,
-    )
+    const independent = [{ id: 'new', content: 'New independent body' }]
+    const changed = [{ id: 'same', content: 'New whole body' }]
+    expect(guestQuerySourcesAgree(previous, independent)).toBe(true)
+    expect(guestQuerySourcesAgree(previous, changed)).toBe(false)
   })
   it.each([
     [
