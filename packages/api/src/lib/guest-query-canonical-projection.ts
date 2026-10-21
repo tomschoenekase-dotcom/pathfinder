@@ -13,7 +13,36 @@ import {
   normalizeGuestQueryText,
   type GuestQueryEvidence,
   type GuestStructuredSnapshot,
+  type PreparedGuestSnapshot,
 } from './guest-structured-query'
+
+const ownedEvidence = new WeakMap<
+  object,
+  {
+    source: string
+    knowledgeScopes: GuestCanonicalKnowledgeScope[]
+    lookupScopes: GuestCanonicalKnowledgeScope[]
+    currentModules: EffectivePublishedUniversalContentSnapshot[]
+    relatedKeysByPlace: Record<string, string[]>
+    canonicalSources: GuestCanonicalSourceBody[]
+  }
+>()
+/** Compiler-issued whole-source scope only; public metadata cannot authorize omissions. */
+export function guestCanonicalEvidenceAuthority(
+  prepared: PreparedGuestSnapshot,
+  source: GuestQuerySource,
+) {
+  const proof = ownedEvidence.get(prepared)
+  if (!proof || proof.source !== JSON.stringify(source))
+    throw new Error('Current compiler-owned source authority required')
+  return structuredClone({
+    knowledgeScopes: proof.knowledgeScopes,
+    lookupScopes: proof.lookupScopes,
+    currentModules: proof.currentModules,
+    relatedKeysByPlace: proof.relatedKeysByPlace,
+    canonicalSources: proof.canonicalSources,
+  })
+}
 
 export const GUEST_QUERY_CANONICAL_COMPILER_CONTRACT =
   `${GUEST_QUERY_CANONICAL_CONTRACT}:entity-domain-v1:scoped-alias-v2:product-identity-metadata-v1` as const
@@ -63,33 +92,49 @@ export type GuestCanonicalSourceBody = {
   snapshot: EffectivePublishedUniversalContentSnapshot
 }
 
-export type GuestCanonicalKnowledgeScope = {
-  disposition: 'FULLY_SCOPED'
-  snapshot: EffectivePublishedUniversalContentSnapshot
-  placeKeys: string[]
-} | {
-  disposition: 'IDENTITY_SCOPED_PRODUCT_METADATA'
-  snapshot: EffectivePublishedUniversalContentSnapshot
-}
+export type GuestCanonicalKnowledgeScope =
+  | {
+      disposition: 'FULLY_SCOPED'
+      snapshot: EffectivePublishedUniversalContentSnapshot
+      placeKeys: string[]
+    }
+  | {
+      disposition: 'IDENTITY_SCOPED_PRODUCT_METADATA'
+      snapshot: EffectivePublishedUniversalContentSnapshot
+    }
 
 // Opaque proof is owned by this exact private prepared snapshot, never caller-authored scopes.
 const productMetadataIssuer = Symbol('product-metadata-compiler-issuer')
 class ProductMetadataProof {
   #prepared: ReturnType<typeof prepareGuestStructuredSnapshot>
   #rows: Map<string, EffectivePublishedUniversalContentSnapshot>
-  constructor(prepared: ReturnType<typeof prepareGuestStructuredSnapshot>, rows: EffectivePublishedUniversalContentSnapshot[], issuer: symbol) {
-    if (issuer !== productMetadataIssuer) throw new Error('Product metadata proof requires compiler authority')
+  constructor(
+    prepared: ReturnType<typeof prepareGuestStructuredSnapshot>,
+    rows: EffectivePublishedUniversalContentSnapshot[],
+    issuer: symbol,
+  ) {
+    if (issuer !== productMetadataIssuer)
+      throw new Error('Product metadata proof requires compiler authority')
     this.#prepared = prepared
-    this.#rows = new Map(rows.map(row => [row.moduleId, structuredClone(row)]))
+    this.#rows = new Map(rows.map((row) => [row.moduleId, structuredClone(row)]))
     Object.freeze(this)
   }
-  static read(proof: unknown, prepared: ReturnType<typeof prepareGuestStructuredSnapshot>, id: string) {
-    if (!proof || typeof proof !== 'object' || !(#rows in proof) || proof.#prepared !== prepared) return undefined
+  static read(
+    proof: unknown,
+    prepared: ReturnType<typeof prepareGuestStructuredSnapshot>,
+    id: string,
+  ) {
+    if (!proof || typeof proof !== 'object' || !(#rows in proof) || proof.#prepared !== prepared)
+      return undefined
     const row = proof.#rows.get(id)
     return row ? structuredClone(row) : undefined
   }
 }
-export function identityScopedProductMetadata(proof: unknown, prepared: ReturnType<typeof prepareGuestStructuredSnapshot>, moduleId: string) {
+export function identityScopedProductMetadata(
+  proof: unknown,
+  prepared: ReturnType<typeof prepareGuestStructuredSnapshot>,
+  moduleId: string,
+) {
   return ProductMetadataProof.read(proof, prepared, moduleId)
 }
 
@@ -102,6 +147,8 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
   const related = new Map<string, Set<string>>()
   const emitted = new Map<string, GuestCanonicalSourceBody>()
   const knowledgeScopes: GuestCanonicalKnowledgeScope[] = []
+  const lookupRelationshipScopes: GuestCanonicalKnowledgeScope[] = []
+  const lookupCurrentModules: EffectivePublishedUniversalContentSnapshot[] = []
   const productMetadata: EffectivePublishedUniversalContentSnapshot[] = []
   let graphWork = 0
   const work = (amount = 1) => {
@@ -127,11 +174,27 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       ...canonicalSources.map((body) => body.key),
     ]
     const prepared = prepareGuestStructuredSnapshot(snapshot)
+    ownedEvidence.set(prepared, {
+      source: JSON.stringify(owned),
+      knowledgeScopes: structuredClone(knowledgeScopes),
+      lookupScopes: structuredClone([...knowledgeScopes, ...lookupRelationshipScopes]),
+      currentModules: structuredClone(lookupCurrentModules),
+      relatedKeysByPlace: Object.fromEntries(
+        [...related]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, values]) => [key, [...values].sort()]),
+      ),
+      canonicalSources: structuredClone(canonicalSources),
+    })
     return {
       contract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
       snapshot,
       prepared,
-      productMetadataProof: new ProductMetadataProof(prepared, productMetadata, productMetadataIssuer),
+      productMetadataProof: new ProductMetadataProof(
+        prepared,
+        productMetadata,
+        productMetadataIssuer,
+      ),
       canonicalAuthority,
       canonicalSources,
       knowledgeScopes,
@@ -468,11 +531,19 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
   for (const module of modules.values()) {
     work()
     const payload = module.payload
-    if (payload.kind !== 'ITEM' || payload.itemType !== 'PRODUCT' || tainted.has(module.moduleId) || productNames.get(normalizeGuestQueryText(payload.name)) !== 1) continue
+    if (
+      payload.kind !== 'ITEM' ||
+      payload.itemType !== 'PRODUCT' ||
+      tainted.has(module.moduleId) ||
+      productNames.get(normalizeGuestQueryText(payload.name)) !== 1
+    )
+      continue
     productMetadata.push(module)
-    if (!completePlaces.has(module.moduleId)) knowledgeScopes.push({
-      disposition: 'IDENTITY_SCOPED_PRODUCT_METADATA', snapshot: structuredClone(module),
-    })
+    if (!completePlaces.has(module.moduleId))
+      knowledgeScopes.push({
+        disposition: 'IDENTITY_SCOPED_PRODUCT_METADATA',
+        snapshot: structuredClone(module),
+      })
   }
   for (const [moduleId, bound] of completePlaces) {
     const module = modules.get(moduleId)!
@@ -481,6 +552,35 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       snapshot: structuredClone(module),
       placeKeys: [...bound].sort().map((placeId) => `place:${placeId}`),
     })
+  }
+  lookupCurrentModules.push(...modules.values())
+  // Lookup-only whole relationship scope. No new query facts or policy applicability
+  // are created: both endpoints must already have complete compiler-issued scope.
+  // This optional omission proof has its own budget. Exhaustion keeps remaining
+  // bodies conservative; it must never change historical QUERY compilation admission.
+  let lookupWork = 0
+  for (const edge of modules.values()) {
+    if (++lookupWork > MAX_CANONICAL_QUERY_GRAPH_WORK) break
+    if (edge.payload.kind !== 'RELATIONSHIP' || tainted.has(edge.moduleId)) continue
+    const from = modules.get(edge.payload.fromModuleId)
+    const to = modules.get(edge.payload.toModuleId)
+    if (!from || !to || tainted.has(from.moduleId) || tainted.has(to.moduleId)) continue
+    const relationship = guestQueryCanonicalRelationship(edge.payload, from.payload, to.payload)
+    const fromPlaces = completePlaces.get(from.moduleId)
+    const toPlaces = completePlaces.get(to.moduleId)
+    if (!relationship || !fromPlaces?.size || !toPlaces?.size) continue
+    const targets: string[] = []
+    for (const placeId of fromPlaces) {
+      if (++lookupWork > MAX_CANONICAL_QUERY_GRAPH_WORK) break
+      if (toPlaces.has(placeId)) targets.push(placeId)
+    }
+    if (lookupWork > MAX_CANONICAL_QUERY_GRAPH_WORK) break
+    if (targets.length)
+      lookupRelationshipScopes.push({
+        disposition: 'FULLY_SCOPED',
+        snapshot: structuredClone(edge),
+        placeKeys: targets.sort().map((placeId) => `place:${placeId}`),
+      })
   }
   return finish(true)
 }

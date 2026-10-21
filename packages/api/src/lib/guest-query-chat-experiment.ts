@@ -47,6 +47,22 @@ export async function prepareGuestChatQueryExperiment(input: {
     return { status: 'BASELINE' as const, reason: 'INVALID_PLAN_OR_EVIDENCE' as const }
   }
   const plannerServiceTier = input.getPlannerServiceTier?.()
+  if (prepared.status === 'LOOKUP_READY')
+    return {
+      status: 'READY' as const,
+      sourceVersion: source.version,
+      ...prepared.lookup,
+      partial: true,
+      summary: {
+        ...(plannerServiceTier ? { plannerServiceTier } : {}),
+        ...prepared.lookup.summary,
+        version: 'guest-query-lookup-chat-v1' as const,
+        questionSha256: prepared.trace.questionSha256,
+        plannerPromptSha256: prepared.trace.plannerPromptSha256,
+        plannerResponse: prepared.trace.rawPlan,
+        nameCatalog: prepared.trace.nameCatalog,
+      },
+    }
   if (prepared.status === 'DIRECT_READY')
     return {
       ...prepared,

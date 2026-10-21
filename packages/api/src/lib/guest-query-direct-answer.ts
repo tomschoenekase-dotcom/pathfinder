@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto'
-import { identityScopedProductMetadata } from './guest-query-canonical-projection'
+import {
+  guestCanonicalAliasBody as aliasBody,
+  prepareGuestKnowledgeAdmission,
+} from './guest-query-whole-sources'
+import {
+  guestCanonicalEvidenceAuthority,
+  identityScopedProductMetadata,
+} from './guest-query-canonical-projection'
 import type { EffectivePublishedUniversalContentSnapshot } from '@pathfinder/db'
 import type {
   compileGuestQueryCanonicalSource,
@@ -57,27 +64,6 @@ function recordUnit(domain: GuestStructuredQueryResult['domain'], count: number)
   if (domain === 'PLACE') return count === 1 ? 'place' : 'places'
   if (domain === 'KNOWLEDGE') return count === 1 ? 'knowledge topic' : 'knowledge topics'
   return count === 1 ? 'record' : 'records'
-}
-
-/** Mirrors the protected SQL projection for only the kinds whose whole scope we compile. */
-function aliasBody(snapshot: EffectivePublishedUniversalContentSnapshot) {
-  const payload = snapshot.payload
-  if (payload.kind === 'SERVICE')
-    return {
-      title: payload.name,
-      content: [payload.description, payload.availability]
-        .filter((part) => part != null)
-        .join('\n'),
-    }
-  if (payload.kind === 'POLICY') return { title: payload.title, content: payload.rule }
-  if (payload.kind === 'ITEM' && payload.itemType === 'PRODUCT')
-    return {
-      title: payload.name,
-      content: [payload.description, `Item type: ${payload.itemType}`]
-        .filter((part) => part != null)
-        .join('\n'),
-    }
-  return undefined
 }
 
 function countText(result: GuestStructuredQueryResult): string {
@@ -165,7 +151,13 @@ export function formatGuestQueryDirectAnswer(input: {
     const knowledge: GuestQuerySource['directory']['knowledge'] = []
     const canonicalSources: GuestCanonicalSourceBody[] = []
     const retained = new Set<string>()
-    const omittedProductMetadata: Array<{ knowledgeKey: string; moduleId: string; revisionId: string; publicationId: string; reason: 'UNRELATED_PRODUCT_METADATA' | 'WHOLE_CANONICAL_METADATA_RETAINED' }> = []
+    const omittedProductMetadata: Array<{
+      knowledgeKey: string
+      moduleId: string
+      revisionId: string
+      publicationId: string
+      reason: 'UNRELATED_PRODUCT_METADATA' | 'WHOLE_CANONICAL_METADATA_RETAINED'
+    }> = []
     const retain = (key: string) => {
       retained.add(key)
       if (retained.size > DIRECT_ANSWER_MAX_SOURCES) throw new Decline('SOURCE_BOUND')
@@ -190,27 +182,73 @@ export function formatGuestQueryDirectAnswer(input: {
       )
       const canonical = new Map(compiled.canonicalSources.map((body) => [body.key, body]))
       if (canonical.size !== compiled.canonicalSources.length) throw new Decline('SOURCE_MISMATCH')
-      const scopedAliases = new Map(
-        compiled.knowledgeScopes.map((scope) => [scope.snapshot.moduleId, scope]),
+      // Public compilation metadata is not omission authority. If current private authority
+      // exists, the rendered canonical closure must still be exactly that compiler closure.
+      let ownedAuthority: ReturnType<typeof guestCanonicalEvidenceAuthority> | undefined
+      try {
+        ownedAuthority = guestCanonicalEvidenceAuthority(compiled.prepared, source)
+      } catch {
+        /* stale: retain aliases */
+      }
+      if (
+        ownedAuthority &&
+        (!same(ownedAuthority.relatedKeysByPlace, compiled.relatedKeysByPlace) ||
+          !same(ownedAuthority.canonicalSources, compiled.canonicalSources))
       )
+        throw new Decline('SOURCE_MISMATCH')
+      // A changed source cannot use old omission authority; retain all topics conservatively.
+      let admitKnowledge: ReturnType<typeof prepareGuestKnowledgeAdmission> = () => 'RETAIN'
+      if (knowledgeMap.size) {
+        try {
+          admitKnowledge = prepareGuestKnowledgeAdmission(source, compiled, query)
+        } catch {
+          /* no omissions */
+        }
+      }
       const needed = new Set(rows.flatMap((row) => compiled.relatedKeysByPlace[row.key] ?? []))
       const productNameCounts = new Map<string, number>()
-      for (const module of published.values()) if (module.payload.kind === 'ITEM' && module.payload.itemType === 'PRODUCT') {
-        const name = normalizeGuestQueryText(module.payload.name)
-        productNameCounts.set(name, (productNameCounts.get(name) ?? 0) + 1)
-      }
+      for (const module of published.values())
+        if (module.payload.kind === 'ITEM' && module.payload.itemType === 'PRODUCT') {
+          const name = normalizeGuestQueryText(module.payload.name)
+          productNameCounts.set(name, (productNameCounts.get(name) ?? 0) + 1)
+        }
       const requestedMetadata = new Set<string>()
       for (const module of published.values()) {
         const payload = module.payload
-        if (payload.kind !== 'ITEM' || payload.itemType !== 'PRODUCT' || !query.predicates.some(predicate => predicate.field === 'product' && normalizeGuestQueryText(predicate.name) === normalizeGuestQueryText(payload.name))) continue
-        const proof = identityScopedProductMetadata(compiled.productMetadataProof, compiled.prepared, module.moduleId)
+        if (
+          payload.kind !== 'ITEM' ||
+          payload.itemType !== 'PRODUCT' ||
+          !query.predicates.some(
+            (predicate) =>
+              predicate.field === 'product' &&
+              normalizeGuestQueryText(predicate.name) === normalizeGuestQueryText(payload.name),
+          )
+        )
+          continue
+        const proof = identityScopedProductMetadata(
+          compiled.productMetadataProof,
+          compiled.prepared,
+          module.moduleId,
+        )
         if (!proof) {
           // Keep the conservative alias path for tainted/ambiguous identities, but a
           // unique requested item must not silently lose its only whole current body.
           if ((productNameCounts.get(normalizeGuestQueryText(payload.name)) ?? 0) > 1) continue
           const body = aliasBody(module)
-          const exactAlias = body && [...knowledgeMap.values()].some(topic => topic.sourceType === 'UNIVERSAL_CONTENT' && topic.contentModuleId === module.moduleId && topic.contentRevisionId === module.revisionId && topic.contentPublicationId === module.publicationId && topic.title === body.title && topic.category === module.kind && topic.content === body.content)
-          if (!exactAlias && !canonical.has(canonicalKey(module))) throw new Decline('UNRESOLVED_SCOPE')
+          const exactAlias =
+            body &&
+            [...knowledgeMap.values()].some(
+              (topic) =>
+                topic.sourceType === 'UNIVERSAL_CONTENT' &&
+                topic.contentModuleId === module.moduleId &&
+                topic.contentRevisionId === module.revisionId &&
+                topic.contentPublicationId === module.publicationId &&
+                topic.title === body.title &&
+                topic.category === module.kind &&
+                topic.content === body.content,
+            )
+          if (!exactAlias && !canonical.has(canonicalKey(module)))
+            throw new Decline('UNRESOLVED_SCOPE')
           if (canonical.has(canonicalKey(module))) {
             requestedMetadata.add(canonicalKey(module))
             needed.add(canonicalKey(module))
@@ -221,7 +259,15 @@ export function formatGuestQueryDirectAnswer(input: {
         const key = canonicalKey(module)
         requestedMetadata.add(key)
         needed.add(key)
-        if (!canonical.has(key)) canonical.set(key, { key, text: JSON.stringify(proof), moduleId: proof.moduleId, revisionId: proof.revisionId, kind: proof.kind, snapshot: proof })
+        if (!canonical.has(key))
+          canonical.set(key, {
+            key,
+            text: JSON.stringify(proof),
+            moduleId: proof.moduleId,
+            revisionId: proof.revisionId,
+            kind: proof.kind,
+            snapshot: proof,
+          })
       }
       const labels = new Map<string, string>()
       const labelOwners = new Map<string, string>()
@@ -368,37 +414,20 @@ export function formatGuestQueryDirectAnswer(input: {
       for (const key of requestedMetadata) if (!retained.has(key)) add(renderCanonical(key))
       for (const [key, topic] of knowledgeMap) {
         if (retained.has(key)) continue
-        const scope = topic.contentModuleId ? scopedAliases.get(topic.contentModuleId) : undefined
-        const module = scope?.snapshot
-        const projection = module ? aliasBody(module) : undefined
-        if (scope?.disposition === 'IDENTITY_SCOPED_PRODUCT_METADATA' && module && projection &&
-          topic.sourceType === 'UNIVERSAL_CONTENT' && topic.contentModuleId === module.moduleId &&
-          topic.contentRevisionId === module.revisionId && topic.contentPublicationId === module.publicationId &&
-          topic.title === projection.title && topic.category === module.kind && topic.content === projection.content &&
-          same(published.get(module.moduleId), module) &&
-          same(identityScopedProductMetadata(compiled.productMetadataProof, compiled.prepared, module.moduleId), module)) {
-          // Selected Knowledge was already retained above. Relevant requested item bodies
-          // were retained above; unrelated metadata is scoped by identity, not no-sale proof.
-          omittedProductMetadata.push({ knowledgeKey: key, moduleId: module.moduleId, revisionId: module.revisionId, publicationId: module.publicationId, reason: retained.has(canonicalKey(module)) ? 'WHOLE_CANONICAL_METADATA_RETAINED' : 'UNRELATED_PRODUCT_METADATA' })
+        const admission = admitKnowledge(topic)
+        if (admission === 'IDENTITY_SCOPED_PRODUCT_METADATA') {
+          omittedProductMetadata.push({
+            knowledgeKey: key,
+            moduleId: topic.contentModuleId!,
+            revisionId: topic.contentRevisionId!,
+            publicationId: topic.contentPublicationId!,
+            reason: retained.has(`canonical:${topic.contentRevisionId}`)
+              ? 'WHOLE_CANONICAL_METADATA_RETAINED'
+              : 'UNRELATED_PRODUCT_METADATA',
+          })
           continue
         }
-        if (
-          scope?.disposition === 'FULLY_SCOPED' &&
-          module &&
-          projection &&
-          topic.sourceType === 'UNIVERSAL_CONTENT' &&
-          topic.contentModuleId === module.moduleId &&
-          topic.contentRevisionId === module.revisionId &&
-          topic.contentPublicationId === module.publicationId &&
-          topic.title === projection.title &&
-          topic.category === module.kind &&
-          topic.content === projection.content &&
-          same(published.get(module.moduleId), module) &&
-          scope.placeKeys.length > 0 &&
-          (scope.placeKeys.every((placeKey) => !rows.some((row) => row.key === placeKey)) ||
-            retained.has(canonicalKey(module)))
-        )
-          continue
+        if (admission === 'FULLY_SCOPED') continue
         retain(key)
         knowledge.push(structuredClone(topic))
         add(
@@ -428,7 +457,16 @@ export function formatGuestQueryDirectAnswer(input: {
         productMetadataOmission: {
           contract: 'identity-scoped-product-metadata-v1' as const,
           count: omittedProductMetadata.length,
-          proofSha256: createHash('sha256').update(JSON.stringify({ sourceVersion: source.version, snapshotIdentity: compiled.prepared.snapshotIdentity, queryIdentity: result.queryIdentity, omitted: omittedProductMetadata })).digest('hex'),
+          proofSha256: createHash('sha256')
+            .update(
+              JSON.stringify({
+                sourceVersion: source.version,
+                snapshotIdentity: compiled.prepared.snapshotIdentity,
+                queryIdentity: result.queryIdentity,
+                omitted: omittedProductMetadata,
+              }),
+            )
+            .digest('hex'),
         },
         textFormat: 'PLAIN_TEXT' as const,
         sourceVersion: source.version,

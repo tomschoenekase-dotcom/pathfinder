@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { prepareGuestQueryLookup } from './guest-query-lookup'
 import { guestQueryPlanningPrompt, parseGuestQueryPlan } from './guest-query-planning'
 import { compileGuestQueryCanonicalSource } from './guest-query-canonical-projection'
 import { renderGuestQueryResult } from './guest-query-result-prompt'
@@ -33,7 +34,7 @@ export async function prepareGuestQueryEvidence(input: {
   const names = {
     question,
     catalog: prepared.discoverNamedCandidates(question),
-    directoryVisibility: source.includeSecondLayer ? 'AUTHORIZED' as const : 'PUBLIC' as const,
+    directoryVisibility: source.includeSecondLayer ? ('AUTHORIZED' as const) : ('PUBLIC' as const),
   }
   const system = guestQueryPlanningPrompt(prepared, names)
   const rawPlan = await input.interpret({ system, question, ...(input.validatePlannerOperation ? { validatePlan: (text: string) => { parseGuestQueryPlan(text, prepared, names) } } : {}) })
@@ -47,6 +48,21 @@ export async function prepareGuestQueryEvidence(input: {
     nameCatalog: prepared.namedCatalogData(names.catalog, question),
   }
   if (plan.status === 'UNSUPPORTED') return { status: 'UNSUPPORTED' as const, trace }
+  if (plan.status === 'EVIDENCE_LOOKUP') {
+    if (input.page && Object.keys(input.page).length)
+      throw new Error('Lookup does not support paging')
+    return {
+      status: 'LOOKUP_READY' as const,
+      trace,
+      lookup: prepareGuestQueryLookup({
+        source,
+        compiled,
+        question,
+        anchor: plan.anchor,
+        unresolved: plan.unresolved,
+      }),
+    }
+  }
   if (input.directAnswer) {
     const direct = formatGuestQueryDirectAnswer({ source, compiled, query: plan.query })
     if (direct.status === 'READY') return { ...direct, status: 'DIRECT_READY' as const, trace }
