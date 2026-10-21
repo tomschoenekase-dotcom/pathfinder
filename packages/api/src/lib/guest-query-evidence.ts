@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { prepareGuestQueryLookup as prepareUntimedGuestQueryLookup } from './guest-query-lookup'
 import { prepareGuestSubjectEvidence as prepareUntimedGuestSubjectEvidence } from './guest-query-subject-evidence'
 import { guestQueryPlanningPrompt, parseGuestQueryPlan } from './guest-query-planning'
-import { compileGuestQueryCanonicalSource } from './guest-query-canonical-projection'
+import { compileGuestQuerySourceWithReuse } from './guest-query-compile-cache'
 import { renderGuestQueryResult } from './guest-query-result-prompt'
 import { formatGuestQueryDirectAnswer } from './guest-query-direct-answer'
 import type { GuestQuerySource } from './guest-query-source'
@@ -41,7 +41,7 @@ export async function prepareGuestQueryEvidence(input: {
   const page = guestQueryTiming('clone.page', () => structuredClone(input.page ?? {}))
   // The model callback cannot mutate the authoritative source used for execution and rendering.
   const source = guestQueryTiming('clone.source', () => structuredClone(input.source))
-  const compiled = guestQueryTiming('compile', () => compileGuestQueryCanonicalSource(source))
+  const compiled = guestQueryTiming('compile', () => compileGuestQuerySourceWithReuse(source))
   const prepared = compiled.prepared
   const names = {
     question,

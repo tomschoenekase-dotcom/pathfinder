@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { guestQueryTiming } from './guest-query-timing'
 import { z } from 'zod'
 import {
@@ -156,6 +157,10 @@ export function identityScopedProductMetadata(
 
 /** Pure compilation of an admitted source, never a publication or visibility grant. */
 export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
+  return compileCanonicalSource(source, false)
+}
+
+function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolean) {
   const owned = guestQueryTiming('compile.clone', () => structuredClone(source))
   const snapshot: GuestStructuredSnapshot = projectGuestQuerySource(owned)
   const unresolvedReasons: Array<{ moduleId: string; reason: string }> = []
@@ -233,7 +238,7 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
         structuredClone(subjectPolicyApplicability),
       ),
     })
-    return {
+    const compiled = {
       contract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
       snapshot,
       prepared,
@@ -253,6 +258,36 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       policyCoverage: 'UNKNOWN' as const,
       unresolvedReasons,
     }
+    if (retainReusable && guestQuerySourceIsTemporallyAdmitted(owned)) {
+      const proof = ownedEvidence.get(prepared)!
+      const { source: _source, ...authority } = proof
+      void _source
+      const {
+        prepared: _prepared,
+        productMetadataProof: _productProof,
+        snapshot: _snapshot,
+        ...fields
+      } = compiled
+      void _prepared
+      void _productProof
+      void _snapshot
+      const serialized = JSON.stringify({
+        snapshot: withoutObservationTime(snapshot),
+        fields,
+        authority,
+        productMetadata,
+      })
+      const fingerprint = guestQueryReusableSourceFingerprint(owned)
+      const handle = Object.freeze({
+        serializedBytes:
+          Buffer.byteLength(serialized, 'utf8') +
+          Buffer.byteLength(owned.version, 'utf8') +
+          Buffer.byteLength(fingerprint, 'utf8'),
+      })
+      reusablePayloads.set(handle, { serialized, version: owned.version, fingerprint })
+      reusableByPrepared.set(prepared, handle)
+    }
+    return compiled
   }
   if (!sidecar) return finish(false)
   if (
@@ -708,4 +743,85 @@ function certifySubjectPolicyApplicability(
       certified.push({ moduleId: policy.moduleId, targetModuleIds: [...intersection].sort() })
   }
   return certified
+}
+
+/** A lookalike handle cannot register compiler authority: payloads stay in this private WeakMap. */
+export type GuestQueryReusableCompilation = Readonly<{ serializedBytes: number }>
+const reusablePayloads = new WeakMap<
+  object,
+  { serialized: string; version: string; fingerprint: string }
+>()
+const reusableByPrepared = new WeakMap<object, GuestQueryReusableCompilation>()
+
+function withoutObservationTime<T extends { asOf: string }>(value: T): Omit<T, 'asOf'> {
+  const copy = { ...value }
+  delete (copy as Partial<T>).asOf
+  return copy
+}
+
+export function guestQueryReusableSourceFingerprint(source: GuestQuerySource) {
+  return createHash('sha256')
+    .update(JSON.stringify(withoutObservationTime(source)))
+    .digest('hex')
+}
+
+/** Every raw row must still be admitted. Non-current hand-built sources always use normal compile. */
+export function guestQuerySourceIsTemporallyAdmitted(source: GuestQuerySource) {
+  if (!['LEGACY', 'DARK'].includes(source.readPath)) return false
+  if (!timestamp.safeParse(source.asOf).success) return false
+  const at = Date.parse(source.asOf)
+  if (!Number.isFinite(at)) return false
+  return (source.canonicalModules?.modules ?? []).every((row) => {
+    const from = row.effectiveFrom === null ? -Infinity : Date.parse(row.effectiveFrom)
+    const until = row.effectiveUntil === null ? Infinity : Date.parse(row.effectiveUntil)
+    const expiry =
+      row.payload.kind === 'OPERATIONAL_FACT' && row.payload.expiresAt
+        ? Date.parse(row.payload.expiresAt)
+        : Infinity
+    return from <= at && at < until && from < until && at < expiry
+  })
+}
+
+export function compileGuestQueryCanonicalSourceForReuse(source: GuestQuerySource) {
+  const compiled = compileCanonicalSource(source, true)
+  const reusable = reusableByPrepared.get(compiled.prepared)
+  reusableByPrepared.delete(compiled.prepared)
+  return { compiled, reusable }
+}
+
+/** Reissues fresh per-turn private brands and exact-source authority, never caller-authored scopes. */
+export function rebindGuestQueryCanonicalSource(
+  reusable: GuestQueryReusableCompilation,
+  source: GuestQuerySource,
+) {
+  const payload = reusablePayloads.get(reusable)
+  if (
+    !payload ||
+    payload.version !== source.version ||
+    payload.fingerprint !== guestQueryReusableSourceFingerprint(source) ||
+    !guestQuerySourceIsTemporallyAdmitted(source)
+  )
+    throw new Error('Exact compiler-owned source rebind required')
+  const data = JSON.parse(payload.serialized) as {
+    snapshot: Omit<GuestStructuredSnapshot, 'asOf'>
+    fields: Omit<
+      ReturnType<typeof compileGuestQueryCanonicalSource>,
+      'snapshot' | 'prepared' | 'productMetadataProof'
+    >
+    authority: Omit<NonNullable<ReturnType<typeof ownedEvidence.get>>, 'source'>
+    productMetadata: EffectivePublishedUniversalContentSnapshot[]
+  }
+  const snapshot = { ...data.snapshot, asOf: source.asOf }
+  const prepared = prepareGuestStructuredSnapshot(snapshot)
+  ownedEvidence.set(prepared, { ...data.authority, source: JSON.stringify(source) })
+  return {
+    ...data.fields,
+    snapshot,
+    prepared,
+    productMetadataProof: new ProductMetadataProof(
+      prepared,
+      data.productMetadata,
+      productMetadataIssuer,
+    ),
+  }
 }
