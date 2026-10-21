@@ -1,17 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveEffectivePublishedUniversalContentSnapshot } from '@pathfinder/db'
-import { guestDirectoryVersion } from './guest-directory-index-loader'
-import { loadGuestVenueDirectory, type GuestVenueDirectory } from './guest-venue-directory'
+import { loadGuestQuerySourceDirectory } from './guest-query-source-directory'
+import type { GuestVenueDirectory } from './guest-venue-directory'
 import {
   loadGuestQuerySource,
   MAX_GUEST_QUERY_SOURCE_BYTES,
+  GUEST_QUERY_SOURCE_CONTRACT,
   type GuestQueryTransactionClient,
 } from './guest-query-source'
-
-vi.mock('./guest-directory-index-loader', () => ({ guestDirectoryVersion: vi.fn() }))
-vi.mock('./guest-venue-directory', () => ({ loadGuestVenueDirectory: vi.fn() }))
+vi.mock('./guest-query-source-directory', () => ({ loadGuestQuerySourceDirectory: vi.fn() }))
 vi.mock('@pathfinder/db', () => ({ resolveEffectivePublishedUniversalContentSnapshot: vi.fn() }))
-
 const scope = {
   tenantId: 'tenant-fictional',
   venueId: 'venue-fictional',
@@ -53,194 +51,123 @@ function directory(): GuestVenueDirectory {
     ],
   }
 }
+
 function client() {
-  const reader = { marker: 'scoped-transaction-reader' }
+  const reader = { marker: 'transaction' }
   const transaction = vi.fn(async (read: (value: unknown) => Promise<unknown>) => read(reader))
   return { reader, transaction, db: { $transaction: transaction } as GuestQueryTransactionClient }
 }
-const loadDirectory = vi.mocked(loadGuestVenueDirectory)
-const loadVersion = vi.mocked(guestDirectoryVersion)
-const loadModules = vi.mocked(resolveEffectivePublishedUniversalContentSnapshot)
+const loadDirectory = vi.mocked(loadGuestQuerySourceDirectory),
+  loadModules = vi.mocked(resolveEffectivePublishedUniversalContentSnapshot)
+const loaded = () => ({
+  directory: directory(),
+  authority: { knowledge: [], places: [], activatedLegacyIds: [] as string[] },
+})
 beforeEach(() => {
   vi.resetAllMocks()
-  loadDirectory.mockResolvedValue(directory())
-  loadVersion.mockResolvedValue('metadata-version-1')
+  loadDirectory.mockResolvedValue(loaded())
   loadModules.mockResolvedValue([])
 })
-
-describe('complete guest query source', () => {
+describe('structured source authority v2', () => {
   it.each(['LEGACY', 'DARK'] as const)(
-    'uses one scoped repeatable-read transaction for %s',
+    'one current snapshot and one directory read in %s RR',
     async (readPath) => {
-      const { db, reader, transaction } = client()
-      const result = await loadGuestQuerySource({ client: db, scope, readPath })
-      expect(transaction).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+      const c = client()
+      const r = await loadGuestQuerySource({ client: c.db, scope, readPath })
+      expect(c.transaction).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
         isolationLevel: 'RepeatableRead',
-        timeout: 15_000,
+        timeout: 15000,
       })
-      const expected = { ...scope, reader }
-      expect(loadDirectory).toHaveBeenCalledExactlyOnceWith(expected)
-      expect(loadVersion).toHaveBeenCalledExactlyOnceWith(expected)
-      expect(loadDirectory.mock.calls[0]![0].reader).toBe(reader)
-      expect(loadVersion.mock.calls[0]![0].reader).toBe(reader)
       expect(loadModules).toHaveBeenCalledExactlyOnceWith({
-        db: reader,
+        db: c.reader,
         tenantId: scope.tenantId,
         venueId: scope.venueId,
         asOf: scope.asOf,
       })
-      expect(result.canonicalModules).toEqual({
-        contract: 'published-query-source-v1',
+      expect(loadDirectory).toHaveBeenCalledExactlyOnceWith({
+        ...scope,
+        reader: c.reader,
         modules: [],
       })
-      expect(loadDirectory.mock.invocationCallOrder[0]).toBeLessThan(
-        loadVersion.mock.invocationCallOrder[0]!,
+      expect(loadModules.mock.invocationCallOrder[0]).toBeLessThan(
+        loadDirectory.mock.invocationCallOrder[0]!,
       )
-      expect(result).toMatchObject({
-        ...scope,
-        asOf: scope.asOf.toISOString(),
-        readPath,
-        coverage: 'COMPLETE',
-      })
-      expect(result.version).toMatch(/^[a-f0-9]{64}$/)
-      expect(result.directory.searchVersion).toBe(result.version)
+      expect(r.directory).toEqual({ ...directory(), searchVersion: r.version })
+      expect(r.version).toMatch(/^[a-f0-9]{64}$/)
+      expect(GUEST_QUERY_SOURCE_CONTRACT).toBe('guest-query-source-authority-v2')
     },
   )
-
-  it('rejects unsupported repeatable read without falling back or reading outside the transaction', async () => {
-    const { db, transaction } = client()
-    transaction.mockRejectedValueOnce(new Error('isolation unavailable'))
-    await expect(loadGuestQuerySource({ client: db, scope, readPath: 'LEGACY' })).rejects.toThrow(
-      'isolation unavailable',
+  it('fails unsupported RR without an outside read', async () => {
+    const c = client()
+    c.transaction.mockRejectedValueOnce(Error('RR unavailable'))
+    await expect(loadGuestQuerySource({ client: c.db, scope, readPath: 'LEGACY' })).rejects.toThrow(
+      'RR unavailable',
     )
-    expect(transaction).toHaveBeenCalledOnce()
     expect(loadDirectory).not.toHaveBeenCalled()
-    expect(loadVersion).not.toHaveBeenCalled()
+    expect(loadModules).not.toHaveBeenCalled()
   })
-
-  it('rejects NATIVE before reading legacy content', async () => {
-    const { db, transaction } = client()
+  it('rejects native before any read', async () => {
+    const c = client()
     await expect(
-      loadGuestQuerySource({ client: db, scope, readPath: 'NATIVE' as never }),
-    ).rejects.toThrow('admitted native snapshot')
-    expect(transaction).not.toHaveBeenCalled()
+      loadGuestQuerySource({ client: c.db, scope, readPath: 'NATIVE' as never }),
+    ).rejects.toThrow('admitted native')
+    expect(c.transaction).not.toHaveBeenCalled()
   })
-
-  it.each(['places', 'knowledge'] as const)(
-    'rejects duplicate identities within %s',
-    async (kind) => {
-      const rows = directory()
-      if (kind === 'places') rows.places.push({ ...rows.places[0]! })
-      else rows.knowledge.push({ ...rows.knowledge[0]! })
-      loadDirectory.mockResolvedValueOnce(rows)
-      await expect(
-        loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
-      ).rejects.toThrow('Duplicate guest query source identity')
-    },
-  )
-
-  it('allows the same ID in different record kinds', async () => {
-    const result = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
-    expect(result.directory.places[0]!.id).toBe(result.directory.knowledge[0]!.id)
+  it.each(['canonical', 'directory'])('fails %s without retry', async (stage) => {
+    if (stage === 'canonical') loadModules.mockRejectedValueOnce(Error('read failed'))
+    else loadDirectory.mockRejectedValueOnce(Error('read failed'))
+    const c = client()
+    await expect(loadGuestQuerySource({ client: c.db, scope, readPath: 'LEGACY' })).rejects.toThrow(
+      'read failed',
+    )
+    expect(c.transaction).toHaveBeenCalledOnce()
+    expect(loadModules).toHaveBeenCalledOnce()
+    expect(loadDirectory).toHaveBeenCalledTimes(stage === 'canonical' ? 0 : 1)
   })
-
-  it('rejects incomplete membership before asking for a version', async () => {
-    loadDirectory.mockResolvedValueOnce({ ...directory(), incomplete: true })
+  it.each(['places', 'knowledge'] as const)('rejects duplicate %s', async (kind) => {
+    const v = loaded()
+    if (kind === 'places') v.directory.places.push({ ...v.directory.places[0]! })
+    else v.directory.knowledge.push({ ...v.directory.knowledge[0]! })
+    loadDirectory.mockResolvedValueOnce(v)
+    await expect(
+      loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
+    ).rejects.toThrow('Duplicate guest query source identity')
+  })
+  it('allows one ID in different domains', async () => {
+    const r = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
+    expect(r.directory.places[0]!.id).toBe(r.directory.knowledge[0]!.id)
+  })
+  it('rejects incomplete membership', async () => {
+    loadDirectory.mockResolvedValueOnce({
+      ...loaded(),
+      directory: { ...directory(), incomplete: true },
+    })
     await expect(
       loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
     ).rejects.toThrow('Incomplete guest query source')
-    expect(loadVersion).not.toHaveBeenCalled()
   })
-
-  it.each(['directory', 'version'])(
-    'rejects a failed %s read with no fallback or retry',
-    async (stage) => {
-      if (stage === 'directory') loadDirectory.mockRejectedValueOnce(new Error('read failed'))
-      else loadVersion.mockRejectedValueOnce(new Error('read failed'))
-      const { db, transaction } = client()
-      await expect(loadGuestQuerySource({ client: db, scope, readPath: 'LEGACY' })).rejects.toThrow(
-        'read failed',
-      )
-      expect(transaction).toHaveBeenCalledOnce()
-      expect(loadDirectory).toHaveBeenCalledOnce()
-      expect(loadVersion).toHaveBeenCalledTimes(stage === 'directory' ? 0 : 1)
-    },
-  )
-
-  it('keeps the version stable for identical content at a later asOf', async () => {
-    const first = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
-    const later = await loadGuestQuerySource({
-      client: client().db,
-      scope: { ...scope, asOf: new Date('2026-10-21T05:01:00.000Z') },
-      readPath: 'LEGACY',
-    })
-    expect(later.version).toBe(first.version)
-    expect(later.asOf).not.toBe(first.asOf)
-  })
-
-  it('fails the whole snapshot when canonical publication resolution fails', async () => {
-    loadModules.mockRejectedValueOnce(new Error('publication read failed'))
-    await expect(
-      loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
-    ).rejects.toThrow('publication read failed')
-    expect(loadModules).toHaveBeenCalledOnce()
-  })
-
-  it('rejects excessive UTF-8 source bytes instead of truncating membership', async () => {
-    const rows = directory()
-    rows.knowledge[0]!.content = '界'.repeat(Math.ceil(MAX_GUEST_QUERY_SOURCE_BYTES / 3))
-    loadDirectory.mockResolvedValueOnce(rows)
+  it('rejects UTF8 bound without truncation', async () => {
+    const v = loaded()
+    v.directory.knowledge[0]!.content = '\u754c'.repeat(Math.ceil(MAX_GUEST_QUERY_SOURCE_BYTES / 3))
+    loadDirectory.mockResolvedValueOnce(v)
     await expect(
       loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
     ).rejects.toThrow('Guest query source exceeds byte bound')
   })
-
-  it.each(['publicationId', 'publicationOrder', 'evidence', 'payload', 'withdrawal'])(
-    'binds canonical %s changes even when directory metadata is unchanged',
-    async (change) => {
-      const module = {
-        moduleId: 'item-1',
-        revisionId: 'revision-1',
-        kind: 'ITEM' as const,
-        version: 1,
-        publicationId: 'publication-1',
-        publicationOrder: '1',
-        audience: 'PUBLIC' as const,
-        effectiveFrom: null,
-        effectiveUntil: null,
-        evidence: [
-          {
-            sourceId: 'source-1',
-            locator: null,
-            capturedAt: '2026-10-20T00:00:00.000Z',
-            excerptHash: null,
-          },
-        ],
-        payload: {
-          kind: 'ITEM' as const,
-          name: 'Sketch kit',
-          description: null,
-          placeId: null,
-          itemType: 'PRODUCT',
-        },
-      }
-      loadModules.mockResolvedValueOnce([module])
-      const first = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
-      const next = structuredClone(module)
-      if (change === 'publicationId') next.publicationId = 'publication-2'
-      if (change === 'publicationOrder') next.publicationOrder = '2'
-      if (change === 'evidence') next.evidence[0]!.capturedAt = '2026-10-20T01:00:00.000Z'
-      if (change === 'payload') next.payload.name = 'Field kit'
-      loadModules.mockResolvedValueOnce(change === 'withdrawal' ? [] : [next])
-      const second = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
-      expect(second.version).not.toBe(first.version)
-    },
-  )
-
+  it('stable later asOf for unchanged admitted facts and authority', async () => {
+    const a = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
+    const b = await loadGuestQuerySource({
+      client: client().db,
+      scope: { ...scope, asOf: new Date('2026-10-21T05:01:00Z') },
+      readPath: 'LEGACY',
+    })
+    expect(a.version).toBe(b.version)
+    expect(a.asOf).not.toBe(b.asOf)
+  })
   it.each([
     'body',
     'membership',
-    'metadata',
+    'authority',
     'tenant',
     'venue',
     'audience',
@@ -248,27 +175,22 @@ describe('complete guest query source', () => {
     'contentModuleId',
     'contentRevisionId',
     'contentPublicationId',
-  ])('binds version to %s', async (change) => {
+  ])('binds %s', async (change) => {
     const first = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
     const nextScope = { ...scope }
-    if (change === 'body' || change === 'membership') {
-      const rows = directory()
-      if (change === 'body') rows.knowledge[0]!.content = 'Admission is free.'
-      else rows.knowledge = []
-      loadDirectory.mockResolvedValueOnce(rows)
-    }
-    if (change === 'metadata') loadVersion.mockResolvedValueOnce('metadata-version-2')
+    const v = loaded()
+    if (change === 'body') v.directory.knowledge[0]!.content = 'Free admission.'
+    if (change === 'membership') v.directory.knowledge = []
+    if (change === 'authority') v.authority.activatedLegacyIds.push('activation')
     if (
       change === 'contentModuleId' ||
       change === 'contentRevisionId' ||
       change === 'contentPublicationId'
-    ) {
-      const rows = directory()
-      rows.knowledge[0]![change] = 'changed-binding'
-      loadDirectory.mockResolvedValueOnce(rows)
-    }
-    if (change === 'tenant') nextScope.tenantId = 'other-tenant'
-    if (change === 'venue') nextScope.venueId = 'other-venue'
+    )
+      v.directory.knowledge[0]![change] = 'changed'
+    loadDirectory.mockResolvedValueOnce(v)
+    if (change === 'tenant') nextScope.tenantId = 'tenant-other'
+    if (change === 'venue') nextScope.venueId = 'venue-other'
     if (change === 'audience') nextScope.includeSecondLayer = true
     const next = await loadGuestQuerySource({
       client: client().db,
@@ -277,18 +199,77 @@ describe('complete guest query source', () => {
     })
     expect(next.version).not.toBe(first.version)
   })
-
+  const module = {
+    moduleId: 'item-1',
+    revisionId: 'revision-1',
+    kind: 'ITEM' as const,
+    version: 1,
+    publicationId: 'publication-1',
+    publicationOrder: '1',
+    audience: 'PUBLIC' as const,
+    effectiveFrom: null,
+    effectiveUntil: null,
+    evidence: [
+      {
+        sourceId: 'source-1',
+        locator: null,
+        capturedAt: '2026-10-20T00:00:00.000Z',
+        excerptHash: null,
+      },
+    ],
+    payload: {
+      kind: 'ITEM' as const,
+      name: 'Sketch kit',
+      description: null,
+      placeId: null,
+      itemType: 'PRODUCT',
+    },
+  }
+  it.each(['publicationId', 'publicationOrder', 'evidence', 'payload', 'withdrawal'])(
+    'binds canonical %s',
+    async (change) => {
+      loadModules.mockResolvedValueOnce([module])
+      const a = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
+      const m = structuredClone(module)
+      if (change === 'publicationId') m.publicationId = 'publication-2'
+      if (change === 'publicationOrder') m.publicationOrder = '2'
+      if (change === 'evidence') m.evidence[0]!.capturedAt = '2026-10-20T01:00:00Z'
+      if (change === 'payload') m.payload.name = 'Field kit'
+      loadModules.mockResolvedValueOnce(change === 'withdrawal' ? [] : [m])
+      const b = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
+      expect(a.version).not.toBe(b.version)
+    },
+  )
+  it.each(['moduleId', 'revisionId', 'publicationId'] as const)(
+    'rejects duplicate canonical %s before directory',
+    async (field) => {
+      loadModules.mockResolvedValueOnce([
+        module,
+        {
+          ...module,
+          moduleId: 'item-2',
+          revisionId: 'revision-2',
+          publicationId: 'publication-2',
+          [field]: module[field],
+        },
+      ])
+      await expect(
+        loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
+      ).rejects.toThrow('Duplicate canonical')
+      expect(loadDirectory).not.toHaveBeenCalled()
+    },
+  )
   it.each([
     { ...scope, tenantId: '' },
-    { ...scope, venueId: '  ' },
+    { ...scope, venueId: ' ' },
     { ...scope, includeSecondLayer: 'false' },
     { ...scope, asOf: new Date('invalid') },
-    { ...scope, asOf: '2026-10-21T05:00:00.000Z' },
-  ])('rejects invalid scope before transaction %#', async (invalid) => {
-    const { db, transaction } = client()
+    { ...scope, asOf: '2026-10-21' },
+  ])('rejects invalid scope %#', async (invalid) => {
+    const c = client()
     await expect(
-      loadGuestQuerySource({ client: db, scope: invalid as never, readPath: 'LEGACY' }),
+      loadGuestQuerySource({ client: c.db, scope: invalid as never, readPath: 'LEGACY' }),
     ).rejects.toThrow('Invalid guest query source scope')
-    expect(transaction).not.toHaveBeenCalled()
+    expect(c.transaction).not.toHaveBeenCalled()
   })
 })

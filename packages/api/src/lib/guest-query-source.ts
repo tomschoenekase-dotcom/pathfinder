@@ -4,8 +4,8 @@ import {
   resolveEffectivePublishedUniversalContentSnapshot,
   type EffectivePublishedUniversalContentSnapshot,
 } from '@pathfinder/db'
-import { guestDirectoryVersion } from './guest-directory-index-loader'
-import { loadGuestVenueDirectory, type GuestVenueDirectory } from './guest-venue-directory'
+import { loadGuestQuerySourceDirectory } from './guest-query-source-directory'
+import type { GuestVenueDirectory } from './guest-venue-directory'
 
 type SourceScope = {
   tenantId: string
@@ -39,6 +39,7 @@ export type GuestQuerySource = {
 }
 
 export const MAX_GUEST_QUERY_SOURCE_BYTES = 32 * 1024 * 1024
+export const GUEST_QUERY_SOURCE_CONTRACT = 'guest-query-source-authority-v2' as const
 
 function validateScope(scope: SourceScope) {
   if (
@@ -72,9 +73,6 @@ export async function loadGuestQuerySource(input: {
   const scope = { ...input.scope, asOf: new Date(input.scope.asOf) }
   return input.client.$transaction(
     async (reader) => {
-      const directory = await loadGuestVenueDirectory({ ...scope, reader })
-      if (directory.incomplete) throw new Error('Incomplete guest query source')
-      const metadataVersion = await guestDirectoryVersion({ ...scope, reader })
       const modules = await resolveEffectivePublishedUniversalContentSnapshot({
         db: reader,
         tenantId: scope.tenantId,
@@ -91,6 +89,13 @@ export async function loadGuestQuerySource(input: {
         new Set(modules.map((row) => row.publicationId)).size !== modules.length
       )
         throw new Error('Duplicate canonical query source identity')
+      const { directory, authority } = await loadGuestQuerySourceDirectory({
+        ...scope,
+        reader,
+        modules,
+      })
+      if (directory.incomplete) throw new Error('Incomplete guest query source')
+      const authorityVersion = createHash('sha256').update(JSON.stringify(authority)).digest('hex')
       const identities = [
         ...directory.places.map((row) => `place:${row.id}`),
         ...directory.knowledge.map((row) => `knowledge:${row.id}`),
@@ -98,12 +103,13 @@ export async function loadGuestQuerySource(input: {
       if (new Set(identities).size !== identities.length)
         throw new Error('Duplicate guest query source identity')
       const versionBody = JSON.stringify({
+        sourceContract: GUEST_QUERY_SOURCE_CONTRACT,
         compilerContract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
         tenantId: scope.tenantId,
         venueId: scope.venueId,
         includeSecondLayer: scope.includeSecondLayer,
         readPath: input.readPath,
-        metadataVersion,
+        authorityVersion,
         // The actual rows are bound too: an incorrect metadata adapter cannot bless other bytes.
         directory,
         canonicalModules,
