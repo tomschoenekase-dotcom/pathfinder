@@ -18,7 +18,11 @@ export async function prepareGuestQueryEvidence(input: {
   page?: GuestStructuredQueryPage
   directAnswer?: boolean
   validatePlannerOperation?: boolean
-  interpret: (request: { system: string; question: string; validatePlan?: (text: string) => void }) => Promise<string>
+  interpret: (request: {
+    system: string
+    question: string
+    validatePlan?: (text: string) => void
+  }) => Promise<string>
 }) {
   if (
     typeof input.question !== 'string' ||
@@ -38,7 +42,17 @@ export async function prepareGuestQueryEvidence(input: {
     directoryVisibility: source.includeSecondLayer ? ('AUTHORIZED' as const) : ('PUBLIC' as const),
   }
   const system = guestQueryPlanningPrompt(prepared, names)
-  const rawPlan = await input.interpret({ system, question, ...(input.validatePlannerOperation ? { validatePlan: (text: string) => { parseGuestQueryPlan(text, prepared, names) } } : {}) })
+  const rawPlan = await input.interpret({
+    system,
+    question,
+    ...(input.validatePlannerOperation
+      ? {
+          validatePlan: (text: string) => {
+            parseGuestQueryPlan(text, prepared, names)
+          },
+        }
+      : {}),
+  })
   const plan = parseGuestQueryPlan(rawPlan, prepared, names)
   const trace = {
     sourceVersion: source.version,
@@ -49,10 +63,38 @@ export async function prepareGuestQueryEvidence(input: {
     nameCatalog: prepared.namedCatalogData(names.catalog, question),
   }
   if (plan.status === 'UNSUPPORTED') return { status: 'UNSUPPORTED' as const, trace }
+  if (plan.status === 'EVIDENCE_PARTIAL_SUBJECTS') {
+    if (Object.keys(page).length)
+      throw new Error('Partial subject evidence does not support paging')
+    const evidence = prepareGuestSubjectEvidence({
+      source,
+      compiled,
+      keys: plan.keys,
+      mode: 'CONDITIONAL',
+      unresolved: plan.unresolved,
+    })
+    const prompt =
+      'PARTIAL SUBJECT EVIDENCE: questionCoverage=PARTIAL. Answer supported facts for the explicitly selected subjects, and explicitly preserve the unresolved question excerpts as unanswered requests. They are not source facts. Do not identify an unresolved related record or apply its rules from co-location. Do not claim the entire question, an eligible count, or a complete eligible list has been established.\n' +
+      evidence.prompt
+    if (prompt.length > 30_000) throw new Error('Whole partial subject prompt bound; no truncation')
+    return {
+      status: 'LOOKUP_READY' as const,
+      trace,
+      lookup: {
+        ...evidence,
+        prompt,
+        summary: { ...evidence.summary, questionCoverage: 'PARTIAL' as const },
+      },
+    }
+  }
   if (plan.status === 'EVIDENCE_SUBJECTS') {
-    if (input.page && Object.keys(input.page).length) throw new Error('Subject evidence does not support paging')
-    return { status: 'LOOKUP_READY' as const, trace,
-      lookup: prepareGuestSubjectEvidence({ source, compiled, keys: plan.keys, mode: 'DETAILS' }) }
+    if (input.page && Object.keys(input.page).length)
+      throw new Error('Subject evidence does not support paging')
+    return {
+      status: 'LOOKUP_READY' as const,
+      trace,
+      lookup: prepareGuestSubjectEvidence({ source, compiled, keys: plan.keys, mode: 'DETAILS' }),
+    }
   }
   if (plan.status === 'EVIDENCE_LOOKUP') {
     if (input.page && Object.keys(input.page).length)
@@ -70,11 +112,19 @@ export async function prepareGuestQueryEvidence(input: {
     }
   }
   const result = prepared.evaluate(plan.query).page(page)
-  if (result.mode === 'list' && result.matchingKeys.some(key => key.startsWith('knowledge:'))) {
+  if (result.mode === 'list' && result.matchingKeys.some((key) => key.startsWith('knowledge:'))) {
     if (result.matchingKeys.length > 50 || (input.page && Object.keys(input.page).length))
       throw new Error('Whole Knowledge subject evidence bound')
-    return { status: 'LOOKUP_READY' as const, trace,
-      lookup: prepareGuestSubjectEvidence({ source, compiled, keys: result.matchingKeys, mode: 'DETAILS' }) }
+    return {
+      status: 'LOOKUP_READY' as const,
+      trace,
+      lookup: prepareGuestSubjectEvidence({
+        source,
+        compiled,
+        keys: result.matchingKeys,
+        mode: 'DETAILS',
+      }),
+    }
   }
   if (input.directAnswer) {
     const direct = formatGuestQueryDirectAnswer({ source, compiled, query: plan.query })

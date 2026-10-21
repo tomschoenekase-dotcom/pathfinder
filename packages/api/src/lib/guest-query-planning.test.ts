@@ -283,3 +283,140 @@ describe('strict model query planning', () => {
     expect(data.areas.values.every((value: string) => areas.has(value))).toBe(true)
   })
 })
+
+describe('explicit partial named subject plans', () => {
+  const setup = (question = 'Details for Shop 0 and its counter rules please.') => {
+    const p = prepareGuestStructuredSnapshot(snapshot(2))
+    return { p, question, names: { question, catalog: p.discoverNamedCandidates(question) } }
+  }
+  it('parses only explicitly selected owned refs with exact unresolved excerpts', () => {
+    const { p, names } = setup()
+    expect(
+      parseGuestQueryPlan(
+        JSON.stringify({
+          status: 'EVIDENCE_PARTIAL_SUBJECTS',
+          refs: ['n0'],
+          unresolved: ['its counter rules'],
+        }),
+        p,
+        names,
+      ),
+    ).toEqual({
+      status: 'EVIDENCE_PARTIAL_SUBJECTS',
+      keys: ['place:0'],
+      unresolved: ['its counter rules'],
+    })
+  })
+  it('preserves multiple supported identities without evaluating unresolved details', () => {
+    const { p, names } = setup('Shop 0 and Shop 1 details, plus their unknown counters.')
+    expect(
+      parseGuestQueryPlan(
+        JSON.stringify({
+          status: 'EVIDENCE_PARTIAL_SUBJECTS',
+          refs: ['n0', 'n1'],
+          unresolved: ['their unknown counters'],
+        }),
+        p,
+        names,
+      ),
+    ).toMatchObject({ keys: ['place:0', 'place:1'], unresolved: ['their unknown counters'] })
+  })
+  it.each([[], ['n0', 'n0'], ['n99'], Array.from({ length: 9 }, (_, i) => 'n' + i)])(
+    'rejects invalid refs %j',
+    (refs) => {
+      const { p, names } = setup()
+      expect(() =>
+        parseGuestQueryPlan(
+          JSON.stringify({
+            status: 'EVIDENCE_PARTIAL_SUBJECTS',
+            refs,
+            unresolved: ['its counter rules'],
+          }),
+          p,
+          names,
+        ),
+      ).toThrow()
+    },
+  )
+  it.each([
+    [],
+    [''],
+    [' '],
+    ['not in question'],
+    ['its counter rules', 'its counter rules'],
+    Array(9).fill('its counter rules'),
+    ['x'.repeat(257)],
+    'its counter rules',
+  ])('rejects invalid unresolved excerpts %j', (unresolved) => {
+    const { p, names } = setup()
+    expect(() =>
+      parseGuestQueryPlan(
+        JSON.stringify({ status: 'EVIDENCE_PARTIAL_SUBJECTS', refs: ['n0'], unresolved }),
+        p,
+        names,
+      ),
+    ).toThrow(/exact question-bound/)
+  })
+  it('rejects extra fields, unmentioned subjects and foreign question/catalog bindings', () => {
+    const { p, names } = setup()
+    const plan = {
+      status: 'EVIDENCE_PARTIAL_SUBJECTS',
+      refs: ['n0'],
+      unresolved: ['its counter rules'],
+    }
+    expect(() =>
+      parseGuestQueryPlan(JSON.stringify({ ...plan, answer: 'invented' }), p, names),
+    ).toThrow()
+    expect(() => parseGuestQueryPlan(JSON.stringify({ ...plan, refs: ['n1'] }), p, names)).toThrow()
+    expect(() =>
+      parseGuestQueryPlan(JSON.stringify(plan), p, {
+        ...names,
+        question: 'Shop 1 its counter rules',
+      }),
+    ).toThrow(/binding/)
+    const other = prepareGuestStructuredSnapshot(snapshot(2))
+    expect(() => parseGuestQueryPlan(JSON.stringify(plan), other, names)).toThrow(/binding/)
+  })
+  it('rejects ambiguous and bounded catalogs and duplicate aliases for one identity', () => {
+    const value = snapshot(2)
+    value.records[1]!.name = 'Shop 0'
+    const ambiguous = prepareGuestStructuredSnapshot(value),
+      q = 'Shop 0 its counter rules'
+    const plan = {
+      status: 'EVIDENCE_PARTIAL_SUBJECTS',
+      refs: ['n0'],
+      unresolved: ['its counter rules'],
+    }
+    expect(() =>
+      parseGuestQueryPlan(JSON.stringify(plan), ambiguous, {
+        question: q,
+        catalog: ambiguous.discoverNamedCandidates(q),
+      }),
+    ).toThrow()
+    const { p } = setup(),
+      boundedQuestion = Array(9).fill('Shop 0').join(' ') + ' its counter rules'
+    const bounded = p.discoverNamedCandidates(boundedQuestion)
+    expect(p.namedCatalogData(bounded, boundedQuestion).status).toBe('BOUNDED')
+    expect(() =>
+      parseGuestQueryPlan(JSON.stringify(plan), p, { question: boundedQuestion, catalog: bounded }),
+    ).toThrow()
+    const duplicate = 'Shop 0 Store 0 its counter rules'
+    expect(() =>
+      parseGuestQueryPlan(JSON.stringify({ ...plan, refs: ['n0', 'n1'] }), p, {
+        question: duplicate,
+        catalog: p.discoverNamedCandidates(duplicate),
+      }),
+    ).toThrow(/Duplicate/)
+  })
+  it('clarifies affirmative partial detail without changing unsupported selection or name intent', () => {
+    const { p, names } = setup(),
+      prompt = guestQueryPlanningPrompt(p, names)
+    expect(prompt).toContain('EVIDENCE_PARTIAL_SUBJECTS')
+    expect(prompt).toContain('named service plus its unidentified counter')
+    expect(prompt).toContain('Negated names, incidental venue context, ambiguous selected refs')
+    expect(prompt).toContain('never a qualified count, eligible list')
+    expect(parseGuestQueryPlan('{"status":"UNSUPPORTED","reason":"unresolved"}', p, names)).toEqual(
+      { status: 'UNSUPPORTED', reason: 'unresolved' },
+    )
+  })
+})

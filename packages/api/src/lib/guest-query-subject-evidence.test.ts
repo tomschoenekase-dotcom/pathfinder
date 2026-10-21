@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { prepareGuestQueryEvidence } from './guest-query-evidence'
 import type { GeneralizedContentPayload } from '@pathfinder/contracts/universal-content-actions'
 import {
   compileGuestQueryCanonicalSource,
@@ -606,5 +607,167 @@ describe('whole named subject evidence', () => {
         )
       ).status,
     ).toBe('DIRECT_READY')
+  })
+})
+
+describe('explicit partial subject evidence at the chat boundary', () => {
+  const request = (
+    s: GuestQuerySource,
+    question: string,
+    selected: string[],
+    unresolved: string[],
+  ) => {
+    const p = compileGuestQueryCanonicalSource(s).prepared,
+      names = { question, catalog: p.discoverNamedCandidates(question) }
+    const refs = selected.map(
+      (name) =>
+        p.namedCatalogData(names.catalog, question).groups.find((g) => g.record?.name === name)!
+          .ref,
+    )
+    return {
+      source: s,
+      question,
+      directAnswer: true,
+      interpret: async () =>
+        JSON.stringify({ status: 'EVIDENCE_PARTIAL_SUBJECTS', refs, unresolved }),
+    }
+  }
+  it('retains whole service conditions while unidentified related counter remains explicitly partial', async () => {
+    const s = graph(),
+      question = 'Full conditions for Aurora service and rules for its counter separately.'
+    const r = await prepareGuestChatQueryExperiment(
+      request(s, question, ['Aurora service'], ['rules for its counter separately']),
+    )
+    expect(r.status).toBe('READY')
+    if (r.status !== 'READY') return
+    expect(r.partial).toBe(true)
+    expect(r.summary).toMatchObject({
+      questionCoverage: 'PARTIAL',
+      unresolvedConstraints: ['rules for its counter separately'],
+      eligibilityEvaluated: false,
+      qualifiedCountAvailable: false,
+      candidateEvidenceExhaustiveForEligibility: false,
+      policyCoverage: 'UNKNOWN',
+    })
+    expect(r.prompt).toContain('Children stay with an adult.')
+    expect(r.prompt).toContain('Weekends only; confirm staffing.')
+    expect(r.prompt).toContain('No refunds; minimum age nine.')
+    expect(r.prompt).toContain('They are not source facts')
+    expect(r.prompt).toContain('Do not identify an unresolved related record')
+    expect(r.prompt).not.toContain('Deposit required only for Borealis.')
+    expect(r.summary).not.toHaveProperty('knownMatchCount')
+  })
+  it('preserves every explicitly selected subject without transferring policies between them', async () => {
+    const s = graph(),
+      q = 'Aurora service and Borealis service full conditions and their unknown counter rules.'
+    const r = await prepareGuestChatQueryExperiment(
+      request(s, q, ['Aurora service', 'Borealis service'], ['their unknown counter rules']),
+    )
+    expect(r.status).toBe('READY')
+    if (r.status !== 'READY') return
+    expect(r.prompt).toContain('Policy that applies to "Aurora service": "Aurora condition"')
+    expect(r.prompt).toContain('Policy that applies to "Borealis service": "Borealis condition"')
+    expect(r.summary).toMatchObject({
+      questionCoverage: 'PARTIAL',
+      unresolvedConstraints: ['their unknown counter rules'],
+    })
+  })
+  it('keeps hidden service locations unresolved and rejects withdrawn or expired selected canonical records', async () => {
+    const s = graph(),
+      q = 'Aurora service and its unknown counter rules.'
+    s.directory.places = s.directory.places.filter((p) => p.id !== 'a')
+    const r = await prepareGuestChatQueryExperiment(
+      request(s, q, ['Aurora service'], ['its unknown counter rules']),
+    )
+    expect(r.status).toBe('READY')
+    if (r.status !== 'READY') return
+    expect(r.prompt).not.toContain('Public hall a')
+    expect(r.prompt).toContain('not established in this guide')
+    for (const change of ['withdrawn', 'expired']) {
+      const changed = graph(),
+        m = changed.canonicalModules!.modules.find((m) => m.moduleId === 'service-a')!
+      if (change === 'withdrawn')
+        changed.canonicalModules!.modules = changed.canonicalModules!.modules.filter((x) => x !== m)
+      else m.effectiveUntil = '2026-10-20T00:00:00.000Z'
+      const result = await prepareGuestChatQueryExperiment(
+        request(changed, q, ['Aurora service'], ['its unknown counter rules']),
+      )
+      expect(result.status).toBe('BASELINE')
+    }
+  })
+  it.each([
+    'Not Aurora service; show other eligible services.',
+    'At Aurora service, how many rides meet the age limits?',
+    'Which places are best?',
+  ])('never automatically selects mentions when UNSUPPORTED: %s', async (question) => {
+    let calls = 0
+    const r = await prepareGuestChatQueryExperiment({
+      source: graph(),
+      question,
+      interpret: async () => {
+        calls++
+        return '{"status":"UNSUPPORTED","reason":"No supported affirmative subject plan"}'
+      },
+    })
+    expect(r).toEqual({ status: 'BASELINE', reason: 'UNSUPPORTED_PLAN' })
+    expect(calls).toBe(1)
+  })
+  it('rejects paging, invalid plans and whole-prompt overflow without retrying', async () => {
+    const s = graph(),
+      q = 'Aurora service and its unknown counter rules.',
+      input = request(s, q, ['Aurora service'], ['its unknown counter rules'])
+    await expect(prepareGuestQueryEvidence({ ...input, page: { pageSize: 1 } })).rejects.toThrow(
+      /does not support paging/,
+    )
+    let calls = 0
+    const invalid = await prepareGuestChatQueryExperiment({
+      ...input,
+      interpret: async () => {
+        calls++
+        return '{"status":"EVIDENCE_PARTIAL_SUBJECTS","refs":["n0"],"unresolved":["fabricated"]}'
+      },
+    })
+    expect(invalid).toEqual({ status: 'BASELINE', reason: 'INVALID_PLAN_OR_EVIDENCE' })
+    expect(calls).toBe(1)
+    s.directory.knowledge.push({
+      id: 'large-partial',
+      title: 'Unscoped',
+      category: 'VISIT',
+      content: 'x'.repeat(30001),
+      sourceType: 'MANUAL',
+      sourceName: null,
+      sourceUrl: null,
+    })
+    expect((await prepareGuestChatQueryExperiment(input)).status).toBe('BASELINE')
+  })
+  it('keeps the original paging rejection when the interpreter mutates caller input', async () => {
+    const input = request(
+      graph(),
+      'Aurora service and its unknown counter rules.',
+      ['Aurora service'],
+      ['its unknown counter rules'],
+    )
+    const page: { pageSize?: number } = { pageSize: 1 }
+    await expect(
+      prepareGuestQueryEvidence({
+        ...input,
+        page,
+        interpret: async () => {
+          delete page.pageSize
+          return input.interpret()
+        },
+      }),
+    ).rejects.toThrow(/does not support paging/)
+  })
+  it('propagates provider/accounting failures without recovering catalog subjects', async () => {
+    await expect(
+      prepareGuestChatQueryExperiment({
+        source: graph(),
+        question: 'Aurora service details and its counter rules',
+        interpret: async () => {
+          throw Error('PROVIDER_OR_ACCOUNTING_FAILURE')
+        },
+      }),
+    ).rejects.toThrow('PROVIDER_OR_ACCOUNTING_FAILURE')
   })
 })
