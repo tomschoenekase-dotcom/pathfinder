@@ -40,6 +40,8 @@ describe('local guest query timing', () => {
     )
     expect(result.value).toBe(value)
     const [parent, child, failed] = result.spans
+    if (!parent || !child || !failed) throw new Error('Expected all three nested spans')
+    expect(result.spans).toHaveLength(3)
     expect(parent.parentId).toBeNull()
     expect(child.parentId).toBe(parent.id)
     expect(failed.parentId).toBe(parent.id)
@@ -72,6 +74,8 @@ describe('local guest query timing', () => {
       }),
     )
     const [parent, first, second] = result.spans
+    if (!parent || !first || !second) throw new Error('Expected all three async spans')
+    expect(result.spans).toHaveLength(3)
     expect(first.startMs).toBeLessThanOrEqual(second.startMs)
     expect(first.endMs).toBeGreaterThanOrEqual(second.startMs)
     const union = Math.max(first.endMs, second.endMs) - first.startMs
