@@ -816,9 +816,10 @@ describe('partial question evidence can resolve an explicitly linked public plac
       qualifiedCountAvailable: false,
       unresolvedConstraints: ['rules for its counter separately'],
     })
-    expect(r.summary.canonicalPolicyScopes).toContainEqual({
-      moduleId: 'policy-a',
-      targetModuleIds: ['service-a'],
+    expect(r.summary).toMatchObject({
+      canonicalPolicyScopes: expect.arrayContaining([
+        { moduleId: 'policy-a', targetModuleIds: ['service-a'] },
+      ]),
     })
     expect(r.prompt).not.toContain(
       'Policy that applies to "Public workshop counter": "Aurora condition"',
@@ -849,7 +850,7 @@ describe('partial question evidence can resolve an explicitly linked public plac
       expect(r.prompt).not.toContain('COUNTER_UNPROVED')
       expect(r.prompt).toContain('not established in this guide')
       expect(r.prompt).toContain('clearly state any remainder that those sources do not establish')
-      expect(r.summary.questionCoverage).toBe('PARTIAL')
+      expect(r.summary).toMatchObject({ questionCoverage: 'PARTIAL' })
     },
   )
 })
