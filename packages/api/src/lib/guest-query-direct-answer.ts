@@ -10,7 +10,7 @@ import {
   type GuestStructuredQueryResult,
 } from './guest-structured-query'
 
-export const GUEST_QUERY_DIRECT_ANSWER_VERSION = 'guest-query-direct-answer-v1'
+export const GUEST_QUERY_DIRECT_ANSWER_VERSION = 'guest-query-direct-answer-v2'
 export const DIRECT_ANSWER_MAX_MATCHES = 200
 // Must not exceed the real guest-chat-turn-actions finalizeSchema assistantResponse bound.
 export const DIRECT_ANSWER_MAX_CHARS = 10_000
@@ -51,6 +51,27 @@ const canonicalKey = (row: EffectivePublishedUniversalContentSnapshot) =>
   `canonical:${row.revisionId}`
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const unit = (count: number) => (count === 1 ? 'entry' : 'entries')
+
+/** Mirrors the protected SQL projection for only the kinds whose whole scope we compile. */
+function aliasBody(snapshot: EffectivePublishedUniversalContentSnapshot) {
+  const payload = snapshot.payload
+  if (payload.kind === 'SERVICE')
+    return {
+      title: payload.name,
+      content: [payload.description, payload.availability]
+        .filter((part) => part != null)
+        .join('\n'),
+    }
+  if (payload.kind === 'POLICY') return { title: payload.title, content: payload.rule }
+  if (payload.kind === 'ITEM' && payload.itemType === 'PRODUCT')
+    return {
+      title: payload.name,
+      content: [payload.description, `Item type: ${payload.itemType}`]
+        .filter((part) => part != null)
+        .join('\n'),
+    }
+  return undefined
+}
 
 function countText(result: GuestStructuredQueryResult): string {
   if (result.exactEligibleCount !== null)
@@ -161,6 +182,9 @@ export function formatGuestQueryDirectAnswer(input: {
       )
       const canonical = new Map(compiled.canonicalSources.map((body) => [body.key, body]))
       if (canonical.size !== compiled.canonicalSources.length) throw new Decline('SOURCE_MISMATCH')
+      const scopedAliases = new Map(
+        compiled.knowledgeScopes.map((scope) => [scope.snapshot.moduleId, scope]),
+      )
       const needed = new Set(rows.flatMap((row) => compiled.relatedKeysByPlace[row.key] ?? []))
       const labels = new Map<string, string>()
       const labelOwners = new Map<string, string>()
@@ -211,6 +235,7 @@ export function formatGuestQueryDirectAnswer(input: {
         if (payload.kind === 'ITEM')
           return [
             label(body.moduleId),
+            `Item type: ${literal(payload.itemType)}`,
             ...(payload.description ? [quote(payload.description)] : []),
           ].join('\n')
         if (payload.kind === 'POLICY')
@@ -259,6 +284,26 @@ export function formatGuestQueryDirectAnswer(input: {
       }
       for (const [key, topic] of knowledgeMap) {
         if (retained.has(key)) continue
+        const scope = topic.contentModuleId ? scopedAliases.get(topic.contentModuleId) : undefined
+        const module = scope?.snapshot
+        const projection = module ? aliasBody(module) : undefined
+        if (
+          scope?.disposition === 'FULLY_SCOPED' &&
+          module &&
+          projection &&
+          topic.sourceType === 'UNIVERSAL_CONTENT' &&
+          topic.contentModuleId === module.moduleId &&
+          topic.contentRevisionId === module.revisionId &&
+          topic.contentPublicationId === module.publicationId &&
+          topic.title === projection.title &&
+          topic.category === module.kind &&
+          topic.content === projection.content &&
+          same(published.get(module.moduleId), module) &&
+          scope.placeKeys.length > 0 &&
+          (scope.placeKeys.every((placeKey) => !rows.some((row) => row.key === placeKey)) ||
+            retained.has(canonicalKey(module)))
+        )
+          continue
         retain(key)
         knowledge.push(structuredClone(topic))
         add(

@@ -57,6 +57,10 @@ const GUIDE_ABSENCE_RULE =
 export type GuestDirectoryKnowledge = Omit<SemanticKnowledgeEntry, 'distance'> & {
   /** The loaded row's version, kept so a cached guide can tell when retrieval has a newer one. */
   updatedAt?: Date
+  /** Exact ledger binding for a materialized universal-content search projection. */
+  contentModuleId?: string | null
+  contentRevisionId?: string | null
+  contentPublicationId?: string | null
 }
 export type GuestDirectoryPlace = Omit<SemanticPlace, 'distance' | 'distanceMeters'>
 
@@ -115,6 +119,11 @@ export async function loadGuestVenueDirectory(params: {
       sourceName: row.sourceName,
       sourceUrl: row.sourceUrl,
       updatedAt: row.updatedAt,
+      ...(row.contentModuleId !== undefined ? { contentModuleId: row.contentModuleId } : {}),
+      ...(row.contentRevisionId !== undefined ? { contentRevisionId: row.contentRevisionId } : {}),
+      ...(row.contentPublicationId !== undefined
+        ? { contentPublicationId: row.contentPublicationId }
+        : {}),
     }))
   return {
     knowledge: knowledge.sort(

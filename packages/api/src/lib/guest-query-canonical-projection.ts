@@ -16,7 +16,7 @@ import {
 } from './guest-structured-query'
 
 export const GUEST_QUERY_CANONICAL_COMPILER_CONTRACT =
-  `${GUEST_QUERY_CANONICAL_CONTRACT}:entity-domain-v1` as const
+  `${GUEST_QUERY_CANONICAL_CONTRACT}:entity-domain-v1:scoped-alias-v1` as const
 
 const id = z.string().trim().min(1).max(191)
 const timestamp = z.string().datetime({ offset: true })
@@ -63,6 +63,12 @@ export type GuestCanonicalSourceBody = {
   snapshot: EffectivePublishedUniversalContentSnapshot
 }
 
+export type GuestCanonicalKnowledgeScope = {
+  disposition: 'FULLY_SCOPED'
+  snapshot: EffectivePublishedUniversalContentSnapshot
+  placeKeys: string[]
+}
+
 /** Pure compilation of an admitted source, never a publication or visibility grant. */
 export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
   const owned = structuredClone(source)
@@ -71,6 +77,7 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
   const unresolvedKeys = new Set<string>()
   const related = new Map<string, Set<string>>()
   const emitted = new Map<string, GuestCanonicalSourceBody>()
+  const knowledgeScopes: GuestCanonicalKnowledgeScope[] = []
   let graphWork = 0
   const work = (amount = 1) => {
     graphWork += amount
@@ -100,6 +107,7 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       prepared: prepareGuestStructuredSnapshot(snapshot),
       canonicalAuthority,
       canonicalSources,
+      knowledgeScopes,
       relatedKeysByPlace: Object.fromEntries(
         [...related]
           .sort(([a], [b]) => a.localeCompare(b))
@@ -372,6 +380,69 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
           if (policyIds.has(baseId)) attach(placeId, [edge])
       }
     }
+  }
+  // This separate, conservative proof is only for suppressing materialized Knowledge aliases.
+  // Attachment alone is insufficient: a partially resolved scope may still attach some bodies.
+  const tainted = new Set(unresolvedReasons.map((row) => row.moduleId))
+  for (const edge of modules.values()) {
+    if (edge.payload.kind !== 'RELATIONSHIP' || !tainted.has(edge.moduleId)) continue
+    tainted.add(edge.payload.fromModuleId)
+    tainted.add(edge.payload.toModuleId)
+  }
+  const completePlaces = new Map<string, Set<string>>()
+  for (const module of modules.values()) {
+    const payload = module.payload
+    if (
+      tainted.has(module.moduleId) ||
+      (payload.kind !== 'SERVICE' &&
+        !(payload.kind === 'ITEM' && payload.itemType === 'PRODUCT')) ||
+      (payload.kind === 'ITEM' && productNames.get(normalizeGuestQueryText(payload.name)) !== 1)
+    )
+      continue
+    const bound = modulePlaces.get(module.moduleId)
+    if (bound?.size) completePlaces.set(module.moduleId, new Set(bound))
+  }
+  for (const policy of policies.values()) {
+    const queue = [policy.row.moduleId]
+    const seen = new Set<string>()
+    let complete = true
+    for (let position = 0; position < queue.length; position++) {
+      work()
+      const current = queue[position]!
+      if (seen.has(current) || tainted.has(current)) {
+        complete = false
+        continue
+      }
+      seen.add(current)
+      const ancestor = policies.get(current)
+      if (!ancestor || ancestor.row.payload.kind !== 'POLICY') {
+        complete = false
+        continue
+      }
+      for (const target of ancestor.row.payload.appliesTo) {
+        work()
+        if (!completePlaces.has(target)) complete = false
+      }
+      for (const base of bases.get(current) ?? []) queue.push(base.policyId)
+    }
+    const targets = effectiveTargets.get(policy.row.moduleId)
+    if (!complete || !targets?.size) continue
+    const bound = new Set<string>()
+    for (const target of targets) {
+      for (const placeId of completePlaces.get(target) ?? []) {
+        work()
+        bound.add(placeId)
+      }
+    }
+    if (bound.size) completePlaces.set(policy.row.moduleId, bound)
+  }
+  for (const [moduleId, bound] of completePlaces) {
+    const module = modules.get(moduleId)!
+    knowledgeScopes.push({
+      disposition: 'FULLY_SCOPED',
+      snapshot: structuredClone(module),
+      placeKeys: [...bound].sort().map((placeId) => `place:${placeId}`),
+    })
   }
   return finish(true)
 }

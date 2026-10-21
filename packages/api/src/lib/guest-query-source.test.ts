@@ -237,29 +237,46 @@ describe('complete guest query source', () => {
     },
   )
 
-  it.each(['body', 'membership', 'metadata', 'tenant', 'venue', 'audience', 'path'])(
-    'binds version to %s',
-    async (change) => {
-      const first = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
-      const nextScope = { ...scope }
-      if (change === 'body' || change === 'membership') {
-        const rows = directory()
-        if (change === 'body') rows.knowledge[0]!.content = 'Admission is free.'
-        else rows.knowledge = []
-        loadDirectory.mockResolvedValueOnce(rows)
-      }
-      if (change === 'metadata') loadVersion.mockResolvedValueOnce('metadata-version-2')
-      if (change === 'tenant') nextScope.tenantId = 'other-tenant'
-      if (change === 'venue') nextScope.venueId = 'other-venue'
-      if (change === 'audience') nextScope.includeSecondLayer = true
-      const next = await loadGuestQuerySource({
-        client: client().db,
-        scope: nextScope,
-        readPath: change === 'path' ? 'DARK' : 'LEGACY',
-      })
-      expect(next.version).not.toBe(first.version)
-    },
-  )
+  it.each([
+    'body',
+    'membership',
+    'metadata',
+    'tenant',
+    'venue',
+    'audience',
+    'path',
+    'contentModuleId',
+    'contentRevisionId',
+    'contentPublicationId',
+  ])('binds version to %s', async (change) => {
+    const first = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
+    const nextScope = { ...scope }
+    if (change === 'body' || change === 'membership') {
+      const rows = directory()
+      if (change === 'body') rows.knowledge[0]!.content = 'Admission is free.'
+      else rows.knowledge = []
+      loadDirectory.mockResolvedValueOnce(rows)
+    }
+    if (change === 'metadata') loadVersion.mockResolvedValueOnce('metadata-version-2')
+    if (
+      change === 'contentModuleId' ||
+      change === 'contentRevisionId' ||
+      change === 'contentPublicationId'
+    ) {
+      const rows = directory()
+      rows.knowledge[0]![change] = 'changed-binding'
+      loadDirectory.mockResolvedValueOnce(rows)
+    }
+    if (change === 'tenant') nextScope.tenantId = 'other-tenant'
+    if (change === 'venue') nextScope.venueId = 'other-venue'
+    if (change === 'audience') nextScope.includeSecondLayer = true
+    const next = await loadGuestQuerySource({
+      client: client().db,
+      scope: nextScope,
+      readPath: change === 'path' ? 'DARK' : 'LEGACY',
+    })
+    expect(next.version).not.toBe(first.version)
+  })
 
   it.each([
     { ...scope, tenantId: '' },
