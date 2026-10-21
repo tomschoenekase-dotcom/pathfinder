@@ -1,3 +1,4 @@
+import { guestQueryTiming, guestQueryTimingAsync } from '../lib/guest-query-timing'
 import type { LocalLunaTierReceipt } from '@pathfinder/ai'
 import { localGuestLunaPlannerProfile } from '../lib/guest-query-local-planner-profile'
 import {
@@ -2390,19 +2391,20 @@ const chatReadRouter = router({
     let structuredPlannerInvocationId: string | null = null
     let structuredPlannerServiceTier: LocalLunaTierReceipt | undefined
     let structuredQueryFence: (() => Promise<void>) | null = null
-    const preparePrompt = () => {
-      const parts = prepareVenuePrompt()
-      return {
-        ...parts,
-        dynamicPart: [
-          parts.dynamicPart,
-          structuredQuery?.prompt ?? collectionPromptRule,
-          guestActionPrompt,
-        ]
-          .filter(Boolean)
-          .join('\n\n'),
-      }
-    }
+    const preparePrompt = () =>
+      guestQueryTiming('prompt.assembly', () => {
+        const parts = prepareVenuePrompt()
+        return {
+          ...parts,
+          dynamicPart: [
+            parts.dynamicPart,
+            structuredQuery?.prompt ?? collectionPromptRule,
+            guestActionPrompt,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        }
+      })
     let { staticPart, dynamicPart } = preparePrompt()
     const captureEvidence = () =>
       captureGuestEvidencePacket({
@@ -2485,7 +2487,12 @@ const chatReadRouter = router({
               guideMode,
               guideCoverage,
               contextPacket: evidence.contextPacket,
-              ...(structuredPlannerServiceTier ? { plannerServiceTier: structuredPlannerServiceTier, plannerInvocationId: structuredPlannerInvocationId } : {}),
+              ...(structuredPlannerServiceTier
+                ? {
+                    plannerServiceTier: structuredPlannerServiceTier,
+                    plannerInvocationId: structuredPlannerInvocationId,
+                  }
+                : {}),
               ...(structuredQuery ? { structuredQuery: structuredQuery.summary } : {}),
             },
           },
@@ -2543,11 +2550,15 @@ const chatReadRouter = router({
           'LOCAL_DETERMINISTIC: retained rendering receipt; notDispatchedModelPrompt=true. No answer model was called.',
         dynamicSystemPrompt: JSON.stringify({
           ...candidate.summary,
-          ...(structuredPlannerServiceTier ? { plannerServiceTier: structuredPlannerServiceTier } : {}),
+          ...(structuredPlannerServiceTier
+            ? { plannerServiceTier: structuredPlannerServiceTier }
+            : {}),
           plannerInvocationId: structuredPlannerInvocationId,
           plannerUsageReference: chatAccounting.usageEventIds().at(-1) ?? null,
         }),
-        ...(generationRouteConfigurationVersion ? { routeConfigurationVersion: generationRouteConfigurationVersion } : {}),
+        ...(generationRouteConfigurationVersion
+          ? { routeConfigurationVersion: generationRouteConfigurationVersion }
+          : {}),
         sources: [
           {
             sourceId: `venue:${venue.id}`,
@@ -2559,23 +2570,33 @@ const chatReadRouter = router({
               answerMode: 'LOCAL_DETERMINISTIC',
               notDispatchedModelPrompt: true,
               structuredQuery: candidate.summary,
-              ...(structuredPlannerServiceTier ? { plannerServiceTier: structuredPlannerServiceTier } : {}),
-          plannerInvocationId: structuredPlannerInvocationId,
+              ...(structuredPlannerServiceTier
+                ? { plannerServiceTier: structuredPlannerServiceTier }
+                : {}),
+              plannerInvocationId: structuredPlannerInvocationId,
               plannerUsageReference: chatAccounting.usageEventIds().at(-1) ?? null,
             },
           },
           ...candidate.places.map((place, rank) => ({
-            sourceId: `place:${place.id}`, kind: 'PLACE' as const,
-            label: place.name, rank, snapshot: place,
+            sourceId: `place:${place.id}`,
+            kind: 'PLACE' as const,
+            label: place.name,
+            rank,
+            snapshot: place,
           })),
           ...candidate.knowledge.map((entry, rank) => ({
-            sourceId: `knowledge:${entry.id}`, kind: 'KNOWLEDGE' as const,
-            label: entry.title, rank, snapshot: entry,
+            sourceId: `knowledge:${entry.id}`,
+            kind: 'KNOWLEDGE' as const,
+            label: entry.title,
+            rank,
+            snapshot: entry,
           })),
           ...candidate.canonicalSources.map((content, rank) => ({
             sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
             kind: 'PUBLISHED_CONTENT' as const,
-            label: `${content.kind} ${content.moduleId}`, rank, snapshot: content.snapshot,
+            label: `${content.kind} ${content.moduleId}`,
+            rank,
+            snapshot: content.snapshot,
           })),
         ],
       })
@@ -2599,7 +2620,14 @@ const chatReadRouter = router({
       })
       generationRouteConfigurationVersion = route.configurationVersion
       const configurationSnapshot = JSON.stringify(configuration)
-      const readLocalPlannerProfile = () => localGuestLunaPlannerProfile({ nodeEnv: process.env.NODE_ENV, enabled: process.env.TORCHIKO_LOCAL_STRUCTURED_QUERY, experienceScope: ctx.experienceScope, nativePath: nativeReadSnapshot.path, selected: process.env.TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE })
+      const readLocalPlannerProfile = () =>
+        localGuestLunaPlannerProfile({
+          nodeEnv: process.env.NODE_ENV,
+          enabled: process.env.TORCHIKO_LOCAL_STRUCTURED_QUERY,
+          experienceScope: ctx.experienceScope,
+          nativePath: nativeReadSnapshot.path,
+          selected: process.env.TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE,
+        })
       const plannerProfile = readLocalPlannerProfile()
       // Recheck on every admission, including after reservation and on retries.
       // The existing route and cumulative budget belong to this exact configuration.
@@ -2619,7 +2647,8 @@ const chatReadRouter = router({
         if (JSON.stringify(currentConfiguration) !== configurationSnapshot) {
           throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
         }
-        if (readLocalPlannerProfile() !== plannerProfile) throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest local planner profile changed')
+        if (readLocalPlannerProfile() !== plannerProfile)
+          throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest local planner profile changed')
         await structuredQueryFence?.()
       }
       const webSearchInvocationId = randomUUID()
@@ -2658,16 +2687,18 @@ const chatReadRouter = router({
         // Gate on original admission, never an effective LEGACY projection fallback.
         const readPath = nativeReadSnapshot.path === 'DARK' ? 'DARK' : 'LEGACY'
         const readQuerySource = () =>
-          loadGuestQuerySource({
-            client: ctx.db,
-            scope: {
-              tenantId: venue.tenantId,
-              venueId: input.venueId,
-              includeSecondLayer,
-              asOf: new Date(),
-            },
-            readPath,
-          })
+          guestQueryTimingAsync('source.load', () =>
+            loadGuestQuerySource({
+              client: ctx.db,
+              scope: {
+                tenantId: venue.tenantId,
+                venueId: input.venueId,
+                includeSecondLayer,
+                asOf: new Date(),
+              },
+              readPath,
+            }),
+          )
         let querySource: GuestQuerySource | null = null
         try {
           querySource = await readQuerySource()
@@ -2679,11 +2710,23 @@ const chatReadRouter = router({
             source: querySource,
             question: trimmedInput,
             directAnswer: process.env.TORCHIKO_LOCAL_DIRECT_QUERY === '1',
-            ...(plannerProfile ? { validatePlannerOperation: true, getPlannerServiceTier: () => structuredPlannerServiceTier } : {}),
+            ...(plannerProfile
+              ? {
+                  validatePlannerOperation: true,
+                  getPlannerServiceTier: () => structuredPlannerServiceTier,
+                }
+              : {}),
             interpret: async ({ system, question, validatePlan }) => {
               const planned = await generateTextForCapability({
                 ...(plannerProfile ? { invocationProfile: plannerProfile } : {}),
-                ...(validatePlan ? { parseResponse: (text: string) => { validatePlan(text); return text } } : {}),
+                ...(validatePlan
+                  ? {
+                      parseResponse: (text: string) => {
+                        validatePlan(text)
+                        return text
+                      },
+                    }
+                  : {}),
                 route,
                 timeoutMs: configuration.timeoutMs,
                 maxAttempts: 1,
@@ -2721,11 +2764,12 @@ const chatReadRouter = router({
               return planned.text
             },
           })
-          if (candidate.status === 'DIRECT_READY' || (
-            candidate.status === 'READY' &&
-            guestQuerySourcesAgree(relevantPlaces, candidate.places) &&
-            guestQuerySourcesAgree(relevantKnowledgeEntries, candidate.knowledge)
-          )) {
+          if (
+            candidate.status === 'DIRECT_READY' ||
+            (candidate.status === 'READY' &&
+              guestQuerySourcesAgree(relevantPlaces, candidate.places) &&
+              guestQuerySourcesAgree(relevantKnowledgeEntries, candidate.knowledge))
+          ) {
             try {
               if (candidate.status === 'DIRECT_READY') {
                 buildDirectAnswerEvidence(candidate)
@@ -2765,7 +2809,8 @@ const chatReadRouter = router({
       // Search is an optional first subcall of this durable generation operation.
       // Once dispatched, uncertain turns retain the existing no-duplicate replay fence.
       if (
-        !structuredQuery && !directQuery &&
+        !structuredQuery &&
+        !directQuery &&
         isFeatureEnabled('guestGeneralWebFallback') &&
         ctx.experienceScope === 'PUBLIC' &&
         venue.chatShowLinks &&
@@ -3114,7 +3159,9 @@ const chatReadRouter = router({
     // 7. Commit the entire visible turn and engagement/session transition atomically.
     const persistenceStartedAt = performance.now()
     const answerPlaces = deterministicAnswerCompleted ? directQuery!.places : relevantPlaces
-    const answerKnowledge = deterministicAnswerCompleted ? directQuery!.knowledge : relevantKnowledgeEntries
+    const answerKnowledge = deterministicAnswerCompleted
+      ? directQuery!.knowledge
+      : relevantKnowledgeEntries
     let mentionedPlaces = buildGuestPlaceCards({
       assistantResponse,
       locationAware: guideMode === 'location_aware',
@@ -3197,7 +3244,8 @@ const chatReadRouter = router({
               ? { actionPlacements: guestActionPlacements }
               : {}),
             ...(!fallbackFailureCode &&
-            !deterministicAnswerCompleted && !placeIdentityDiscoveryIncomplete &&
+            !deterministicAnswerCompleted &&
+            !placeIdentityDiscoveryIncomplete &&
             placeIdentity.ambiguity &&
             placeIdentity.ambiguity.candidates.length > 0
               ? {

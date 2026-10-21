@@ -1,12 +1,19 @@
+import { guestQueryTiming, guestQueryTimingAsync } from './guest-query-timing'
 import { createHash } from 'node:crypto'
-import { prepareGuestQueryLookup } from './guest-query-lookup'
-import { prepareGuestSubjectEvidence } from './guest-query-subject-evidence'
+import { prepareGuestQueryLookup as prepareUntimedGuestQueryLookup } from './guest-query-lookup'
+import { prepareGuestSubjectEvidence as prepareUntimedGuestSubjectEvidence } from './guest-query-subject-evidence'
 import { guestQueryPlanningPrompt, parseGuestQueryPlan } from './guest-query-planning'
 import { compileGuestQueryCanonicalSource } from './guest-query-canonical-projection'
 import { renderGuestQueryResult } from './guest-query-result-prompt'
 import { formatGuestQueryDirectAnswer } from './guest-query-direct-answer'
 import type { GuestQuerySource } from './guest-query-source'
 import type { GuestStructuredQueryPage } from './guest-structured-query'
+
+const prepareGuestSubjectEvidence = (
+  input: Parameters<typeof prepareUntimedGuestSubjectEvidence>[0],
+) => guestQueryTiming('evidence.subject', () => prepareUntimedGuestSubjectEvidence(input))
+const prepareGuestQueryLookup = (input: Parameters<typeof prepareUntimedGuestQueryLookup>[0]) =>
+  guestQueryTiming('evidence.lookup', () => prepareUntimedGuestQueryLookup(input))
 
 /**
  * Dependency-injected query path: the existing admitted/accounted AI gateway owns interpretation.
@@ -31,28 +38,32 @@ export async function prepareGuestQueryEvidence(input: {
   )
     throw new Error('Invalid guest query question')
   const question = input.question
-  const page = structuredClone(input.page ?? {})
+  const page = guestQueryTiming('clone.page', () => structuredClone(input.page ?? {}))
   // The model callback cannot mutate the authoritative source used for execution and rendering.
-  const source = structuredClone(input.source)
-  const compiled = compileGuestQueryCanonicalSource(source)
+  const source = guestQueryTiming('clone.source', () => structuredClone(input.source))
+  const compiled = guestQueryTiming('compile', () => compileGuestQueryCanonicalSource(source))
   const prepared = compiled.prepared
   const names = {
     question,
-    catalog: prepared.discoverNamedCandidates(question),
+    catalog: guestQueryTiming('names.catalog', () => prepared.discoverNamedCandidates(question)),
     directoryVisibility: source.includeSecondLayer ? ('AUTHORIZED' as const) : ('PUBLIC' as const),
   }
-  const system = guestQueryPlanningPrompt(prepared, names)
-  const rawPlan = await input.interpret({
-    system,
-    question,
-    ...(input.validatePlannerOperation
-      ? {
-          validatePlan: (text: string) => {
-            parseGuestQueryPlan(text, prepared, names)
-          },
-        }
-      : {}),
-  })
+  const system = guestQueryTiming('planning.prompt', () =>
+    guestQueryPlanningPrompt(prepared, names),
+  )
+  const rawPlan = await guestQueryTimingAsync('planner.wait', () =>
+    input.interpret({
+      system,
+      question,
+      ...(input.validatePlannerOperation
+        ? {
+            validatePlan: (text: string) => {
+              parseGuestQueryPlan(text, prepared, names)
+            },
+          }
+        : {}),
+    }),
+  )
   const plan = parseGuestQueryPlan(rawPlan, prepared, names)
   const trace = {
     sourceVersion: source.version,

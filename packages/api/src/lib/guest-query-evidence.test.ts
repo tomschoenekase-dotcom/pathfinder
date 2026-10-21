@@ -1,3 +1,4 @@
+import { captureGuestQueryTiming } from './guest-query-timing'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { prepareGuestQueryEvidence } from './guest-query-evidence'
@@ -59,24 +60,32 @@ const rawPlan = JSON.stringify({
 const sha = (value: string) => createHash('sha256').update(value).digest('hex')
 
 describe('guest query evidence orchestration', () => {
-  it.each([false, true])('binds planner visibility context to source access scope, second layer=%s', async includeSecondLayer => {
-    const input = source()
-    input.includeSecondLayer = includeSecondLayer
-    let captured = ''
-    const output = await prepareGuestQueryEvidence({
-      source: input,
-      question: 'Which visitor-visible locations are listed?',
-      interpret: async ({ system }) => {
-        captured = system
-        input.includeSecondLayer = !includeSecondLayer
-        return JSON.stringify({ status: 'UNSUPPORTED', reason: 'Test captures trusted scope only.' })
-      },
-    })
-    expect(output.status).toBe('UNSUPPORTED')
-    expect(captured.includes('only active public guest-visible records')).toBe(!includeSecondLayer)
-    expect(captured.includes('may include non-public records')).toBe(includeSecondLayer)
-    expect(output.trace.plannerPromptSha256).toBe(sha(captured))
-  })
+  it.each([false, true])(
+    'binds planner visibility context to source access scope, second layer=%s',
+    async (includeSecondLayer) => {
+      const input = source()
+      input.includeSecondLayer = includeSecondLayer
+      let captured = ''
+      const output = await prepareGuestQueryEvidence({
+        source: input,
+        question: 'Which visitor-visible locations are listed?',
+        interpret: async ({ system }) => {
+          captured = system
+          input.includeSecondLayer = !includeSecondLayer
+          return JSON.stringify({
+            status: 'UNSUPPORTED',
+            reason: 'Test captures trusted scope only.',
+          })
+        },
+      })
+      expect(output.status).toBe('UNSUPPORTED')
+      expect(captured.includes('only active public guest-visible records')).toBe(
+        !includeSecondLayer,
+      )
+      expect(captured.includes('may include non-public records')).toBe(includeSecondLayer)
+      expect(output.trace.plannerPromptSha256).toBe(sha(captured))
+    },
+  )
   it('count preserves the 10,000-record arithmetic while excluding row and legacy policy detail evidence', async () => {
     const input = source()
     input.directory.places = Array.from({ length: 10_000 }, (_, i) => ({
@@ -506,4 +515,38 @@ describe('guest query evidence orchestration', () => {
     ).rejects.toThrow(/Unverified/)
     expect(interpret).not.toHaveBeenCalled()
   })
+})
+
+it('local timing preserves planner and evidence bytes and leaves input unchanged', async () => {
+  const input = source()
+  const before = JSON.stringify(input)
+  const prompts: string[] = []
+  const run = () =>
+    prepareGuestQueryEvidence({
+      source: input,
+      question: 'How many attractions are listed?',
+      interpret: async ({ system }) => {
+        prompts.push(system)
+        return JSON.stringify({
+          status: 'QUERY',
+          mode: 'count',
+          predicates: [{ field: 'kind', equals: 'ATTRACTION' }],
+        })
+      },
+    })
+  const plain = await run()
+  const timed = await captureGuestQueryTiming(run)
+  expect(JSON.stringify(timed.value)).toBe(JSON.stringify(plain))
+  expect(prompts[1]).toBe(prompts[0])
+  expect(JSON.stringify(input)).toBe(before)
+  expect(timed.spans.map((span) => span.stage)).toEqual(
+    expect.arrayContaining([
+      'clone.source',
+      'compile',
+      'compile.clone',
+      'names.catalog',
+      'planning.prompt',
+      'planner.wait',
+    ]),
+  )
 })

@@ -1,3 +1,4 @@
+import { guestQueryTiming } from './guest-query-timing'
 import { z } from 'zod'
 import {
   GUEST_QUERY_CANONICAL_CONTRACT,
@@ -36,19 +37,26 @@ export function guestCanonicalEvidenceAuthority(
   prepared: PreparedGuestSnapshot,
   source: GuestQuerySource,
 ) {
-  const proof = ownedEvidence.get(prepared)
-  if (!proof || proof.source !== JSON.stringify(source))
-    throw new Error('Current compiler-owned source authority required')
-  return structuredClone({
-    knowledgeScopes: proof.knowledgeScopes,
-    lookupScopes: proof.lookupScopes,
-    currentModules: proof.currentModules,
-    relatedKeysByPlace: proof.relatedKeysByPlace,
-    canonicalSources: proof.canonicalSources,
-    subjectModules: proof.subjectModules,
-    subjectOffers: proof.subjectOffers,
-    subjectPolicyScopes: proof.subjectPolicyScopes,
-    subjectPolicyApplicability: proof.subjectPolicyApplicability,
+  return guestQueryTiming('authority', () => {
+    const proof = ownedEvidence.get(prepared)
+    if (
+      !proof ||
+      proof.source !== guestQueryTiming('authority.stringify', () => JSON.stringify(source))
+    )
+      throw new Error('Current compiler-owned source authority required')
+    return guestQueryTiming('authority.clone', () =>
+      structuredClone({
+        knowledgeScopes: proof.knowledgeScopes,
+        lookupScopes: proof.lookupScopes,
+        currentModules: proof.currentModules,
+        relatedKeysByPlace: proof.relatedKeysByPlace,
+        canonicalSources: proof.canonicalSources,
+        subjectModules: proof.subjectModules,
+        subjectOffers: proof.subjectOffers,
+        subjectPolicyScopes: proof.subjectPolicyScopes,
+        subjectPolicyApplicability: proof.subjectPolicyApplicability,
+      }),
+    )
   })
 }
 
@@ -148,7 +156,7 @@ export function identityScopedProductMetadata(
 
 /** Pure compilation of an admitted source, never a publication or visibility grant. */
 export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
-  const owned = structuredClone(source)
+  const owned = guestQueryTiming('compile.clone', () => structuredClone(source))
   const snapshot: GuestStructuredSnapshot = projectGuestQuerySource(owned)
   const unresolvedReasons: Array<{ moduleId: string; reason: string }> = []
   const unresolvedKeys = new Set<string>()
@@ -190,22 +198,40 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       ...snapshot.records.map((record) => record.key),
       ...canonicalSources.map((body) => body.key),
     ]
-    const prepared = prepareGuestStructuredSnapshot(snapshot)
+    const prepared = guestQueryTiming('compile.snapshot', () =>
+      prepareGuestStructuredSnapshot(snapshot),
+    )
     ownedEvidence.set(prepared, {
-      source: JSON.stringify(owned),
-      knowledgeScopes: structuredClone(knowledgeScopes),
-      lookupScopes: structuredClone([...knowledgeScopes, ...lookupRelationshipScopes]),
-      currentModules: structuredClone(lookupCurrentModules),
+      source: guestQueryTiming('compile.authority.stringify', () => JSON.stringify(owned)),
+      knowledgeScopes: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone(knowledgeScopes),
+      ),
+      lookupScopes: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone([...knowledgeScopes, ...lookupRelationshipScopes]),
+      ),
+      currentModules: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone(lookupCurrentModules),
+      ),
       relatedKeysByPlace: Object.fromEntries(
         [...related]
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([key, values]) => [key, [...values].sort()]),
       ),
-      canonicalSources: structuredClone(canonicalSources),
-      subjectModules: structuredClone(subjectModules),
-      subjectOffers: structuredClone(subjectOffers),
-      subjectPolicyScopes: structuredClone(subjectPolicyScopes),
-      subjectPolicyApplicability: structuredClone(subjectPolicyApplicability),
+      canonicalSources: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone(canonicalSources),
+      ),
+      subjectModules: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone(subjectModules),
+      ),
+      subjectOffers: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone(subjectOffers),
+      ),
+      subjectPolicyScopes: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone(subjectPolicyScopes),
+      ),
+      subjectPolicyApplicability: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone(subjectPolicyApplicability),
+      ),
     })
     return {
       contract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,

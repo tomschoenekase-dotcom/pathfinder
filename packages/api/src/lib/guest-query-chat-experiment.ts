@@ -1,3 +1,4 @@
+import { guestQueryTiming } from './guest-query-timing'
 import type { LocalLunaTierReceipt } from '@pathfinder/ai'
 import { prepareGuestQueryEvidence } from './guest-query-evidence'
 import type { GuestQuerySource } from './guest-query-source'
@@ -24,9 +25,13 @@ export async function prepareGuestChatQueryExperiment(input: {
   directAnswer?: boolean
   getPlannerServiceTier?: () => LocalLunaTierReceipt | undefined
   validatePlannerOperation?: boolean
-  interpret: (request: { system: string; question: string; validatePlan?: (text: string) => void }) => Promise<string>
+  interpret: (request: {
+    system: string
+    question: string
+    validatePlan?: (text: string) => void
+  }) => Promise<string>
 }) {
-  const source = structuredClone(input.source)
+  const source = guestQueryTiming('clone.experiment', () => structuredClone(input.source))
   let interpretationCompleted = false
   let prepared: Awaited<ReturnType<typeof prepareGuestQueryEvidence>>
   try {
