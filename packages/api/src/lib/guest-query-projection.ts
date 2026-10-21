@@ -27,6 +27,7 @@ export function projectGuestQuerySource(source: GuestQuerySource): GuestStructur
         ...scope,
         key,
         name: place.name,
+        entityDomain: 'PLACE',
         // type and itemType are distinct fields; never concatenate them into an invented enum.
         kind: place.type.trim() ? known(key, 'type', place.type) : { state: 'UNKNOWN' },
         area: place.areaName?.trim()
@@ -41,6 +42,7 @@ export function projectGuestQuerySource(source: GuestQuerySource): GuestStructur
         ...scope,
         key,
         name: entry.title,
+        entityDomain: 'KNOWLEDGE',
         // A knowledge record is not a physical place even if its title resembles a place name.
         kind: known(key, 'id', 'KNOWLEDGE'),
         area: { state: 'UNKNOWN' },

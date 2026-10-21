@@ -21,6 +21,7 @@ function snapshot(size = 1): GuestStructuredSnapshot {
         tenantId: 'tenant-test',
         venueId: 'venue-test',
         name: `Shop ${i}`,
+        entityDomain: 'PLACE',
         aliases: [`Store ${i}`],
         kind: { state: 'KNOWN', value: `KIND_${String(i).padStart(3, '0')}`, sources },
         area: { state: 'KNOWN', value: `AREA_${String(i).padStart(3, '0')}`, sources },
@@ -159,6 +160,7 @@ describe('strict model query planning', () => {
       tenantId: s.tenantId,
       venueId: s.venueId,
       mode: 'count',
+      domain: 'ALL',
       predicates,
     })
     expect(executeGuestStructuredQuery(s, plan.query).exactEligibleCount).toBe(1)

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { finalizeGuestChatTurnAction } from '@pathfinder/db'
 import type { GeneralizedContentPayload } from '@pathfinder/contracts/universal-content-actions'
 import { legacyGuestResponseToBlocks } from '@pathfinder/contracts/guest-response'
 import { compileGuestQueryCanonicalSource } from './guest-query-canonical-projection'
@@ -264,10 +265,66 @@ describe('deterministic direct stored-query answers', () => {
       expect(output).not.toHaveProperty('answer')
     },
   )
+  it('declines before emission when literal output would exceed the real 10,000-character finalize limit', () => {
+    const value = source()
+    value.directory.places[0]!.longDescription = 'x'.repeat(10_001)
+    const output = render(value)
+    expect(output).toMatchObject({ status: 'UNSUPPORTED', reason: 'ANSWER_BOUND' })
+    expect(output).not.toHaveProperty('answer')
+    value.directory.places[0]!.longDescription = 'x'.repeat(9_000)
+    const bounded = render(value)
+    expect(bounded.status).toBe('READY')
+    if (bounded.status === 'READY') expect(bounded.answer.length).toBeLessThanOrEqual(10_000)
+  })
   it('declines a whole oversized body rather than cutting away its final condition', () => {
     const value = source()
     value.directory.places[0]!.longDescription =
       'BEGIN ' + 'x'.repeat(30_000) + ' END unless an adult pays.'
+    expect(render(value)).toMatchObject({ status: 'UNSUPPORTED', reason: 'ANSWER_BOUND' })
+  })
+  it('fits the actual durable finalizer boundary and declines one character beyond it', async () => {
+    const value = source()
+    const baseline = render(value)
+    if (baseline.status !== 'READY') throw new Error(baseline.reason)
+    value.directory.places[0]!.longDescription += 'x'.repeat(10_000 - baseline.answer.length)
+    const exact = render(value)
+    if (exact.status !== 'READY') throw new Error(exact.reason)
+    expect(exact.answer).toHaveLength(10_000)
+    const transaction = vi.fn().mockRejectedValue(new Error('VALIDATED_BEFORE_DATABASE'))
+    const input = {
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      anonymousToken: '10000000-0000-4000-8000-000000000001',
+      requestId: '10000000-0000-4000-8000-000000000002',
+      turnId: '10000000-0000-4000-8000-000000000003',
+      claimId: '10000000-0000-4000-8000-000000000004',
+      visitorId: null,
+      message: 'List shops',
+      language: null,
+      lat: null,
+      lng: null,
+      retainLocation: false,
+      experienceScope: 'PUBLIC' as const,
+      assistantResponse: exact.answer,
+      replayMetadata: { places: [] },
+      fallbackCode: null,
+      nextPending: { kind: 'NONE' as const },
+    }
+    await expect(
+      finalizeGuestChatTurnAction({
+        client: { $transaction: transaction } as never,
+        input,
+      }),
+    ).rejects.toThrow('VALIDATED_BEFORE_DATABASE')
+    expect(transaction).toHaveBeenCalledTimes(1)
+    await expect(
+      finalizeGuestChatTurnAction({
+        client: { $transaction: transaction } as never,
+        input: { ...input, assistantResponse: exact.answer + 'x' },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(transaction).toHaveBeenCalledTimes(1)
+    value.directory.places[0]!.longDescription += 'x'
     expect(render(value)).toMatchObject({ status: 'UNSUPPORTED', reason: 'ANSWER_BOUND' })
   })
   it.each(['bad\u0000body', 'bad\u202ebody', '[[button:buy-now]]', '[[ENGAGEMENT_ASKED]]'])(

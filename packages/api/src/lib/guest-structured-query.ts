@@ -20,11 +20,16 @@ export type GuestQueryProducts =
       offers: readonly { name: string; sources: readonly GuestQueryEvidence[] }[]
     }
 
+export type GuestQueryDomain = 'ALL' | 'PLACE' | 'KNOWLEDGE'
+export const GUEST_QUERY_DOMAIN_CONTRACT = 'guest-query-domain-v1' as const
+
 export interface GuestStructuredRecord {
   key: string
   tenantId: string
   venueId: string
   name: string
+  /** Trusted adapter origin; omitted preserves historical ALL-only records. */
+  entityDomain?: Exclude<GuestQueryDomain, 'ALL'>
   aliases?: readonly string[]
   kind?: GuestQueryFact<string>
   area?: GuestQueryFact<string>
@@ -54,6 +59,7 @@ export interface GuestStructuredQuery {
   tenantId: string
   venueId: string
   mode: 'count' | 'list'
+  domain?: GuestQueryDomain
   predicates: readonly GuestStructuredPredicate[]
 }
 
@@ -64,6 +70,9 @@ export interface GuestStructuredQueryPage {
 
 export interface GuestStructuredQueryResult {
   mode: GuestStructuredQuery['mode']
+  domain: GuestQueryDomain
+  candidateCount: number
+  domainContract: typeof GUEST_QUERY_DOMAIN_CONTRACT
   tenantId: string
   venueId: string
   sourceVersion: string
@@ -274,7 +283,18 @@ function validateSnapshot(snapshot: unknown) {
     const r = object(value, 'record')
     fields(
       r,
-      ['key', 'tenantId', 'venueId', 'name', 'aliases', 'kind', 'area', 'products', 'features'],
+      [
+        'key',
+        'tenantId',
+        'venueId',
+        'name',
+        'entityDomain',
+        'aliases',
+        'kind',
+        'area',
+        'products',
+        'features',
+      ],
       'record',
     )
     key(r.key, 'record.key')
@@ -282,6 +302,8 @@ function validateSnapshot(snapshot: unknown) {
     keys.add(r.key)
     if (r.tenantId !== s.tenantId || r.venueId !== s.venueId) fail('record: scope mismatch')
     string(r.name, 'record.name')
+    if (r.entityDomain !== undefined && !['PLACE', 'KNOWLEDGE'].includes(r.entityDomain as string))
+      fail('record: invalid entity domain')
     if (r.aliases !== undefined) {
       if (!Array.isArray(r.aliases)) fail('record: expected aliases')
       r.aliases.forEach((alias) => string(alias, 'record.alias'))
@@ -305,9 +327,11 @@ function validateSnapshot(snapshot: unknown) {
 
 function validateQuery(scope: { tenantId: string; venueId: string }, query: unknown) {
   const q = object(query, 'query')
-  fields(q, ['tenantId', 'venueId', 'mode', 'predicates'], 'query')
+  fields(q, ['tenantId', 'venueId', 'mode', 'domain', 'predicates'], 'query')
   if (q.tenantId !== scope.tenantId || q.venueId !== scope.venueId) fail('query: scope mismatch')
   if (!['count', 'list'].includes(q.mode as string)) fail('query: invalid mode')
+  if (q.domain !== undefined && !['ALL', 'PLACE', 'KNOWLEDGE'].includes(q.domain as string))
+    fail('query: invalid domain')
   if (!Array.isArray(q.predicates) || q.predicates.length > MAX_PREDICATES)
     fail('query: invalid predicate count')
   for (const value of q.predicates) {
@@ -316,6 +340,7 @@ function validateQuery(scope: { tenantId: string; venueId: string }, query: unkn
       fields(p, ['field', 'equals'], 'predicate')
       string(p.equals, 'predicate.equals')
     } else if (p.field === 'product') {
+      if (q.domain === 'KNOWLEDGE') fail('query: product seller domain cannot be KNOWLEDGE')
       fields(p, ['field', 'name'], 'predicate')
       string(p.name, 'predicate.name')
     } else if (p.field === 'feature') {
@@ -478,6 +503,9 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
   validateQuery(raw: unknown): GuestStructuredQuery {
     const query = structuredClone(raw)
     validateQuery(this.scope, query)
+    const domain = (query as GuestStructuredQuery).domain ?? 'ALL'
+    if (domain !== 'ALL' && this.#records.some((record) => record.entityDomain === undefined))
+      fail('query: explicit domain requires trusted record domains')
     return query as GuestStructuredQuery
   }
 
@@ -485,7 +513,12 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
     const query = this.validateQuery(rawQuery)
     const matches: GuestStructuredRecord[] = [],
       unknownKeys: string[] = []
-    for (const record of this.#records) {
+    const domain = query.domain ?? 'ALL'
+    const candidates =
+      domain === 'ALL'
+        ? this.#records
+        : this.#records.filter((record) => record.entityDomain === domain)
+    for (const record of candidates) {
       const values = query.predicates.map((predicate) => test(record, predicate, this.#keys))
       if (values.includes('FALSE')) continue
       if (values.includes('UNKNOWN')) unknownKeys.push(record.key)
@@ -495,6 +528,8 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
       PREPARED_TOKEN,
       this.#snapshot,
       query.mode,
+      domain,
+      candidates.length,
       {
         ...this.scope,
         sourceVersion: this.sourceVersion,
@@ -509,6 +544,8 @@ class PreparedSnapshot implements PreparedGuestSnapshot {
 
 class EvaluatedQuery implements PreparedGuestQuery {
   #mode: GuestStructuredQuery['mode']
+  #domain: GuestQueryDomain
+  #candidateCount: number
   #snapshot: GuestStructuredSnapshot
   #binding: CursorBinding
   #matches: readonly GuestStructuredRecord[]
@@ -520,6 +557,8 @@ class EvaluatedQuery implements PreparedGuestQuery {
     token: symbol,
     snapshot: GuestStructuredSnapshot,
     mode: GuestStructuredQuery['mode'],
+    domain: GuestQueryDomain,
+    candidateCount: number,
     binding: CursorBinding,
     matches: GuestStructuredRecord[],
     unknownKeys: string[],
@@ -527,6 +566,8 @@ class EvaluatedQuery implements PreparedGuestQuery {
     if (token !== PREPARED_TOKEN) fail('Invalid prepared query construction')
     this.#snapshot = snapshot
     this.#mode = mode
+    this.#domain = domain
+    this.#candidateCount = candidateCount
     this.#binding = binding
     this.#matches = matches
     this.#matchingKeys = matches.map((record) => record.key)
@@ -579,6 +620,9 @@ class EvaluatedQuery implements PreparedGuestQuery {
       this.#snapshot.coverage === 'COMPLETE' && this.#unknownKeys.length === 0
     return {
       mode: this.#mode,
+      domain: this.#domain,
+      candidateCount: this.#candidateCount,
+      domainContract: GUEST_QUERY_DOMAIN_CONTRACT,
       tenantId: this.#binding.tenantId,
       venueId: this.#binding.venueId,
       sourceVersion: this.#binding.sourceVersion,

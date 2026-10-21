@@ -1,3 +1,4 @@
+import { GUEST_QUERY_CANONICAL_COMPILER_CONTRACT } from './guest-query-canonical-projection'
 import { createHash } from 'node:crypto'
 import {
   resolveEffectivePublishedUniversalContentSnapshot,
@@ -97,7 +98,7 @@ export async function loadGuestQuerySource(input: {
       if (new Set(identities).size !== identities.length)
         throw new Error('Duplicate guest query source identity')
       const versionBody = JSON.stringify({
-        compilerContract: 'guest-query-canonical-v1',
+        compilerContract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
         tenantId: scope.tenantId,
         venueId: scope.venueId,
         includeSecondLayer: scope.includeSecondLayer,

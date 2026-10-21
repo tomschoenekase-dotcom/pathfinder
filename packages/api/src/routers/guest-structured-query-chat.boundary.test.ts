@@ -939,6 +939,35 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
     expect(anthropicCreate).toHaveBeenCalledTimes(2)
     expect(gatewayCalls[0]!.budgetGate).toBe(gatewayCalls[1]!.budgetGate)
   })
+  it('falls back before direct emission for a 10k-plus body that cannot pass durable finalization', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const oversized = source()
+    oversized.directory.places[0]!.longDescription = 'TOO_LONG_DIRECT ' + 'x'.repeat(10_001)
+    loadQuerySource.mockResolvedValue(oversized)
+    queue()
+    const stream = vi.fn(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'ANSWER_VISIBLE' } }
+      },
+      finalMessage: vi.fn().mockResolvedValue(message('ANSWER_VISIBLE')),
+    }))
+    _setAnthropicClientForTesting({
+      messages: { create: anthropicCreate, stream },
+    } as unknown as AnthropicMessagesClient)
+    const events = []
+    for await (const event of streamChatTurn(ctx, input)) events.push(event)
+    expect(gatewayCalls).toHaveLength(2)
+    expect(
+      events
+        .filter((event) => event.type === 'delta')
+        .map((event) => (event.type === 'delta' ? event.delta : ''))
+        .join(''),
+    ).not.toContain('TOO_LONG_DIRECT')
+    expect(
+      guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse.length,
+    ).toBeLessThanOrEqual(10_000)
+    expect(metadata().answerEvidence.system.staticPart).not.toContain('LOCAL_DETERMINISTIC')
+  })
   it('falls back before direct emission when a retained whole source exceeds evidence snapshot bounds', async () => {
     vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
     const oversized = source()
@@ -952,7 +981,7 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
   it.each([98, 99])('enforces 100 retained sources including profile for direct lists: %i topics', async count => {
     vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
     const current = source()
-    current.directory.knowledge = Array.from({ length: count }, (_, i) => topic(`condition-${i}`, `Whole condition ${i}: booking required.`))
+    current.directory.knowledge = Array.from({ length: count }, (_, i) => topic(`condition-${i}`, 'R.'))
     loadQuerySource.mockResolvedValue(current)
     queue()
     await caller.chat.send(input)

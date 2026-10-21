@@ -12,7 +12,8 @@ import {
 
 export const GUEST_QUERY_DIRECT_ANSWER_VERSION = 'guest-query-direct-answer-v1'
 export const DIRECT_ANSWER_MAX_MATCHES = 200
-export const DIRECT_ANSWER_MAX_CHARS = 30_000
+// Must not exceed the real guest-chat-turn-actions finalizeSchema assistantResponse bound.
+export const DIRECT_ANSWER_MAX_CHARS = 10_000
 export const DIRECT_ANSWER_MAX_SOURCES = 99
 type Compilation = ReturnType<typeof compileGuestQueryCanonicalSource>
 type Failure =
@@ -287,6 +288,9 @@ export function formatGuestQueryDirectAnswer(input: {
         sourceVersion: source.version,
         queryIdentity: result.queryIdentity,
         mode: query.mode,
+        domain: result.domain,
+        candidateCount: result.candidateCount,
+        domainContract: result.domainContract,
         knownMatchCount: result.knownMatchCount,
         unknownCandidateCount: result.unknownCandidateCount,
         exactEligibleCount: result.exactEligibleCount,

@@ -15,6 +15,9 @@ import {
   type GuestStructuredSnapshot,
 } from './guest-structured-query'
 
+export const GUEST_QUERY_CANONICAL_COMPILER_CONTRACT =
+  `${GUEST_QUERY_CANONICAL_CONTRACT}:entity-domain-v1` as const
+
 const id = z.string().trim().min(1).max(191)
 const timestamp = z.string().datetime({ offset: true })
 export const MAX_CANONICAL_QUERY_GRAPH_WORK = 2_000_000
@@ -92,7 +95,7 @@ export function compileGuestQueryCanonicalSource(source: GuestQuerySource) {
       ...canonicalSources.map((body) => body.key),
     ]
     return {
-      contract: GUEST_QUERY_CANONICAL_CONTRACT,
+      contract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
       snapshot,
       prepared: prepareGuestStructuredSnapshot(snapshot),
       canonicalAuthority,

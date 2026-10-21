@@ -161,7 +161,7 @@ describe('local structured chat experiment boundary', () => {
     expect(output.summary).toMatchObject({
       mode: 'count',
       knownMatchCount: 1,
-      unknownCandidateCount: 2,
+      unknownCandidateCount: 1,
       exactEligibleCount: null,
       canonicalAuthority: true,
     })

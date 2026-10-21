@@ -39,6 +39,9 @@ export function renderGuestQueryResult(input: {
     ].join('\n')
     const prompt = `${rules}\n${JSON.stringify({
       mode: result.mode,
+      domain: result.domain,
+      candidateCount: result.candidateCount,
+      domainContract: result.domainContract,
       sourceVersion: result.sourceVersion,
       asOf: result.asOf,
       coverage: result.coverage,
@@ -106,6 +109,9 @@ export function renderGuestQueryResult(input: {
   const render = () =>
     `${rules}\n${JSON.stringify({
       mode: result.mode,
+      domain: result.domain,
+      candidateCount: result.candidateCount,
+      domainContract: result.domainContract,
       sourceVersion: result.sourceVersion,
       asOf: result.asOf,
       coverage: result.coverage,
