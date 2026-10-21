@@ -67,6 +67,31 @@ const KIND_WORDS: Record<string, EntityKind[]> = {
   encounter: ['activity'],
 }
 
+/** Category words (stemmed); an alias ending in one names a kind of thing, not one thing. */
+export const GUEST_KIND_WORD_SET: ReadonlySet<string> = new Set([
+  ...Object.keys(KIND_WORDS),
+  'cafeteria',
+  'diner',
+  'bar',
+  'kiosk',
+  'cart',
+  'counter',
+  'grill',
+  'kitchen',
+  'ride',
+  'slide',
+  'flume',
+  'carousel',
+  'theater',
+  'theatre',
+  'zoo',
+  'museum',
+  'park',
+  'thing',
+  'place',
+  'area',
+])
+
 const NEAR_CUES = new Set(['near', 'nearby', 'close', 'closest', 'nearest', 'around', 'here'])
 
 const LIST_CUES = new Set([

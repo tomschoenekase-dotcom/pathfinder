@@ -31,7 +31,12 @@ function kindLabel(kind: EntityKind): string {
   return kind === 'food' ? 'food' : kind === 'topic' ? 'topic' : kind
 }
 
-export function renderRow(index: VenueIndex, recordId: string, extra?: string): string {
+export function renderRow(
+  index: VenueIndex,
+  recordId: string,
+  extra?: string,
+  options: { firstSentence?: boolean } = {},
+): string {
   const c = index.contributions.get(recordId)
   if (!c) return ''
   const wanted = ROW_LABELS[c.kind] ?? []
@@ -40,10 +45,14 @@ export function renderRow(index: VenueIndex, recordId: string, extra?: string): 
     .map((label) => `${label.label[0]!.toUpperCase()}${label.label.slice(1)}: ${label.value}`)
   const first = index.records.get(recordId)?.body.split(/\r?\n/u)[0] ?? ''
   const where = c.areaDisplay ? `, ${c.areaDisplay}` : ''
-  const detail = facts.length ? facts.join(' | ') : first
+  // The first sentence says where and what the thing is; short lists keep it so a location is
+  // never left for the model to fill in.
+  const detail = facts.length
+    ? [...(options.firstSentence && first ? [first] : []), ...facts].join(' | ')
+    : first
   return `- ${c.name} (${kindLabel(c.kind)}${where})${extra ? ` ${extra}` : ''}: ${detail}`.slice(
     0,
-    420,
+    520,
   )
 }
 
@@ -116,7 +125,9 @@ export function buildGuestPacket(
   for (const group of retrieval.sellers) {
     const total = group.sellerRecordIds.length + group.enrichedSellerRecordIds.length
     const rows = group.sellerRecordIds.map((id) =>
-      renderRow(index, id, sellerExtra(index, id, group.productNames)),
+      renderRow(index, id, sellerExtra(index, id, group.productNames), {
+        firstSentence: group.sellerRecordIds.length <= 30,
+      }),
     )
     for (const id of group.sellerRecordIds) included.add(id)
     const shown = rows.slice(0, params.limits?.sellerRows ?? DEFAULT_LIMITS.sellerRows)
@@ -147,7 +158,7 @@ export function buildGuestPacket(
       .join(' | ')
     const complete = list.recordIds.length >= list.total
     push(
-      `## LIST (${label}): ${list.total} match(es)${complete ? ' (complete list)' : ` (showing ${list.recordIds.length}; use venue_query for the rest, or give the total and ask how to narrow it)`}\n${list.recordIds.map((id) => renderRow(index, id)).join('\n')}`,
+      `## LIST (${label}): ${list.total} match(es)${complete ? ' (complete list)' : ` (showing ${list.recordIds.length}; use venue_query for the rest, or give the total and ask how to narrow it)`}\n${list.recordIds.map((id) => renderRow(index, id, undefined, { firstSentence: list.recordIds.length <= 30 })).join('\n')}`,
     )
     for (const id of list.recordIds) included.add(id)
   }

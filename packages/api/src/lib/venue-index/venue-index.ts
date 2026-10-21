@@ -589,6 +589,8 @@ const FIELD_LABELS: Record<string, string> = {
   ages: 'ages',
   price: 'price',
   hours: 'hours',
+  time: 'when',
+  when: 'when',
 }
 
 /** A record's own labeled field versus a validated claim about the same entity in another record. */

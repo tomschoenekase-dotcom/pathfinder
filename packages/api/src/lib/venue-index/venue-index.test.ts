@@ -308,11 +308,11 @@ describe('incremental updates', () => {
       { type: 'alias', subject: 'Weekend treat cart', alias: 'ice cream cart' },
       { type: 'alias', subject: 'Weekend treat cart', alias: 'Cloud Hopper' },
     ])
-    expect(enrichment.claims.map((claim) => claim.type)).toEqual(['sells', 'alias'])
-    expect(rejected.map((item) => item.reason)).toEqual([
+    expect(enrichment.claims.map((claim) => claim.type).sort()).toEqual(['alias', 'sells'])
+    expect(rejected.map((item) => item.reason).sort()).toEqual([
+      'alias already names something else',
       'quote is not verbatim in the record',
       'subject not in quote',
-      'alias already names something else',
     ])
     index.setEnrichment(enrichment)
     expect(
@@ -349,5 +349,59 @@ describe('incremental updates', () => {
         ],
       },
     ])
+  })
+})
+
+describe('guest chat entry point', () => {
+  it('is off unless explicitly enabled', async () => {
+    const { guestVenueIndexMode } = await import('./guest-venue-index-block')
+    expect(guestVenueIndexMode({})).toBe('off')
+    expect(guestVenueIndexMode({ GUEST_VENUE_INDEX: 'yes' })).toBe('off')
+    expect(guestVenueIndexMode({ GUEST_VENUE_INDEX: 'append' })).toBe('append')
+  })
+
+  it('caches per authorized row arrays and never serves another venue', async () => {
+    const { buildGuestVenueIndexBlock } = await import('./guest-venue-index-block')
+    const places = [
+      {
+        id: 'a1',
+        name: 'Polar Cart',
+        type: 'RESTAURANT',
+        longDescription: 'Polar Cart is a cart.\nSells: Dippin\u2019 Dots ($7)',
+      },
+    ]
+    const knowledge: Array<{ id: string; title: string; content: string }> = []
+    const first = buildGuestVenueIndexBlock({
+      venueName: 'Venue A',
+      directory: { places, knowledge },
+      question: 'dippin dots?',
+      history: [],
+      todayLine: 'Today: Tuesday',
+    })
+    const again = buildGuestVenueIndexBlock({
+      venueName: 'Venue A',
+      directory: { places, knowledge },
+      question: 'dippin dots?',
+      history: [],
+      todayLine: 'Today: Tuesday',
+    })
+    expect([first.cached, again.cached]).toEqual([false, true])
+    expect(first.block).toContain('Polar Cart')
+    const other = buildGuestVenueIndexBlock({
+      venueName: 'Venue B',
+      directory: { places: [], knowledge: [] },
+      question: 'dippin dots?',
+      history: [],
+      todayLine: 'Today: Tuesday',
+    })
+    expect(other.block).not.toContain('Polar Cart')
+    const suppressed = buildGuestVenueIndexBlock({
+      venueName: 'Venue A',
+      directory: { places: [], knowledge },
+      question: 'dippin dots?',
+      history: [],
+      todayLine: 'Today: Tuesday',
+    })
+    expect([suppressed.cached, suppressed.block.includes('Polar Cart')]).toEqual([false, false])
   })
 })

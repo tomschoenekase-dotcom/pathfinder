@@ -5,7 +5,7 @@
  * claims are reported, never served. Results are keyed by record body hash, so editing a record
  * invalidates only that record's claims.
  */
-import { linkText } from './guest-retrieval'
+import { GUEST_KIND_WORD_SET, linkText } from './guest-retrieval'
 import { containsVerbatim, normalizeText, phraseKey } from './text'
 import {
   RECORD_PREFIX,
@@ -24,6 +24,7 @@ export const ENRICHMENT_FIELDS = [
   'reservation',
   'status',
   'access',
+  'when',
 ] as const
 
 export type EnrichmentProposal =
@@ -51,13 +52,20 @@ export function recordsNeedingEnrichment(index: VenueIndex): VenueSourceRecord[]
   })
 }
 
-function resolvesTo(index: VenueIndex, name: string): string[] {
-  return index.resolveKey(phraseKey(name)).filter((id) => index.entity(id) !== null)
+/** Resolve a claim's subject. A record sharing its name with an area is the same thing. */
+function resolveSubject(index: VenueIndex, name: string): { id: string } | { reason: string } {
+  const targets = index.resolveKey(phraseKey(name)).filter((id) => index.entity(id) !== null)
+  const records = targets.filter((id) => id.startsWith(RECORD_PREFIX))
+  if (records.length === 1) return { id: records[0]! }
+  if (records.length === 0 && targets.length === 1) return { id: targets[0]! }
+  return { reason: targets.length ? 'subject is ambiguous' : 'subject not found' }
 }
 
 function numbers(value: string): string[] {
   return value.match(/\d+(?:[.:]\d+)?/gu) ?? []
 }
+
+const FIELD_ALIASES: Record<string, string> = { time: 'when', times: 'when', when: 'when' }
 
 export function validateEnrichment(
   index: VenueIndex,
@@ -72,22 +80,60 @@ export function validateEnrichment(
   const reject = (proposal: EnrichmentProposal, reason: string) =>
     rejected.push({ proposal, reason })
   const inQuote = (quote: string, phrase: string) =>
-    ` ${normalizeText(quote)} `.includes(` ${normalizeText(phrase)} `)
-  for (const proposal of proposals) {
-    if (proposal.type === 'alias') {
-      const targets = resolvesTo(index, proposal.subject)
-      const alias = proposal.alias.trim()
-      if (targets.length !== 1)
-        reject(proposal, targets.length ? 'subject is ambiguous' : 'subject not found')
-      else if (!alias || alias.split(/\s+/u).length > 6) reject(proposal, 'alias empty or too long')
-      else {
-        const existing = index.resolveKey(phraseKey(alias))
-        if (existing.length && !existing.includes(targets[0]!))
-          reject(proposal, 'alias already names something else')
-        else accepted.push({ type: 'alias', targetKey: phraseKey(proposal.subject), alias })
-      }
-      continue
+    phrase.trim().length > 0 && ` ${normalizeText(quote)} `.includes(` ${normalizeText(phrase)} `)
+  // Pass 1: aliases. They only help retrieval, so they need no quote, but they must name one
+  // existing thing, must not be a general category word, and must not already name something else.
+  const namesOf = new Map<string, string[]>()
+  const names = (id: string) => {
+    if (!namesOf.has(id)) {
+      const own = id.startsWith(RECORD_PREFIX)
+        ? (index.contributions.get(id.slice(RECORD_PREFIX.length))?.aliases ?? [])
+        : [index.entity(id)?.name ?? '']
+      // Aliases already validated from other records ("planetarium" from the planetarium's page).
+      const learned = [...index.enrichmentAliases.entries()]
+        .filter(([, targets]) =>
+          [...targets].some((value) =>
+            index.resolveKey(value.split('\u0000')[0] ?? '').includes(id),
+          ),
+        )
+        .map(([aliasKey]) => aliasKey)
+      namesOf.set(id, [...own, ...learned])
     }
+    return namesOf.get(id)!
+  }
+  const isPlace = (id: string) =>
+    id.startsWith(RECORD_PREFIX) &&
+    index.records.get(id.slice(RECORD_PREFIX.length))?.source === 'place'
+  const nameTokens = (id: string) => new Set(phraseKey(index.entity(id)?.name ?? '').split(' '))
+  for (const proposal of proposals) {
+    if (proposal.type !== 'alias') continue
+    const subject = resolveSubject(index, proposal.subject)
+    const alias = proposal.alias.trim()
+    const tokens = phraseKey(alias).split(' ')
+    if ('reason' in subject) reject(proposal, subject.reason)
+    else if (!alias || tokens.length > 6) reject(proposal, 'alias empty or too long')
+    else if (tokens.length === 1 && GUEST_KIND_WORD_SET.has(tokens[0] ?? ''))
+      reject(proposal, 'alias is a general category word')
+    else if (
+      isPlace(subject.id) &&
+      GUEST_KIND_WORD_SET.has(tokens[tokens.length - 1] ?? '') &&
+      !tokens.some((token) => nameTokens(subject.id).has(token))
+    )
+      reject(proposal, 'alias is a category phrase for one place')
+    else {
+      const existing = index.resolveKey(phraseKey(alias))
+      if (existing.length && !existing.includes(subject.id))
+        reject(proposal, 'alias already names something else')
+      else {
+        accepted.push({ type: 'alias', targetKey: phraseKey(proposal.subject), alias })
+        names(subject.id).push(alias)
+      }
+    }
+  }
+  // Pass 2: claims about facts must quote the record and name their subject in the quote.
+  const mentioned = (quote: string, id: string) => names(id).some((name) => inQuote(quote, name))
+  for (const proposal of proposals) {
+    if (proposal.type === 'alias') continue
     if (!proposal.quote || !containsVerbatim(record.body, proposal.quote)) {
       reject(proposal, 'quote is not verbatim in the record')
       continue
@@ -108,35 +154,81 @@ export function validateEnrichment(
           span: proposal.quote,
         })
       }
-    } else if (proposal.type === 'fact') {
-      const field = proposal.field.toLowerCase()
+      continue
+    }
+    const subject = resolveSubject(index, proposal.subject)
+    if ('reason' in subject) {
+      reject(proposal, subject.reason)
+      continue
+    }
+    if (!mentioned(proposal.quote, subject.id)) {
+      reject(proposal, 'subject not in quote')
+      continue
+    }
+    if (proposal.type === 'fact') {
+      const field = FIELD_ALIASES[proposal.field.toLowerCase()] ?? proposal.field.toLowerCase()
       if (!(ENRICHMENT_FIELDS as readonly string[]).includes(field))
         reject(proposal, 'field not allowed')
-      else if (!resolvesTo(index, proposal.subject).length) reject(proposal, 'subject not found')
-      else if (!inQuote(proposal.quote, proposal.subject)) reject(proposal, 'subject not in quote')
       else if (numbers(proposal.value).some((number) => !numbers(proposal.quote).includes(number)))
         reject(proposal, 'value not in quote')
       else
         accepted.push({
           type: 'fact',
-          targetKey: phraseKey(proposal.subject),
+          targetKey: phraseKey(index.entity(subject.id)?.name ?? proposal.subject),
           field,
           value: proposal.value,
           span: proposal.quote,
         })
     } else if (proposal.type === 'applies_to') {
-      if (!resolvesTo(index, proposal.subject).length) reject(proposal, 'subject not found')
-      else if (!inQuote(proposal.quote, proposal.subject)) reject(proposal, 'subject not in quote')
-      else
-        accepted.push({
-          type: 'applies_to',
-          targetKey: phraseKey(proposal.subject),
-          span: proposal.quote,
-        })
+      accepted.push({
+        type: 'applies_to',
+        targetKey: phraseKey(index.entity(subject.id)?.name ?? proposal.subject),
+        span: proposal.quote,
+      })
     }
   }
   return {
     enrichment: { recordId: record.id, bodySha256: sha256(record.body), claims: accepted },
     rejected,
   }
+}
+
+export type CachedProposals = { recordId: string; bodySha256: string; claims: EnrichmentProposal[] }
+
+/**
+ * Apply cached model proposals to an index. Proposals made from a different version of a record
+ * are skipped as stale (that record needs re-enrichment). Aliases from every record are learned
+ * first, so a fact can name its subject by an alias another record supplied.
+ */
+export function applyEnrichmentProposals(
+  index: VenueIndex,
+  cached: CachedProposals[],
+): {
+  applied: number
+  stale: string[]
+  accepted: number
+  rejected: Array<{ recordId: string; proposal: EnrichmentProposal; reason: string }>
+} {
+  const current = cached.filter((item) => {
+    const record = index.records.get(item.recordId)
+    return record !== undefined && sha256(record.body) === item.bodySha256
+  })
+  const stale = cached
+    .filter((item) => index.records.has(item.recordId) && !current.includes(item))
+    .map((item) => item.recordId)
+  for (const item of current) {
+    const record = index.records.get(item.recordId)!
+    const aliases = item.claims.filter((claim) => claim.type === 'alias')
+    index.setEnrichment(validateEnrichment(index, record, aliases).enrichment)
+  }
+  let accepted = 0
+  const rejected: Array<{ recordId: string; proposal: EnrichmentProposal; reason: string }> = []
+  for (const item of current) {
+    const record = index.records.get(item.recordId)!
+    const result = validateEnrichment(index, record, item.claims)
+    index.setEnrichment(result.enrichment)
+    accepted += result.enrichment.claims.length
+    for (const entry of result.rejected) rejected.push({ recordId: item.recordId, ...entry })
+  }
+  return { applied: current.length, stale, accepted, rejected }
 }
