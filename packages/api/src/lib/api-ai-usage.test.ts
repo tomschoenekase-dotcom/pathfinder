@@ -204,4 +204,11 @@ describe('API AI usage recorder', () => {
     )
     expect(budgetMocks.settleExact).toHaveBeenCalledTimes(1)
   })
+  it('persists the observed provider response identity and tier pricing version without inventing token or cost changes',async()=>{
+    createUsageEvent.mockResolvedValue({id:'tier-usage'})
+    const recorder=createApiAiUsageRecorder({db,tenantId:'tenant_1',venueId:'venue_1',feature:'guest-chat',surface:'guest'})
+    await recorder.sink({...usage,providerResponseId:'resp_synthetic',pricingVersion:'openai-standard-public-2026-09-22:local-fast-v1:priority',costObservationStatus:'OBSERVED'})
+    expect(createUsageEvent).toHaveBeenLastCalledWith(expect.objectContaining({data:expect.objectContaining({providerRequestId:'resp_synthetic',pricingVersion:'openai-standard-public-2026-09-22:local-fast-v1:priority',estimatedCostUsd:usage.estimatedCostUsd,inputTokens:usage.usage.inputTokens})}))
+  })
+
 })

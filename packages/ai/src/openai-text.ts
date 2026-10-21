@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { LocalLunaPlannerExecutionError, assertLocalLunaPlannerProfile, type LocalLunaPlannerProfile, type LocalLunaTierReceipt } from './local-luna-planner-profile'
 import OpenAI from 'openai'
 import { z } from 'zod'
 
@@ -7,6 +9,8 @@ import type { AiModelSpec, AiTextProviderId } from './model-registry'
 const safeTokenCount = z.number().int().nonnegative().refine(Number.isSafeInteger)
 
 const openAiResponseSchema = z.object({
+  id: z.unknown().optional(),
+  service_tier: z.unknown().optional(),
   status: z.string().optional(),
   incomplete_details: z
     .object({ reason: z.string().optional() })
@@ -49,11 +53,31 @@ const openAiResponseSchema = z.object({
     .optional(),
 })
 
+// Exact accounting contract for the local planner only; generic legacy fallback is unchanged.
+const localPlannerUsageSchema = z.object({
+  model: z.literal('gpt-6-luna'),
+  status: z.enum(['completed', 'incomplete', 'failed', 'cancelled']),
+  usage: z.object({ input_tokens: safeTokenCount, output_tokens: safeTokenCount, total_tokens: safeTokenCount,
+    input_tokens_details: z.object({ cached_tokens: safeTokenCount, cache_write_tokens: safeTokenCount,
+      cache_write_tokens_details: z.object({ ttl_30m_tokens: safeTokenCount.optional(), ttl_12h_tokens: safeTokenCount.optional() }).strict().optional(),
+    }).strict(),
+    output_tokens_details: z.object({ reasoning_tokens: safeTokenCount }).strict(),
+  }).strict(),
+}).passthrough()
+function validateLocalPlannerUsage(raw: unknown, maxOutputTokens: number, maxInputTokens: number) {
+  try {
+    const r = localPlannerUsageSchema.parse(raw), u = r.usage, d = u.input_tokens_details
+    if (u.input_tokens > maxInputTokens || u.output_tokens > maxOutputTokens || u.total_tokens !== u.input_tokens + u.output_tokens || !Number.isSafeInteger(u.total_tokens) || d.cached_tokens + d.cache_write_tokens > u.input_tokens || d.cache_write_tokens !== 0 || (d.cache_write_tokens_details?.ttl_12h_tokens ?? 0) !== 0 || (d.cache_write_tokens_details?.ttl_30m_tokens ?? 0) !== 0 || u.output_tokens_details.reasoning_tokens > u.output_tokens)
+      throw new Error('Invalid local planner usage partition')
+  } catch { throw new LocalLunaPlannerExecutionError('INVALID_PLANNER_USAGE') }
+}
+
 export type OpenAiResponsesClient = {
   responses: {
     create: (
       params: {
         model: string
+        service_tier?: 'default' | 'fast'
         instructions?: string
         input: Array<
           | AiMessage
@@ -269,25 +293,34 @@ export async function createOpenAiTextResponse(params: {
   messages: AiMessage[]
   maxOutputTokens: number
   timeoutMs: number
+  invocationProfile?: LocalLunaPlannerProfile
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
+}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean; serviceTier?: LocalLunaTierReceipt }> {
+  const profile = params.invocationProfile
+  if (profile !== undefined) assertLocalLunaPlannerProfile(profile, params.spec, { maxAttempts: 1, maxOutputTokens: params.maxOutputTokens, streaming: false, explicitCache: params.system.some(block => block.cache_control?.type === 'ephemeral') })
   const prompt = promptInput(
     params.spec.provider,
     params.spec.model,
     params.system,
     params.messages,
   )
-  const raw = await getOpenAiResponsesClient(params.spec.provider).responses.create(
-    {
-      model: params.spec.model,
-      ...prompt,
-      max_output_tokens: params.maxOutputTokens,
-      reasoning: { effort: params.spec.reasoningEffort ?? reasoningEffort(params.spec.model) },
-      store: false,
-    },
-    { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) },
-  )
-  const response = openAiResponseSchema.parse(raw)
+  const request = {
+    model: params.spec.model,
+    ...prompt,
+    max_output_tokens: params.maxOutputTokens,
+    reasoning: { effort: params.spec.reasoningEffort ?? reasoningEffort(params.spec.model) },
+    store: false as const,
+    ...(profile ? { service_tier: profile === 'LOCAL_LUNA_FAST_V1' ? 'fast' as const : 'default' as const } : {}),
+  }
+  const requestBytes = profile ? Buffer.from(JSON.stringify(request), 'utf8') : undefined
+  const raw = await getOpenAiResponsesClient(params.spec.provider).responses.create(request,
+    { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) })
+  if (profile) validateLocalPlannerUsage(raw, params.maxOutputTokens, params.spec.maxBillableInputTokens)
+  let response: z.infer<typeof openAiResponseSchema>
+  try { response = openAiResponseSchema.parse(raw) } catch(error) {
+    if (profile) throw new LocalLunaPlannerExecutionError('INVALID_PLANNER_USAGE')
+    throw error
+  }
   const incomplete =
     (response.status !== undefined && response.status !== 'completed') ||
     Boolean(response.incomplete_details)
@@ -305,7 +338,17 @@ export async function createOpenAiTextResponse(params: {
       .map((item) => item.text)
       .join('\n')
       .trim()
+  const tier = typeof response.service_tier === 'string' && response.service_tier.length <= 64 ? response.service_tier : null
+  const multiplier = tier === 'default' ? 1 as const : tier === 'fast' || tier === 'priority' ? 2 as const : null
+  const serviceTier: LocalLunaTierReceipt | undefined = profile ? {
+    profile, requestedTier: profile === 'LOCAL_LUNA_FAST_V1' ? 'fast' : 'default', observedTier: tier,
+    providerResponseId: typeof response.id === 'string' && response.id.length > 0 && response.id.length <= 191 ? response.id : null,
+    sdkRequestSha256: createHash('sha256').update(requestBytes!).digest('hex'), sdkRequestUtf8Bytes: requestBytes!.length,
+    wireBoundary: 'SDK_PARAMS_JSON_NOT_OBSERVED_HTTP', costObservationStatus: multiplier === null ? 'UNKNOWN' : 'OBSERVED', rateMultiplier: multiplier,
+    outcome: multiplier === null ? 'UNKNOWN_TIER' : multiplier === 1 ? profile === 'LOCAL_LUNA_FAST_V1' ? 'STANDARD_DOWNGRADE' : 'STANDARD_SERVED' : profile === 'LOCAL_LUNA_STANDARD_V1' ? 'UNEXPECTED_FAST_TIER' : 'FAST_SERVED',
+  } : undefined
   return {
+    ...(serviceTier ? { serviceTier } : {}),
     ...(incomplete ? { incomplete: true as const } : {}),
     text,
     usage: tokenUsage(response.usage, hasExplicitBreakpoint(prompt)),
@@ -319,8 +362,10 @@ export async function createOpenAiTextStream(params: {
   maxOutputTokens: number
   timeoutMs: number
   onTextDelta: (delta: string) => void | Promise<void>
+  invocationProfile?: LocalLunaPlannerProfile
   signal?: AbortSignal
 }): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
+  if (params.invocationProfile !== undefined) assertLocalLunaPlannerProfile(params.invocationProfile, params.spec, { maxAttempts: 1, maxOutputTokens: params.maxOutputTokens, streaming: true })
   const prompt = promptInput(
     params.spec.provider,
     params.spec.model,

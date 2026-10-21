@@ -508,6 +508,7 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
   }
   it.each(['absent', 'production'])('keeps baseline without eligible opt-in: %s', async (mode) => {
     vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE', 'fast')
     if (mode === 'absent') vi.stubEnv('TORCHIKO_LOCAL_STRUCTURED_QUERY', '')
     else vi.stubEnv('NODE_ENV', 'production')
     await caller.chat.send(input)
@@ -520,6 +521,7 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
     'excludes original native admission even with projection mismatch=%s',
     async (mismatch) => {
       vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+      vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE', 'fast')
       const state = { places: [], knowledgeEntries: [topic()], generalizedModules: [] }
       resolveNativeGuestReadSnapshotAction.mockResolvedValue({
         path: 'NATIVE',
@@ -1079,4 +1081,73 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
     expect(events.filter(e => e.type === 'delta')).toEqual([])
     expect(metadata()).not.toHaveProperty('answerEvidence')
   })
+  it.each([['fast','fast'],['fast','priority'],['fast','default'],['standard','default']])('accounts local %s planner observed %s and retains full tier receipt without an answer call',async(selected,observed)=>{
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY','1');vi.stubEnv('GUEST_CHAT_DEFAULT_MODEL_KEY','guest-chat-luna-reasoning');vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE',selected)
+    const create=vi.fn().mockResolvedValue({model:'gpt-6-luna',id:'resp_local_planner',status:'completed',service_tier:observed,output_text:countPlan,usage:{input_tokens:100,output_tokens:20,total_tokens:120,input_tokens_details:{cached_tokens:0,cache_write_tokens:0},output_tokens_details:{reasoning_tokens:5}}})
+    setOpenAiResponsesClientForTesting({responses:{create}})
+    const response=await caller.chat.send(input)
+    expect(response.response).toContain('1 matching listed record.')
+    expect(create).toHaveBeenCalledOnce();expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(create.mock.calls[0]![0].service_tier).toBe(selected==='fast'?'fast':'default')
+    const profile=JSON.parse(metadata().answerEvidence.sources[0].snapshot)
+    expect(profile.plannerServiceTier).toMatchObject({profile:selected==='fast'?'LOCAL_LUNA_FAST_V1':'LOCAL_LUNA_STANDARD_V1',observedTier:observed,providerResponseId:'resp_local_planner',costObservationStatus:'OBSERVED',wireBoundary:'SDK_PARAMS_JSON_NOT_OBSERVED_HTTP'})
+    expect(profile.structuredQuery.plannerServiceTier).toEqual(profile.plannerServiceTier)
+    const event=aiUsageEventCreate.mock.calls.find(([args])=>args.data.feature==='guest-chat')![0].data
+    expect(event.providerRequestId).toBe('resp_local_planner');expect(event.pricingVersion).toContain(observed)
+    expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+    guestTurnActions.reserve.mockResolvedValueOnce({state:'COMPLETE',...response,citations:[],replayed:true})
+    await caller.chat.send(input);expect(create).toHaveBeenCalledOnce()
+  })
+  it('unknown planner tier fails before direct output or fallback answer dispatch',async()=>{
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY','1');vi.stubEnv('GUEST_CHAT_DEFAULT_MODEL_KEY','guest-chat-luna-reasoning');vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE','fast')
+    const create=vi.fn().mockResolvedValue({model:'gpt-6-luna',id:'resp_unknown_tier',status:'completed',service_tier:'unregistered',output_text:countPlan,usage:{input_tokens:100,output_tokens:20,total_tokens:120,input_tokens_details:{cached_tokens:0,cache_write_tokens:0},output_tokens_details:{reasoning_tokens:5}}})
+    setOpenAiResponsesClientForTesting({responses:{create}})
+    const events=[];for await(const event of streamChatTurn(ctx,input))events.push(event)
+    expect(create).toHaveBeenCalledOnce();expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(events.some(event=>event.type==='delta')).toBe(false);expect(accounting.ambiguous).toHaveBeenCalled()
+    expect(JSON.stringify(metadata())).not.toContain('LOCAL_DETERMINISTIC')
+  })
+  it('profile changes during reservation fence dispatch before SDK',async()=>{
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY','1');vi.stubEnv('GUEST_CHAT_DEFAULT_MODEL_KEY','guest-chat-luna-reasoning');vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE','fast')
+    const create=vi.fn();setOpenAiResponsesClientForTesting({responses:{create}})
+    accounting.reserve.mockImplementation(async args=>{if(args.identity.feature==='guest-chat')vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE','standard');return{id:args.reservationId,reservedUnits:args.reservedUnits}})
+    await expect(caller.chat.send(input)).rejects.toMatchObject({code:'SERVICE_UNAVAILABLE'})
+    expect(create).not.toHaveBeenCalled();expect(accounting.release).toHaveBeenCalled()
+  })
+
+  it.each(['transport','malformed-usage','malformed-plan','malformed-shape'])('selected profile %s failure never calls an answer SDK',async failure=>{
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY','1');vi.stubEnv('GUEST_CHAT_DEFAULT_MODEL_KEY','guest-chat-luna-reasoning');vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE','fast')
+    const create=vi.fn().mockResolvedValue({model:'gpt-6-luna',id:'resp_failure_contract',status:'completed',service_tier:'fast',output_text:failure==='malformed-plan'?'notJSON':failure==='malformed-shape'?JSON.stringify({status:'QUERY',mode:'list',predicates:[{field:'price',lessThan:5}]}):countPlan,usage:{input_tokens:100,output_tokens:20,total_tokens:120,input_tokens_details:{cached_tokens:0,cache_write_tokens:0},output_tokens_details:{reasoning_tokens:5}}})
+    if(failure==='transport')create.mockRejectedValue(new Error('synthetic transport stop'))
+    if(failure==='malformed-usage')create.mockResolvedValue({id:'resp_failure_contract',model:'gpt-6-luna',status:'completed',service_tier:'fast',output_text:countPlan,usage:{input_tokens:1.5,output_tokens:20}})
+    setOpenAiResponsesClientForTesting({responses:{create}})
+    const events=[];for await(const event of streamChatTurn(ctx,input))events.push(event)
+    expect(create).toHaveBeenCalledOnce();expect(anthropicCreate).not.toHaveBeenCalled();expect(gatewayCalls).toHaveLength(1)
+    expect(events.some(event=>event.type==='delta')).toBe(false)
+    if(failure==='malformed-plan'||failure==='malformed-shape')expect(accounting.exact).toHaveBeenCalled()
+    else expect(accounting.ambiguous).toHaveBeenCalled()
+  })
+  it('valid UNSUPPORTED planner decision permits the ordinary answer path with no tier override',async()=>{
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY','1');vi.stubEnv('GUEST_CHAT_DEFAULT_MODEL_KEY','guest-chat-luna-reasoning');vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE','fast')
+    const create=vi.fn().mockResolvedValueOnce({model:'gpt-6-luna',id:'resp_valid_unsupported',status:'completed',service_tier:'fast',output_text:JSON.stringify({status:'UNSUPPORTED',reason:'Age selection unsupported'}),usage:{input_tokens:100,output_tokens:20,total_tokens:120,input_tokens_details:{cached_tokens:0,cache_write_tokens:0},output_tokens_details:{reasoning_tokens:5}}}).mockResolvedValueOnce({status:'completed',output_text:'ANSWER_VISIBLE',usage:{input_tokens:100,output_tokens:20}})
+    setOpenAiResponsesClientForTesting({responses:{create}})
+    const response=await caller.chat.send(input)
+    expect(response.response).toBe('ANSWER_VISIBLE');expect(create).toHaveBeenCalledTimes(2)
+    expect(create.mock.calls[0]![0].service_tier).toBe('fast');expect(create.mock.calls[1]![0]).not.toHaveProperty('service_tier')
+  })
+
+  it.each(['source','native','configuration'])('selected profile still blocks %s authority change before visible output',async change=>{
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY','1');vi.stubEnv('GUEST_CHAT_DEFAULT_MODEL_KEY','guest-chat-luna-reasoning');vi.stubEnv('TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE','fast')
+    const create=vi.fn().mockImplementation(async()=>{
+      if(change==='source')loadQuerySource.mockResolvedValue(source('v2'))
+      if(change==='native')resolveNativeGuestReadSnapshotAction.mockResolvedValue({path:'NATIVE',reason:'NATIVE_READY',releaseId:'changed',state:null})
+      if(change==='configuration')aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({enabled:true,isTombstone:false,timeoutMs:9000,timeoutMsSet:true,unsafeChangesEnabled:false,reason:'Changed during planner'})
+      return {model:'gpt-6-luna',id:'resp_authority_fence',status:'completed',service_tier:'fast',output_text:countPlan,usage:{input_tokens:100,output_tokens:20,total_tokens:120,input_tokens_details:{cached_tokens:0,cache_write_tokens:0},output_tokens_details:{reasoning_tokens:5}}}
+    })
+    setOpenAiResponsesClientForTesting({responses:{create}})
+    const events=[];for await(const event of streamChatTurn(ctx,input))events.push(event)
+    expect(create).toHaveBeenCalledOnce();expect(anthropicCreate).not.toHaveBeenCalled();expect(events.filter(event=>event.type==='delta')).toEqual([])
+    expect(guestTurnActions.observe.mock.calls.some(([call])=>call.operation.kind==='RESPONSE_GENERATION'&&call.operation.outcomeCode==='SUCCEEDED')).toBe(false)
+  })
+
 })

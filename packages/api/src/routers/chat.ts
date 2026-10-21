@@ -1,3 +1,5 @@
+import type { LocalLunaTierReceipt } from '@pathfinder/ai'
+import { localGuestLunaPlannerProfile } from '../lib/guest-query-local-planner-profile'
 import {
   guestRecommendationRetrievalLimit,
   partitionGuestRecommendationPlaces,
@@ -2386,6 +2388,7 @@ const chatReadRouter = router({
     let directQuery: GuestDirectChatQuery | null = null
     let deterministicAnswerCompleted = false
     let structuredPlannerInvocationId: string | null = null
+    let structuredPlannerServiceTier: LocalLunaTierReceipt | undefined
     let structuredQueryFence: (() => Promise<void>) | null = null
     const preparePrompt = () => {
       const parts = prepareVenuePrompt()
@@ -2482,6 +2485,7 @@ const chatReadRouter = router({
               guideMode,
               guideCoverage,
               contextPacket: evidence.contextPacket,
+              ...(structuredPlannerServiceTier ? { plannerServiceTier: structuredPlannerServiceTier, plannerInvocationId: structuredPlannerInvocationId } : {}),
               ...(structuredQuery ? { structuredQuery: structuredQuery.summary } : {}),
             },
           },
@@ -2539,6 +2543,7 @@ const chatReadRouter = router({
           'LOCAL_DETERMINISTIC: retained rendering receipt; notDispatchedModelPrompt=true. No answer model was called.',
         dynamicSystemPrompt: JSON.stringify({
           ...candidate.summary,
+          ...(structuredPlannerServiceTier ? { plannerServiceTier: structuredPlannerServiceTier } : {}),
           plannerInvocationId: structuredPlannerInvocationId,
           plannerUsageReference: chatAccounting.usageEventIds().at(-1) ?? null,
         }),
@@ -2554,7 +2559,8 @@ const chatReadRouter = router({
               answerMode: 'LOCAL_DETERMINISTIC',
               notDispatchedModelPrompt: true,
               structuredQuery: candidate.summary,
-              plannerInvocationId: structuredPlannerInvocationId,
+              ...(structuredPlannerServiceTier ? { plannerServiceTier: structuredPlannerServiceTier } : {}),
+          plannerInvocationId: structuredPlannerInvocationId,
               plannerUsageReference: chatAccounting.usageEventIds().at(-1) ?? null,
             },
           },
@@ -2593,6 +2599,8 @@ const chatReadRouter = router({
       })
       generationRouteConfigurationVersion = route.configurationVersion
       const configurationSnapshot = JSON.stringify(configuration)
+      const readLocalPlannerProfile = () => localGuestLunaPlannerProfile({ nodeEnv: process.env.NODE_ENV, enabled: process.env.TORCHIKO_LOCAL_STRUCTURED_QUERY, experienceScope: ctx.experienceScope, nativePath: nativeReadSnapshot.path, selected: process.env.TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE })
+      const plannerProfile = readLocalPlannerProfile()
       // Recheck on every admission, including after reservation and on retries.
       // The existing route and cumulative budget belong to this exact configuration.
       const assertGenerationAvailable = async () => {
@@ -2611,6 +2619,7 @@ const chatReadRouter = router({
         if (JSON.stringify(currentConfiguration) !== configurationSnapshot) {
           throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
         }
+        if (readLocalPlannerProfile() !== plannerProfile) throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest local planner profile changed')
         await structuredQueryFence?.()
       }
       const webSearchInvocationId = randomUUID()
@@ -2670,8 +2679,11 @@ const chatReadRouter = router({
             source: querySource,
             question: trimmedInput,
             directAnswer: process.env.TORCHIKO_LOCAL_DIRECT_QUERY === '1',
-            interpret: async ({ system, question }) => {
+            ...(plannerProfile ? { validatePlannerOperation: true, getPlannerServiceTier: () => structuredPlannerServiceTier } : {}),
+            interpret: async ({ system, question, validatePlan }) => {
               const planned = await generateTextForCapability({
+                ...(plannerProfile ? { invocationProfile: plannerProfile } : {}),
+                ...(validatePlan ? { parseResponse: (text: string) => { validatePlan(text); return text } } : {}),
                 route,
                 timeoutMs: configuration.timeoutMs,
                 maxAttempts: 1,
@@ -2705,6 +2717,7 @@ const chatReadRouter = router({
                   generationDispatched = true
                 },
               })
+              structuredPlannerServiceTier = planned.serviceTier
               return planned.text
             },
           })

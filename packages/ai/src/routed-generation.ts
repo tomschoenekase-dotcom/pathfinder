@@ -1,3 +1,4 @@
+import { assertLocalLunaPlannerProfile, type LocalLunaPlannerProfile } from './local-luna-planner-profile'
 import {
   AiGatewayError,
   generateText,
@@ -40,6 +41,7 @@ function textModelKey(candidate: AiRouteCandidate): AiModelKey {
 
 /** Executes an already-authorized route plan and records route metadata on every attempt. */
 export async function generateTextForCapability<TParsed = string>(params: {
+  invocationProfile?: LocalLunaPlannerProfile
   route: AiRoutePlan
   system: AiSystemBlock[]
   messages: AiMessage[]
@@ -57,6 +59,13 @@ export async function generateTextForCapability<TParsed = string>(params: {
   onTextDelta?: (delta: string) => void | Promise<void>
   signal?: AbortSignal
 }): Promise<RoutedAiTextResult<TParsed>> {
+  const profile = params.invocationProfile
+  const candidates = profile !== undefined ? structuredClone(params.route.candidates) : params.route.candidates
+  if (profile !== undefined) {
+    if (candidates.length !== 1 || candidates[0]!.fallback) throw new Error('Local planner profile requires one primary route candidate')
+    const spec = AI_MODEL_REGISTRY[textModelKey(candidates[0]!)]
+    assertLocalLunaPlannerProfile(profile, spec, { maxAttempts: params.maxAttempts ?? spec.maxAttempts, maxOutputTokens: params.maxOutputTokens ?? spec.maxOutputTokens, streaming: Boolean(params.onTextDelta), explicitCache: params.system.some(block => block.cache_control?.type === 'ephemeral') })
+  }
   const budgetGate =
     params.requestBudgetCeilingE8Usd === undefined || params.requestBudgetCeilingE8Usd === null
       ? params.budgetGate
@@ -64,11 +73,12 @@ export async function generateTextForCapability<TParsed = string>(params: {
   let lastError: unknown
   let dispatchFencePassed = false
   let budgetAttemptNumberOffset = 0
-  for (const candidate of params.route.candidates) {
+  for (const candidate of candidates) {
     const modelKey = textModelKey(candidate)
     try {
       const result = await generateText({
         modelKey,
+        ...(profile ? { invocationProfile: profile } : {}),
         system: params.system,
         messages: params.messages,
         usageSink: async (usage) =>

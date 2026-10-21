@@ -1,3 +1,4 @@
+import type { LocalLunaTierReceipt } from '@pathfinder/ai'
 import { prepareGuestQueryEvidence } from './guest-query-evidence'
 import type { GuestQuerySource } from './guest-query-source'
 
@@ -21,7 +22,9 @@ export async function prepareGuestChatQueryExperiment(input: {
   source: GuestQuerySource
   question: string
   directAnswer?: boolean
-  interpret: (request: { system: string; question: string }) => Promise<string>
+  getPlannerServiceTier?: () => LocalLunaTierReceipt | undefined
+  validatePlannerOperation?: boolean
+  interpret: (request: { system: string; question: string; validatePlan?: (text: string) => void }) => Promise<string>
 }) {
   const source = structuredClone(input.source)
   let interpretationCompleted = false
@@ -31,6 +34,7 @@ export async function prepareGuestChatQueryExperiment(input: {
       source,
       question: input.question,
       directAnswer: input.directAnswer ?? false,
+      ...(input.validatePlannerOperation ? { validatePlannerOperation: true } : {}),
       interpret: async (request) => {
         const text = await input.interpret(request)
         interpretationCompleted = true
@@ -42,11 +46,13 @@ export async function prepareGuestChatQueryExperiment(input: {
     if (!interpretationCompleted) throw error
     return { status: 'BASELINE' as const, reason: 'INVALID_PLAN_OR_EVIDENCE' as const }
   }
+  const plannerServiceTier = input.getPlannerServiceTier?.()
   if (prepared.status === 'DIRECT_READY')
     return {
       ...prepared,
       sourceVersion: source.version,
       summary: {
+        ...(plannerServiceTier ? { plannerServiceTier } : {}),
         version: 'guest-query-direct-chat-v1' as const,
         answerMode: 'LOCAL_DETERMINISTIC' as const,
         notDispatchedModelPrompt: true as const,
@@ -93,6 +99,7 @@ export async function prepareGuestChatQueryExperiment(input: {
       !prepared.result.exhaustiveAnswerEligible,
     // Bounded execution metadata, not a claim that hashes reconstruct a source snapshot.
     summary: {
+      ...(plannerServiceTier ? { plannerServiceTier } : {}),
       version: 'guest-query-chat-experiment-v1',
       sourceVersion: source.version,
       questionSha256: prepared.trace.questionSha256,

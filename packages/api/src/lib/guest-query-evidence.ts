@@ -15,7 +15,8 @@ export async function prepareGuestQueryEvidence(input: {
   question: string
   page?: GuestStructuredQueryPage
   directAnswer?: boolean
-  interpret: (request: { system: string; question: string }) => Promise<string>
+  validatePlannerOperation?: boolean
+  interpret: (request: { system: string; question: string; validatePlan?: (text: string) => void }) => Promise<string>
 }) {
   if (
     typeof input.question !== 'string' ||
@@ -35,7 +36,7 @@ export async function prepareGuestQueryEvidence(input: {
     directoryVisibility: source.includeSecondLayer ? 'AUTHORIZED' as const : 'PUBLIC' as const,
   }
   const system = guestQueryPlanningPrompt(prepared, names)
-  const rawPlan = await input.interpret({ system, question })
+  const rawPlan = await input.interpret({ system, question, ...(input.validatePlannerOperation ? { validatePlan: (text: string) => { parseGuestQueryPlan(text, prepared, names) } } : {}) })
   const plan = parseGuestQueryPlan(rawPlan, prepared, names)
   const trace = {
     sourceVersion: source.version,
