@@ -232,6 +232,38 @@ describe('GeneralizedContentWorkbench', () => {
     )
   })
 
+  it.each(['PUBLIC', 'CLIENT', 'OPERATOR'] as const)(
+    'withdraws published v1 while latest draft is %s',
+    async (audience) => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      mocks.withdraw.mockResolvedValue({ action: 'WITHDRAW' })
+      render(
+        <GeneralizedContentWorkbench
+          tenantId="tenant-1"
+          venueId="venue-1"
+          authoringEnabled
+          initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+          modules={[{ ...itemModule, audience, publishedRevisionId: 'item-revision-1' }]}
+        />,
+      )
+      fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'item-1' } })
+      if (audience !== 'PUBLIC')
+        expect(
+          (
+            screen.getByRole('button', {
+              name: 'Publish this version to guests',
+            }) as HTMLButtonElement
+          ).disabled,
+        ).toBe(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Withdraw from guest guide' }))
+      await waitFor(() => expect(mocks.withdraw).toHaveBeenCalledOnce())
+      expect(mocks.withdraw).toHaveBeenCalledWith(
+        expect.objectContaining({ expectedPublishedRevisionId: 'item-revision-1' }),
+      )
+      expect(mocks.publish).not.toHaveBeenCalled()
+    },
+  )
+
   it('uses the displayed latest version as the revision CAS', async () => {
     mocks.revise.mockResolvedValue({ version: 4 })
     render(

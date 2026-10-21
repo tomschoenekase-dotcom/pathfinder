@@ -895,3 +895,239 @@ describe('effective published universal content resolver', () => {
     ).rejects.toThrow('Published content heads are inconsistent.')
   })
 })
+
+describe('governed relationship publication authority', () => {
+  const input = {
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    moduleId: 'edge',
+    revisionId: 'edge-r1',
+    expectedLatestVersion: 1,
+    requestId: '1c11ddeb-7e31-43d5-a1a8-3f832bbf88aa',
+    actor,
+  }
+  function relationshipTx(type = 'OFFERS_PRODUCT_V1', subtype = 'PRODUCT') {
+    const tx = transactionClient({
+      relationshipContent: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue({ fromModuleId: 'from', toModuleId: 'to', relationshipType: type }),
+      },
+    })
+    tx.contentModuleRevision.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: 'edge-r1',
+        kind: 'RELATIONSHIP',
+        version: 1,
+        audience: 'PUBLIC',
+      })
+      .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+      .mockResolvedValueOnce({
+        kind: type === 'EXCEPTION_TO_V1' ? 'POLICY' : 'SERVICE',
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: null,
+      })
+      .mockResolvedValueOnce({
+        kind: type === 'EXCEPTION_TO_V1' ? 'POLICY' : 'ITEM',
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: null,
+        item: { itemType: subtype },
+      })
+    tx.contentModulePublication.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ action: 'PUBLISH', revisionId: 'from-published' })
+      .mockResolvedValueOnce({ action: 'PUBLISH', revisionId: 'to-published' })
+    return tx
+  }
+  it.each(['OFFERS_PRODUCT_V1', 'EXCEPTION_TO_V1'])(
+    'publishes valid %s against exact scoped published endpoints',
+    async (type) => {
+      const tx = relationshipTx(type)
+      await expect(
+        publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+      ).resolves.toMatchObject({ action: 'PUBLISH' })
+      expect(tx.contentModuleRevision.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'to-published', tenantId: 'tenant-1', venueId: 'venue-1', moduleId: 'to' },
+        }),
+      )
+    },
+  )
+  it('rejects the published non-PRODUCT subtype even when a newer draft could be PRODUCT', async () => {
+    const tx = relationshipTx('OFFERS_PRODUCT_V1', 'MENU_ITEM')
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+  })
+  it('rejects withdrawn endpoint publication', async () => {
+    const tx = relationshipTx()
+    tx.contentModulePublication.findFirst
+      .mockReset()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ action: 'WITHDRAW', revisionId: 'from-published' })
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+  })
+  it.each([
+    { kind: 'ITEM', audience: 'PUBLIC', effectiveFrom: null, effectiveUntil: null },
+    { kind: 'SERVICE', audience: 'CLIENT', effectiveFrom: null, effectiveUntil: null },
+    {
+      kind: 'SERVICE',
+      audience: 'PUBLIC',
+      effectiveFrom: new Date('2999-01-01'),
+      effectiveUntil: null,
+    },
+    {
+      kind: 'SERVICE',
+      audience: 'PUBLIC',
+      effectiveFrom: null,
+      effectiveUntil: new Date('2000-01-01'),
+    },
+    null,
+  ])(
+    'rejects incompatible, private, ineffective, or absent scoped endpoints: %j',
+    async (endpoint) => {
+      const tx = relationshipTx()
+      tx.contentModuleRevision.findFirst
+        .mockReset()
+        .mockResolvedValueOnce({
+          id: 'edge-r1',
+          kind: 'RELATIONSHIP',
+          version: 1,
+          audience: 'PUBLIC',
+        })
+        .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+        .mockResolvedValueOnce(endpoint)
+        .mockResolvedValueOnce({
+          kind: 'ITEM',
+          audience: 'PUBLIC',
+          effectiveFrom: null,
+          effectiveUntil: null,
+          item: { itemType: 'PRODUCT' },
+        })
+      await expect(
+        publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+    },
+  )
+  it.each([
+    ['future edge and endpoints', new Date('2999-01-01'), new Date('2999-01-01'), null, true],
+    ['active edge and future endpoints', null, new Date('2999-01-01'), null, false],
+    [
+      'endpoints ended before edge starts',
+      new Date('2999-01-02'),
+      null,
+      new Date('2999-01-01'),
+      false,
+    ],
+    [
+      'endpoints need not cover full edge interval',
+      new Date('2999-01-01'),
+      null,
+      new Date('2999-01-02'),
+      true,
+    ],
+  ] as const)(
+    'scheduled authority: %s',
+    async (_label, effectiveFrom, endpointStart, endpointEnd, valid) => {
+      const tx = relationshipTx()
+      tx.contentModuleRevision.findFirst
+        .mockReset()
+        .mockResolvedValueOnce({
+          id: 'edge-r1',
+          kind: 'RELATIONSHIP',
+          version: 1,
+          audience: 'PUBLIC',
+          effectiveFrom,
+          effectiveUntil: null,
+        })
+        .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+        .mockResolvedValueOnce({
+          kind: 'SERVICE',
+          audience: 'PUBLIC',
+          effectiveFrom: endpointStart,
+          effectiveUntil: endpointEnd,
+        })
+        .mockResolvedValueOnce({
+          kind: 'ITEM',
+          audience: 'PUBLIC',
+          effectiveFrom: endpointStart,
+          effectiveUntil: endpointEnd,
+          item: { itemType: 'PRODUCT' },
+        })
+      const action = publishUniversalContentAction({ ...input, db: actionClient(tx) as never })
+      if (valid) await expect(action).resolves.toMatchObject({ action: 'PUBLISH' })
+      else {
+        await expect(action).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+        expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+      }
+    },
+  )
+  it('publishes an ended retirement revision after endpoint withdrawal, retaining scoped kinds', async () => {
+    const tx = relationshipTx()
+    Object.assign(tx, {
+      contentModuleIdentity: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'from', kind: 'SERVICE' },
+          { id: 'to', kind: 'ITEM' },
+        ]),
+      },
+    })
+    tx.contentModuleRevision.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: 'edge-r1',
+        kind: 'RELATIONSHIP',
+        version: 1,
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: new Date('2000-01-01'),
+      })
+      .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+    tx.contentModulePublication.findFirst
+      .mockReset()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ action: 'WITHDRAW', revisionId: 'from-published' })
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).resolves.toMatchObject({ action: 'PUBLISH' })
+    expect(tx.contentModulePublication.findFirst).toHaveBeenCalledTimes(1)
+  })
+  it('does not bypass scoped kind validation for ended retirement revisions', async () => {
+    const tx = relationshipTx()
+    Object.assign(tx, {
+      contentModuleIdentity: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'from', kind: 'POLICY' }]),
+      },
+    })
+    tx.contentModuleRevision.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: 'edge-r1',
+        kind: 'RELATIONSHIP',
+        version: 1,
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: new Date('2000-01-01'),
+      })
+      .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+  })
+  it('preserves unknown vocabulary without requiring published endpoints', async () => {
+    const tx = relationshipTx('CUSTOM_RELATIONSHIP')
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).resolves.toMatchObject({ action: 'PUBLISH' })
+    expect(tx.contentModulePublication.findFirst).toHaveBeenCalledTimes(1)
+  })
+})

@@ -203,7 +203,15 @@ export async function publishUniversalContentAction(
           moduleId: input.moduleId,
           version: input.expectedLatestVersion,
         },
-        select: { id: true, moduleId: true, kind: true, version: true, audience: true },
+        select: {
+          id: true,
+          moduleId: true,
+          kind: true,
+          version: true,
+          audience: true,
+          effectiveFrom: true,
+          effectiveUntil: true,
+        },
       })
       if (!revision) {
         throw new UniversalContentActionError(
@@ -224,6 +232,96 @@ export async function publishUniversalContentAction(
       })
       if (!latest || latest.id !== revision.id || latest.version !== input.expectedLatestVersion) {
         throw new UniversalContentActionError('CONFLICT', 'A newer module revision exists.')
+      }
+      if (revision.kind === 'RELATIONSHIP') {
+        const relationship = await tx.relationshipContent.findFirst({
+          where: { revisionId: revision.id, tenantId: input.tenantId, venueId: input.venueId },
+          select: { fromModuleId: true, toModuleId: true, relationshipType: true },
+        })
+        if (!relationship) {
+          throw new UniversalContentActionError('INVALID_INPUT', 'Relationship payload is missing.')
+        }
+        const recognized =
+          relationship.relationshipType === 'OFFERS_PRODUCT_V1' ||
+          relationship.relationshipType === 'EXCEPTION_TO_V1'
+        const now = new Date()
+        if (recognized && revision.effectiveUntil && revision.effectiveUntil <= now) {
+          // Ended revisions cannot enter guest context, but must retain scoped endpoint kinds.
+          const identities = await tx.contentModuleIdentity.findMany({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              id: { in: [relationship.fromModuleId, relationship.toModuleId] },
+            },
+            select: { id: true, kind: true },
+          })
+          const from = identities.find((identity) => identity.id === relationship.fromModuleId)
+          const to = identities.find((identity) => identity.id === relationship.toModuleId)
+          if (
+            relationship.fromModuleId === relationship.toModuleId ||
+            (relationship.relationshipType === 'OFFERS_PRODUCT_V1'
+              ? from?.kind !== 'SERVICE' || to?.kind !== 'ITEM'
+              : from?.kind !== 'POLICY' || to?.kind !== 'POLICY')
+          ) {
+            throw new UniversalContentActionError(
+              'INVALID_INPUT',
+              'Ended recognized relationship requires scoped compatible endpoint identities.',
+            )
+          }
+        } else if (recognized) {
+          const checkAt =
+            revision.effectiveFrom && revision.effectiveFrom > now ? revision.effectiveFrom : now
+          const endpoints = []
+          for (const moduleId of [relationship.fromModuleId, relationship.toModuleId]) {
+            const current = await tx.contentModulePublication.findFirst({
+              where: { tenantId: input.tenantId, venueId: input.venueId, moduleId },
+              orderBy: { eventOrder: 'desc' },
+              select: { action: true, revisionId: true },
+            })
+            const endpoint =
+              current?.action === 'PUBLISH'
+                ? await tx.contentModuleRevision.findFirst({
+                    where: {
+                      id: current.revisionId,
+                      tenantId: input.tenantId,
+                      venueId: input.venueId,
+                      moduleId,
+                    },
+                    select: {
+                      kind: true,
+                      audience: true,
+                      effectiveFrom: true,
+                      effectiveUntil: true,
+                      item: { select: { itemType: true } },
+                    },
+                  })
+                : null
+            if (
+              !endpoint ||
+              endpoint.audience !== 'PUBLIC' ||
+              (endpoint.effectiveFrom && endpoint.effectiveFrom > checkAt) ||
+              (endpoint.effectiveUntil && endpoint.effectiveUntil <= checkAt)
+            ) {
+              throw new UniversalContentActionError(
+                'INVALID_INPUT',
+                'Recognized relationships require published endpoints effective at the relationship start in this venue.',
+              )
+            }
+            endpoints.push(endpoint)
+          }
+          const [from, to] = endpoints
+          if (
+            relationship.fromModuleId === relationship.toModuleId ||
+            (relationship.relationshipType === 'OFFERS_PRODUCT_V1'
+              ? from?.kind !== 'SERVICE' || to?.kind !== 'ITEM' || to.item?.itemType !== 'PRODUCT'
+              : from?.kind !== 'POLICY' || to?.kind !== 'POLICY')
+          ) {
+            throw new UniversalContentActionError(
+              'INVALID_INPUT',
+              'Recognized relationship does not match the current published endpoint kinds and product subtype.',
+            )
+          }
+        }
       }
       const publication = await tx.contentModulePublication.create({
         data: {

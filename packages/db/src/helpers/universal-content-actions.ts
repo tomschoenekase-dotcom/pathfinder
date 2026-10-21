@@ -170,12 +170,25 @@ async function assertPayloadReferences(
       venueId: scope.venueId,
       id: { in: [payload.fromModuleId, payload.toModuleId] },
     },
-    select: { id: true },
+    select: { id: true, kind: true },
   })
   if (endpoints.length !== 2) {
     throw new UniversalContentActionError(
       'INVALID_INPUT',
       'Both relationship endpoints must exist in this exact tenant and venue.',
+    )
+  }
+  const from = endpoints.find((endpoint) => endpoint.id === payload.fromModuleId)
+  const to = endpoints.find((endpoint) => endpoint.id === payload.toModuleId)
+  if (
+    (payload.relationshipType === 'OFFERS_PRODUCT_V1' &&
+      (from?.kind !== 'SERVICE' || to?.kind !== 'ITEM')) ||
+    (payload.relationshipType === 'EXCEPTION_TO_V1' &&
+      (from?.kind !== 'POLICY' || to?.kind !== 'POLICY'))
+  ) {
+    throw new UniversalContentActionError(
+      'INVALID_INPUT',
+      'Recognized relationship endpoints have incompatible module kinds.',
     )
   }
 }

@@ -331,10 +331,13 @@ export function GeneralizedContentWorkbench({
     }
   }
 
-  async function changePublication(module: EditableModule) {
+  async function changePublication(module: EditableModule, publishing: boolean) {
     if (
       !authoringEnabled ||
-      module.audience !== 'PUBLIC' ||
+      (publishing &&
+        (module.audience !== 'PUBLIC' || module.publishedRevisionId === module.revisionId)) ||
+      (!publishing && !module.publishedRevisionId) ||
+      module.publishedRevisionId !== selected?.publishedRevisionId ||
       module.id !== selected?.id ||
       module.revisionId !== selected.revisionId ||
       module.version !== selected.version ||
@@ -343,16 +346,15 @@ export function GeneralizedContentWorkbench({
       panelInFlight.current
     )
       return
-    const publishing = module.publishedRevisionId !== module.revisionId
     const confirmed = window.confirm(
       publishing
         ? `Publish ${module.kind} version ${module.version} to the guest guide? This changes live guest context when the server capability flag is enabled.`
-        : `Withdraw ${module.kind} version ${module.version} from the guest guide?`,
+        : `Withdraw the current published ${module.kind} revision from the guest guide?`,
     )
     if (!confirmed) return
     const started = begin()
     if (!started) return
-    const actionIdentity = `${publishing ? 'PUBLISH' : 'WITHDRAW'}:${module.id}:${module.revisionId}:${module.version}`
+    const actionIdentity = `${publishing ? 'PUBLISH' : 'WITHDRAW'}:${module.id}:${publishing ? module.revisionId : module.publishedRevisionId}:${module.version}`
     try {
       const requestId = publicationRequestKeys.current.get(actionIdentity) ?? crypto.randomUUID()
       publicationRequestKeys.current.set(actionIdentity, requestId)
@@ -369,14 +371,14 @@ export function GeneralizedContentWorkbench({
             tenantId,
             venueId,
             moduleId: module.id,
-            expectedPublishedRevisionId: module.revisionId,
+            expectedPublishedRevisionId: module.publishedRevisionId!,
             requestId,
           })
       if (!isCurrent(started.generation, started.scope)) return
       setNotice(
         result.action === 'PUBLISH'
           ? `Version ${module.version} is explicitly published for effective guest resolution.`
-          : `Version ${module.version} is withdrawn from guest resolution.`,
+          : 'The current published revision is withdrawn from guest resolution.',
       )
       publicationRequestKeys.current.delete(actionIdentity)
       setRequiresReview(true)
@@ -444,20 +446,29 @@ export function GeneralizedContentWorkbench({
             <div className="mt-3 space-y-2">
               <button
                 type="button"
-                onClick={() => changePublication(selected)}
+                onClick={() => changePublication(selected, true)}
                 disabled={
                   !scopeReady ||
                   !authoringEnabled ||
                   busy ||
                   requiresReview ||
-                  selected.audience !== 'PUBLIC'
+                  selected.audience !== 'PUBLIC' ||
+                  selected.publishedRevisionId === selected.revisionId
                 }
                 className="min-h-10 w-full rounded-xl border border-pf-primary px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
               >
-                {selected.publishedRevisionId === selected.revisionId
-                  ? 'Withdraw from guest guide'
-                  : 'Publish this version to guests'}
+                Publish this version to guests
               </button>
+              {selected.publishedRevisionId ? (
+                <button
+                  type="button"
+                  onClick={() => changePublication(selected, false)}
+                  disabled={!scopeReady || !authoringEnabled || busy || requiresReview}
+                  className="min-h-10 w-full rounded-xl border border-pf-primary px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                >
+                  Withdraw from guest guide
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {

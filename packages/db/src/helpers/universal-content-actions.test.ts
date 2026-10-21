@@ -353,6 +353,44 @@ describe('universal content domain actions', () => {
     expect(audit).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['OFFERS_PRODUCT_V1', 'SERVICE', 'ITEM', true],
+    ['OFFERS_PRODUCT_V1', 'ITEM', 'SERVICE', false],
+    ['EXCEPTION_TO_V1', 'POLICY', 'POLICY', true],
+    ['EXCEPTION_TO_V1', 'SERVICE', 'POLICY', false],
+    ['CUSTOM', 'ITEM', 'SERVICE', true],
+  ])(
+    'validates draft %s endpoint kinds %s/%s without publication prerequisites',
+    async (relationshipType, fromKind, toKind, valid) => {
+      tx.contentModuleIdentity.findMany.mockResolvedValue([
+        { id: 'from', kind: fromKind },
+        { id: 'to', kind: toKind },
+      ])
+      const action = createUniversalContentAction({
+        db: client as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        moduleId: '4e3bd2b3-73b4-40a2-8791-6cce8fcf2a49',
+        actor,
+        draft: {
+          audience: 'OPERATOR',
+          evidence,
+          payload: {
+            kind: 'RELATIONSHIP',
+            fromModuleId: 'from',
+            toModuleId: 'to',
+            relationshipType: String(relationshipType),
+          },
+        },
+      })
+      if (valid) await expect(action).resolves.toMatchObject({ version: 1 })
+      else {
+        await expect(action).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+        expect(tx.relationshipContent.create).not.toHaveBeenCalled()
+      }
+    },
+  )
+
   it('rejects relationship endpoints unless both belong to the exact tenant and venue', async () => {
     tx.contentModuleIdentity.findMany.mockResolvedValue([{ id: 'module-a' }])
     await expect(
