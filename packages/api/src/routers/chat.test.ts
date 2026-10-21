@@ -2134,6 +2134,45 @@ describe('chat router', () => {
       expect(prompt).not.toContain('First-floor case.')
     })
 
+    it('bounds no-embedding place fallback with a unique tie order', async () => {
+      setupHappyPath('These are the listed places.')
+      embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
+      const tiedPlaces = Array.from({ length: 10 }, (_, index) => ({
+        ...placeRows[0],
+        id: `tied-place-${String(index).padStart(2, '0')}`,
+        name: `Gallery ${index + 1}`,
+        importanceScore: 0,
+      }))
+      placeFindMany.mockReset()
+      placeFindMany.mockImplementation(async (args) => {
+        const query = args as { where?: { id?: { in?: string[] } }; take?: number }
+        const ids = query.where?.id?.in
+        return (ids ? tiedPlaces.filter((place) => ids.includes(place.id)) : tiedPlaces)
+          .slice(0, query.take)
+      })
+
+      await caller.chat.send({ ...sendInput, message: 'What places are listed?' })
+
+      expect(placeFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            isActive: true,
+            visibility: 'PUBLIC',
+          },
+          orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
+          take: 8,
+        }),
+      )
+      expect(semanticSearch.places).not.toHaveBeenCalled()
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ fallbackCode: null }),
+        }),
+      )
+    })
+
     it('expands a no-embedding initial eight-place result to clarify duplicate Case 12 floors', async () => {
       setupHappyPath('Please clarify the floor.')
       embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
@@ -3290,7 +3329,7 @@ describe('chat router', () => {
             isActive: true,
             visibility: 'PUBLIC',
           },
-          orderBy: { importanceScore: 'desc' },
+          orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
           take: 8,
         })
         return [{ ...placeRows[0], importanceScore: 90 }]
@@ -3343,7 +3382,7 @@ describe('chat router', () => {
             isActive: true,
             visibility: 'PUBLIC',
           },
-          orderBy: { importanceScore: 'desc' },
+          orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
           take: 8,
         })
         return [
@@ -3404,7 +3443,7 @@ describe('chat router', () => {
             isActive: true,
             visibility: 'PUBLIC',
           },
-          orderBy: { importanceScore: 'desc' },
+          orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
           take: 8,
         })
         return [

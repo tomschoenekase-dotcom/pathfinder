@@ -1558,7 +1558,7 @@ const chatReadRouter = router({
           sourceUrl: true,
           importanceScore: true,
         },
-        orderBy: { importanceScore: 'desc' },
+        orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
         take: recommendationRetrievalLimit,
       })
       const importanceRankedPlaces = fallbackPlaces.map(({ importanceScore, ...place }) => {
