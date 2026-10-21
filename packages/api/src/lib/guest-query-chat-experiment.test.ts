@@ -186,7 +186,7 @@ describe('local structured chat experiment boundary', () => {
     expect(result.prompt).toContain('Weekends only')
     expect(result.prompt).toContain('Closed October 20')
     expect(result.summary.policyCoverage).toBe('UNKNOWN')
-    expect(result.summary.canonicalAuthority).toBe(true)
+    expect(result.summary).toMatchObject({ canonicalAuthority: true })
   })
 
   it('declines the entire augmentation when a governing whole policy cannot fit', async () => {
