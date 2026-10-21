@@ -19,6 +19,7 @@ export function guestCanonicalAliasBody(snapshot: EffectivePublishedUniversalCon
         .join('\n'),
     }
   if (payload.kind === 'POLICY') return { title: payload.title, content: payload.rule }
+  if (payload.kind === 'OPERATIONAL_FACT') return { title: payload.label, content: payload.value }
   if (payload.kind === 'ITEM')
     return {
       title: payload.name,

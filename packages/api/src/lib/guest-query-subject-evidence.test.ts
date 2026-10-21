@@ -296,6 +296,91 @@ describe('whole named subject evidence', () => {
       ).toThrow(/exact current canonical alias proof/)
     }
   })
+  it('retrieves a named current operational fact with its exact whole value', async () => {
+    const s = source()
+    const value = 'The east entrance is closed for maintenance; use the signed west entrance.'
+    append(s, 'notice', {
+      kind: 'OPERATIONAL_FACT',
+      label: 'Current entrance notice',
+      value,
+      expiresAt: '2026-10-22T00:00:00.000Z',
+    })
+    const r = await subjects(s, ['Current entrance notice'])
+    expect(r.status).toBe('READY')
+    if (r.status !== 'READY') throw new Error('expected subject evidence')
+    expect(r.prompt).toContain(value)
+    expect(r.knowledge.map((topic) => topic.content)).toContain(value)
+    expect(r.canonicalSources.map((body) => body.snapshot.payload)).toContainEqual({
+      kind: 'OPERATIONAL_FACT',
+      label: 'Current entrance notice',
+      value,
+      expiresAt: '2026-10-22T00:00:00.000Z',
+    })
+    expect(r.places).toEqual([])
+    expect(r.prompt).not.toContain('Policy that applies to "Current entrance notice"')
+  })
+  it.each([
+    'title',
+    'content',
+    'category',
+    'sourceType',
+    'contentRevisionId',
+    'contentPublicationId',
+    'contentModuleId',
+  ] as const)('rejects an operational fact alias with mismatched %s', (field) => {
+    const s = source()
+    append(s, 'notice', {
+      kind: 'OPERATIONAL_FACT',
+      label: 'Current notice',
+      value: 'Current public facts.',
+    })
+    s.directory.knowledge[0]![field] = 'forged'
+    const compiled = compileGuestQueryCanonicalSource(s)
+    expect(() =>
+      prepareGuestSubjectEvidence({
+        source: s,
+        compiled,
+        keys: ['knowledge:alias-notice'],
+        mode: 'DETAILS',
+      }),
+    ).toThrow(/exact current canonical alias proof/)
+  })
+  it('rejects an expired or no-longer-admitted operational fact despite its retained alias', () => {
+    for (const state of ['expired', 'not-admitted']) {
+      const s = source()
+      const m = append(s, 'notice', {
+        kind: 'OPERATIONAL_FACT',
+        label: 'Current notice',
+        value: 'Do not resurrect this notice.',
+        expiresAt: state === 'expired' ? s.asOf : null,
+      })
+      if (state === 'not-admitted') s.canonicalModules!.modules = []
+      const compiled = compileGuestQueryCanonicalSource(s)
+      expect(() =>
+        prepareGuestSubjectEvidence({
+          source: s,
+          compiled,
+          keys: ['knowledge:alias-notice'],
+          mode: 'DETAILS',
+        }),
+      ).toThrow(/exact current canonical alias proof/)
+      expect(
+        guestCanonicalEvidenceAuthority(compiled.prepared, s).subjectModules.some(
+          (row) => row.moduleId === m.moduleId,
+        ),
+      ).toBe(false)
+    }
+  })
+  it('never treats a private operational fact as admitted public evidence', () => {
+    const s = source()
+    const m = append(s, 'notice', {
+      kind: 'OPERATIONAL_FACT',
+      label: 'Staff-only notice',
+      value: 'Private staff-only facts.',
+    })
+    Object.assign(m, { audience: 'CLIENT' })
+    expect(() => compileGuestQueryCanonicalSource(s)).toThrow()
+  })
   it('product metadata expands only actual offers, not ITEM.placeId, and preserves zero-offer uncertainty', async () => {
     const s = graph(),
       offered = await subjects(s, ['Comet token'])
