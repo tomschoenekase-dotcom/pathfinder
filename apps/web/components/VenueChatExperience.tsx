@@ -69,7 +69,7 @@ type ChatStreamEvent =
   | {
       type: 'delta'
       delta: string
-      providerFirstTextMs: number
+      providerFirstTextMs: number | null
       requestFirstTextMs: number
     }
   | { type: 'complete'; result: ChatSendResult }

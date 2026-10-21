@@ -20,6 +20,7 @@ export function guestQueryChatExperimentEnabled(input: {
 export async function prepareGuestChatQueryExperiment(input: {
   source: GuestQuerySource
   question: string
+  directAnswer?: boolean
   interpret: (request: { system: string; question: string }) => Promise<string>
 }) {
   const source = structuredClone(input.source)
@@ -29,6 +30,7 @@ export async function prepareGuestChatQueryExperiment(input: {
     prepared = await prepareGuestQueryEvidence({
       source,
       question: input.question,
+      directAnswer: input.directAnswer ?? false,
       interpret: async (request) => {
         const text = await input.interpret(request)
         interpretationCompleted = true
@@ -40,6 +42,24 @@ export async function prepareGuestChatQueryExperiment(input: {
     if (!interpretationCompleted) throw error
     return { status: 'BASELINE' as const, reason: 'INVALID_PLAN_OR_EVIDENCE' as const }
   }
+  if (prepared.status === 'DIRECT_READY')
+    return {
+      ...prepared,
+      sourceVersion: source.version,
+      summary: {
+        version: 'guest-query-direct-chat-v1' as const,
+        answerMode: 'LOCAL_DETERMINISTIC' as const,
+        notDispatchedModelPrompt: true as const,
+        asOf: source.asOf,
+        readPath: source.readPath,
+        includeSecondLayer: source.includeSecondLayer,
+        questionSha256: prepared.trace.questionSha256,
+        plannerPromptSha256: prepared.trace.plannerPromptSha256,
+        plannerResponse: prepared.trace.rawPlan,
+        query: prepared.trace.plan.status === 'QUERY' ? prepared.trace.plan.query : null,
+        ...prepared.receipt,
+      },
+    }
   if (prepared.status !== 'READY')
     return { status: 'BASELINE' as const, reason: 'UNSUPPORTED_PLAN' as const }
   if (
@@ -95,6 +115,11 @@ export async function prepareGuestChatQueryExperiment(input: {
 export type GuestChatQueryExperiment = Extract<
   Awaited<ReturnType<typeof prepareGuestChatQueryExperiment>>,
   { status: 'READY' }
+>
+
+export type GuestDirectChatQuery = Extract<
+  Awaited<ReturnType<typeof prepareGuestChatQueryExperiment>>,
+  { status: 'DIRECT_READY' }
 >
 
 /** The old prompt still contains baseline bodies; a new source must not contradict them. */

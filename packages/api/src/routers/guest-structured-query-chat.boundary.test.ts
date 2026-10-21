@@ -507,6 +507,7 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
     return JSON.parse(profile.snapshot).structuredQuery
   }
   it.each(['absent', 'production'])('keeps baseline without eligible opt-in: %s', async (mode) => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
     if (mode === 'absent') vi.stubEnv('TORCHIKO_LOCAL_STRUCTURED_QUERY', '')
     else vi.stubEnv('NODE_ENV', 'production')
     await caller.chat.send(input)
@@ -518,6 +519,7 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
   it.each([false, true])(
     'excludes original native admission even with projection mismatch=%s',
     async (mismatch) => {
+      vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
       const state = { places: [], knowledgeEntries: [topic()], generalizedModules: [] }
       resolveNativeGuestReadSnapshotAction.mockResolvedValue({
         path: 'NATIVE',
@@ -841,5 +843,152 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
         .join(''),
     ).toBe('ANSWER_VISIBLE')
     expect(JSON.stringify(events)).not.toContain('"predicates"')
+  })
+  const countPlan = JSON.stringify({ status: 'QUERY', mode: 'count', predicates: [{ field: 'kind', equals: 'ATTRACTION' }] })
+  it('uses exactly one accounted Luna planner and no answer provider for a direct count', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    vi.stubEnv('GUEST_CHAT_DEFAULT_MODEL_KEY', 'guest-chat-luna-reasoning')
+    const create = vi.fn().mockResolvedValue({ status: 'completed', output_text: countPlan, usage: { input_tokens: 123, output_tokens: 17, input_tokens_details: { cached_tokens: 0 } } })
+    setOpenAiResponsesClientForTesting({ responses: { create } })
+    const response = await caller.chat.send(input)
+    expect(create).toHaveBeenCalledOnce()
+    expect(create.mock.calls[0]![0]).toMatchObject({ model: 'gpt-6-luna', reasoning: { effort: 'low' }, max_output_tokens: 1024 })
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(response.response).toContain('1 matching listed entry.')
+    expect(accounting.reserve.mock.calls.filter(([args]) => args.identity.feature === 'guest-chat')).toHaveLength(1)
+    const plannerReservation = accounting.reserve.mock.calls.find(([args]) => args.identity.feature === 'guest-chat')![0]
+    expect(accounting.exact.mock.calls.filter(([args]) => args.reservation.id === plannerReservation.reservationId)).toHaveLength(1)
+    const usage = aiUsageEventCreate.mock.calls.filter(([args]) => args.data.feature === 'guest-chat')
+    expect(usage).toHaveLength(1)
+    expect(usage[0]![0].data).toMatchObject({ provider: 'openai', model: 'gpt-6-luna', inputTokens: 123, outputTokens: 17, success: true })
+    expect(guestTurnActions.observe.mock.calls.at(-1)![0].operation).toMatchObject({ outcomeCode: 'SUCCEEDED', usageReference: 'usage-record' })
+  })
+  it('directly counts more than100 records with only the scoped aggregate receipt retained', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const current = source()
+    current.directory.places = Array.from({ length: 501 }, (_, i) => ({ ...current.directory.places[0]!, id: `ride-${i}`, name: `Ride ${i}` }))
+    loadQuerySource.mockResolvedValue(current)
+    anthropicCreate.mockResolvedValueOnce(message(countPlan))
+    expect((await caller.chat.send(input)).response).toContain('501 matching listed entries.')
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(metadata().answerEvidence.sources).toHaveLength(1)
+    const profile = JSON.parse(metadata().answerEvidence.sources[0].snapshot)
+    expect(profile.structuredQuery).toMatchObject({ exactEligibleCount: 501, retainedSourceCount: 0, sourceVersion: 'v1' })
+  })
+  it('completes direct count with one settled planner, no answer call, exact local evidence and durable replay', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    anthropicCreate.mockResolvedValueOnce(message(countPlan))
+    const result = await caller.chat.send(input)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(gatewayCalls).toHaveLength(1)
+    expect(accounting.exact.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(guestTurnActions.dispatch.mock.calls.filter(([call]) => call.operation.kind === 'RESPONSE_GENERATION')).toHaveLength(1)
+    expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+    expect(result.response).toBe('1 matching listed entry.\n\nThis describes listed entries, not a complete physical inventory or a live availability check.')
+    const retained = metadata().answerEvidence
+    expect(retained.sources).toHaveLength(1)
+    expect(retained.system.staticPart).toContain('notDispatchedModelPrompt=true')
+    const profile = JSON.parse(retained.sources[0].snapshot)
+    expect(profile.answerMode).toBe('LOCAL_DETERMINISTIC')
+    expect(profile.plannerInvocationId).toBe(gatewayCalls[0]!.invocationId)
+    expect(profile.plannerUsageReference).toBe('usage-record')
+    expect(profile.structuredQuery).toMatchObject({ sourceVersion: 'v1', formatterVersion: 'guest-query-direct-answer-v1', query: { mode: 'count' } })
+    expect(profile.structuredQuery.plannerResponse).toBe(countPlan)
+    expect(retained.routeConfigurationVersion).toBe((gatewayCalls[0]!.route as { configurationVersion: string }).configurationVersion)
+    expect(metadata()).not.toHaveProperty('actionPlacements')
+    guestTurnActions.reserve.mockResolvedValueOnce({ state: 'COMPLETE', ...result, citations: [], replayed: true })
+    expect((await caller.chat.send(input)).response).toBe(result.response)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+  })
+  it('streams exact direct conditions literally with no answer provider timing or engagement/action interpretation', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    anthropicCreate.mockResolvedValueOnce(message(rawPlan))
+    const events = []
+    for await (const event of streamChatTurn(ctx, input)) events.push(event)
+    const text = events.filter(event => event.type === 'delta').map(event => event.type === 'delta' ? event.delta : '').join('')
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(text).toBe(guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse)
+    expect(text).toContain('closed October 20–22')
+    expect(events.find(event => event.type === 'delta')).toMatchObject({ providerFirstTextMs: null })
+    expect(JSON.stringify(events)).not.toContain('"predicates"')
+    expect(metadata()).not.toHaveProperty('actionPlacements')
+    expect(guestTurnActions.finalize.mock.calls[0]![0].input.nextPending).toEqual({ kind: 'NONE' })
+    expect(JSON.stringify(metadata().answerEvidence)).toContain(restriction)
+  })
+  it.each(['source', 'native', 'configuration'])('rejects direct authority change before any visible delta: %s', async change => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    anthropicCreate.mockImplementationOnce(async () => {
+      if (change === 'source') loadQuerySource.mockResolvedValue(source('v2'))
+      if (change === 'native') resolveNativeGuestReadSnapshotAction.mockResolvedValue({ path: 'NATIVE', reason: 'NATIVE_READY', releaseId: 'new-release', state: null })
+      if (change === 'configuration') aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({ enabled: true, isTombstone: false, timeoutMs: 9000, timeoutMsSet: true, unsafeChangesEnabled: false, reason: 'Timeout changed during planner' })
+      return message(countPlan)
+    })
+    const events = []
+    for await (const event of streamChatTurn(ctx, input)) events.push(event)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(events.filter(event => event.type === 'delta')).toEqual([])
+    expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+    expect(guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse).not.toContain('matching listed entry')
+    expect(metadata()).not.toHaveProperty('answerEvidence')
+  })
+  it('keeps the existing one-planner one-answer path when the direct formatter is unsupported', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    queue(JSON.stringify({ status: 'QUERY', mode: 'list', predicates: [{ field: 'feature', name: 'wheelchairAccessible', value: true }] }))
+    expect((await caller.chat.send(input)).response).toBe('ANSWER_VISIBLE')
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(gatewayCalls[0]!.budgetGate).toBe(gatewayCalls[1]!.budgetGate)
+  })
+  it('falls back before direct emission when a retained whole source exceeds evidence snapshot bounds', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const oversized = source()
+    oversized.directory.places[0]!.tags = ['x'.repeat(170_000)]
+    loadQuerySource.mockResolvedValue(oversized)
+    queue()
+    expect((await caller.chat.send(input)).response).toBe('ANSWER_VISIBLE')
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(metadata().answerEvidence.system.staticPart).not.toContain('LOCAL_DETERMINISTIC')
+  })
+  it.each([98, 99])('enforces 100 retained sources including profile for direct lists: %i topics', async count => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const current = source()
+    current.directory.knowledge = Array.from({ length: count }, (_, i) => topic(`condition-${i}`, `Whole condition ${i}: booking required.`))
+    loadQuerySource.mockResolvedValue(current)
+    queue()
+    await caller.chat.send(input)
+    if (count === 98) {
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+      expect(metadata().answerEvidence.sources).toHaveLength(100)
+      expect(metadata().answerEvidence.system.staticPart).toContain('LOCAL_DETERMINISTIC')
+    } else {
+      expect(anthropicCreate).toHaveBeenCalledTimes(2)
+      expect(metadata().answerEvidence.sources.length).toBeLessThanOrEqual(100)
+      expect(metadata().answerEvidence.system.staticPart).not.toContain('LOCAL_DETERMINISTIC')
+    }
+  })
+  it('retains exact canonical policy bodies in a direct product answer without model rewriting', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const current = source()
+    current.directory.knowledge = []
+    const whole = 'Each kit costs $8 — weekends only. Children under 10 need a paid adult. No refunds.'
+    const payloads: GeneralizedContentPayload[] = [
+      { kind: 'SERVICE', name: 'Moon counter', placeId: 'moon', availability: 'Saturdays only.' },
+      { kind: 'ITEM', name: 'Sketch kit', itemType: 'PRODUCT' },
+      { kind: 'RELATIONSHIP', fromModuleId: 'direct-0', toModuleId: 'direct-1', relationshipType: 'OFFERS_PRODUCT_V1' },
+      { kind: 'POLICY', title: 'Purchase terms', rule: whole, appliesTo: ['direct-0'] },
+    ]
+    current.canonicalModules = { contract: 'published-query-source-v1', modules: payloads.map((payload, i) => ({ moduleId: `direct-${i}`, revisionId: `direct-revision-${i}`, publicationId: `direct-publication-${i}`, publicationOrder: String(i + 1), version: 1, kind: payload.kind, payload, audience: 'PUBLIC', effectiveFrom: null, effectiveUntil: null, evidence: [] })) }
+    loadQuerySource.mockResolvedValue(current)
+    anthropicCreate.mockResolvedValueOnce(message(JSON.stringify({ status: 'QUERY', mode: 'list', predicates: [{ field: 'product', name: 'Sketch kit' }] })))
+    const events = []
+    for await (const event of streamChatTurn(ctx, input)) events.push(event)
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    const answer = guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse
+    expect(answer).toContain('$8 — weekends only')
+    expect(answer).toContain('Children under 10 need a paid adult')
+    const policyEvidence = metadata().answerEvidence.sources.find((s: { sourceId: string }) => s.sourceId === 'published-content:direct-3:direct-revision-3')
+    expect(JSON.parse(policyEvidence.snapshot).payload.rule).toBe(whole)
+    expect(events.filter(e => e.type === 'delta').map(e => e.type === 'delta' ? e.delta : '').join('')).toBe(answer)
+    expect(metadata()).not.toHaveProperty('actionPlacements')
   })
 })

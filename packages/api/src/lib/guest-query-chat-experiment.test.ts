@@ -100,6 +100,17 @@ function publishedSource(): GuestQuerySource {
   return value
 }
 describe('local structured chat experiment boundary', () => {
+  it('prepares a direct count receipt without admitting unrequested condition bodies', async () => {
+    const interpret = vi.fn(async () => JSON.stringify({ status: 'QUERY', mode: 'count', predicates: [kind] }))
+    const output = await prepareGuestChatQueryExperiment({ source: source(), question: 'How many attractions?', interpret, directAnswer: true })
+    expect(interpret).toHaveBeenCalledOnce()
+    expect(output.status).toBe('DIRECT_READY')
+    if (output.status !== 'DIRECT_READY') throw new Error('Expected direct count')
+    expect(output.answer).toBe('1 matching listed entry.\n\nThis describes listed entries, not a complete physical inventory or a live availability check.')
+    expect(output.places).toEqual([])
+    expect(output.knowledge).toEqual([])
+    expect(output.summary).toMatchObject({ answerMode: 'LOCAL_DETERMINISTIC', notDispatchedModelPrompt: true, sourceVersion: 'v1', query: { mode: 'count' } })
+  })
   it('admits a broad count without overflowing on unrequested whole legacy condition bodies', async () => {
     const value = source()
     value.directory.places = Array.from({ length: 501 }, (_, i) => ({

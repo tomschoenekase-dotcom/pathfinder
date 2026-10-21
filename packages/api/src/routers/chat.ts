@@ -104,6 +104,7 @@ import {
   guestQuerySourcesAgree,
   prepareGuestChatQueryExperiment,
   type GuestChatQueryExperiment,
+  type GuestDirectChatQuery,
 } from '../lib/guest-query-chat-experiment'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import {
@@ -290,7 +291,7 @@ const CHAT_INGRESS_VENUE_LIMIT = 120
 type ChatStreamSink = {
   onTextDelta: (
     delta: string,
-    timings: { providerFirstTextMs: number; requestFirstTextMs: number },
+    timings: { providerFirstTextMs: number | null; requestFirstTextMs: number },
   ) => void | Promise<void>
 }
 
@@ -304,6 +305,11 @@ export function createGuestStreamingProjection(options: {
   let providerFirstTextMs: number | null = null
   let requestFirstTextMs: number | null = null
   return {
+    async pushDeterministic(text: string, timings: { requestFirstTextMs: number }) {
+      if (!text) return
+      requestFirstTextMs ??= timings.requestFirstTextMs
+      await options.onTextDelta(text, { providerFirstTextMs: null, requestFirstTextMs })
+    },
     async push(
       delta: string,
       timings: { providerFirstTextMs: number; requestFirstTextMs: number },
@@ -2377,6 +2383,9 @@ const chatReadRouter = router({
       }
     }
     let structuredQuery: GuestChatQueryExperiment | null = null
+    let directQuery: GuestDirectChatQuery | null = null
+    let deterministicAnswerCompleted = false
+    let structuredPlannerInvocationId: string | null = null
     let structuredQueryFence: (() => Promise<void>) | null = null
     const preparePrompt = () => {
       const parts = prepareVenuePrompt()
@@ -2523,6 +2532,47 @@ const chatReadRouter = router({
           })),
         ],
       })
+    const buildDirectAnswerEvidence = (candidate: GuestDirectChatQuery) =>
+      buildGuestAnswerEvidenceBundle({
+        assistantResponse: candidate.answer,
+        staticSystemPrompt:
+          'LOCAL_DETERMINISTIC: retained rendering receipt; notDispatchedModelPrompt=true. No answer model was called.',
+        dynamicSystemPrompt: JSON.stringify({
+          ...candidate.summary,
+          plannerInvocationId: structuredPlannerInvocationId,
+          plannerUsageReference: chatAccounting.usageEventIds().at(-1) ?? null,
+        }),
+        ...(generationRouteConfigurationVersion ? { routeConfigurationVersion: generationRouteConfigurationVersion } : {}),
+        sources: [
+          {
+            sourceId: `venue:${venue.id}`,
+            kind: 'VENUE_PROFILE',
+            label: venue.name,
+            snapshot: {
+              id: venue.id,
+              tenantId: venue.tenantId,
+              answerMode: 'LOCAL_DETERMINISTIC',
+              notDispatchedModelPrompt: true,
+              structuredQuery: candidate.summary,
+              plannerInvocationId: structuredPlannerInvocationId,
+              plannerUsageReference: chatAccounting.usageEventIds().at(-1) ?? null,
+            },
+          },
+          ...candidate.places.map((place, rank) => ({
+            sourceId: `place:${place.id}`, kind: 'PLACE' as const,
+            label: place.name, rank, snapshot: place,
+          })),
+          ...candidate.knowledge.map((entry, rank) => ({
+            sourceId: `knowledge:${entry.id}`, kind: 'KNOWLEDGE' as const,
+            label: entry.title, rank, snapshot: entry,
+          })),
+          ...candidate.canonicalSources.map((content, rank) => ({
+            sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
+            kind: 'PUBLISHED_CONTENT' as const,
+            label: `${content.kind} ${content.moduleId}`, rank, snapshot: content.snapshot,
+          })),
+        ],
+      })
     let generationDispatched = false
     try {
       const configurationStartedAt = performance.now()
@@ -2565,6 +2615,7 @@ const chatReadRouter = router({
       }
       const webSearchInvocationId = randomUUID()
       const queryPlannerInvocationId = randomUUID()
+      structuredPlannerInvocationId = queryPlannerInvocationId
       // Require the underlying durable reservation before a cumulative wrapper
       // can replace a null reservation with its own invocation-local reference.
       const governedBudgetGate: typeof chatAccounting.budgetGate = {
@@ -2618,6 +2669,7 @@ const chatReadRouter = router({
           const candidate = await prepareGuestChatQueryExperiment({
             source: querySource,
             question: trimmedInput,
+            directAnswer: process.env.TORCHIKO_LOCAL_DIRECT_QUERY === '1',
             interpret: async ({ system, question }) => {
               const planned = await generateTextForCapability({
                 route,
@@ -2656,16 +2708,20 @@ const chatReadRouter = router({
               return planned.text
             },
           })
-          if (
+          if (candidate.status === 'DIRECT_READY' || (
             candidate.status === 'READY' &&
             guestQuerySourcesAgree(relevantPlaces, candidate.places) &&
             guestQuerySourcesAgree(relevantKnowledgeEntries, candidate.knowledge)
-          ) {
-            structuredQuery = candidate
-            ;({ staticPart, dynamicPart } = preparePrompt())
+          )) {
             try {
-              // Preserve exact retained sources and existing source/prompt bounds.
-              buildAnswerEvidence('Structured evidence preflight.', captureEvidence())
+              if (candidate.status === 'DIRECT_READY') {
+                buildDirectAnswerEvidence(candidate)
+                directQuery = candidate
+              } else {
+                structuredQuery = candidate
+                ;({ staticPart, dynamicPart } = preparePrompt())
+                buildAnswerEvidence('Structured evidence preflight.', captureEvidence())
+              }
               structuredQueryFence = async () => {
                 const currentNative = await resolveNativeGuestReadSnapshotAction({
                   client: ctx.db,
@@ -2682,6 +2738,7 @@ const chatReadRouter = router({
                   throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest query source changed')
               }
             } catch {
+              directQuery = null
               structuredQuery = null
               ;({ staticPart, dynamicPart } = preparePrompt())
               logger.info({
@@ -2695,7 +2752,7 @@ const chatReadRouter = router({
       // Search is an optional first subcall of this durable generation operation.
       // Once dispatched, uncertain turns retain the existing no-duplicate replay fence.
       if (
-        !structuredQuery &&
+        !structuredQuery && !directQuery &&
         isFeatureEnabled('guestGeneralWebFallback') &&
         ctx.experienceScope === 'PUBLIC' &&
         venue.chatShowLinks &&
@@ -2833,139 +2890,150 @@ const chatReadRouter = router({
       } catch {
         // Diagnostics never affect the answer.
       }
-      // The answer check follows every dynamic instruction, after the cache breakpoint, and is
-      // part of the captured evidence. The route's primary model and output cap decide it.
-      const answerCheckEnabled = isGuestAnswerCheckEnabled(
-        guestAnswerCheckMode(),
-        route.candidates[0]?.modelKey,
-        configuration.maxOutputTokens,
-      )
-      if (answerCheckEnabled) dynamicPart = appendGuestAnswerCheckInstruction(dynamicPart)
-      // Decision-first prose is the streaming alternative to the check; never both at once.
-      const answerShapeEnabled =
-        !answerCheckEnabled &&
-        isGuestAnswerShapeEnabled(guestAnswerShapeMode(), configuration.primaryModelKey)
-      if (answerShapeEnabled) {
-        dynamicPart = appendGuestAnswerShapeInstruction(dynamicPart)
-        logger.info({
-          action: 'guest-chat.answer-shape',
-          tenantId: venue.tenantId,
-          venueId: venue.id,
-          turnId: reservation.turnId,
-          version: GUEST_ANSWER_SHAPE_VERSION,
+      if (directQuery) {
+        // These strings are a labeled local receipt, never a dispatched answer-model prompt.
+        preflightEvidence = buildDirectAnswerEvidence(directQuery)
+        await assertGenerationAvailable()
+        deterministicAnswerCompleted = true
+        assistantResponse = directQuery.answer
+        await streamProjection?.pushDeterministic(assistantResponse, {
+          requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
         })
-      }
-      const pushVisibleDelta = streamProjection
-        ? (delta: string) =>
-            streamProjection.push(delta, {
+      } else {
+        // The answer check follows every dynamic instruction, after the cache breakpoint, and is
+        // part of the captured evidence. The route's primary model and output cap decide it.
+        const answerCheckEnabled = isGuestAnswerCheckEnabled(
+          guestAnswerCheckMode(),
+          route.candidates[0]?.modelKey,
+          configuration.maxOutputTokens,
+        )
+        if (answerCheckEnabled) dynamicPart = appendGuestAnswerCheckInstruction(dynamicPart)
+        // Decision-first prose is the streaming alternative to the check; never both at once.
+        const answerShapeEnabled =
+          !answerCheckEnabled &&
+          isGuestAnswerShapeEnabled(guestAnswerShapeMode(), configuration.primaryModelKey)
+        if (answerShapeEnabled) {
+          dynamicPart = appendGuestAnswerShapeInstruction(dynamicPart)
+          logger.info({
+            action: 'guest-chat.answer-shape',
+            tenantId: venue.tenantId,
+            venueId: venue.id,
+            turnId: reservation.turnId,
+            version: GUEST_ANSWER_SHAPE_VERSION,
+          })
+        }
+        const pushVisibleDelta = streamProjection
+          ? (delta: string) =>
+              streamProjection.push(delta, {
+                providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
+                requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+              })
+          : null
+        const answerCheckGate =
+          answerCheckEnabled && pushVisibleDelta
+            ? createGuestAnswerCheckStreamGate(pushVisibleDelta)
+            : null
+        // Markers on retrieved entries alone (no guide, or the guide left them out) are logged too.
+        if (
+          !directoryPrompt.includes(GUEST_DATED_TITLE_RULE) &&
+          dynamicPart.includes(GUEST_DATED_TITLE_RULE)
+        )
+          logger.info({
+            action: 'guest-chat.dated-title-marker',
+            tenantId: venue.tenantId,
+            venueId: venue.id,
+            version: GUEST_DATED_TITLE_RULE_VERSION,
+            scope: 'retrieved-entries',
+          })
+        generationEvidence = captureEvidence()
+        // Validate the exact retained text and source snapshots before any answer provider dispatch.
+        preflightEvidence = buildAnswerEvidence('Evidence preflight.', generationEvidence)
+        const result = await generateTextForCapability({
+          route,
+          timeoutMs: configuration.timeoutMs,
+          maxAttempts: configuration.maxAttempts,
+          ...(configuration.maxOutputTokens !== null
+            ? { maxOutputTokens: configuration.maxOutputTokens }
+            : {}),
+          admissionGuard: assertGenerationAvailable,
+          budgetGate: sharedBudgetGate,
+          // Capture and dispatch share exact strings and established cache breakpoints.
+          system: generationEvidence.system,
+          messages: [
+            ...history.map((m: { role: string; content: string }) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })),
+            { role: 'user', content: trimmedInput },
+          ],
+          usageSink: chatAccounting.sink,
+          invocationId: generationInvocationId,
+          // Missing checks, invalid decision JSON or unsupported answer grammar fail closed.
+          ...(answerCheckEnabled ? { parseResponse: splitGuestAnswerCheck } : {}),
+          ...(pushVisibleDelta ? { onTextDelta: answerCheckGate ?? pushVisibleDelta } : {}),
+          onBeforeFirstDispatch: async () => {
+            if (generationDispatched) {
+              responseGenerationDispatched = true
+              return
+            }
+            try {
+              await markGuestChatProviderDispatchedAction({
+                client: ctx.db,
+                operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
+              })
+              generationDispatched = true
+              responseGenerationDispatched = true
+            } catch (error) {
+              guestChatTurnError(error)
+            }
+          },
+        })
+
+        let providerAnswer = result.text
+        if (answerCheckEnabled) {
+          // The gateway already accepted this exact text through the same pure split.
+          const split = splitGuestAnswerCheck(result.text)
+          providerAnswer = split.answer
+          await answerCheckGate?.complete(result.text)
+          logger.info({
+            action: 'guest-chat.answer-check',
+            tenantId: venue.tenantId,
+            venueId: venue.id,
+            turnId: reservation.turnId,
+            ...summarizeGuestAnswerCheck(split),
+          })
+        }
+        const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(providerAnswer)
+        // Brevity belongs in generation guidance. Do not discard later sentences:
+        // a restriction or exception may change the meaning of an earlier answer.
+        // The model may only name approved action IDs; the server enforces the venue's
+        // presentation switches and resolves every destination itself.
+        const actionProjection = applyGuestActionMarkers({
+          text: guestPlainDashes(strippedResponse).trim(),
+          actions: guestActions,
+          settings: guestActionSettings,
+        })
+        assistantResponse = actionProjection.text || 'Here is the official option.'
+        guestActionPlacements = actionProjection.text ? actionProjection.placements : []
+        if (recommendationDecision) {
+          // The venue disclosure is guaranteed server-side whenever the featured item is surfaced.
+          const disclosure = enforceRecommendationDisclosure(
+            assistantResponse,
+            recommendationDecision,
+          )
+          if (disclosure.disclosureAppended && streamProjection) {
+            await streamProjection.push(disclosure.response.slice(assistantResponse.length), {
               providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
               requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
             })
-        : null
-      const answerCheckGate =
-        answerCheckEnabled && pushVisibleDelta
-          ? createGuestAnswerCheckStreamGate(pushVisibleDelta)
-          : null
-      // Markers on retrieved entries alone (no guide, or the guide left them out) are logged too.
-      if (
-        !directoryPrompt.includes(GUEST_DATED_TITLE_RULE) &&
-        dynamicPart.includes(GUEST_DATED_TITLE_RULE)
-      )
-        logger.info({
-          action: 'guest-chat.dated-title-marker',
-          tenantId: venue.tenantId,
-          venueId: venue.id,
-          version: GUEST_DATED_TITLE_RULE_VERSION,
-          scope: 'retrieved-entries',
-        })
-      generationEvidence = captureEvidence()
-      // Validate the exact retained text and source snapshots before any answer provider dispatch.
-      preflightEvidence = buildAnswerEvidence('Evidence preflight.', generationEvidence)
-      const result = await generateTextForCapability({
-        route,
-        timeoutMs: configuration.timeoutMs,
-        maxAttempts: configuration.maxAttempts,
-        ...(configuration.maxOutputTokens !== null
-          ? { maxOutputTokens: configuration.maxOutputTokens }
-          : {}),
-        admissionGuard: assertGenerationAvailable,
-        budgetGate: sharedBudgetGate,
-        // Capture and dispatch share exact strings and established cache breakpoints.
-        system: generationEvidence.system,
-        messages: [
-          ...history.map((m: { role: string; content: string }) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          })),
-          { role: 'user', content: trimmedInput },
-        ],
-        usageSink: chatAccounting.sink,
-        invocationId: generationInvocationId,
-        // Missing checks, invalid decision JSON or unsupported answer grammar fail closed.
-        ...(answerCheckEnabled ? { parseResponse: splitGuestAnswerCheck } : {}),
-        ...(pushVisibleDelta ? { onTextDelta: answerCheckGate ?? pushVisibleDelta } : {}),
-        onBeforeFirstDispatch: async () => {
-          if (generationDispatched) {
-            responseGenerationDispatched = true
-            return
           }
-          try {
-            await markGuestChatProviderDispatchedAction({
-              client: ctx.db,
-              operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
-            })
-            generationDispatched = true
-            responseGenerationDispatched = true
-          } catch (error) {
-            guestChatTurnError(error)
-          }
-        },
-      })
-
-      let providerAnswer = result.text
-      if (answerCheckEnabled) {
-        // The gateway already accepted this exact text through the same pure split.
-        const split = splitGuestAnswerCheck(result.text)
-        providerAnswer = split.answer
-        await answerCheckGate?.complete(result.text)
-        logger.info({
-          action: 'guest-chat.answer-check',
-          tenantId: venue.tenantId,
-          venueId: venue.id,
-          turnId: reservation.turnId,
-          ...summarizeGuestAnswerCheck(split),
-        })
-      }
-      const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(providerAnswer)
-      // Brevity belongs in generation guidance. Do not discard later sentences:
-      // a restriction or exception may change the meaning of an earlier answer.
-      // The model may only name approved action IDs; the server enforces the venue's
-      // presentation switches and resolves every destination itself.
-      const actionProjection = applyGuestActionMarkers({
-        text: guestPlainDashes(strippedResponse).trim(),
-        actions: guestActions,
-        settings: guestActionSettings,
-      })
-      assistantResponse = actionProjection.text || 'Here is the official option.'
-      guestActionPlacements = actionProjection.text ? actionProjection.placements : []
-      if (recommendationDecision) {
-        // The venue disclosure is guaranteed server-side whenever the featured item is surfaced.
-        const disclosure = enforceRecommendationDisclosure(
-          assistantResponse,
-          recommendationDecision,
-        )
-        if (disclosure.disclosureAppended && streamProjection) {
-          await streamProjection.push(disclosure.response.slice(assistantResponse.length), {
-            providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
-            requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
-          })
+          assistantResponse = disclosure.response
+          recommendationShownInResponse = disclosure.shownInResponse
+          recommendationDisclosureAppended = disclosure.disclosureAppended
         }
-        assistantResponse = disclosure.response
-        recommendationShownInResponse = disclosure.shownInResponse
-        recommendationDisclosureAppended = disclosure.disclosureAppended
+        engagementAskedThisTurn =
+          markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       }
-      engagementAskedThisTurn =
-        markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       await observeGuestChatProviderOperationAction({
         client: ctx.db,
         operation: {
@@ -3032,11 +3100,13 @@ const chatReadRouter = router({
 
     // 7. Commit the entire visible turn and engagement/session transition atomically.
     const persistenceStartedAt = performance.now()
+    const answerPlaces = deterministicAnswerCompleted ? directQuery!.places : relevantPlaces
+    const answerKnowledge = deterministicAnswerCompleted ? directQuery!.knowledge : relevantKnowledgeEntries
     let mentionedPlaces = buildGuestPlaceCards({
       assistantResponse,
       locationAware: guideMode === 'location_aware',
       hasLiveLocation,
-      places: relevantPlaces,
+      places: answerPlaces,
     }).slice(0, NEAREST_PLACES_LIMIT)
     if (venue.chatShowPhotos && mentionedPlaces.length > 0) {
       try {
@@ -3068,7 +3138,7 @@ const chatReadRouter = router({
     const citations = buildGuestCitations({
       assistantResponse,
       candidates: [
-        ...relevantPlaces.map((place) => ({
+        ...answerPlaces.map((place) => ({
           entityId: place.id,
           entityLabel: place.name,
           entityKind: 'place' as const,
@@ -3076,7 +3146,7 @@ const chatReadRouter = router({
           sourceName: place.sourceName,
           sourceUrl: place.sourceUrl,
         })),
-        ...relevantKnowledgeEntries.map((entry) => ({
+        ...answerKnowledge.map((entry) => ({
           entityId: entry.id,
           entityLabel: entry.title,
           entityKind: 'knowledge' as const,
@@ -3091,7 +3161,7 @@ const chatReadRouter = router({
     // Source snapshots and system metadata were frozen and validated before the paid call.
     // Only the answer hash depends on completion; it is not part of evidenceSetHash.
     const answerEvidence =
-      responseGenerationDispatched && preflightEvidence
+      (responseGenerationDispatched || deterministicAnswerCompleted) && preflightEvidence
         ? {
             ...preflightEvidence,
             answerHash: createHash('sha256').update(assistantResponse).digest('hex'),
@@ -3114,7 +3184,7 @@ const chatReadRouter = router({
               ? { actionPlacements: guestActionPlacements }
               : {}),
             ...(!fallbackFailureCode &&
-            !placeIdentityDiscoveryIncomplete &&
+            !deterministicAnswerCompleted && !placeIdentityDiscoveryIncomplete &&
             placeIdentity.ambiguity &&
             placeIdentity.ambiguity.candidates.length > 0
               ? {
@@ -3720,7 +3790,7 @@ export type ChatStreamEvent =
   | {
       type: 'delta'
       delta: string
-      providerFirstTextMs: number
+      providerFirstTextMs: number | null
       requestFirstTextMs: number
     }
   | { type: 'complete'; result: ChatSendResult }

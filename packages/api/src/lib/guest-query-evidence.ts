@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { guestQueryPlanningPrompt, parseGuestQueryPlan } from './guest-query-planning'
 import { compileGuestQueryCanonicalSource } from './guest-query-canonical-projection'
 import { renderGuestQueryResult } from './guest-query-result-prompt'
+import { formatGuestQueryDirectAnswer } from './guest-query-direct-answer'
 import type { GuestQuerySource } from './guest-query-source'
 import type { GuestStructuredQueryPage } from './guest-structured-query'
 
@@ -13,6 +14,7 @@ export async function prepareGuestQueryEvidence(input: {
   source: GuestQuerySource
   question: string
   page?: GuestStructuredQueryPage
+  directAnswer?: boolean
   interpret: (request: { system: string; question: string }) => Promise<string>
 }) {
   if (
@@ -38,6 +40,10 @@ export async function prepareGuestQueryEvidence(input: {
     plan,
   }
   if (plan.status === 'UNSUPPORTED') return { status: 'UNSUPPORTED' as const, trace }
+  if (input.directAnswer) {
+    const direct = formatGuestQueryDirectAnswer({ source, compiled, query: plan.query })
+    if (direct.status === 'READY') return { ...direct, status: 'DIRECT_READY' as const, trace }
+  }
   const result = prepared.evaluate(plan.query).page(page)
   const aggregate = result.mode === 'count'
   const sources = aggregate
