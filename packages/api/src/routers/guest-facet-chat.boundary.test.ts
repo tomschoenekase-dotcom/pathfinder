@@ -1197,7 +1197,7 @@ describe('facet actual chat independent boundaries', () => {
     expect(prompt()).not.toContain(counters)
   })
 
-  it('preserves nonempty FULL featured control bytes from the frozen pre-W5 router', async () => {
+  it('preserves frozen FULL control evidence with only the reviewed v43 hours-scope delta', async () => {
     vi.stubEnv('GUEST_GUIDE_STRATEGY', undefined)
     const row = ridePlace(
       'full-control',
@@ -1215,14 +1215,39 @@ describe('facet actual chat independent boundaries', () => {
     }
     expect(actual.prompt).toContain('VENUE GUIDE:')
     expect(actual.prompt).toContain('FULL_FEATURED_CONTROL')
-    // Immutable SHA256 of the exact pre-W5 artifact captured before applying W5.
+    // Pin the current complete artifact, then independently preserve the original pre-W5
+    // comparison after reversing ONLY the intentional v43 hours-scope prompt changes.
     expect(
       createHash('sha256')
         .update(JSON.stringify(actual, null, 2))
         .digest('hex'),
+    ).toBe('84ec17aa4be6bc17e4a60a296d8617e1e6ec20b3e4f915fa4068431887377989')
+    const historicalHours = (text: string) =>
+      text
+        .replace(
+          'HOURS AND AVAILABILITY SCOPE: First identify the subject the visitor means. Use only a schedule explicitly covering that subject; venue or area hours do not establish an individual outlet, attraction, service or event schedule. A current opening or closure update for that subject takes precedence over regular hours. Without an applicable schedule or explicit current status for that subject, opening status is unknown; do not infer open or closed. Keep stated limits and exceptions with their subject. A current menu, offering or event listing does not prove live stock or availability.\n\n',
+          '',
+        )
+        .replace(
+          "after establishing that the schedule covers the requested subject, compare today's weekday and date with that subject's hours, seasons and operating days:",
+          "first find today's weekday and date in the hours, seasons and operating days you know:",
+        )
+    const historical = {
+      ...actual,
+      prompt: historicalHours(actual.prompt),
+      system: {
+        staticPart: actual.system.staticPart,
+        dynamicPart: historicalHours(actual.system.dynamicPart),
+      },
+    }
+    // Original frozen artifact hash is deliberately unchanged.
+    expect(
+      createHash('sha256')
+        .update(JSON.stringify(historical, null, 2))
+        .digest('hex'),
     ).toBe('b85049478f71595b1c1a747b62fafe6c0c6c60d890202898368b59c54fe104fc')
     const baselinePath = process.env.W5_FULL_BASELINE_READ
-    if (baselinePath) expect(actual).toEqual(JSON.parse(readFileSync(baselinePath, 'utf8')))
+    if (baselinePath) expect(historical).toEqual(JSON.parse(readFileSync(baselinePath, 'utf8')))
   })
   it('keeps the native QR body through a legitimate legacy collection fallback and coherent core hydration', async () => {
     const legacyEntry = ridePlace('mixed-qr', 'LEGACY_QR_COLLISION_NEVER_SEND')
