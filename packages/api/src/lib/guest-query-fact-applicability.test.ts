@@ -147,7 +147,7 @@ function evidence(
     compiled: compileGuestQueryCanonicalSource(s),
     keys: roots.map((id) => `knowledge:alias-${id}`),
     mode: options.mode ?? 'DETAILS',
-    unresolved: options.unresolved,
+    ...(options.unresolved ? { unresolved: options.unresolved } : {}),
   })
 }
 const canonicalIds = (result: ReturnType<typeof evidence>) =>
