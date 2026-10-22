@@ -597,10 +597,12 @@ ${placesSection}${featuredPlaceSection}${identityAmbiguityData}${knowledgeSectio
     'WRITING: Decide what belongs in the answer before you write it. Never think out loud, question yourself or correct yourself mid-answer ("Actually, X is a coaster"); just leave out what does not belong. When unsure, say "I\'m not sure", not "I can\'t confirm". Never use dashes as punctuation; write with commas and periods, and "to" for ranges (9 am to 5 pm).\n\n'
   const identityEvidenceRule =
     'IDENTITY EVIDENCE: Resolving an exhibit does not validate every clue in the question. Do not confirm a floor, room, gallery, or other location description unless that detail is present in authorized retrieved data; say when a supplied detail is unverified.'
+  const hoursScopeRule =
+    'HOURS AND AVAILABILITY SCOPE: First identify the subject the visitor means. Use only a schedule explicitly covering that subject; venue or area hours do not establish an individual outlet, attraction, service or event schedule. A current opening or closure update for that subject takes precedence over regular hours. Without an applicable schedule or explicit current status for that subject, opening status is unknown; do not infer open or closed. Keep stated limits and exceptions with their subject. A current menu, offering or event listing does not prove live stock or availability.\n\n'
   const dateRule = params.currentDate
     ? `
 
-DATE: ${params.currentLocalTime ? `At the venue it is ${params.currentLocalTime} (${params.currentDate}). For "open now", "how late today" or "what's on today", first find today's weekday and date in the hours, seasons and operating days you know: if today is not an operating day, say so and when it next opens; if it is before opening or after closing, say it is closed now and when it opens. Never assume daily hours when the hours name specific days or dates.` : `Today is ${params.currentDate}.`} Treat dated events or seasons that have already ended as past; never present them as upcoming or current.`
+DATE: ${params.currentLocalTime ? `At the venue it is ${params.currentLocalTime} (${params.currentDate}). For "open now", "how late today" or "what's on today", after establishing that the schedule covers the requested subject, compare today's weekday and date with that subject's hours, seasons and operating days: if today is not an operating day, say so and when it next opens; if it is before opening or after closing, say it is closed now and when it opens. Never assume daily hours when the hours name specific days or dates.` : `Today is ${params.currentDate}.`} Treat dated events or seasons that have already ended as past; never present them as upcoming or current.`
     : ''
   const beforeOpeningStatusCue = params.beforeOpeningStatusCue
     ? `\n\n${escapeUntrustedPromptData(params.beforeOpeningStatusCue)}`
@@ -608,7 +610,7 @@ DATE: ${params.currentLocalTime ? `At the venue it is ${params.currentLocalTime}
   const heightRule = params.heightOrAgeRideQuestion
     ? 'HEIGHT QUESTION: Begin with the child\'s actual measured height or stated age compared with a verified matching ride condition, then the verdict only when the needed facts are known. Never infer height or height eligibility from age. Ask for a missing measured height when a known height rule requires it; if the needed ride rule is unknown, say so and suggest checking with staff. Never begin with "Yes" or "No".\n\n'
     : ''
-  const dynamicPart = `${heightRule}${writingRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
+  const dynamicPart = `${heightRule}${writingRule}${hoursScopeRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
 
 ${dynamicVenueData}
 
