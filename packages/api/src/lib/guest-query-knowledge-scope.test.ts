@@ -360,7 +360,7 @@ describe('exact materialized Knowledge scope', () => {
     expect(output.answer.split(value.directory.knowledge[0]!.content)).toHaveLength(2)
   })
 
-  it('retains unsupported non-product ITEM, EVENT and OPERATIONAL_FACT aliases', () => {
+  it('omits a complete remote EXHIBIT but retains unscoped EVENT and OPERATIONAL_FACT aliases', () => {
     const value = remotePolicies(0)
     const row = append(value, 'display-item', {
       kind: 'ITEM',
@@ -399,7 +399,11 @@ describe('exact materialized Knowledge scope', () => {
         contentPublicationId: module.publicationId,
       })),
     ]
-    expect(ready(value).knowledge).toEqual(value.directory.knowledge)
+    const output = ready(value)
+    expect(output.knowledge).toEqual(value.directory.knowledge.slice(1))
+    expect(output.answer).not.toContain('Fragile display.')
+    expect(output.answer).toContain('Tomorrow only.')
+    expect(output.answer).toContain('Call staff.')
   })
 
   it('does not suppress a stale alias when current publication has the same revision', () => {
@@ -454,7 +458,12 @@ function unoffered(count = 2, length = 20) {
   const value = source()
   value.canonicalModules = { contract: 'published-query-source-v1', modules: [] }
   for (let i = 0; i < count; i++) {
-    const row = append(value, `unoffered-${i}`, { kind: 'ITEM', itemType: 'PRODUCT', name: `Unlinked product ${i}`, description: `Whole metadata ${i}: ${'x'.repeat(length)}` })
+    const row = append(value, `unoffered-${i}`, {
+      kind: 'ITEM',
+      itemType: 'PRODUCT',
+      name: `Unlinked product ${i}`,
+      description: `Whole metadata ${i}: ${'x'.repeat(length)}`,
+    })
     value.directory.knowledge.push(alias(row))
   }
   return value
@@ -463,35 +472,78 @@ describe('identity scoped product metadata, distinct from sale and policy scope'
   it('rejects reflective construction of metadata authority from caller-authored rows', () => {
     const value = unoffered(1)
     const compiled = compileGuestQueryCanonicalSource(value)
-    expect(() => Reflect.construct(compiled.productMetadataProof.constructor, [compiled.prepared, value.canonicalModules!.modules])).toThrow('compiler authority')
-    expect(() => Reflect.construct(compiled.productMetadataProof.constructor, [compiled.prepared, value.canonicalModules!.modules, Symbol('product-metadata-compiler-issuer')])).toThrow('compiler authority')
+    expect(() =>
+      Reflect.construct(compiled.productMetadataProof.constructor, [
+        compiled.prepared,
+        value.canonicalModules!.modules,
+      ]),
+    ).toThrow('compiler authority')
+    expect(() =>
+      Reflect.construct(compiled.productMetadataProof.constructor, [
+        compiled.prepared,
+        value.canonicalModules!.modules,
+        Symbol('product-metadata-compiler-issuer'),
+      ]),
+    ).toThrow('compiler authority')
   })
   it('retains requested tainted canonical metadata even when other predicates exclude its sellers', () => {
     const value = products()
-    append(value, 'bad-edge-independent', { kind: 'RELATIONSHIP', relationshipType: 'OFFERS_PRODUCT_V1', fromModuleId: 'missing-seller', toModuleId: 'product-private-id' })
-    const output = ready(value, { ...query(), domain: 'PLACE', predicates: [{ field: 'product', name: 'Sketch kit' }, { field: 'name', equals: 'Shop 3' }] })
+    append(value, 'bad-edge-independent', {
+      kind: 'RELATIONSHIP',
+      relationshipType: 'OFFERS_PRODUCT_V1',
+      fromModuleId: 'missing-seller',
+      toModuleId: 'product-private-id',
+    })
+    const output = ready(value, {
+      ...query(),
+      domain: 'PLACE',
+      predicates: [
+        { field: 'product', name: 'Sketch kit' },
+        { field: 'name', equals: 'Shop 3' },
+      ],
+    })
     expect(output.answer).toContain('Each kit costs $8. Equipment is sold separately.')
-    expect(output.canonicalSources.some(row => row.moduleId === 'product-private-id')).toBe(true)
+    expect(output.canonicalSources.some((row) => row.moduleId === 'product-private-id')).toBe(true)
     expect(output.places).toEqual([])
   })
   it('omits 2000 unrelated whole product aliases with source/query-bound auditable proof, not complete scope', () => {
     const value = unoffered(2000, 200)
     const compiled = compileGuestQueryCanonicalSource(value)
-    expect(compiled.knowledgeScopes.every(row => row.disposition === 'IDENTITY_SCOPED_PRODUCT_METADATA')).toBe(true)
+    expect(
+      compiled.knowledgeScopes.every(
+        (row) => row.disposition === 'IDENTITY_SCOPED_PRODUCT_METADATA',
+      ),
+    ).toBe(true)
     expect(compiled.relatedKeysByPlace).toEqual({})
     const output = ready(value, { ...query(), domain: 'PLACE' })
     expect(output.omittedProductMetadata).toHaveLength(2000)
-    expect(output.receipt.productMetadataOmission).toMatchObject({ count: 2000, proofSha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
+    expect(output.receipt.productMetadataOmission).toMatchObject({
+      count: 2000,
+      proofSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
     expect(output.answer).not.toContain('Whole metadata')
     expect(output.result.knownMatchCount).toBe(1)
     expect(output.policyCoverage).toBe('UNKNOWN')
     expect(output.answer).toContain(value.directory.places[0]!.longDescription!)
-    const changed = ready(value, { ...query(), domain: 'PLACE', predicates: [{field:'name',equals:'Shop 0'}] })
-    expect(changed.receipt.productMetadataOmission.proofSha256).not.toBe(output.receipt.productMetadataOmission.proofSha256)
+    const changed = ready(value, {
+      ...query(),
+      domain: 'PLACE',
+      predicates: [{ field: 'name', equals: 'Shop 0' }],
+    })
+    expect(changed.receipt.productMetadataOmission.proofSha256).not.toBe(
+      output.receipt.productMetadataOmission.proofSha256,
+    )
   })
   it('retains every directly requested product whole with zero known sellers and no invented location, including AND', () => {
     const value = unoffered()
-    const output = ready(value, { ...query(), domain: 'PLACE', predicates: [{field:'product',name:'Unlinked product 0'},{field:'product',name:'Unlinked product 1'}] })
+    const output = ready(value, {
+      ...query(),
+      domain: 'PLACE',
+      predicates: [
+        { field: 'product', name: 'Unlinked product 0' },
+        { field: 'product', name: 'Unlinked product 1' },
+      ],
+    })
     expect(output.result.knownMatchCount).toBe(0)
     expect(output.result.exactEligibleCount).toBeNull()
     expect(output.canonicalSources).toHaveLength(2)
@@ -502,93 +554,206 @@ describe('identity scoped product metadata, distinct from sale and policy scope'
   })
   it('always retains selected Knowledge even when it is an exact product projection', () => {
     const value = unoffered()
-    const output = ready(value, { ...query(), domain: 'KNOWLEDGE', predicates: [{field:'name',equals:'Unlinked product 0'}] })
-    expect(output.knowledge.map(row=>row.id)).toEqual(['alias-unoffered-0'])
-    expect(output.answer).toContain(value.directory.knowledge[0]!.content.split('\n').map(line => `> ${line}`).join('\n'))
-    expect(output.omittedProductMetadata.map(row=>row.moduleId)).toEqual(['unoffered-1'])
+    const output = ready(value, {
+      ...query(),
+      domain: 'KNOWLEDGE',
+      predicates: [{ field: 'name', equals: 'Unlinked product 0' }],
+    })
+    expect(output.knowledge.map((row) => row.id)).toEqual(['alias-unoffered-0'])
+    expect(output.answer).toContain(
+      value.directory.knowledge[0]!.content.split('\n')
+        .map((line) => `> ${line}`)
+        .join('\n'),
+    )
+    expect(output.omittedProductMetadata.map((row) => row.moduleId)).toEqual(['unoffered-1'])
   })
-  it.each([[['unoffered-0']], [['visitors']], [[]]])('keeps unresolved policy target %j conservative and whole', appliesTo => {
-    const value = unoffered()
-    const policy = append(value, 'policy', {kind:'POLICY',title:'Whole rule',rule:'All stated conditions remain together; no waiver.',appliesTo: appliesTo as string[]})
-    value.directory.knowledge.push(alias(policy))
-    const output=ready(value, {...query(),domain:'PLACE'})
-    expect(output.answer).toContain('All stated conditions remain together; no waiver.')
-    expect(output.knowledge.map(row=>row.id)).toContain('alias-policy')
+  it.each([[['unoffered-0']], [['visitors']], [[]]])(
+    'keeps unresolved policy target %j conservative and whole',
+    (appliesTo) => {
+      const value = unoffered()
+      const policy = append(value, 'policy', {
+        kind: 'POLICY',
+        title: 'Whole rule',
+        rule: 'All stated conditions remain together; no waiver.',
+        appliesTo: appliesTo as string[],
+      })
+      value.directory.knowledge.push(alias(policy))
+      const output = ready(value, { ...query(), domain: 'PLACE' })
+      expect(output.answer).toContain('All stated conditions remain together; no waiver.')
+      expect(output.knowledge.map((row) => row.id)).toContain('alias-policy')
+    },
+  )
+  it.each(['missing', 'hidden', 'wrong-kind'])(
+    'taints incident products for %s endpoint and never promotes an offer',
+    (type) => {
+      const value = unoffered()
+      if (type !== 'missing')
+        append(value, 'bad-seller', {
+          kind: 'SERVICE',
+          name: 'Bad seller',
+          placeId: type === 'hidden' ? 'hidden-place' : 'shop-000',
+        })
+      append(value, 'bad-edge', {
+        kind: 'RELATIONSHIP',
+        relationshipType: type === 'wrong-kind' ? 'UNKNOWN_RELATIONSHIP' : 'OFFERS_PRODUCT_V1',
+        fromModuleId: 'bad-seller',
+        toModuleId: 'unoffered-0',
+      })
+      const compiled = compileGuestQueryCanonicalSource(value)
+      expect(compiled.knowledgeScopes.some((row) => row.snapshot.moduleId === 'unoffered-0')).toBe(
+        false,
+      )
+      const output = ready(value, { ...query(), domain: 'PLACE' })
+      expect(output.knowledge.map((row) => row.id)).toContain('alias-unoffered-0')
+      expect(output.result.rows[0]!.products).not.toMatchObject({ state: 'KNOWN' })
+    },
+  )
+  it('does not treat ITEM.placeId as an offer', () => {
+    const value = unoffered(1)
+    const item = value.canonicalModules!.modules[0]!
+    if (item.payload.kind === 'ITEM') item.payload.placeId = 'shop-000'
+    const output = ready(value, {
+      ...query(),
+      domain: 'PLACE',
+      predicates: [{ field: 'product', name: 'Unlinked product 0' }],
+    })
+    expect(output.result.knownMatchCount).toBe(0)
+    expect(output.result.exactEligibleCount).toBeNull()
   })
-  it.each(['missing','hidden','wrong-kind'])('taints incident products for %s endpoint and never promotes an offer', type => {
-    const value=unoffered()
-    if(type!=='missing')append(value,'bad-seller',{kind:'SERVICE',name:'Bad seller',placeId:type==='hidden'?'hidden-place':'shop-000'})
-    append(value,'bad-edge',{kind:'RELATIONSHIP',relationshipType:type==='wrong-kind'?'UNKNOWN_RELATIONSHIP':'OFFERS_PRODUCT_V1',fromModuleId:'bad-seller',toModuleId:'unoffered-0'})
-    const compiled=compileGuestQueryCanonicalSource(value)
-    expect(compiled.knowledgeScopes.some(row=>row.snapshot.moduleId==='unoffered-0')).toBe(false)
-    const output=ready(value,{...query(),domain:'PLACE'})
-    expect(output.knowledge.map(row=>row.id)).toContain('alias-unoffered-0')
-    expect(output.result.rows[0]!.products).not.toMatchObject({state:'KNOWN'})
-  })
-  it('does not treat ITEM.placeId as an offer',()=>{
-    const value=unoffered(1); const item=value.canonicalModules!.modules[0]!
-    if(item.payload.kind==='ITEM')item.payload.placeId='shop-000'
-    const output=ready(value,{...query(),domain:'PLACE',predicates:[{field:'product',name:'Unlinked product 0'}]})
-    expect(output.result.knownMatchCount).toBe(0);expect(output.result.exactEligibleCount).toBeNull()
-  })
-  it('retains duplicate names, expired or missing current product identities conservatively',()=>{
-    for(const type of ['duplicate','expired','missing']){
-      const value=unoffered();const item=value.canonicalModules!.modules[0]!
-      if(type==='duplicate')append(value,'duplicate',{kind:'ITEM',itemType:'PRODUCT',name:'Unlinked product 0',description:'Other identity'})
-      if(type==='expired')item.effectiveUntil='2026-10-20T00:00:00.000Z'
-      if(type==='missing')value.canonicalModules!.modules.shift()
-      const output=ready(value,{...query(),domain:'PLACE'})
-      expect(output.knowledge.map(row=>row.id)).toContain('alias-unoffered-0')
+  it('retains duplicate names, expired or missing current product identities conservatively', () => {
+    for (const type of ['duplicate', 'expired', 'missing']) {
+      const value = unoffered()
+      const item = value.canonicalModules!.modules[0]!
+      if (type === 'duplicate')
+        append(value, 'duplicate', {
+          kind: 'ITEM',
+          itemType: 'PRODUCT',
+          name: 'Unlinked product 0',
+          description: 'Other identity',
+        })
+      if (type === 'expired') item.effectiveUntil = '2026-10-20T00:00:00.000Z'
+      if (type === 'missing') value.canonicalModules!.modules.shift()
+      const output = ready(value, { ...query(), domain: 'PLACE' })
+      expect(output.knowledge.map((row) => row.id)).toContain('alias-unoffered-0')
     }
   })
-  it.each(['content','title','contentRevisionId','contentPublicationId','sourceType'])('does not omit mismatched projection %s',field=>{
-    const value=unoffered();(value.directory.knowledge[0] as unknown as Record<string,unknown>)[field]='changed'
-    const output=ready(value,{...query(),domain:'PLACE'})
-    expect(output.knowledge.map(row=>row.id)).toContain('alias-unoffered-0')
+  it.each(['content', 'title', 'contentRevisionId', 'contentPublicationId', 'sourceType'])(
+    'does not omit mismatched projection %s',
+    (field) => {
+      const value = unoffered()
+      ;(value.directory.knowledge[0] as unknown as Record<string, unknown>)[field] = 'changed'
+      const output = ready(value, { ...query(), domain: 'PLACE' })
+      expect(output.knowledge.map((row) => row.id)).toContain('alias-unoffered-0')
+    },
+  )
+  it('fails before output for missing requested canonical body and whole requested body bounds', () => {
+    const value = products()
+    const compiled = compileGuestQueryCanonicalSource(value)
+    compiled.canonicalSources.find((row) => row.kind === 'ITEM')!.text = 'missing whole body'
+    expect(
+      formatGuestQueryDirectAnswer({
+        source: value,
+        compiled,
+        query: {
+          ...query(),
+          domain: 'PLACE',
+          predicates: [{ field: 'product', name: 'Sketch kit' }],
+        },
+      }),
+    ).toMatchObject({ status: 'UNSUPPORTED', reason: 'SOURCE_MISMATCH' })
+    expect(
+      render(unoffered(1, 9950), {
+        ...query(),
+        domain: 'PLACE',
+        predicates: [{ field: 'product', name: 'Unlinked product 0' }],
+      }),
+    ).toMatchObject({ status: 'UNSUPPORTED', reason: 'ANSWER_BOUND' })
   })
-  it('fails before output for missing requested canonical body and whole requested body bounds',()=>{
-    const value=products();const compiled=compileGuestQueryCanonicalSource(value);compiled.canonicalSources.find(row=>row.kind==='ITEM')!.text='missing whole body'
-    expect(formatGuestQueryDirectAnswer({source:value,compiled,query:{...query(),domain:'PLACE',predicates:[{field:'product',name:'Sketch kit'}]}})).toMatchObject({status:'UNSUPPORTED',reason:'SOURCE_MISMATCH'})
-    expect(render(unoffered(1,9950),{...query(),domain:'PLACE',predicates:[{field:'product',name:'Unlinked product 0'}]})).toMatchObject({status:'UNSUPPORTED',reason:'ANSWER_BOUND'})
-  })
-  it('does not interpret metadata prose as a global rule and cannot forge an identity proof',()=>{
-    const value=unoffered(1);const item=value.canonicalModules!.modules[0]!
-    if(item.payload.kind==='ITEM')item.payload.description='All visitors must wear purple.'
-    value.directory.knowledge=[alias(item)]
-    const compiled=compileGuestQueryCanonicalSource(value)
-    const output=formatGuestQueryDirectAnswer({source:value,compiled,query:{...query(),domain:'PLACE'}})
-    expect(output.status).toBe('READY');if(output.status==='READY')expect(output.answer).not.toContain('wear purple')
+  it('does not interpret metadata prose as a global rule and cannot forge an identity proof', () => {
+    const value = unoffered(1)
+    const item = value.canonicalModules!.modules[0]!
+    if (item.payload.kind === 'ITEM') item.payload.description = 'All visitors must wear purple.'
+    value.directory.knowledge = [alias(item)]
+    const compiled = compileGuestQueryCanonicalSource(value)
+    const output = formatGuestQueryDirectAnswer({
+      source: value,
+      compiled,
+      query: { ...query(), domain: 'PLACE' },
+    })
+    expect(output.status).toBe('READY')
+    if (output.status === 'READY') expect(output.answer).not.toContain('wear purple')
     // Governed own-item semantics is explicit; prose was not parsed/classified as safe.
-    compiled.productMetadataProof={} as typeof compiled.productMetadataProof
-    const rejected=formatGuestQueryDirectAnswer({source:value,compiled,query:{...query(),domain:'PLACE'}})
-    expect(rejected.status).toBe('READY');if(rejected.status==='READY')expect(rejected.answer).toContain('wear purple')
+    compiled.productMetadataProof = {} as typeof compiled.productMetadataProof
+    const rejected = formatGuestQueryDirectAnswer({
+      source: value,
+      compiled,
+      query: { ...query(), domain: 'PLACE' },
+    })
+    expect(rejected.status).toBe('READY')
+    if (rejected.status === 'READY') expect(rejected.answer).toContain('wear purple')
   })
-  it('rebinds new offers to a new source while old metadata-only snapshot stays unknown',()=>{
-    const old=unoffered(1);const oldCompiled=compileGuestQueryCanonicalSource(old)
-    const next=structuredClone(old);next.version='v2';next.directory.searchVersion='v2'
-    append(next,'seller',{kind:'SERVICE',name:'New seller',placeId:'shop-000',description:'Whole seller condition: adult required.'})
-    append(next,'offer',{kind:'RELATIONSHIP',relationshipType:'OFFERS_PRODUCT_V1',fromModuleId:'seller',toModuleId:'unoffered-0'})
-    const q={...query(),domain:'PLACE' as const,predicates:[{field:'product' as const,name:'Unlinked product 0'}]}
+  it('rebinds new offers to a new source while old metadata-only snapshot stays unknown', () => {
+    const old = unoffered(1)
+    const oldCompiled = compileGuestQueryCanonicalSource(old)
+    const next = structuredClone(old)
+    next.version = 'v2'
+    next.directory.searchVersion = 'v2'
+    append(next, 'seller', {
+      kind: 'SERVICE',
+      name: 'New seller',
+      placeId: 'shop-000',
+      description: 'Whole seller condition: adult required.',
+    })
+    append(next, 'offer', {
+      kind: 'RELATIONSHIP',
+      relationshipType: 'OFFERS_PRODUCT_V1',
+      fromModuleId: 'seller',
+      toModuleId: 'unoffered-0',
+    })
+    const q = {
+      ...query(),
+      domain: 'PLACE' as const,
+      predicates: [{ field: 'product' as const, name: 'Unlinked product 0' }],
+    }
     expect(oldCompiled.prepared.evaluate(q).page().knownMatchCount).toBe(0)
-    const updated=ready(next,q);expect(updated.result.knownMatchCount).toBe(1)
+    const updated = ready(next, q)
+    expect(updated.result.knownMatchCount).toBe(1)
     expect(updated.answer).toContain('Whole seller condition: adult required.')
     expect(updated.answer).toContain('Whole metadata 0:')
-    expect(formatGuestQueryDirectAnswer({source:next,compiled:oldCompiled,query:q})).toMatchObject({status:'UNSUPPORTED',reason:'SOURCE_MISMATCH'})
-    const forged=compileGuestQueryCanonicalSource(old);forged.productMetadataProof=compileGuestQueryCanonicalSource(next).productMetadataProof
-    const conservative=formatGuestQueryDirectAnswer({source:old,compiled:forged,query:{...query(),domain:'PLACE'}})
-    expect(conservative.status).toBe('READY');if(conservative.status==='READY')expect(conservative.knowledge.map(row=>row.id)).toContain('alias-unoffered-0')
+    expect(
+      formatGuestQueryDirectAnswer({ source: next, compiled: oldCompiled, query: q }),
+    ).toMatchObject({ status: 'UNSUPPORTED', reason: 'SOURCE_MISMATCH' })
+    const forged = compileGuestQueryCanonicalSource(old)
+    forged.productMetadataProof = compileGuestQueryCanonicalSource(next).productMetadataProof
+    const conservative = formatGuestQueryDirectAnswer({
+      source: old,
+      compiled: forged,
+      query: { ...query(), domain: 'PLACE' },
+    })
+    expect(conservative.status).toBe('READY')
+    if (conservative.status === 'READY')
+      expect(conservative.knowledge.map((row) => row.id)).toContain('alias-unoffered-0')
   })
 
-  it('retains requested tainted metadata whole or declines if its only whole current body is missing',()=>{
-    const value=unoffered(1)
-    append(value,'bad-edge',{kind:'RELATIONSHIP',relationshipType:'OFFERS_PRODUCT_V1',fromModuleId:'missing',toModuleId:'unoffered-0'})
-    const q={...query(),domain:'PLACE' as const,predicates:[{field:'product' as const,name:'Unlinked product 0'}]}
-    const output=ready(value,q)
-    expect(output.knowledge.map(row=>row.id)).toContain('alias-unoffered-0')
+  it('retains requested tainted metadata whole or declines if its only whole current body is missing', () => {
+    const value = unoffered(1)
+    append(value, 'bad-edge', {
+      kind: 'RELATIONSHIP',
+      relationshipType: 'OFFERS_PRODUCT_V1',
+      fromModuleId: 'missing',
+      toModuleId: 'unoffered-0',
+    })
+    const q = {
+      ...query(),
+      domain: 'PLACE' as const,
+      predicates: [{ field: 'product' as const, name: 'Unlinked product 0' }],
+    }
+    const output = ready(value, q)
+    expect(output.knowledge.map((row) => row.id)).toContain('alias-unoffered-0')
     expect(output.answer).toContain('Whole metadata 0:')
-    expect(output.result.knownMatchCount).toBe(0);expect(output.result.exactEligibleCount).toBeNull()
-    value.directory.knowledge=[]
-    expect(render(value,q)).toMatchObject({status:'UNSUPPORTED',reason:'UNRESOLVED_SCOPE'})
+    expect(output.result.knownMatchCount).toBe(0)
+    expect(output.result.exactEligibleCount).toBeNull()
+    value.directory.knowledge = []
+    expect(render(value, q)).toMatchObject({ status: 'UNSUPPORTED', reason: 'UNRESOLVED_SCOPE' })
   })
-
 })

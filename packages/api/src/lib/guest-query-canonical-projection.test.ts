@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { EffectivePublishedUniversalContentSnapshot } from '@pathfinder/db'
 import type { GeneralizedContentPayload } from '@pathfinder/contracts/universal-content-actions'
-import { compileGuestQueryCanonicalSource } from './guest-query-canonical-projection'
+import {
+  compileGuestQueryCanonicalSource,
+  guestCanonicalEvidenceAuthority,
+} from './guest-query-canonical-projection'
+import {
+  guestCanonicalAliasBody,
+  prepareGuestKnowledgeAdmission,
+} from './guest-query-whole-sources'
+import { prepareGuestSubjectEvidence } from './guest-query-subject-evidence'
 import type { GuestQuerySource } from './guest-query-source'
 
 const clock = '2026-10-21T05:00:00.000Z'
@@ -559,5 +567,176 @@ describe('published canonical query compilation', () => {
     }
     source.canonicalModules!.modules = rows
     expect(() => compileGuestQueryCanonicalSource(source)).toThrow(/graph work exceeds/)
+  })
+})
+
+describe('explicit public non-product ITEM omission proofs', () => {
+  function aliases(source: GuestQuerySource) {
+    source.directory.knowledge = source.canonicalModules!.modules.flatMap((row) => {
+      const body = guestCanonicalAliasBody(row)
+      return body
+        ? [
+            {
+              id: `alias-${row.moduleId}`,
+              title: body.title,
+              content: body.content,
+              category: row.kind,
+              sourceType: 'UNIVERSAL_CONTENT',
+              sourceName: null,
+              sourceUrl: null,
+              contentModuleId: row.moduleId,
+              contentRevisionId: row.revisionId,
+              contentPublicationId: row.publicationId,
+            },
+          ]
+        : []
+    })
+  }
+  function subjects(kind: 'SERVICE' | 'PRODUCT' | 'ANIMAL' | 'EXHIBIT', count = 24) {
+    const source = fixture()
+    source.directory.places.push({
+      ...source.directory.places[0]!,
+      id: 'other',
+      name: 'Other hall',
+    })
+    source.canonicalModules!.modules = []
+    for (let i = 0; i < count; i++) {
+      const common = {
+        name: `Subject ${i}`,
+        description: 'Verbatim public facts. '.repeat(18),
+        placeId: i === 0 ? 'seller' : 'other',
+      }
+      source.canonicalModules!.modules.push(
+        module(
+          `subject-${i}`,
+          kind === 'SERVICE'
+            ? { kind: 'SERVICE', ...common }
+            : { kind: 'ITEM', itemType: kind, ...common },
+        ),
+      )
+    }
+    aliases(source)
+    return source
+  }
+  function details(source: GuestQuerySource) {
+    const compiled = compileGuestQueryCanonicalSource(source)
+    return {
+      compiled,
+      result: prepareGuestSubjectEvidence({
+        source,
+        compiled,
+        keys: ['knowledge:alias-subject-0'],
+        mode: 'DETAILS',
+      }),
+    }
+  }
+  it.each(['SERVICE', 'PRODUCT', 'ANIMAL', 'EXHIBIT'] as const)(
+    'keeps exact whole selected %s facts without24record prompt failure',
+    (kind) => {
+      const { result } = details(subjects(kind))
+      expect(result.prompt.length).toBeLessThan(30_000)
+      expect(result.knowledge.map((row) => row.id)).toEqual(['alias-subject-0'])
+      expect(result.canonicalSources.map((row) => row.moduleId)).toEqual(['subject-0'])
+      expect(result.prompt).toContain('Verbatim public facts. '.repeat(18))
+      expect(result.prompt).not.toContain('Subject 23')
+      if (kind !== 'PRODUCT') expect(result.places.map((row) => row.id)).toEqual(['seller'])
+    },
+  )
+  it.each(['hidden', 'unlocated', 'duplicate-name', 'mixed-kind-name', 'unknown-edge'] as const)(
+    'withholds omission authority for %s',
+    (scenario) => {
+      const source = subjects('ANIMAL', 2),
+        row = source.canonicalModules!.modules[1]!
+      if (row.payload.kind !== 'ITEM') throw Error('fixture')
+      if (scenario === 'hidden') row.payload.placeId = 'hidden'
+      if (scenario === 'unlocated') row.payload.placeId = null
+      if (scenario === 'duplicate-name' || scenario === 'mixed-kind-name')
+        row.payload.name = 'Subject 0'
+      if (scenario === 'mixed-kind-name') row.payload.itemType = 'EXHIBIT'
+      if (scenario === 'unknown-edge')
+        source.canonicalModules!.modules.push(
+          module('unknown-edge', {
+            kind: 'RELATIONSHIP',
+            fromModuleId: 'subject-1',
+            toModuleId: 'subject-0',
+            relationshipType: 'UNRECOGNIZED_SCOPE',
+          }),
+        )
+      aliases(source)
+      const { compiled, result } = details(source),
+        authority = guestCanonicalEvidenceAuthority(compiled.prepared, source)
+      expect(authority.lookupScopes.some((scope) => scope.snapshot.moduleId === 'subject-1')).toBe(
+        false,
+      )
+      expect(result.knowledge.some((row) => row.id === 'alias-subject-1')).toBe(true)
+      expect(result.canonicalSources.some((row) => row.moduleId === 'subject-1')).toBe(true)
+      if (scenario === 'hidden')
+        expect(result.places.some((row) => row.id === 'hidden')).toBe(false)
+    },
+  )
+  it('preserves own policy and inherited exception without transferring other animal rules', () => {
+    const source = subjects('ANIMAL', 2)
+    source.canonicalModules!.modules.push(
+      module('own-policy', {
+        kind: 'POLICY',
+        title: 'Own rule',
+        rule: 'Keep two metres away.',
+        appliesTo: ['subject-0'],
+      }),
+      module('own-exception', {
+        kind: 'POLICY',
+        title: 'Own exception',
+        rule: 'Only keepers may approach.',
+        appliesTo: [],
+      }),
+      module('exception-edge', {
+        kind: 'RELATIONSHIP',
+        fromModuleId: 'own-exception',
+        toModuleId: 'own-policy',
+        relationshipType: 'EXCEPTION_TO_V1',
+      }),
+      module('other-policy', {
+        kind: 'POLICY',
+        title: 'Other rule',
+        rule: 'Other subject only.',
+        appliesTo: ['subject-1'],
+      }),
+    )
+    aliases(source)
+    const { result } = details(source)
+    expect(result.prompt).toContain('Keep two metres away.')
+    expect(result.prompt).toContain('Only keepers may approach.')
+    expect(result.prompt).not.toContain('Other subject only.')
+    expect(result.summary.canonicalPolicyScopes.map((row) => row.moduleId)).toEqual(
+      expect.arrayContaining(['own-policy', 'own-exception']),
+    )
+  })
+  it('retains selected-place aliases and rejects altered/cross-snapshot authority', () => {
+    const source = subjects('EXHIBIT', 2),
+      { compiled } = details(source)
+    const admission = prepareGuestKnowledgeAdmission(source, compiled, {
+      ...compiled.prepared.scope,
+      domain: 'PLACE',
+      mode: 'list',
+      predicates: [{ field: 'key', equals: 'place:seller' }],
+    })
+    expect(admission(source.directory.knowledge[0]!)).toBe('RETAIN')
+    expect(admission(source.directory.knowledge[1]!)).toBe('FULLY_SCOPED')
+    const changed = structuredClone(source)
+    changed.version = 'other'
+    changed.directory.searchVersion = 'other'
+    expect(() => guestCanonicalEvidenceAuthority(compiled.prepared, changed)).toThrow(
+      'Current compiler-owned source authority required',
+    )
+    changed.version = source.version
+    changed.directory.searchVersion = source.version
+    changed.canonicalModules!.modules[0]!.payload = {
+      kind: 'OPERATIONAL_FACT',
+      label: 'Forged',
+      value: 'Altered authority',
+    }
+    expect(() => guestCanonicalEvidenceAuthority(compiled.prepared, changed)).toThrow(
+      'Current compiler-owned source authority required',
+    )
   })
 })
