@@ -790,7 +790,8 @@ function certifySubjectFactApplicability(
       if (!next) node.children.set(character, (next = { children: new Map() }))
       node = next
     }
-    ;(node.keys ??= new Set()).add(key)
+    node.keys ??= new Set()
+    node.keys.add(key)
   }
   function exhausted() {
     const decided = new Set([...certified, ...rejected].map((row) => row.moduleId))
