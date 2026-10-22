@@ -424,12 +424,67 @@ const REVIEWED_255_TO_267 = [
 const REVIEWED_236_TO_267 = [...REVIEWED_236_TO_255, ...REVIEWED_255_TO_267]
 const REVIEWED_234_TO_267 = [...REVIEWED_234_TO_255, ...REVIEWED_255_TO_267]
 
-async function readMigrationManifest(directory) {
-  const current = await readCurrentMigrationManifest(directory)
-  assert.equal(current.names.length, EXPECTED.migrationCount)
-  assertFrozenManifest(current)
-  return current
+// This is a test fixture for the previously approved staging endpoint, not a
+// deployment admission. Production must still reject the pending local suffix.
+const PENDING_LOCAL_EVENT = {
+  name: '20261022001000_deterministic_event_search_projection',
+  checksum: '2089bc647ea8982fbebd2d874c60aa3fa014050a3d5bbddd7147fd632e1f6cf4',
 }
+function historicalStagingFixture(current) {
+  assert.equal(current.names.length, EXPECTED.migrationCount + 1)
+  assert.equal(current.names.at(-1), PENDING_LOCAL_EVENT.name)
+  assert.equal(current.checksums.get(PENDING_LOCAL_EVENT.name), PENDING_LOCAL_EVENT.checksum)
+  const names = current.names.slice(0, EXPECTED.migrationCount)
+  const subset = (map) => new Map(names.map((name) => [name, map.get(name)]))
+  const historical = {
+    names,
+    checksums: subset(current.checksums),
+    ledgerChecksums: subset(current.ledgerChecksums),
+    crlfLedgerChecksums: subset(current.crlfLedgerChecksums),
+    hash: createHash('sha256')
+      .update(`${names.map((name) => `${name} ${current.checksums.get(name)}`).join('\n')}\n`)
+      .digest('hex'),
+  }
+  assertFrozenManifest(historical)
+  for (const name of names) {
+    const normalized = historical.checksums.get(name)
+    const crlf = historical.crlfLedgerChecksums.get(name)
+    assert.match(normalized, /^[a-f0-9]{64}$/u)
+    assert.match(crlf, /^[a-f0-9]{64}$/u)
+    assert.ok([normalized, crlf].includes(historical.ledgerChecksums.get(name)))
+  }
+  return historical
+}
+async function readMigrationManifest(directory) {
+  return historicalStagingFixture(await readCurrentMigrationManifest(directory))
+}
+
+test('pending local EVENT SQL does not reopen the approved 267 staging endpoint', async () => {
+  const current = await readCurrentMigrationManifest('packages/db/prisma')
+  const historical = historicalStagingFixture(current)
+  assert.equal(historical.names.length, 267)
+  assert.throws(() => assertFrozenManifest(current), /migration count changed/u)
+  assert.throws(() =>
+    historicalStagingFixture({ ...current, names: [...current.names, 'unknown_extra'] }),
+  )
+  assert.throws(() =>
+    historicalStagingFixture({
+      ...current,
+      names: [...current.names.slice(0, -1), 'unknown_tail'],
+    }),
+  )
+  const changedTail = new Map(current.checksums)
+  changedTail.set(PENDING_LOCAL_EVENT.name, '0'.repeat(64))
+  assert.throws(() => historicalStagingFixture({ ...current, checksums: changedTail }))
+  const changedPrefix = new Map(current.checksums)
+  changedPrefix.set(current.names[0], '0'.repeat(64))
+  assert.throws(() => historicalStagingFixture({ ...current, checksums: changedPrefix }))
+  for (const field of ['ledgerChecksums', 'crlfLedgerChecksums']) {
+    const changed = new Map(current[field])
+    changed.set(current.names[0], 'invalid')
+    assert.throws(() => historicalStagingFixture({ ...current, [field]: changed }))
+  }
+})
 
 test('MCP appearance and operator OAuth are the exact admitted 252-to-255 suffix', async () => {
   const source = await readMigrationManifest('packages/db/prisma')
@@ -450,7 +505,7 @@ test('MCP appearance and operator OAuth are the exact admitted 252-to-255 suffix
 })
 
 test('the admitted 255 endpoint preserves the 252 predecessor and rejects a 253-row ledger', async () => {
-  const current = await readCurrentMigrationManifest('packages/db/prisma')
+  const current = await readMigrationManifest('packages/db/prisma')
   assert.equal(current.names.length, EXPECTED.migrationCount)
   assert.deepEqual(current.names.slice(252, 255), REVIEWED_252_TO_255)
   assert.throws(
