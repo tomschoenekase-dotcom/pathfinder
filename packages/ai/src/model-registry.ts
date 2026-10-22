@@ -83,7 +83,7 @@ function openAiLunaSpec(maxOutputTokens: number): AiModelSpec {
 
 // A stronger visitor-chat route: in a blind 186-turn test it was the only model with no factual
 // errors, including opening-time reasoning ("11 AM, opens at noon") that Luna gets wrong.
-// Pricing is the public list price; cache writes are billed at the input rate.
+// Standard public pricing with the adapter's default 30-minute cache-write lifetime.
 function openAiSolSpec(maxOutputTokens: number): AiModelSpec {
   return {
     provider: 'openai',
@@ -94,12 +94,12 @@ function openAiSolSpec(maxOutputTokens: number): AiModelSpec {
     maxAttempts: 2,
     maxInputUtf8Bytes: 180_000,
     maxBillableInputTokens: 200_000,
-    pricingVersion: 'openai-standard-public-2026-10-10',
+    pricingVersion: 'openai-standard-public-2026-10-22',
     pricingUsdPerMillionTokens: {
       input: 2,
       output: 10,
-      cacheWrite: 2,
-      cacheRead: 0.2,
+      cacheWrite: 2.5,
+      cacheRead: 0.1,
     },
   }
 }

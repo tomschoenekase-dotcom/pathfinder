@@ -42,7 +42,8 @@ describe('text model registry', () => {
       provider: 'openai',
       model: 'gpt-6.1-sol',
       maxOutputTokens: 2_048,
-      pricingUsdPerMillionTokens: { input: 2, output: 10, cacheWrite: 2, cacheRead: 0.2 },
+      pricingVersion: 'openai-standard-public-2026-10-22',
+      pricingUsdPerMillionTokens: { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1 },
     })
   })
 
