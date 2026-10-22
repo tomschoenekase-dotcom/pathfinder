@@ -10,6 +10,7 @@ import {
   prepareGuestKnowledgeAdmission,
 } from './guest-query-whole-sources'
 import { prepareGuestSubjectEvidence } from './guest-query-subject-evidence'
+import { createGuestQueryCompileCache } from './guest-query-compile-cache'
 import type { GuestQuerySource } from './guest-query-source'
 
 const clock = '2026-10-21T05:00:00.000Z'
@@ -592,7 +593,7 @@ describe('explicit public non-product ITEM omission proofs', () => {
         : []
     })
   }
-  function subjects(kind: 'SERVICE' | 'PRODUCT' | 'ANIMAL' | 'EXHIBIT', count = 24) {
+  function subjects(kind: 'SERVICE' | 'PRODUCT' | 'ANIMAL' | 'EXHIBIT' | 'EVENT', count = 24) {
     const source = fixture()
     source.directory.places.push({
       ...source.directory.places[0]!,
@@ -611,7 +612,14 @@ describe('explicit public non-product ITEM omission proofs', () => {
           `subject-${i}`,
           kind === 'SERVICE'
             ? { kind: 'SERVICE', ...common }
-            : { kind: 'ITEM', itemType: kind, ...common },
+            : kind === 'EVENT'
+              ? {
+                  kind: 'EVENT',
+                  ...common,
+                  startsAt: '2026-10-21T12:00:00.000Z',
+                  endsAt: '2026-10-21T13:00:00.000Z',
+                }
+              : { kind: 'ITEM', itemType: kind, ...common },
         ),
       )
     }
@@ -630,7 +638,7 @@ describe('explicit public non-product ITEM omission proofs', () => {
       }),
     }
   }
-  it.each(['SERVICE', 'PRODUCT', 'ANIMAL', 'EXHIBIT'] as const)(
+  it.each(['SERVICE', 'PRODUCT', 'ANIMAL', 'EXHIBIT', 'EVENT'] as const)(
     'keeps exact whole selected %s facts without24record prompt failure',
     (kind) => {
       const { result } = details(subjects(kind))
@@ -674,43 +682,110 @@ describe('explicit public non-product ITEM omission proofs', () => {
         expect(result.places.some((row) => row.id === 'hidden')).toBe(false)
     },
   )
-  it('preserves own policy and inherited exception without transferring other animal rules', () => {
-    const source = subjects('ANIMAL', 2)
-    source.canonicalModules!.modules.push(
-      module('own-policy', {
-        kind: 'POLICY',
-        title: 'Own rule',
-        rule: 'Keep two metres away.',
-        appliesTo: ['subject-0'],
-      }),
-      module('own-exception', {
-        kind: 'POLICY',
-        title: 'Own exception',
-        rule: 'Only keepers may approach.',
-        appliesTo: [],
-      }),
-      module('exception-edge', {
-        kind: 'RELATIONSHIP',
-        fromModuleId: 'own-exception',
-        toModuleId: 'own-policy',
-        relationshipType: 'EXCEPTION_TO_V1',
-      }),
-      module('other-policy', {
-        kind: 'POLICY',
-        title: 'Other rule',
-        rule: 'Other subject only.',
-        appliesTo: ['subject-1'],
-      }),
-    )
-    aliases(source)
-    const { result } = details(source)
-    expect(result.prompt).toContain('Keep two metres away.')
-    expect(result.prompt).toContain('Only keepers may approach.')
-    expect(result.prompt).not.toContain('Other subject only.')
-    expect(result.summary.canonicalPolicyScopes.map((row) => row.moduleId)).toEqual(
-      expect.arrayContaining(['own-policy', 'own-exception']),
-    )
-  })
+  it.each(['ANIMAL', 'EVENT'] as const)(
+    'preserves own policy and inherited exception without transferring other %s rules',
+    (kind) => {
+      const source = subjects(kind, 2)
+      source.canonicalModules!.modules.push(
+        module('own-policy', {
+          kind: 'POLICY',
+          title: 'Own rule',
+          rule: 'Keep two metres away.',
+          appliesTo: ['subject-0'],
+        }),
+        module('own-exception', {
+          kind: 'POLICY',
+          title: 'Own exception',
+          rule: 'Only keepers may approach.',
+          appliesTo: [],
+        }),
+        module('exception-edge', {
+          kind: 'RELATIONSHIP',
+          fromModuleId: 'own-exception',
+          toModuleId: 'own-policy',
+          relationshipType: 'EXCEPTION_TO_V1',
+        }),
+        module('other-policy', {
+          kind: 'POLICY',
+          title: 'Other rule',
+          rule: 'Other subject only.',
+          appliesTo: ['subject-1'],
+        }),
+      )
+      aliases(source)
+      const { result } = details(source)
+      expect(result.prompt).toContain('Keep two metres away.')
+      expect(result.prompt).toContain('Only keepers may approach.')
+      expect(result.prompt).not.toContain('Other subject only.')
+      expect(result.summary.canonicalPolicyScopes.map((row) => row.moduleId)).toEqual(
+        expect.arrayContaining(['own-policy', 'own-exception']),
+      )
+    },
+  )
+  it.each(['hidden', 'unlocated', 'duplicate-name', 'unknown-edge'] as const)(
+    'withholds EVENT omission authority for %s',
+    (scenario) => {
+      const source = subjects('EVENT', 2),
+        row = source.canonicalModules!.modules[1]!
+      if (row.payload.kind !== 'EVENT') throw Error('fixture')
+      if (scenario === 'hidden') row.payload.placeId = 'hidden'
+      if (scenario === 'unlocated') row.payload.placeId = null
+      if (scenario === 'duplicate-name') row.payload.name = 'Subject 0'
+      if (scenario === 'unknown-edge')
+        source.canonicalModules!.modules.push(
+          module('unknown-event-edge', {
+            kind: 'RELATIONSHIP',
+            fromModuleId: 'subject-1',
+            toModuleId: 'subject-0',
+            relationshipType: 'UNRECOGNIZED_SCOPE',
+          }),
+        )
+      aliases(source)
+      const { compiled, result } = details(source)
+      expect(
+        guestCanonicalEvidenceAuthority(compiled.prepared, source).lookupScopes.some(
+          (scope) => scope.snapshot.moduleId === 'subject-1',
+        ),
+      ).toBe(false)
+      expect(result.knowledge.some((row) => row.id === 'alias-subject-1')).toBe(true)
+      expect(result.canonicalSources.some((row) => row.moduleId === 'subject-1')).toBe(true)
+      expect(result.places.some((row) => row.id === 'hidden')).toBe(false)
+    },
+  )
+  it.each(['ANIMAL', 'EVENT'] as const)(
+    'preserves exact uncached/cold/warm %s evidence scope and fresh observation time',
+    (kind) => {
+      const source = subjects(kind, 3),
+        cache = createGuestQueryCompileCache()
+      const compile = [
+        compileGuestQueryCanonicalSource(source),
+        cache.compile(source),
+        cache.compile(structuredClone(source)),
+      ]
+      const render = (
+        compiled: ReturnType<typeof compileGuestQueryCanonicalSource>,
+        current: GuestQuerySource = source,
+      ) =>
+        prepareGuestSubjectEvidence({
+          source: current,
+          compiled,
+          keys: ['knowledge:alias-subject-0'],
+          mode: 'DETAILS',
+        })
+      const expected = JSON.stringify(render(compile[0]!))
+      expect(JSON.stringify(render(compile[1]!))).toBe(expected)
+      expect(JSON.stringify(render(compile[2]!))).toBe(expected)
+      expect(cache.stats()).toMatchObject({ misses: 1, hits: 1, rejections: 0, bypasses: 0 })
+      const later = structuredClone(source)
+      later.asOf = '2026-10-21T06:00:00.000Z'
+      const rebound = cache.compile(later)
+      expect(render(rebound, later).summary.asOf).toBe(later.asOf)
+      expect(() => guestCanonicalEvidenceAuthority(rebound.prepared, source)).toThrow(
+        'Current compiler-owned source authority required',
+      )
+      expect(cache.stats()).toMatchObject({ misses: 1, hits: 2 })
+    },
+  )
   it('retains selected-place aliases and rejects altered/cross-snapshot authority', () => {
     const source = subjects('EXHIBIT', 2),
       { compiled } = details(source)

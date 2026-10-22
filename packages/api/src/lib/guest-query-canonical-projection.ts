@@ -357,6 +357,7 @@ function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolea
       modulePlaces.set(module.moduleId, new Set([module.payload.placeId]))
   const productNames = new Map<string, number>()
   const nonProductItemNames = new Map<string, number>()
+  const eventNames = new Map<string, number>()
   for (const module of modules.values()) {
     work()
     if (module.payload.kind === 'ITEM' && module.payload.itemType === 'PRODUCT') {
@@ -365,6 +366,9 @@ function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolea
     } else if (module.payload.kind === 'ITEM') {
       const key = normalizeGuestQueryText(module.payload.name)
       nonProductItemNames.set(key, (nonProductItemNames.get(key) ?? 0) + 1)
+    } else if (module.payload.kind === 'EVENT') {
+      const key = normalizeGuestQueryText(module.payload.name)
+      eventNames.set(key, (eventNames.get(key) ?? 0) + 1)
     }
   }
   const offers = new Map<
@@ -574,7 +578,7 @@ function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolea
     tainted.add(edge.payload.fromModuleId)
     tainted.add(edge.payload.toModuleId)
   }
-  // An explicitly located non-product ITEM describes its own visitor identity, just as a
+  // An explicitly located non-product ITEM or EVENT describes its own visitor identity, just as a
   // SERVICE does. Only current, untainted, uniquely named bodies with a public place
   // receive omission authority; place metadata never becomes a product offering link.
   const completePlaces = new Map<string, Set<string>>()
@@ -582,7 +586,8 @@ function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolea
     const payload = module.payload
     if (
       tainted.has(module.moduleId) ||
-      (payload.kind !== 'SERVICE' && payload.kind !== 'ITEM') ||
+      (payload.kind !== 'SERVICE' && payload.kind !== 'ITEM' && payload.kind !== 'EVENT') ||
+      (payload.kind === 'EVENT' && eventNames.get(normalizeGuestQueryText(payload.name)) !== 1) ||
       (payload.kind === 'ITEM' &&
         (payload.itemType === 'PRODUCT' ? productNames : nonProductItemNames).get(
           normalizeGuestQueryText(payload.name),

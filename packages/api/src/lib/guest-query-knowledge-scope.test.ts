@@ -360,7 +360,7 @@ describe('exact materialized Knowledge scope', () => {
     expect(output.answer.split(value.directory.knowledge[0]!.content)).toHaveLength(2)
   })
 
-  it('omits a complete remote EXHIBIT but retains unscoped EVENT and OPERATIONAL_FACT aliases', () => {
+  it('omits a complete remote EXHIBIT but retains mismatched EVENT and unscoped OPERATIONAL_FACT aliases', () => {
     const value = remotePolicies(0)
     const row = append(value, 'display-item', {
       kind: 'ITEM',
