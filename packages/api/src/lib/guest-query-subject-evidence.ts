@@ -140,6 +140,7 @@ export function prepareGuestSubjectEvidence(input: {
       m = modules.get(id)!
     if (
       (m.payload.kind === 'SERVICE' ||
+        m.payload.kind === 'EVENT' ||
         (m.payload.kind === 'ITEM' && m.payload.itemType !== 'PRODUCT')) &&
       m.payload.placeId &&
       visiblePlaces.has(m.payload.placeId)
@@ -226,7 +227,9 @@ export function prepareGuestSubjectEvidence(input: {
     return {
       moduleId: id,
       kind: m.kind,
-      ...(p.kind === 'SERVICE' || (p.kind === 'ITEM' && p.itemType !== 'PRODUCT')
+      ...(p.kind === 'SERVICE' ||
+      p.kind === 'EVENT' ||
+      (p.kind === 'ITEM' && p.itemType !== 'PRODUCT')
         ? {
             location:
               p.placeId && visiblePlaces.has(p.placeId)
@@ -368,6 +371,11 @@ function subjectFactLines(input: {
         lines.push(
           `  ${q(p.name)} is explicitly listed as offering: ${products.map(q).join(', ')} (stock is not guaranteed).`,
         )
+    } else if (p?.kind === 'EVENT') {
+      lines.push(
+        `- Event ${q(p.name)}: ${p.description ?? 'no description'} Location: ${placeLabel(p.placeId) ?? 'not established in this guide; do not guess one'}.`,
+      )
+      lines.push(...policyLinesFor(id, p.name))
     } else if (p?.kind === 'ITEM') {
       lines.push(
         `- ${p.itemType === 'PRODUCT' ? 'Product' : 'Item'} ${q(p.name)}: ${p.description ?? 'no description'}${p.itemType !== 'PRODUCT' ? ` Location: ${placeLabel(p.placeId) ?? 'not established in this guide; do not guess one'}.` : ''}`,

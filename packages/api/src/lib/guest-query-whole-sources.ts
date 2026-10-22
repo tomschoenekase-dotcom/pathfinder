@@ -7,6 +7,8 @@ import {
 import { normalizeGuestQueryText, type GuestStructuredQuery } from './guest-structured-query'
 import type { GuestQuerySource } from './guest-query-source'
 
+export const GUEST_EVENT_SEARCH_PROJECTION_CONTRACT = 'event-search-projection-utc-ms-v1' as const
+
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 /** Mirrors the protected SQL projection for only the kinds whose whole scope we compile. */
 export function guestCanonicalAliasBody(snapshot: EffectivePublishedUniversalContentSnapshot) {
@@ -20,6 +22,17 @@ export function guestCanonicalAliasBody(snapshot: EffectivePublishedUniversalCon
     }
   if (payload.kind === 'POLICY') return { title: payload.title, content: payload.rule }
   if (payload.kind === 'OPERATIONAL_FACT') return { title: payload.label, content: payload.value }
+  if (payload.kind === 'EVENT')
+    return {
+      title: payload.name,
+      content: [
+        payload.description,
+        `Starts: ${new Date(payload.startsAt).toISOString()}`,
+        `Ends: ${payload.endsAt ? new Date(payload.endsAt).toISOString() : 'not specified'}`,
+      ]
+        .filter((part) => part != null)
+        .join('\n'),
+    }
   if (payload.kind === 'ITEM')
     return {
       title: payload.name,
