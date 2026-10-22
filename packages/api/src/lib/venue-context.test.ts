@@ -573,7 +573,7 @@ describe('guest venue clock', () => {
         userLat: null,
         userLng: null,
         currentDate: '2026-10-06',
-        currentLocalTime,
+        ...(currentLocalTime === undefined ? {} : { currentLocalTime }),
       })
       expect(dynamicPart).toContain('HOURS AND AVAILABILITY SCOPE: First identify the subject')
       expect(dynamicPart).toContain('venue or area hours do not establish an individual outlet')
