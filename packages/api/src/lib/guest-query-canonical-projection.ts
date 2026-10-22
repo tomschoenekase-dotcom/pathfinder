@@ -31,6 +31,7 @@ const ownedEvidence = new WeakMap<
     subjectOffers: Array<{ edgeId: string; serviceId: string; productId: string; placeId: string }>
     subjectPolicyScopes: Array<{ moduleId: string; targetModuleIds: string[] }>
     subjectPolicyApplicability: Array<{ moduleId: string; targetModuleIds: string[] }>
+    subjectFactApplicability: GuestFactApplicabilityProof[]
   }
 >()
 /** Compiler-issued whole-source scope only; public metadata cannot authorize omissions. */
@@ -56,13 +57,14 @@ export function guestCanonicalEvidenceAuthority(
         subjectOffers: proof.subjectOffers,
         subjectPolicyScopes: proof.subjectPolicyScopes,
         subjectPolicyApplicability: proof.subjectPolicyApplicability,
+        subjectFactApplicability: proof.subjectFactApplicability,
       }),
     )
   })
 }
 
 export const GUEST_QUERY_CANONICAL_COMPILER_CONTRACT =
-  `${GUEST_QUERY_CANONICAL_CONTRACT}:entity-domain-v1:scoped-alias-v2:product-identity-metadata-v1` as const
+  `${GUEST_QUERY_CANONICAL_CONTRACT}:entity-domain-v1:scoped-alias-v2:product-identity-metadata-v1:fact-applicability-v1` as const
 
 const id = z.string().trim().min(1).max(191)
 const timestamp = z.string().datetime({ offset: true })
@@ -108,6 +110,22 @@ export type GuestCanonicalSourceBody = {
   kind: EffectivePublishedUniversalContentSnapshot['kind']
   snapshot: EffectivePublishedUniversalContentSnapshot
 }
+
+/**
+ * Compiler-certified authored applicability of one exact current fact revision. VENUE never
+ * permits omission. SUBJECTS permits omitting this whole body only from evidence that selects
+ * none of its listed subjects or places.
+ */
+export type GuestFactApplicabilityProof =
+  | { moduleId: string; revisionId: string; publicationId: string; scope: 'VENUE' }
+  | {
+      moduleId: string
+      revisionId: string
+      publicationId: string
+      scope: 'SUBJECTS'
+      subjectModuleIds: string[]
+      placeIds: string[]
+    }
 
 export type GuestCanonicalKnowledgeScope =
   | {
@@ -179,6 +197,8 @@ function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolea
   }> = []
   const subjectPolicyScopes: Array<{ moduleId: string; targetModuleIds: string[] }> = []
   const subjectPolicyApplicability: Array<{ moduleId: string; targetModuleIds: string[] }> = []
+  const subjectFactApplicability: GuestFactApplicabilityProof[] = []
+  const factApplicabilityRejections: Array<{ moduleId: string; reason: string }> = []
   const productMetadata: EffectivePublishedUniversalContentSnapshot[] = []
   let graphWork = 0
   const work = (amount = 1) => {
@@ -237,6 +257,9 @@ function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolea
       subjectPolicyApplicability: guestQueryTiming('compile.authority.clone', () =>
         structuredClone(subjectPolicyApplicability),
       ),
+      subjectFactApplicability: guestQueryTiming('compile.authority.clone', () =>
+        structuredClone(subjectFactApplicability),
+      ),
     })
     const compiled = {
       contract: GUEST_QUERY_CANONICAL_COMPILER_CONTRACT,
@@ -257,6 +280,7 @@ function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolea
       ) as Record<string, string[]>,
       policyCoverage: 'UNKNOWN' as const,
       unresolvedReasons,
+      factApplicabilityRejections,
     }
     if (retainReusable && guestQuerySourceIsTemporallyAdmitted(owned)) {
       const proof = ownedEvidence.get(prepared)!
@@ -691,7 +715,160 @@ function compileCanonicalSource(source: GuestQuerySource, retainReusable: boolea
       })
   }
   subjectPolicyApplicability.push(...certifySubjectPolicyApplicability(subjectModules))
+  const facts = certifySubjectFactApplicability(subjectModules, owned.directory.places)
+  subjectFactApplicability.push(...facts.certified)
+  factApplicabilityRejections.push(...facts.rejected)
   return finish(true)
+}
+
+/**
+ * Wording that a complete subject declaration must not carry: it can quantify over other
+ * subjects ("every outdoor ride", "the rest of the zoo"). This is a fail-closed lint with known
+ * false positives and false negatives, never proof of meaning. Authored review owns semantics.
+ */
+const VENUE_WIDE_MARKERS = new Set([
+  'all',
+  'any',
+  'anyone',
+  'anything',
+  'anywhere',
+  'each',
+  'elsewhere',
+  'entire',
+  'every',
+  'everybody',
+  'everyone',
+  'everything',
+  'everywhere',
+  'other',
+  'others',
+  'rest',
+  'throughout',
+  'whole',
+  'wide',
+])
+const WORD = /[\p{L}\p{N}\p{M}_]/u
+type NameNode = { children: Map<string, NameNode>; keys?: Set<string> }
+
+/**
+ * Certifies authored fact applicability against the current public subjects of this exact
+ * source. Identity: each target is a current public SERVICE/ITEM/EVENT module or visible place
+ * with a unique normalized name. Freshness: the claim lives in the fact revision itself and is
+ * re-checked every compile, so a withdrawn, hidden, expired, renamed-into-ambiguity or wrong-kind
+ * target certifies nothing. Completeness: the body may not name any other current subject or
+ * place, nor use venue-wide wording. Any failure, or exhausting its own budget, leaves the
+ * fact's scope unknown, so it stays whole. It never changes QUERY admission.
+ */
+function certifySubjectFactApplicability(
+  current: readonly EffectivePublishedUniversalContentSnapshot[],
+  places: readonly GuestQuerySource['directory']['places'][number][],
+) {
+  const certified: GuestFactApplicabilityProof[] = []
+  const rejected: Array<{ moduleId: string; reason: string }> = []
+  const declared = current.filter(
+    (m) => m.payload.kind === 'OPERATIONAL_FACT' && m.payload.applicability !== undefined,
+  )
+  if (!declared.length) return { certified, rejected }
+  let budget = 0
+  const spend = (amount = 1) => (budget += amount) <= MAX_CANONICAL_QUERY_GRAPH_WORK
+  const identities = new Map<string, string>()
+  for (const m of current) {
+    const p = m.payload
+    if (p.kind === 'SERVICE' || p.kind === 'ITEM' || p.kind === 'EVENT')
+      identities.set(`module:${m.moduleId}`, normalizeGuestQueryText(p.name))
+  }
+  for (const place of places)
+    identities.set(`place:${place.id}`, normalizeGuestQueryText(place.name))
+  const nameCounts = new Map<string, number>()
+  const root: NameNode = { children: new Map() }
+  for (const [key, name] of identities) {
+    nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
+    let node = root
+    for (const character of name) {
+      if (!spend()) return exhausted()
+      let next = node.children.get(character)
+      if (!next) node.children.set(character, (next = { children: new Map() }))
+      node = next
+    }
+    ;(node.keys ??= new Set()).add(key)
+  }
+  function exhausted() {
+    const decided = new Set([...certified, ...rejected].map((row) => row.moduleId))
+    for (const m of declared)
+      if (!decided.has(m.moduleId))
+        rejected.push({ moduleId: m.moduleId, reason: 'APPLICABILITY_WORK_BOUND' })
+    return { certified, rejected }
+  }
+  for (const fact of declared) {
+    const p = fact.payload
+    if (p.kind !== 'OPERATIONAL_FACT' || !p.applicability) continue
+    const ids = {
+      moduleId: fact.moduleId,
+      revisionId: fact.revisionId,
+      publicationId: fact.publicationId,
+    }
+    if (p.applicability.scope === 'VENUE') {
+      certified.push({ ...ids, scope: 'VENUE' })
+      continue
+    }
+    const { subjectModuleIds, placeIds } = p.applicability
+    const targets = new Set([
+      ...subjectModuleIds.map((id) => `module:${id}`),
+      ...placeIds.map((id) => `place:${id}`),
+    ])
+    const reject = (reason: string) => rejected.push({ moduleId: fact.moduleId, reason })
+    if (!targets.size || targets.size !== subjectModuleIds.length + placeIds.length) {
+      reject('MALFORMED_APPLICABILITY')
+      continue
+    }
+    if ([...targets].some((key) => !identities.has(key))) {
+      reject('TARGET_NOT_CURRENT_PUBLIC_SUBJECT')
+      continue
+    }
+    if ([...targets].some((key) => nameCounts.get(identities.get(key)!) !== 1)) {
+      reject('AMBIGUOUS_TARGET_NAME')
+      continue
+    }
+    const characters = [...normalizeGuestQueryText(`${p.label}\n${p.value}`)]
+    if (!spend(characters.length)) return exhausted()
+    let reason: string | undefined
+    let wordStart = -1
+    for (let start = 0; start <= characters.length && !reason; start++) {
+      const isWord = start < characters.length && WORD.test(characters[start]!)
+      if (isWord && wordStart < 0) wordStart = start
+      if (!isWord && wordStart >= 0) {
+        if (VENUE_WIDE_MARKERS.has(characters.slice(wordStart, start).join('')))
+          reason = 'VENUE_WIDE_WORDING'
+        wordStart = -1
+      }
+      if (start === characters.length || (start > 0 && WORD.test(characters[start - 1]!))) continue
+      let node: NameNode | undefined = root
+      for (let end = start; end < characters.length; end++) {
+        if (!spend()) return exhausted()
+        node = node.children.get(characters[end]!)
+        if (!node) break
+        if (
+          node.keys &&
+          !(end + 1 < characters.length && WORD.test(characters[end + 1]!)) &&
+          [...node.keys].some((key) => !targets.has(key))
+        ) {
+          reason = 'MENTIONS_UNDECLARED_SUBJECT'
+          break
+        }
+      }
+    }
+    if (reason) {
+      reject(reason)
+      continue
+    }
+    certified.push({
+      ...ids,
+      scope: 'SUBJECTS',
+      subjectModuleIds: [...subjectModuleIds].sort(),
+      placeIds: [...placeIds].sort(),
+    })
+  }
+  return { certified, rejected }
 }
 
 /**

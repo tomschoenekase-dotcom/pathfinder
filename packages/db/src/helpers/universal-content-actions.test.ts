@@ -391,6 +391,34 @@ describe('universal content domain actions', () => {
     },
   )
 
+  it('refuses fact applicability until typed storage exists, before any write', async () => {
+    await expect(
+      createUniversalContentAction({
+        db: client as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        moduleId: '3bfcf5db-f1bb-49bd-b1cc-e4aca0fc7bfa',
+        actor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'OPERATIONAL_FACT',
+            label: 'Ride hours',
+            value: 'Opens at noon.',
+            applicability: { scope: 'VENUE' },
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      message: 'Operational fact applicability cannot be stored yet.',
+    })
+    expect(tx.contentModuleRevision.create).not.toHaveBeenCalled()
+    expect(tx.operationalFactContent.create).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
   it('rejects relationship endpoints unless both belong to the exact tenant and venue', async () => {
     tx.contentModuleIdentity.findMany.mockResolvedValue([{ id: 'module-a' }])
     await expect(

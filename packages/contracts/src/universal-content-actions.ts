@@ -64,12 +64,49 @@ export const EventContentDraft = z
     }
   })
 
+const applicabilityIds = z.array(z.string().trim().min(1).max(191)).max(50)
+/**
+ * An authored claim about this exact fact revision's whole body. VENUE: it may apply to any
+ * visitor subject. SUBJECTS: every statement in the body applies only to the listed current
+ * SERVICE/ITEM/EVENT modules and public places. Absent means unknown. It is never a typed policy,
+ * eligibility, place, offer or stock claim, and it never inherits into a later revision.
+ */
+export const OperationalFactApplicability = z
+  .discriminatedUnion('scope', [
+    z.object({ scope: z.literal('VENUE') }).strict(),
+    z
+      .object({
+        scope: z.literal('SUBJECTS'),
+        subjectModuleIds: applicabilityIds.default([]),
+        placeIds: applicabilityIds.default([]),
+      })
+      .strict(),
+  ])
+  .superRefine((value, context) => {
+    if (value.scope !== 'SUBJECTS') return
+    if (!value.subjectModuleIds.length && !value.placeIds.length)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A subject applicability declaration needs at least one subject.',
+      })
+    if (
+      new Set(value.subjectModuleIds).size !== value.subjectModuleIds.length ||
+      new Set(value.placeIds).size !== value.placeIds.length
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Applicability subjects must be unique.',
+      })
+  })
+export type OperationalFactApplicability = z.infer<typeof OperationalFactApplicability>
+
 export const OperationalFactContentDraft = z
   .object({
     kind: z.literal('OPERATIONAL_FACT'),
     label: z.string().trim().min(1).max(200),
     value: z.string().trim().min(1).max(5_000),
     expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
+    applicability: OperationalFactApplicability.optional(),
   })
   .strict()
 

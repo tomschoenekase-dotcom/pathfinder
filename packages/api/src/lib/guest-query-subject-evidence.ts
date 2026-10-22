@@ -43,6 +43,7 @@ export function prepareGuestSubjectEvidence(input: {
   const policyScopes = new Map(
     authority.subjectPolicyScopes.map((s) => [s.moduleId, s.targetModuleIds]),
   )
+  const factScopes = new Map(authority.subjectFactApplicability.map((s) => [s.moduleId, s]))
   const aliases = new Map<string, string[]>()
   const exactAliasModule = new Map<string, string>()
   for (const topic of topics.values()) {
@@ -180,10 +181,49 @@ export function prepareGuestSubjectEvidence(input: {
     if (a && b && a.some((id) => b.includes(id))) selectedModules.add(m.moduleId)
   }
   if (!rootKeys.size && !namedModules.size) throw new Error('No positive subject evidence')
+  // Authored complete applicability may omit a whole current fact only when the question has no
+  // unresolved excerpts (they may concern unselected subjects), every selected root is a typed
+  // SERVICE/ITEM/EVENT subject or a place (a fact, policy or manual topic root says nothing about
+  // which subjects are asked about), and the fact lists none of the selected subjects or evidence
+  // places. Unknown, VENUE and rejected declarations stay whole.
+  const subjectKind = (id: string | undefined) => {
+    const kind = id ? modules.get(id)?.payload.kind : undefined
+    return kind === 'SERVICE' || kind === 'ITEM' || kind === 'EVENT'
+  }
+  const factOmissionAllowed =
+    !input.unresolved?.length &&
+    (input.extraModuleIds ?? []).every(subjectKind) &&
+    input.keys.every(
+      (key) =>
+        key.startsWith('place:') ||
+        subjectKind(exactAliasModule.get(key.slice('knowledge:'.length))),
+    )
+  const omittedFacts = new Set<string>()
+  if (factOmissionAllowed)
+    for (const scope of factScopes.values()) {
+      spend()
+      const m = modules.get(scope.moduleId)
+      if (
+        scope.scope !== 'SUBJECTS' ||
+        !m ||
+        m.revisionId !== scope.revisionId ||
+        m.publicationId !== scope.publicationId ||
+        selectedModules.has(scope.moduleId) ||
+        scope.subjectModuleIds.some((id) => selectedModules.has(id)) ||
+        scope.placeIds.some((id) => placeIds.has(id) || rootPlaces.has(`place:${id}`))
+      )
+        continue
+      omittedFacts.add(scope.moduleId)
+    }
+  let factAliasOmissionCount = 0
   const knowledge = [...topics.values()].filter((topic) => {
     if (rootKeys.has(`knowledge:${topic.id}`)) return true
     const id = exactAliasModule.get(topic.id),
       scope = id ? scopes.get(id) : undefined
+    if (id && omittedFacts.has(id)) {
+      factAliasOmissionCount++
+      return false
+    }
     return !scope || selectedModules.has(id!)
   })
   const retainedAliases = new Set(knowledge.map((k) => exactAliasModule.get(k.id)))
@@ -194,6 +234,7 @@ export function prepareGuestSubjectEvidence(input: {
       selected = selectedModules.has(m.moduleId)
     // Only private complete scope permits omission. Unknown/global/tainted bodies stay whole.
     if (!selected && scope) continue
+    if (omittedFacts.has(m.moduleId)) continue
     if (m.kind === 'SERVICE' && retainedAliases.has(m.moduleId) && !namedModules.has(m.moduleId))
       continue
     canonicalSources.push({
@@ -269,7 +310,17 @@ export function prepareGuestSubjectEvidence(input: {
       selectedModules.has(p.moduleId),
     ),
     retainedSourceKeys: [...bodies.keys()],
-    scopedAliasOmissionCount: topics.size - knowledge.length,
+    scopedAliasOmissionCount: topics.size - knowledge.length - factAliasOmissionCount,
+    // Present only when some current fact declares applicability, so other prompts are unchanged.
+    ...(factScopes.size
+      ? {
+          declaredFactApplicability: {
+            omissionAllowed: factOmissionAllowed,
+            omittedFactCount: omittedFacts.size,
+            omittedFactAliasCount: factAliasOmissionCount,
+          },
+        }
+      : {}),
   } as const
   const facts = subjectFactLines({
     named: [...namedModules],

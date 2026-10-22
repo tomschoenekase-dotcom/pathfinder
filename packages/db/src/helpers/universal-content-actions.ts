@@ -138,6 +138,14 @@ async function assertPayloadReferences(
   scope: { tenantId: string; venueId: string; moduleId?: string },
   payload: GeneralizedContentPayload,
 ): Promise<void> {
+  // The typed fact table has no applicability columns yet. Refuse rather than silently store a
+  // fact without the authored scope its author reviewed.
+  if (payload.kind === 'OPERATIONAL_FACT' && payload.applicability !== undefined) {
+    throw new UniversalContentActionError(
+      'INVALID_INPUT',
+      'Operational fact applicability cannot be stored yet.',
+    )
+  }
   if (
     (payload.kind === 'ITEM' || payload.kind === 'SERVICE' || payload.kind === 'EVENT') &&
     payload.placeId

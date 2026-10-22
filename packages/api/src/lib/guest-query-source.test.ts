@@ -154,6 +154,43 @@ describe('structured source authority v2', () => {
       loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' }),
     ).rejects.toThrow('Guest query source exceeds byte bound')
   })
+  it.each([
+    ['declared', { scope: 'SUBJECTS', subjectModuleIds: ['ride'], placeIds: [] }],
+    ['widened', { scope: 'SUBJECTS', subjectModuleIds: ['ride', 'kiosk'], placeIds: [] }],
+    ['venue', { scope: 'VENUE' }],
+  ] as const)(
+    'binds a fact applicability change with identical body text: %s',
+    async (_label, applicability) => {
+      const row = (extra: object) => ({
+        moduleId: 'fact',
+        revisionId: 'fact-r1',
+        publicationId: 'fact-p1',
+        publicationOrder: '1',
+        version: 1,
+        kind: 'OPERATIONAL_FACT' as const,
+        audience: 'PUBLIC' as const,
+        effectiveFrom: null,
+        effectiveUntil: null,
+        evidence: [],
+        payload: {
+          kind: 'OPERATIONAL_FACT' as const,
+          label: 'Ride hours',
+          value: 'Opens at noon.',
+          expiresAt: null,
+          ...extra,
+        },
+      })
+      loadModules.mockResolvedValueOnce([row({})])
+      const unknown = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
+      loadModules.mockResolvedValueOnce([row({ applicability })])
+      const declared = await loadGuestQuerySource({
+        client: client().db,
+        scope,
+        readPath: 'LEGACY',
+      })
+      expect(declared.version).not.toBe(unknown.version)
+    },
+  )
   it('stable later asOf for unchanged admitted facts and authority', async () => {
     const a = await loadGuestQuerySource({ client: client().db, scope, readPath: 'LEGACY' })
     const b = await loadGuestQuerySource({
