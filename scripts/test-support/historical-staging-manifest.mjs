@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { EXPECTED, assertFrozenManifest } from '../run-staging-migration-predeploy.mjs'
+import { assertRelease269Manifest } from '../lib/release269-migration-contract.mjs'
 
 // This is a test fixture for the previously approved staging endpoint, not a
 // deployment admission. Production must still reject the pending local suffix.
@@ -9,8 +10,8 @@ export const PENDING_LOCAL_EVENT = {
   checksum: '2089bc647ea8982fbebd2d874c60aa3fa014050a3d5bbddd7147fd632e1f6cf4',
 }
 export function historicalStagingFixture(current) {
-  assert.equal(current.names.length, EXPECTED.migrationCount + 1)
-  assert.equal(current.names.at(-1), PENDING_LOCAL_EVENT.name)
+  assertRelease269Manifest(current)
+  assert.equal(current.names[EXPECTED.migrationCount], PENDING_LOCAL_EVENT.name)
   assert.equal(current.checksums.get(PENDING_LOCAL_EVENT.name), PENDING_LOCAL_EVENT.checksum)
   const names = current.names.slice(0, EXPECTED.migrationCount)
   const subset = (map) => new Map(names.map((name) => [name, map.get(name)]))
