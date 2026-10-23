@@ -133,6 +133,29 @@ const accounting = vi.hoisted(() => ({
   release: vi.fn(),
 }))
 
+const adapterInputs = vi.hoisted(() => [] as Array<Record<string, unknown>>)
+vi.mock('../../../ai/src/openai-text', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../../ai/src/openai-text')>()
+  return {
+    ...original,
+    createOpenAiTextResponse: async (
+      ...args: Parameters<typeof original.createOpenAiTextResponse>
+    ) => {
+      const params = args[0]
+      adapterInputs.push(
+        structuredClone({
+          spec: params.spec,
+          system: params.system,
+          messages: params.messages,
+          maxOutputTokens: params.maxOutputTokens,
+          timeoutMs: params.timeoutMs,
+        }),
+      )
+      return original.createOpenAiTextResponse(...args)
+    },
+  }
+})
+
 const queryTrace = vi.hoisted(() => [] as Array<{ status: string; reason: string | null }>)
 vi.mock('../lib/guest-query-chat-experiment', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/guest-query-chat-experiment')>()
@@ -153,6 +176,10 @@ import type { TRPCContext } from '../context'
 import { _setAnthropicClientForTesting, chatRouter } from './chat'
 import { captureGuestQueryTiming } from '../lib/guest-query-timing'
 import { guestCanonicalAliasBody } from '../lib/guest-query-whole-sources'
+import {
+  buildGuestQueryEvaluationVariant,
+  type GuestEvaluationVariantId,
+} from '../lib/test-fixtures/guest-query-evaluation-fixture-variants'
 import { isAbsolute, join } from 'node:path'
 import { readFileSync, writeFileSync } from 'node:fs'
 
@@ -480,6 +507,7 @@ describe('Sol evaluation capture through actual chat.send and gateway (provider/
     )
     gatewayCalls.length = 0
     queryTrace.length = 0
+    adapterInputs.length = 0
     accounting.reserve.mockImplementation(async (args) => ({
       id: args.reservationId,
       reservedUnits: args.reservedUnits,
@@ -772,22 +800,45 @@ describe('Sol evaluation capture through actual chat.send and gateway (provider/
       vi.useFakeTimers({ toFake: ['Date'] })
       vi.setSystemTime(new Date(config.case.clock))
       try {
-        const current = declaredSource(config.fixtureModules)
-        current.asOf = config.case.clock
-        current.directory.knowledge.push(
-          ...current.canonicalModules!.modules.map((module) => {
-            const body = guestCanonicalAliasBody(module)!
-            return {
-              ...topic(`alias-${module.moduleId}`, body.content),
-              title: body.title,
-              category: module.kind,
-              sourceType: 'UNIVERSAL_CONTENT',
-              contentModuleId: module.moduleId,
-              contentRevisionId: module.revisionId,
-              contentPublicationId: module.publicationId,
-            }
-          }),
-        )
+        const variantMatch =
+          /^fictional-variant-(museum-acceptance|park-acceptance|garden-acceptance)-(5|115|10000)$/u.exec(
+            config.case.fixtureId,
+          )
+        const variant = variantMatch
+          ? buildGuestQueryEvaluationVariant(
+              source(),
+              variantMatch[1] as GuestEvaluationVariantId,
+              config.case.clock,
+            )
+          : null
+        const current = variant?.source ?? declaredSource(config.fixtureModules)
+        if (!variant) {
+          current.asOf = config.case.clock
+          current.directory.knowledge.push(
+            ...current.canonicalModules!.modules.map((module) => {
+              const body = guestCanonicalAliasBody(module)!
+              return {
+                ...topic(`alias-${module.moduleId}`, body.content),
+                title: body.title,
+                category: module.kind,
+                sourceType: 'UNIVERSAL_CONTENT',
+                contentModuleId: module.moduleId,
+                contentRevisionId: module.revisionId,
+                contentPublicationId: module.publicationId,
+              }
+            }),
+          )
+        } else {
+          dbQueryRaw.mockResolvedValue([
+            {
+              ...venueRow,
+              name: variant.venueIdentity.name,
+              description: 'A fictional venue used only for offline evaluation.',
+              category: variant.venueIdentity.category,
+              chatAppearance: { timeZone: variant.venueIdentity.timeZone },
+            },
+          ])
+        }
         Object.assign(fixtureDirectory, structuredClone(current.directory))
         venueKnowledgeEntryFindMany.mockResolvedValue(current.directory.knowledge)
         semanticSearch.knowledge.mockResolvedValue(
@@ -842,6 +893,11 @@ describe('Sol evaluation capture through actual chat.send and gateway (provider/
               )
         expect(fetch).not.toHaveBeenCalled()
         expect(anthropicCreate).not.toHaveBeenCalled()
+        expect(adapterInputs).toHaveLength(requests.length)
+        for (const params of adapterInputs) {
+          expect(params.spec).toEqual(AI_MODEL_REGISTRY['guest-chat-sol'])
+          expect(params.timeoutMs).toBe(20000)
+        }
         writeFileSync(
           config.output,
           JSON.stringify(
@@ -851,13 +907,31 @@ describe('Sol evaluation capture through actual chat.send and gateway (provider/
               arm: config.arm,
               caseId: config.case.caseId,
               fixtureModules: config.fixtureModules,
+              actualCanonicalModuleCount: current.canonicalModules!.modules.length,
+              fixtureAudit: variant
+                ? {
+                    variantId: variantMatch![1],
+                    provenance: variant.provenance,
+                    venueIdentity: variant.venueIdentity,
+                    rawModules: variant.rawModules,
+                    admittedModuleIds: variant.admittedModuleIds,
+                    omittedModuleIds: variant.omittedModuleIds,
+                  }
+                : null,
               sourceSha256,
               sourceVersion: current.version,
               underlyingSourceSha256,
               transportProfile: 'EVALUATION_EXPLICIT_STANDARD_TIER_V1',
               sourceSnapshot: config.phase === 'FIXTURE' ? current : undefined,
               requests,
+              adapterInputs: adapterInputs.map((params) => ({
+                ...params,
+                adapterInputsSha256: createHash('sha256')
+                  .update(JSON.stringify(params))
+                  .digest('hex'),
+              })),
               gatewayCalls: gatewayCalls.map((call) => ({
+                timeoutMs: call.timeoutMs,
                 maxAttempts: call.maxAttempts,
                 maxOutputTokens: call.maxOutputTokens,
                 route: call.route,

@@ -13,7 +13,6 @@ import {
 } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { performance } from 'node:perf_hooks'
 import {
   sha256,
   prepareSolEvaluation,
@@ -258,6 +257,10 @@ export function captureSolStage({ config, pnpm, directory }) {
 }
 
 export function verifySolExecutionPreflight({ planRef, sealRef, authorizationRef }) {
+  assert.ok(
+    process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test',
+    'Local Sol evaluation requires an explicit development/test child environment',
+  )
   const plan = pinned(planRef),
     seal = pinned(sealRef),
     authorization = pinned(authorizationRef)
@@ -416,16 +419,18 @@ export async function executeSolPair({
     const replayByArm = { STRUCTURED: [], BASELINE: [] },
       outputs = []
     let underlyingSourceSha256 = null
-    const require = createRequire(join(repo, 'packages/ai/package.json'))
-    const OpenAI = require('openai').default
-    // Scoped-key launcher must initialize this child. Generic fallback is deliberately refused.
+    const require = createRequire(join(repo, 'packages/db/package.json'))
+    const { require: requireTypescriptOwner } = require('tsx/cjs/api')
+    const importedOwner = requireTypescriptOwner(
+      join(repo, 'packages/ai/src/openai-text.ts'),
+      import.meta.url,
+    )
+    const createOwnerTextResponse =
+      importedOwner.createOpenAiTextResponse ?? importedOwner.default?.createOpenAiTextResponse
+    assert.equal(typeof createOwnerTextResponse, 'function')
+    // The scoped launcher selects credentials; only the approved provider owner initializes SDK clients.
     const childEnvironment = torchikoEvaluationEnvironment(process.env)
     assert.equal(process.env.OPENAI_API_KEY, childEnvironment.OPENAI_API_KEY)
-    const sdk = new OpenAI({
-      apiKey: childEnvironment.OPENAI_API_KEY,
-      maxRetries: 0,
-      timeout: 20000,
-    })
     for (let i = 0; i < calls.length; i++) {
       const call = calls[i]
       verifySolExecutionPreflight({ planRef, sealRef, authorizationRef })
@@ -461,6 +466,15 @@ export async function executeSolPair({
       assert.equal(capture.requests.length, index + 1)
       assert.ok(capture.gatewayCalls.every((row) => row.maxAttempts === 1))
       const binding = validateSolSdkRequest(call, request)
+      assert.ok(
+        Array.isArray(capture.adapterInputs) &&
+          capture.adapterInputs.length === capture.requests.length,
+      )
+      const capturedAdapter = capture.adapterInputs[index]
+      const { adapterInputsSha256, ...adapterInput } = capturedAdapter
+      assert.equal(sha256(JSON.stringify(adapterInput)), adapterInputsSha256)
+      assert.equal(adapterInput.maxOutputTokens, call.maxOutputTokens)
+      assert.equal(adapterInput.timeoutMs, 20000)
       const total = BigInt(state.reservedE8Usd) + BigInt(call.reserveE8Usd)
       assert.ok(total <= BigInt(preflight.authorization.capE8Usd))
       state.reservedE8Usd = total.toString()
@@ -470,16 +484,71 @@ export async function executeSolPair({
         reserveE8Usd: call.reserveE8Usd,
         ...binding,
       })
-      // No retry after STARTED, including uncertain/ambiguous failure. Reserve remains consumed.
-      verifySolExecutionPreflight({ planRef, sealRef, authorizationRef })
-      append({ event: 'DISPATCH_STARTED', callId: call.id })
-      const transportStarted = performance.now()
-      const response = await sdk.responses.create(request, { timeout: 20000 })
-      const sdkTransportMs = performance.now() - transportStarted
-      const rawRef = put(join(step, 'response.json'), {
-        requestSha256: binding.sdkRequestSha256,
-        response,
+      // The existing provider adapter rebuilds exact captured bytes; no raw SDK escape exists here.
+      let rawRef = null,
+        sdkTransportMs = null
+      await createOwnerTextResponse({
+        ...adapterInput,
+        localSolEvaluation: {
+          profile: 'LOCAL_SOL_EVALUATION_V1',
+          callId: `${preflight.authorization.windowId}:${call.id}`,
+          expectedSdkRequestSha256: binding.sdkRequestSha256,
+          expectedAdapterInputsSha256: adapterInputsSha256,
+          admitReservedDispatch: async (ownerBinding) => {
+            verifySolExecutionPreflight({ planRef, sealRef, authorizationRef })
+            assert.equal(ownerBinding.callId, `${preflight.authorization.windowId}:${call.id}`)
+            assert.equal(existsSync(join(window.claimDirectory, 'STOPPED.json')), false)
+            assert.equal(ownerBinding.sdkRequestSha256, binding.sdkRequestSha256)
+            assert.equal(ownerBinding.adapterInputsSha256, adapterInputsSha256)
+            assert.equal(ownerBinding.reservedE8Usd, call.reserveE8Usd)
+            const events = readFileSync(journalFile, 'utf8')
+              .trim()
+              .split('\n')
+              .map((line) => JSON.parse(line))
+            const reserved = events.filter((row) => row.event === 'DISPATCH_RESERVED').at(-1)
+            assert.equal(reserved.callId, call.id)
+            assert.equal(reserved.sdkRequestSha256, binding.sdkRequestSha256)
+            assert.equal(reserved.reserveE8Usd, call.reserveE8Usd)
+            assert.equal(
+              events.filter((row) => row.event === 'DISPATCH_STARTED' && row.callId === call.id)
+                .length,
+              0,
+            )
+            append({ event: 'DISPATCH_STARTED', callId: call.id, adapterInputsSha256 })
+            return {
+              ...ownerBinding,
+              reservationId: `${preflight.authorization.windowId}:${call.id}`,
+              attemptNumber: 1,
+              dispatchRecorded: true,
+            }
+          },
+          observeRawResponse: async (observation) => {
+            assert.equal(observation.callId, `${preflight.authorization.windowId}:${call.id}`)
+            assert.equal(observation.sdkRequestSha256, binding.sdkRequestSha256)
+            assert.equal(observation.adapterInputsSha256, adapterInputsSha256)
+            rawRef = put(join(step, 'response.json'), {
+              requestSha256: binding.sdkRequestSha256,
+              adapterInputsSha256,
+              response: observation.rawResponse,
+            })
+            sdkTransportMs = observation.sdkTransportMs
+            assert.equal(
+              sha256(JSON.stringify(observation.rawResponse)),
+              observation.rawResponseSha256,
+            )
+            validateSolResponse(observation.rawResponse)
+            assert.ok(observation.rawResponse.usage.output_tokens <= call.maxOutputTokens)
+            return {
+              callId: observation.callId,
+              sdkRequestSha256: binding.sdkRequestSha256,
+              rawResponseSha256: observation.rawResponseSha256,
+              persisted: true,
+            }
+          },
+        },
       })
+      assert.ok(rawRef && sdkTransportMs !== null)
+      const response = pinned(rawRef).response
       validateSolResponse(response)
       assert.ok(response.usage.output_tokens <= call.maxOutputTokens)
       const usage = response.usage,
