@@ -10,6 +10,9 @@ import {
   setOpenAiEmbeddingsClientForTesting,
   setOpenAiResponsesClientForTesting,
   type AnthropicMessagesClient,
+  type AiModelSpec,
+  type AiSystemBlock,
+  type AiMessage,
   type OpenAiEmbeddingsClient,
 } from '@pathfinder/ai'
 
@@ -134,8 +137,18 @@ const accounting = vi.hoisted(() => ({
 }))
 
 const adapterInputs = vi.hoisted(() => [] as Array<Record<string, unknown>>)
+// A local view keeps test typing inside this package; the runtime owner receives the original args.
+type CapturedTextAdapter = {
+  createOpenAiTextResponse: (params: {
+    spec: AiModelSpec
+    system: AiSystemBlock[]
+    messages: AiMessage[]
+    maxOutputTokens: number
+    timeoutMs: number
+  }) => Promise<unknown>
+}
 vi.mock('../../../ai/src/openai-text', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../../ai/src/openai-text')>()
+  const original = await importOriginal<CapturedTextAdapter>()
   return {
     ...original,
     createOpenAiTextResponse: async (
