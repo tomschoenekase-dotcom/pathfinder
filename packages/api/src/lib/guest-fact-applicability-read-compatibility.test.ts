@@ -30,15 +30,13 @@ const fact = {
   },
 }
 const venue = {
-  id: 'venue-1',
   name: 'Fictional Park',
   category: null,
   description: null,
   guideNotes: null,
   aiGuideNotes: null,
   aiTone: null,
-  customPersonality: null,
-} as Parameters<typeof buildVenueSystemPromptParts>[0]['venue']
+} satisfies Parameters<typeof buildVenueSystemPromptParts>[0]['venue']
 
 describe('fact applicability read compatibility', () => {
   it('keeps full guide and full system text byte-identical for declared and unknown facts', () => {
