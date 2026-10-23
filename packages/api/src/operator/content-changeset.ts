@@ -498,6 +498,9 @@ export async function resolveChangeset(
       resolved.changes = [
         change('effectiveUntil', latest.effectiveUntil?.toISOString() ?? null, until.toISOString()),
       ]
+      if (identity.kind === 'OPERATIONAL_FACT' && before.applicability != null) {
+        resolved.changes.push(change('applicability', before.applicability, null))
+      }
       if (pointer) {
         resolved.changes.push(
           change('publication', `published (version ${pointer.version})`, 'withdrawn'),
