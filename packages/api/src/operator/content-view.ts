@@ -58,7 +58,21 @@ export function typedFieldsOf(revision: TypedRelations): Fields {
     revision.operationalFact ??
     revision.relationship ??
     null
-  return relation ? flattenTyped(relation) : {}
+  if (!relation) return {}
+  if (relation === revision.operationalFact) {
+    const { applicabilityScope, applicabilitySubjectModuleIds, applicabilityPlaceIds, ...payload } =
+      relation
+    if (applicabilityScope === 'VENUE') payload.applicability = { scope: 'VENUE' }
+    if (applicabilityScope === 'SUBJECTS') {
+      payload.applicability = {
+        scope: 'SUBJECTS',
+        subjectModuleIds: applicabilitySubjectModuleIds,
+        placeIds: applicabilityPlaceIds,
+      }
+    }
+    return flattenTyped(payload)
+  }
+  return flattenTyped(relation)
 }
 
 export function typedTitleOf(fields: Fields): string {

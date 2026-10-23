@@ -267,6 +267,9 @@ describe('effective published universal content resolver', () => {
       operationalFact: {
         label: 'Entry',
         value: 'North door',
+        applicabilityScope: null as string | null,
+        applicabilitySubjectModuleIds: [] as string[],
+        applicabilityPlaceIds: [] as string[],
         expiresAt: new Date('2026-08-11T19:00:00.000Z'),
       },
       relationship: null,
@@ -311,6 +314,55 @@ describe('effective published universal content resolver', () => {
     venueId: 'venue-1',
     asOf: new Date('2026-08-11T18:00:00.000Z'),
   }
+
+  it.each([
+    [null, [], [], undefined],
+    ['VENUE', [], [], { scope: 'VENUE' }],
+    [
+      'SUBJECTS',
+      ['service-1'],
+      ['place-1'],
+      {
+        scope: 'SUBJECTS',
+        subjectModuleIds: ['service-1'],
+        placeIds: ['place-1'],
+      },
+    ],
+    [
+      'SUBJECTS',
+      [],
+      ['place-1'],
+      {
+        scope: 'SUBJECTS',
+        subjectModuleIds: [],
+        placeIds: ['place-1'],
+      },
+    ],
+  ] as const)(
+    'maps stored %s applicability in both published readers',
+    async (scope, subjects, places, expected) => {
+      const revision = snapshotRevision()
+      Object.assign(revision.operationalFact, {
+        applicabilityScope: scope,
+        applicabilitySubjectModuleIds: [...subjects],
+        applicabilityPlaceIds: [...places],
+      })
+      for (const resolve of [
+        resolveEffectivePublishedUniversalContent,
+        resolveEffectivePublishedUniversalContentSnapshot,
+      ]) {
+        const result = await resolve({ db: snapshotDb(revision), ...snapshotScope })
+        expect(result[0]!.payload).toEqual({
+          kind: 'OPERATIONAL_FACT',
+          label: 'Entry',
+          value: 'North door',
+          expiresAt: '2026-08-11T19:00:00.000Z',
+          ...(expected === undefined ? {} : { applicability: expected }),
+        })
+        expect(Object.hasOwn(result[0]!.payload, 'applicability')).toBe(expected !== undefined)
+      }
+    },
+  )
 
   it('returns exact current publication and revision-scoped evidence without BigInt loss', async () => {
     const db = snapshotDb()

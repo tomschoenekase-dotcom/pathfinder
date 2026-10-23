@@ -67,6 +67,33 @@ async function validateDraftReferences(
   })
   if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
   const payload = input.draft.payload
+  if (payload.kind === 'OPERATIONAL_FACT' && payload.applicability?.scope === 'SUBJECTS') {
+    const { subjectModuleIds, placeIds } = payload.applicability
+    const subjects = subjectModuleIds.length
+      ? await db.contentModuleIdentity.findMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            id: { in: subjectModuleIds },
+            kind: { in: ['SERVICE', 'ITEM', 'EVENT'] },
+          },
+          select: { id: true },
+        })
+      : []
+    const places = placeIds.length
+      ? await db.place.findMany({
+          where: { tenantId: input.tenantId, venueId: input.venueId, id: { in: placeIds } },
+          select: { id: true },
+        })
+      : []
+    if (subjects.length !== subjectModuleIds.length || places.length !== placeIds.length) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message:
+          'Fact applicability targets must be SERVICE, ITEM or EVENT modules or Places in this exact tenant and venue.',
+      })
+    }
+  }
   if (
     (payload.kind === 'ITEM' || payload.kind === 'SERVICE' || payload.kind === 'EVENT') &&
     payload.placeId
@@ -175,7 +202,16 @@ export const adminUniversalContentRouter = router({
                   placeId: true,
                 },
               },
-              operationalFact: { select: { label: true, value: true, expiresAt: true } },
+              operationalFact: {
+                select: {
+                  label: true,
+                  value: true,
+                  expiresAt: true,
+                  applicabilityScope: true,
+                  applicabilitySubjectModuleIds: true,
+                  applicabilityPlaceIds: true,
+                },
+              },
               relationship: {
                 select: {
                   fromModuleId: true,

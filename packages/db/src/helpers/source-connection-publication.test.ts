@@ -175,6 +175,42 @@ function harness(
 }
 
 describe('approved source publication', () => {
+  it('publishes a replacement source fact without inheriting a former declaration', async () => {
+    const h = harness()
+    const oldRecords = [{ ...record, text: 'Former description.' }]
+    h.useOld({ records: oldRecords, contentHash: sourceConnectionSnapshotHash(oldRecords) })
+    h.tx.contentModuleRevision.findFirst.mockResolvedValue({
+      id: h.former.revisionId,
+      version: 1,
+      operationalFact: {
+        applicabilityScope: 'SUBJECTS',
+        applicabilitySubjectModuleIds: ['service-1'],
+        applicabilityPlaceIds: [],
+      },
+    } as never)
+    // A changed feed body forces a new immutable revision.
+    h.tx.venueKnowledgeEntry.findFirst.mockResolvedValue({
+      id: h.former.knowledgeEntryId,
+      title: record.title,
+      content: 'Former description.',
+      sourceType: 'UNIVERSAL_CONTENT',
+      sourceName: scope.connectorId,
+      contentRevisionId: h.former.revisionId,
+      contentPublicationId: h.former.publicationId,
+    } as never)
+    const result = await publishSourceConnectionSnapshot(
+      { ...scope, snapshot: h.snapshot, now },
+      h.client,
+    )
+    expect(result.status).toBe('PUBLISHED')
+    expect(h.tx.operationalFactContent.create).toHaveBeenCalledOnce()
+    const data = (h.tx.operationalFactContent.create.mock.calls as unknown as Array<[{ data: Record<string, unknown> }]>)[0]![0].data
+    expect(data).not.toHaveProperty('applicability')
+    expect(data).not.toHaveProperty('applicabilityScope')
+    expect(data).not.toHaveProperty('applicabilitySubjectModuleIds')
+    expect(data).not.toHaveProperty('applicabilityPlaceIds')
+  })
+
   it('creates typed content, immutable evidence, projection and system audit in one transaction', async () => {
     const h = harness()
     const result = await publishSourceConnectionSnapshot(

@@ -140,6 +140,39 @@ describe('GeneralizedContentWorkbench', () => {
     )
   })
 
+  it('starts a fact revision without copying its previous declaration', async () => {
+    mocks.revise.mockResolvedValue({ version: 4 })
+    const payload = {
+      kind: 'OPERATIONAL_FACT',
+      label: 'Entry',
+      value: 'Use the north door.',
+      applicability: { scope: 'SUBJECTS', subjectModuleIds: ['service-1'], placeIds: [] },
+    }
+    render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[{ ...contentModule, kind: 'OPERATIONAL_FACT', payload }]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'module-1' } })
+    const draft = JSON.parse(
+      (screen.getByLabelText('Typed payload JSON') as HTMLTextAreaElement).value,
+    )
+    expect(draft).toEqual({
+      kind: 'OPERATIONAL_FACT',
+      label: 'Entry',
+      value: 'Use the north door.',
+    })
+    expect(payload).toHaveProperty('applicability.scope', 'SUBJECTS')
+    expect(screen.getByText(/A new revision never inherits/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Append revision' }))
+    await waitFor(() => expect(mocks.revise).toHaveBeenCalledOnce())
+    expect(mocks.revise.mock.calls[0]?.[0].draft.payload).not.toHaveProperty('applicability')
+  })
+
   it('creates a strict generalized ITEM with the frozen creation key', async () => {
     mocks.create.mockResolvedValue({ version: 1 })
     render(

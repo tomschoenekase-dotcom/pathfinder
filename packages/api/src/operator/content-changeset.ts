@@ -178,6 +178,33 @@ async function referencesExist(
   payload: GeneralizedContentPayload,
   resolved: ResolvedOp,
 ) {
+  if (payload.kind === 'OPERATIONAL_FACT' && payload.applicability?.scope === 'SUBJECTS') {
+    const { subjectModuleIds, placeIds } = payload.applicability
+    const subjects = subjectModuleIds.length
+      ? await database.contentModuleIdentity.count({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            id: { in: subjectModuleIds },
+            kind: { in: ['SERVICE', 'ITEM', 'EVENT'] },
+          },
+        })
+      : 0
+    const places = placeIds.length
+      ? await database.place.count({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            id: { in: placeIds },
+          },
+        })
+      : 0
+    if (subjects !== subjectModuleIds.length || places !== placeIds.length) {
+      resolved.problems.push(
+        'Fact applicability targets must be SERVICE, ITEM or EVENT modules or Places in this exact tenant and venue.',
+      )
+    }
+  }
   if (
     (payload.kind === 'ITEM' || payload.kind === 'SERVICE' || payload.kind === 'EVENT') &&
     payload.placeId

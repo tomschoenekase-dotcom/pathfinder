@@ -75,7 +75,19 @@ export default async function UniversalContentPage({ params, searchParams }: Con
     if (revision.operationalFact) {
       payload = {
         kind: 'OPERATIONAL_FACT',
-        ...revision.operationalFact,
+        label: revision.operationalFact.label,
+        value: revision.operationalFact.value,
+        ...(revision.operationalFact.applicabilityScope === 'VENUE'
+          ? { applicability: { scope: 'VENUE' } }
+          : revision.operationalFact.applicabilityScope === 'SUBJECTS'
+            ? {
+                applicability: {
+                  scope: 'SUBJECTS',
+                  subjectModuleIds: revision.operationalFact.applicabilitySubjectModuleIds,
+                  placeIds: revision.operationalFact.applicabilityPlaceIds,
+                },
+              }
+            : {}),
         expiresAt: revision.operationalFact.expiresAt?.toISOString() ?? null,
       }
     }

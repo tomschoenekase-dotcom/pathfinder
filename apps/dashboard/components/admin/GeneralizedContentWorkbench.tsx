@@ -194,7 +194,10 @@ export function GeneralizedContentWorkbench({
     setAudience(module?.audience ?? 'OPERATOR')
     setEffectiveFrom(dateInput(module?.effectiveFrom ?? null))
     setEffectiveUntil(dateInput(module?.effectiveUntil ?? null))
-    setPayloadJson(JSON.stringify(module?.payload ?? templates[nextKind], null, 2))
+    const nextPayload = { ...(module?.payload ?? templates[nextKind]) }
+    // A declaration belongs to the reviewed revision, never to its editable successor.
+    if (nextKind === 'OPERATIONAL_FACT') delete nextPayload.applicability
+    setPayloadJson(JSON.stringify(nextPayload, null, 2))
     setEvidenceJson('[]')
     setNotice(null)
     setError(null)
@@ -586,6 +589,7 @@ export function GeneralizedContentWorkbench({
         <label className="text-sm font-semibold text-pf-deep">
           Typed payload JSON
           <textarea
+            aria-describedby={kind === 'OPERATIONAL_FACT' ? 'fact-applicability-help' : undefined}
             value={payloadJson}
             disabled={!scopeReady || busy || requiresReview}
             onChange={(event) => setPayloadJson(event.target.value)}
@@ -610,6 +614,16 @@ export function GeneralizedContentWorkbench({
           </span>
         </label>
       </div>
+
+      {kind === 'OPERATIONAL_FACT' ? (
+        <p id="fact-applicability-help" className="mt-2 text-sm text-pf-deep/70">
+          Applicability: VENUE means venue-wide; SUBJECTS limits every sentence to the listed
+          same-venue SERVICE, ITEM or EVENT module IDs and visible place IDs. Omitted means unknown.
+          A new revision never inherits the previous declaration. Any label or value change needs a
+          fresh declaration checked by an independent reviewer; do not copy the old one. Keep mixed
+          or uncertain scope VENUE or unknown.
+        </p>
+      ) : null}
 
       {error || notice ? (
         <div

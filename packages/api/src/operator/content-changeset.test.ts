@@ -341,6 +341,7 @@ function scoped<T extends { tenantId: string; venueId?: string }>(
     if (where.id !== undefined && typeof where.id === 'string' && value.id !== where.id)
       return false
     if (where.id?.in && !where.id.in.includes(value.id)) return false
+    if (where.kind?.in && !where.kind.in.includes(value.kind)) return false
     if (where.isEnabled !== undefined && value.isEnabled !== where.isEnabled) return false
     if (where.isActive !== undefined && value.isActive !== where.isActive) return false
     if (
@@ -800,6 +801,48 @@ describe('content changeset: audiences', () => {
     )
     expect(changesetProblems(retired)[0]).toContain('already retired')
   })
+
+  it.each(['valid', 'missing', 'wrong-kind', 'foreign-tenant', 'foreign-place'])(
+    'checks %s applicability before a typed changeset can be proposed',
+    async (scenario) => {
+      const subject = store.modules.get('m_tours') as Module
+      if (scenario === 'missing') store.modules.delete('m_tours')
+      if (scenario === 'wrong-kind') store.modules.set('m_tours', { ...subject, kind: 'POLICY' })
+      if (scenario === 'foreign-tenant')
+        store.modules.set('m_tours', { ...subject, tenantId: 'other-tenant' })
+      if (scenario === 'foreign-place')
+        store.places.set('p_lions', {
+          ...(store.places.get('p_lions') as PlaceRow),
+          venueId: 'other-venue',
+        })
+      const result = await resolveChangeset(
+        database,
+        scope([
+          {
+            op: 'create',
+            representation: 'TYPED_REVISION',
+            draft: {
+              audience: 'PUBLIC',
+              payload: {
+                kind: 'OPERATIONAL_FACT',
+                label: 'Tours',
+                value: 'Leaves at noon.',
+                applicability: {
+                  scope: 'SUBJECTS',
+                  subjectModuleIds: ['m_tours'],
+                  placeIds: ['p_lions'],
+                },
+              },
+            },
+          },
+        ]),
+        NOW,
+      )
+      if (scenario === 'valid') expect(changesetProblems(result)).toEqual([])
+      else expect(changesetProblems(result).join(' ')).toContain('Fact applicability targets')
+      expect(store.calls).toEqual([])
+    },
+  )
 
   it('does not let a correction widen a typed audience, and creates non-public typed drafts unpublished', async () => {
     const widen = await resolveChangeset(

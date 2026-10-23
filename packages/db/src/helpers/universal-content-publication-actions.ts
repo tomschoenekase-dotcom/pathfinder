@@ -542,7 +542,14 @@ type ResolverRevision = {
     endsAt: Date | null
     placeId: string | null
   }
-  operationalFact: null | { label: string; value: string; expiresAt: Date | null }
+  operationalFact: null | {
+    label: string
+    value: string
+    expiresAt: Date | null
+    applicabilityScope: string | null
+    applicabilitySubjectModuleIds: string[]
+    applicabilityPlaceIds: string[]
+  }
   relationship: null | {
     fromModuleId: string
     toModuleId: string
@@ -828,6 +835,17 @@ async function resolvePublishedContent(
                 label: revision.operationalFact.label,
                 value: revision.operationalFact.value,
                 expiresAt: revision.operationalFact.expiresAt?.toISOString() ?? null,
+                ...(revision.operationalFact.applicabilityScope === 'VENUE'
+                  ? { applicability: { scope: 'VENUE' as const } }
+                  : revision.operationalFact.applicabilityScope === 'SUBJECTS'
+                    ? {
+                        applicability: {
+                          scope: 'SUBJECTS' as const,
+                          subjectModuleIds: revision.operationalFact.applicabilitySubjectModuleIds,
+                          placeIds: revision.operationalFact.applicabilityPlaceIds,
+                        },
+                      }
+                    : {}),
               }
             : null
         case 'RELATIONSHIP':

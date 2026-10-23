@@ -14,7 +14,7 @@ import {
 const tx = {
   $executeRaw: vi.fn(),
   venue: { findFirst: vi.fn() },
-  place: { findFirst: vi.fn() },
+  place: { findFirst: vi.fn(), findMany: vi.fn() },
   contentModuleIdentity: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
   contentModuleRevision: { create: vi.fn() },
   contentModuleEvidence: { createMany: vi.fn() },
@@ -391,13 +391,37 @@ describe('universal content domain actions', () => {
     },
   )
 
-  it('refuses fact applicability until typed storage exists, before any write', async () => {
-    await expect(
-      createUniversalContentAction({
+  it.each([
+    [undefined, null, [], []],
+    [{ scope: 'VENUE' }, 'VENUE', [], []],
+    [
+      { scope: 'SUBJECTS', subjectModuleIds: ['subject-1'], placeIds: ['place-1'] },
+      'SUBJECTS',
+      ['subject-1'],
+      ['place-1'],
+    ],
+    [
+      { scope: 'SUBJECTS', subjectModuleIds: [], placeIds: ['place-1'] },
+      'SUBJECTS',
+      [],
+      ['place-1'],
+    ],
+    [
+      { scope: 'SUBJECTS', subjectModuleIds: ['subject-1'], placeIds: [] },
+      'SUBJECTS',
+      ['subject-1'],
+      [],
+    ],
+  ] as const)(
+    'persists fact declaration %j on its revision',
+    async (applicability, scope, subjects, places) => {
+      tx.contentModuleIdentity.findMany.mockResolvedValue([{ id: 'subject-1' }])
+      tx.place.findMany.mockResolvedValue([{ id: 'place-1' }])
+      await createUniversalContentAction({
         db: client as never,
         tenantId: 'tenant-1',
         venueId: 'venue-1',
-        moduleId: '3bfcf5db-f1bb-49bd-b1cc-e4aca0fc7bfa',
+        moduleId: 'fact-1',
         actor,
         draft: {
           audience: 'PUBLIC',
@@ -406,18 +430,114 @@ describe('universal content domain actions', () => {
             kind: 'OPERATIONAL_FACT',
             label: 'Ride hours',
             value: 'Opens at noon.',
-            applicability: { scope: 'VENUE' },
-          },
+            applicability,
+          } as GeneralizedContentPayload,
         },
-      }),
-    ).rejects.toMatchObject({
-      code: 'INVALID_INPUT',
-      message: 'Operational fact applicability cannot be stored yet.',
+      })
+      expect(tx.operationalFactContent.create).toHaveBeenCalledWith({
+        data: {
+          revisionId: 'revision-1',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          label: 'Ride hours',
+          value: 'Opens at noon.',
+          expiresAt: null,
+          applicabilityScope: scope,
+          applicabilitySubjectModuleIds: subjects,
+          applicabilityPlaceIds: places,
+        },
+      })
+      if (subjects.length)
+        expect(tx.contentModuleIdentity.findMany).toHaveBeenCalledWith({
+          where: {
+            tenantId: 'tenant-1',
+            venueId: 'venue-1',
+            id: { in: subjects },
+            kind: { in: ['SERVICE', 'ITEM', 'EVENT'] },
+          },
+          select: { id: true },
+        })
+      if (places.length)
+        expect(tx.place.findMany).toHaveBeenCalledWith({
+          where: { tenantId: 'tenant-1', venueId: 'venue-1', id: { in: places } },
+          select: { id: true },
+        })
+    },
+  )
+
+  it('does not inherit a declaration when a fact is revised without one', async () => {
+    tx.contentModuleIdentity.findFirst.mockResolvedValue({
+      id: 'fact-1',
+      kind: 'OPERATIONAL_FACT',
+      revisions: [{ version: 1, operationalFact: { applicabilityScope: 'VENUE' } }],
     })
-    expect(tx.contentModuleRevision.create).not.toHaveBeenCalled()
-    expect(tx.operationalFactContent.create).not.toHaveBeenCalled()
-    expect(audit).not.toHaveBeenCalled()
+    await addUniversalContentRevisionAction({
+      db: client as never,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      moduleId: 'fact-1',
+      expectedLatestVersion: 1,
+      actor,
+      draft: {
+        audience: 'PUBLIC',
+        evidence: [],
+        payload: {
+          kind: 'OPERATIONAL_FACT',
+          label: 'New label',
+          value: 'New body.',
+        },
+      },
+    })
+    expect(tx.operationalFactContent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        label: 'New label',
+        value: 'New body.',
+        applicabilityScope: null,
+        applicabilitySubjectModuleIds: [],
+        applicabilityPlaceIds: [],
+      }),
+    })
   })
+
+  it.each(['subject', 'place'])(
+    'rejects an invalid applicability %s before any write',
+    async (invalid) => {
+      tx.contentModuleIdentity.findMany.mockResolvedValue(
+        invalid === 'subject' ? [] : [{ id: 'subject-1' }],
+      )
+      tx.place.findMany.mockResolvedValue(invalid === 'place' ? [] : [{ id: 'place-1' }])
+      await expect(
+        createUniversalContentAction({
+          db: client as never,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          moduleId: '3bfcf5db-f1bb-49bd-b1cc-e4aca0fc7bfa',
+          actor,
+          draft: {
+            audience: 'PUBLIC',
+            evidence: [],
+            payload: {
+              kind: 'OPERATIONAL_FACT',
+              label: 'Ride hours',
+              value: 'Opens at noon.',
+              applicability: {
+                scope: 'SUBJECTS',
+                subjectModuleIds: ['subject-1'],
+                placeIds: ['place-1'],
+              },
+            },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      })
+      expect(tx.contentModuleIdentity.create).not.toHaveBeenCalled()
+      expect(tx.contentModuleRevision.create).not.toHaveBeenCalled()
+      expect(tx.contentModuleEvidence.createMany).not.toHaveBeenCalled()
+      expect(tx.operationalFactContent.create).not.toHaveBeenCalled()
+      expect(audit).not.toHaveBeenCalled()
+    },
+  )
 
   it('rejects relationship endpoints unless both belong to the exact tenant and venue', async () => {
     tx.contentModuleIdentity.findMany.mockResolvedValue([{ id: 'module-a' }])
@@ -449,55 +569,79 @@ describe('universal content domain actions', () => {
     expect(audit).not.toHaveBeenCalled()
   })
 
-  it('retires by appending a copied typed revision and never mutating or deleting history', async () => {
-    tx.contentModuleIdentity.findFirst.mockResolvedValue({
-      id: 'module-1',
-      kind: 'OPERATIONAL_FACT',
-      revisions: [
-        {
-          version: 2,
-          audience: 'OPERATOR',
-          effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
-          service: null,
-          policy: null,
-          event: null,
-          operationalFact: { label: 'Entrance', value: 'North door', expiresAt: null },
-          relationship: null,
-        },
-      ],
-    })
-    tx.operationalFactContent.create.mockResolvedValue({ revisionId: 'revision-1' })
+  it.each([null, 'VENUE', 'SUBJECTS'])(
+    'retires a %s fact as a new unknown revision without mutating history',
+    async (scope) => {
+      const subjects = scope === 'SUBJECTS' ? ['subject-1'] : []
+      const places = scope === 'SUBJECTS' ? ['place-1'] : []
+      tx.contentModuleIdentity.findMany.mockResolvedValue([{ id: 'subject-1' }])
+      tx.place.findMany.mockResolvedValue([{ id: 'place-1' }])
+      tx.contentModuleIdentity.findFirst.mockResolvedValue({
+        id: 'module-1',
+        kind: 'OPERATIONAL_FACT',
+        revisions: [
+          {
+            version: 2,
+            audience: 'OPERATOR',
+            effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+            service: null,
+            policy: null,
+            event: null,
+            operationalFact: {
+              label: 'Entrance',
+              value: 'North door',
+              expiresAt: null,
+              applicabilityScope: scope,
+              applicabilitySubjectModuleIds: subjects,
+              applicabilityPlaceIds: places,
+            },
+            relationship: null,
+          },
+        ],
+      })
+      tx.operationalFactContent.create.mockResolvedValue({ revisionId: 'revision-1' })
 
-    const result = await retireUniversalContentAction({
-      db: client as never,
-      tenantId: 'tenant-1',
-      venueId: 'venue-1',
-      moduleId: 'module-1',
-      expectedLatestVersion: 2,
-      effectiveUntil: '2026-12-01T00:00:00.000Z',
-      evidence: [],
-      actor,
-    })
+      const result = await retireUniversalContentAction({
+        db: client as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        moduleId: 'module-1',
+        expectedLatestVersion: 2,
+        effectiveUntil: '2026-12-01T00:00:00.000Z',
+        evidence: [],
+        actor,
+      })
 
-    expect(result.version).toBe(3)
-    expect(tx.contentModuleRevision.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          version: 3,
-          effectiveUntil: new Date('2026-12-01T00:00:00.000Z'),
+      expect(result.version).toBe(3)
+      expect(tx.contentModuleRevision.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            version: 3,
+            effectiveUntil: new Date('2026-12-01T00:00:00.000Z'),
+          }),
         }),
-      }),
-    )
-    expect(tx.operationalFactContent.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ label: 'Entrance' }) }),
-    )
-    expect(tx.contentModuleIdentity).not.toHaveProperty('update')
-    expect(tx.contentModuleRevision).not.toHaveProperty('update')
-    expect(audit).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'universal_content.retired' }),
-      tx,
-    )
-  })
+      )
+      expect(tx.operationalFactContent.create).toHaveBeenCalledWith({
+        data: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          revisionId: 'revision-1',
+          label: 'Entrance',
+          value: 'North door',
+          expiresAt: null,
+          applicabilityScope: null,
+          applicabilitySubjectModuleIds: [],
+          applicabilityPlaceIds: [],
+        },
+      })
+      expect(tx.contentModuleIdentity).not.toHaveProperty('update')
+      expect(tx.contentModuleRevision).not.toHaveProperty('update')
+      expect(audit).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'universal_content.retired' }),
+        tx,
+      )
+    },
+  )
 
   it('retires ITEM by copying its exact typed payload into a new immutable revision', async () => {
     tx.place.findFirst.mockResolvedValue({ id: 'place-1' })

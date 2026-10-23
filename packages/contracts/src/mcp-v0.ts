@@ -2362,7 +2362,7 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
             payload: {
               type: 'object',
               description:
-                'A complete ITEM, SERVICE, POLICY, EVENT, OPERATIONAL_FACT, or RELATIONSHIP payload as defined by the universal-content contract.',
+                'A complete ITEM, SERVICE, POLICY, EVENT, OPERATIONAL_FACT, or RELATIONSHIP payload as defined by the universal-content contract. OPERATIONAL_FACT applicability is optional: {scope:"VENUE"} means venue-wide; {scope:"SUBJECTS",subjectModuleIds:[...],placeIds:[...]} declares that every sentence applies only to those same-venue SERVICE/ITEM/EVENT modules or visible places (at least one ID, unique IDs, at most 50 per array); absent means unknown. An independent reviewer must check the whole body, other-subject names and venue-wide wording. A new revision never inherits applicability: do not copy it from the previous revision; any label or value change requires a fresh reviewed declaration. Keep mixed or uncertain scope VENUE or unknown. Manual Knowledge has no declaration.',
               required: ['kind'],
               properties: {
                 kind: {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 import type { GuestQuerySource } from '../lib/guest-query-source'
@@ -669,6 +670,127 @@ describe('structured query actual chat boundary (source/DB loaders mocked)', () 
     expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(system())
     expect(accounting.exact.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
+  function declaredFactSource(unrelatedCount = 100) {
+    const current = source()
+    const payloads: GeneralizedContentPayload[] = [
+      { kind: 'SERVICE', name: 'River Skiff', placeId: null },
+      {
+        kind: 'OPERATIONAL_FACT',
+        label: 'Moon schedule',
+        value: 'Moon Ride closes at 6 PM.',
+        applicability: { scope: 'SUBJECTS', subjectModuleIds: [], placeIds: ['moon'] },
+      },
+      {
+        kind: 'OPERATIONAL_FACT',
+        label: 'Admission',
+        value: 'Admission ends at 5 PM.',
+        applicability: { scope: 'VENUE' },
+      },
+      { kind: 'OPERATIONAL_FACT', label: 'Water', value: 'Drinking water is free.' },
+      ...Array.from(
+        { length: unrelatedCount },
+        (_, i): GeneralizedContentPayload => ({
+          kind: 'OPERATIONAL_FACT',
+          label: `Skiff notice ${i}`,
+          value: `River Skiff boarding note ${i}.`,
+          applicability: { scope: 'SUBJECTS', subjectModuleIds: ['declared-0'], placeIds: [] },
+        }),
+      ),
+    ]
+    current.canonicalModules = {
+      contract: 'published-query-source-v1',
+      modules: payloads.map((payload, i) => ({
+        moduleId: `declared-${i}`,
+        revisionId: `declared-r${i}`,
+        publicationId: `declared-p${i}`,
+        publicationOrder: String(i + 1),
+        kind: payload.kind,
+        payload,
+        version: 1,
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: null,
+        evidence: [],
+      })),
+    }
+    current.version = createHash('sha256')
+      .update(JSON.stringify(current.canonicalModules))
+      .digest('hex')
+    current.directory.searchVersion = current.version
+    return current
+  }
+
+  it('answers with exactly current, VENUE and unknown facts despite 100 unrelated declared facts', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const current = declaredFactSource()
+    loadQuerySource.mockResolvedValue(current)
+    queue(JSON.stringify({ status: 'EVIDENCE_SUBJECTS', refs: ['n0'] }))
+    await caller.chat.send({ ...input, message: 'Full details for Moon Ride.' })
+    expect(anthropicCreate).toHaveBeenCalledTimes(2)
+    expect(structuredSummary()).toMatchObject({ mode: 'DETAILS', unresolvedConstraints: [] })
+    const retained = metadata().answerEvidence.sources.filter(
+      (row: { kind: string }) => row.kind === 'PUBLISHED_CONTENT',
+    )
+    expect(retained.map((row: { sourceId: string }) => row.sourceId).sort()).toEqual([
+      // An unplaced service stays whole under the existing conservative retention rule.
+      'published-content:declared-0:declared-r0',
+      'published-content:declared-1:declared-r1',
+      'published-content:declared-2:declared-r2',
+      'published-content:declared-3:declared-r3',
+    ])
+    for (const row of retained) {
+      const module = current.canonicalModules!.modules.find(
+        (item) => row.sourceId === `published-content:${item.moduleId}:${item.revisionId}`,
+      )
+      expect(JSON.parse(row.snapshot)).toEqual(module)
+    }
+    expect(system()).toContain('Moon Ride closes at 6 PM.')
+    expect(system()).toContain('Admission ends at 5 PM.')
+    expect(system()).toContain('Drinking water is free.')
+    expect(system()).not.toContain('River Skiff boarding note')
+    expect(structuredSummary().retainedSourceKeys).toEqual([
+      'place:moon',
+      'knowledge:booking',
+      'canonical:declared-r0',
+      'canonical:declared-r1',
+      'canonical:declared-r2',
+      'canonical:declared-r3',
+    ])
+    expect(structuredSummary().declaredFactApplicability).toEqual({
+      omissionAllowed: true,
+      omittedFactCount: 100,
+      omittedFactAliasCount: 0,
+    })
+    expect(guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse).toBe(
+      'ANSWER_VISIBLE',
+    )
+  })
+
+  it('blocks answer dispatch when only a real fact declaration changes after planning', async () => {
+    vi.stubEnv('TORCHIKO_LOCAL_DIRECT_QUERY', '1')
+    const current = declaredFactSource()
+    const changed = structuredClone(current)
+    const payload = changed.canonicalModules!.modules[4]!.payload
+    if (payload.kind !== 'OPERATIONAL_FACT') throw new Error('Expected fact fixture')
+    payload.applicability = { scope: 'VENUE' }
+    changed.version = createHash('sha256')
+      .update(JSON.stringify(changed.canonicalModules))
+      .digest('hex')
+    changed.directory.searchVersion = changed.version
+    expect(changed.version).not.toBe(current.version)
+    loadQuerySource.mockResolvedValue(current)
+    anthropicCreate.mockImplementationOnce(async () => {
+      loadQuerySource.mockResolvedValue(changed)
+      return message(JSON.stringify({ status: 'EVIDENCE_SUBJECTS', refs: ['n0'] }))
+    })
+    await caller.chat.send({ ...input, message: 'Full details for Moon Ride.' })
+    expect(anthropicCreate).toHaveBeenCalledOnce()
+    expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+    expect(guestTurnActions.finalize.mock.calls[0]![0].input.assistantResponse).not.toBe(
+      'ANSWER_VISIBLE',
+    )
+  })
+
   it.each([
     JSON.stringify({ status: 'UNSUPPORTED', reason: 'age and date unsupported' }),
     JSON.stringify({

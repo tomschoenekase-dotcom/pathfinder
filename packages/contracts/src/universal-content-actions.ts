@@ -106,7 +106,9 @@ export const OperationalFactContentDraft = z
     label: z.string().trim().min(1).max(200),
     value: z.string().trim().min(1).max(5_000),
     expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
-    applicability: OperationalFactApplicability.optional(),
+    applicability: OperationalFactApplicability.optional().describe(
+      'Whole-body declaration for this exact fact revision: VENUE applies venue-wide; SUBJECTS applies only to the listed same-venue SERVICE, ITEM or EVENT module IDs and visible place IDs; absent means unknown. Every sentence must be checked by an independent reviewer. A new revision never inherits this field: do not copy the previous declaration; any label or value change requires a fresh reviewed declaration. Uncertain or mixed-scope facts must remain VENUE or unknown.',
+    ),
   })
   .strict()
 

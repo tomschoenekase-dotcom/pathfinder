@@ -138,13 +138,31 @@ async function assertPayloadReferences(
   scope: { tenantId: string; venueId: string; moduleId?: string },
   payload: GeneralizedContentPayload,
 ): Promise<void> {
-  // The typed fact table has no applicability columns yet. Refuse rather than silently store a
-  // fact without the authored scope its author reviewed.
-  if (payload.kind === 'OPERATIONAL_FACT' && payload.applicability !== undefined) {
-    throw new UniversalContentActionError(
-      'INVALID_INPUT',
-      'Operational fact applicability cannot be stored yet.',
-    )
+  if (payload.kind === 'OPERATIONAL_FACT' && payload.applicability?.scope === 'SUBJECTS') {
+    const { subjectModuleIds, placeIds } = payload.applicability
+    const subjects = subjectModuleIds.length
+      ? await tx.contentModuleIdentity.findMany({
+          where: {
+            tenantId: scope.tenantId,
+            venueId: scope.venueId,
+            id: { in: subjectModuleIds },
+            kind: { in: ['SERVICE', 'ITEM', 'EVENT'] },
+          },
+          select: { id: true },
+        })
+      : []
+    const places = placeIds.length
+      ? await tx.place.findMany({
+          where: { tenantId: scope.tenantId, venueId: scope.venueId, id: { in: placeIds } },
+          select: { id: true },
+        })
+      : []
+    if (subjects.length !== subjectModuleIds.length || places.length !== placeIds.length) {
+      throw new UniversalContentActionError(
+        'INVALID_INPUT',
+        'Fact applicability targets must be SERVICE, ITEM or EVENT modules or Places in this exact tenant and venue.',
+      )
+    }
   }
   if (
     (payload.kind === 'ITEM' || payload.kind === 'SERVICE' || payload.kind === 'EVENT') &&
@@ -254,6 +272,13 @@ async function insertPayload(
           label: payload.label,
           value: payload.value,
           expiresAt: optionalDate(payload.expiresAt),
+          applicabilityScope: payload.applicability?.scope ?? null,
+          applicabilitySubjectModuleIds:
+            payload.applicability?.scope === 'SUBJECTS'
+              ? payload.applicability.subjectModuleIds
+              : [],
+          applicabilityPlaceIds:
+            payload.applicability?.scope === 'SUBJECTS' ? payload.applicability.placeIds : [],
         },
       })
       return
@@ -281,7 +306,6 @@ async function insertRevision(
     actor: UniversalContentDraftActor
   },
 ): Promise<UniversalContentActionResult> {
-  await assertPayloadReferences(tx, input, input.draft.payload)
   const revision = await tx.contentModuleRevision.create({
     data: {
       tenantId: input.tenantId,
@@ -337,6 +361,8 @@ export async function createUniversalContentAction(input: {
       await lockVenueContentMutation(tx, input)
       await input.precondition?.(tx)
       await assertVenueScope(tx, input.tenantId, input.venueId)
+      // Reject bad targets before even allocating the stable identity.
+      await assertPayloadReferences(tx, input, input.draft.payload)
       const identity = await tx.contentModuleIdentity.create({
         data: {
           id: input.moduleId,
@@ -420,6 +446,7 @@ export async function addUniversalContentRevisionAction(input: {
       if (identity.kind !== input.draft.payload.kind) {
         throw new UniversalContentActionError('INVALID_INPUT', 'A module kind cannot be changed.')
       }
+      await assertPayloadReferences(tx, input, input.draft.payload)
       const result = await insertRevision(tx, {
         ...input,
         version: input.expectedLatestVersion + 1,
@@ -484,7 +511,14 @@ type LatestRevision = {
     endsAt: Date | null
     placeId: string | null
   } | null
-  operationalFact: { label: string; value: string; expiresAt: Date | null } | null
+  operationalFact: {
+    label: string
+    value: string
+    expiresAt: Date | null
+    applicabilityScope: string | null
+    applicabilitySubjectModuleIds: string[]
+    applicabilityPlaceIds: string[]
+  } | null
   relationship: {
     fromModuleId: string
     toModuleId: string
@@ -511,8 +545,20 @@ function payloadFromLatest(
   if (kind === 'OPERATIONAL_FACT' && latest.operationalFact) {
     return {
       kind,
-      ...latest.operationalFact,
+      label: latest.operationalFact.label,
+      value: latest.operationalFact.value,
       expiresAt: latest.operationalFact.expiresAt?.toISOString() ?? null,
+      ...(latest.operationalFact.applicabilityScope === 'VENUE'
+        ? { applicability: { scope: 'VENUE' as const } }
+        : latest.operationalFact.applicabilityScope === 'SUBJECTS'
+          ? {
+              applicability: {
+                scope: 'SUBJECTS' as const,
+                subjectModuleIds: latest.operationalFact.applicabilitySubjectModuleIds,
+                placeIds: latest.operationalFact.applicabilityPlaceIds,
+              },
+            }
+          : {}),
     }
   }
   if (kind === 'RELATIONSHIP' && latest.relationship) return { kind, ...latest.relationship }
@@ -579,6 +625,9 @@ export async function retireUniversalContentAction(input: {
         evidence: input.evidence,
         payload: payloadFromLatest(identity.kind as GeneralizedContentPayload['kind'], latest),
       }
+      // A retirement is also a new revision; it has no freshly reviewed declaration.
+      if (draft.payload.kind === 'OPERATIONAL_FACT') delete draft.payload.applicability
+      await assertPayloadReferences(tx, input, draft.payload)
       const result = await insertRevision(tx, {
         ...input,
         draft,

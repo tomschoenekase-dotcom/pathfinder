@@ -4513,7 +4513,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.preview_content_changeset',
     'Preview content changeset',
-    `Compute, without changing anything, what a content changeset would do: per-operation old and new values, whether each expected revision is still current, problems and notes. The same checks run when the changeset is proposed.${READ}`,
+    `Compute, without changing anything, what a content changeset would do: per-operation old and new values, whether each expected revision is still current, problems and notes. The same checks run when the changeset is proposed. TYPED_REVISION OPERATIONAL_FACT payload.applicability may be {scope:"VENUE"}, {scope:"SUBJECTS",subjectModuleIds:[...],placeIds:[...]}, or absent (unknown). SUBJECTS covers every sentence and only the listed same-venue SERVICE/ITEM/EVENT modules or visible places. Every new revision needs a fresh independently reviewed declaration; never copy the previous one. Manual Knowledge stays unknown.${READ}`,
     'venues:read',
     'venue',
   ],
@@ -5256,7 +5256,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_content_changeset',
     'Propose content changeset',
-    `Propose creating, correcting or retiring venue content in one operation. Each operation names its representation, the row id and the revision it expects; a correction updates or retires the old row instead of adding a contradicting one. Stale revisions are refused. Audiences are never widened and nothing is published.${PROPOSE}`,
+    `Propose creating, correcting or retiring venue content in one operation. Each operation names its representation, the row id and the revision it expects; a correction updates or retires the old row instead of adding a contradicting one. Stale revisions are refused. Audiences are never widened and nothing is published. TYPED_REVISION OPERATIONAL_FACT payload.applicability may be {scope:"VENUE"}, {scope:"SUBJECTS",subjectModuleIds:[...],placeIds:[...]}, or absent (unknown). SUBJECTS covers every sentence and only the listed same-venue SERVICE/ITEM/EVENT modules or visible places, with at least one ID total, unique IDs and at most 50 per array. A new revision never inherits the old declaration: any label or value change needs a fresh independent review of the whole body, other-subject names and venue-wide wording. Keep uncertain scope VENUE or unknown; manual Knowledge stays unknown.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.content-changeset',

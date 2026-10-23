@@ -1898,14 +1898,17 @@ model EventContent {
 }
 
 model OperationalFactContent {
-  revisionId String                      @id @map("revision_id")
-  tenantId   String                      @map("tenant_id")
-  venueId    String                      @map("venue_id")
-  kind       NormalizedContentModuleKind @default(OPERATIONAL_FACT)
-  label      String                      @db.VarChar(200)
-  value      String                      @db.VarChar(5000)
-  expiresAt  DateTime?                   @map("expires_at")
-  revision   ContentModuleRevision       @relation(fields: [revisionId, tenantId, venueId, kind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
+  revisionId                    String                      @id @map("revision_id")
+  tenantId                      String                      @map("tenant_id")
+  venueId                       String                      @map("venue_id")
+  kind                          NormalizedContentModuleKind @default(OPERATIONAL_FACT)
+  label                         String                      @db.VarChar(200)
+  value                         String                      @db.VarChar(5000)
+  expiresAt                     DateTime?                   @map("expires_at")
+  applicabilityScope            String?                     @map("applicability_scope")
+  applicabilitySubjectModuleIds String[]                    @default([]) @map("applicability_subject_module_ids")
+  applicabilityPlaceIds         String[]                    @default([]) @map("applicability_place_ids")
+  revision                      ContentModuleRevision       @relation(fields: [revisionId, tenantId, venueId, kind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([revisionId, tenantId, venueId, kind])
   @@index([tenantId, venueId, label])
