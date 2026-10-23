@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+import { FactApplicabilityReview, factApplicabilitySummary } from './FactApplicabilityReview'
 
 const CONTENT_PREVIEW_TIMEOUT_MS = 15_000
 
@@ -96,6 +97,16 @@ export function GeneralizedContentWorkbench({
   const [effectiveFrom, setEffectiveFrom] = useState('')
   const [effectiveUntil, setEffectiveUntil] = useState('')
   const [payloadJson, setPayloadJson] = useState(JSON.stringify(templates.SERVICE, null, 2))
+  const draftPayload = useMemo(() => {
+    try {
+      const parsed: unknown = JSON.parse(payloadJson)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null
+    } catch {
+      return null
+    }
+  }, [payloadJson])
   const [evidenceJson, setEvidenceJson] = useState('[]')
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -351,7 +362,7 @@ export function GeneralizedContentWorkbench({
       return
     const confirmed = window.confirm(
       publishing
-        ? `Publish ${module.kind} version ${module.version} to the guest guide? This changes live guest context when the server capability flag is enabled.`
+        ? `Publish ${module.kind} version ${module.version} to the guest guide? Module ${module.id}; revision ${module.revisionId}.${module.kind === 'OPERATIONAL_FACT' ? ` Applicability: ${factApplicabilitySummary(module.payload)} This is a human whole-body assertion; independent review is not enforced by this screen.` : ''} This changes live guest context when the server capability flag is enabled.`
         : `Withdraw the current published ${module.kind} revision from the guest guide?`,
     )
     if (!confirmed) return
@@ -404,7 +415,7 @@ export function GeneralizedContentWorkbench({
       aria-busy={busy}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-pf-primary">
             Human operator action
           </p>
@@ -499,6 +510,9 @@ export function GeneralizedContentWorkbench({
                   </label>
                   <p className="mt-2 text-xs text-rose-900">
                     This appends a revision. It does not delete history.
+                    {selected.kind === 'OPERATIONAL_FACT'
+                      ? ' The retirement revision has unknown applicability; it does not inherit the current declaration. The currently published revision stays published until separately withdrawn or replaced.'
+                      : null}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
@@ -527,7 +541,7 @@ export function GeneralizedContentWorkbench({
           ) : null}
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid min-w-0 items-start gap-4 sm:grid-cols-3">
           <label className="text-sm font-semibold text-pf-deep">
             Type
             <select
@@ -616,13 +630,31 @@ export function GeneralizedContentWorkbench({
       </div>
 
       {kind === 'OPERATIONAL_FACT' ? (
-        <p id="fact-applicability-help" className="mt-2 text-sm text-pf-deep/70">
-          Applicability: VENUE means venue-wide; SUBJECTS limits every sentence to the listed
-          same-venue SERVICE, ITEM or EVENT module IDs and visible place IDs. Omitted means unknown.
-          A new revision never inherits the previous declaration. Any label or value change needs a
-          fresh declaration checked by an independent reviewer; do not copy the old one. Keep mixed
-          or uncertain scope VENUE or unknown.
-        </p>
+        <div className="mt-3 space-y-3">
+          {selected ? (
+            <FactApplicabilityReview
+              payload={selected.payload}
+              revisionLabel={`Stored module ${selected.id} · v${selected.version} · revision ${selected.revisionId}`}
+            />
+          ) : null}
+          {draftPayload ? (
+            <FactApplicabilityReview
+              payload={draftPayload}
+              revisionLabel="Unsaved successor draft applicability"
+            />
+          ) : (
+            <p className="text-sm text-rose-900">
+              Draft JSON is invalid. Correct it before validation.
+            </p>
+          )}
+          <p id="fact-applicability-help" className="text-sm text-pf-deep/70">
+            Applicability: VENUE means venue-wide; SUBJECTS limits every sentence to the listed
+            same-venue SERVICE, ITEM or EVENT module IDs and visible place IDs. Omitted means
+            unknown. A new revision never inherits the previous declaration. Any label or value
+            change needs a fresh declaration checked by an independent reviewer; do not copy the old
+            one. Keep mixed or uncertain scope VENUE or unknown.
+          </p>
+        </div>
       ) : null}
 
       {error || notice ? (
