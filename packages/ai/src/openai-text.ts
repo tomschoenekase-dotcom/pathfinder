@@ -172,6 +172,11 @@ export type LocalSolEvaluationProfile = {
     persisted: true
   }>
 }
+/** A separately authorized real-corpus window; never a production route option. */
+export type LocalCorpusEvaluationProfile = Omit<LocalSolEvaluationProfile, 'profile'> & {
+  profile: 'LOCAL_CORPUS_EVALUATION_V1'
+  modelKey: 'guest-chat-luna' | 'guest-chat-sol'
+}
 const localSolDispatchedCalls = new Set<string>()
 const localSolResponseSchema = localPlannerUsageSchema.extend({
   model: z.literal('gpt-6.1-sol'),
@@ -181,6 +186,32 @@ const localSolResponseSchema = localPlannerUsageSchema.extend({
   error: z.null().optional(),
   incomplete_details: z.null().optional(),
 })
+const localCorpusResponseSchema = localSolResponseSchema.extend({
+  model: z.enum(['gpt-6-luna', 'gpt-6.1-sol']),
+})
+/** The corpus controller uses this same strict accounting check before releasing a reservation. */
+export function validateLocalCorpusEvaluationResponse(
+  raw: unknown,
+  modelKey: LocalCorpusEvaluationProfile['modelKey'],
+) {
+  assertLocalSol(['guest-chat-luna', 'guest-chat-sol'].includes(modelKey))
+  const spec = getAiModelSpec(modelKey)
+  const checked = localCorpusResponseSchema.safeParse(raw)
+  assertLocalSol(checked.success)
+  assertLocalSol(checked.data.model === spec.model)
+  const u = checked.data.usage,
+    d = u.input_tokens_details
+  assertLocalSol(
+    u.input_tokens <= spec.maxBillableInputTokens &&
+      u.output_tokens <= spec.maxOutputTokens &&
+      u.total_tokens === u.input_tokens + u.output_tokens &&
+      Number.isSafeInteger(u.total_tokens) &&
+      d.cached_tokens + d.cache_write_tokens <= u.input_tokens &&
+      (d.cache_write_tokens_details?.ttl_12h_tokens ?? 0) === 0 &&
+      u.output_tokens_details.reasoning_tokens <= u.output_tokens,
+  )
+  return checked.data
+}
 const localSolHash = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const localSolInputs = (params: {
@@ -394,6 +425,7 @@ export async function createOpenAiTextResponse(params: {
   invocationProfile?: LocalLunaPlannerProfile
   signal?: AbortSignal
   localSolEvaluation?: LocalSolEvaluationProfile
+  localCorpusEvaluation?: LocalCorpusEvaluationProfile
 }): Promise<{
   text: string
   usage: AiTokenUsage
@@ -401,7 +433,9 @@ export async function createOpenAiTextResponse(params: {
   serviceTier?: LocalLunaTierReceipt
 }> {
   const submittedParams = params
-  const sol = params.localSolEvaluation
+  assertLocalSol(!(params.localSolEvaluation && params.localCorpusEvaluation))
+  const corpus = params.localCorpusEvaluation
+  const sol = params.localSolEvaluation ?? corpus
   const solAdmit = sol?.admitReservedDispatch
   const solObserve = sol?.observeRawResponse
   const solControl = sol
@@ -410,12 +444,16 @@ export async function createOpenAiTextResponse(params: {
         callId: sol.callId,
         expectedSdkRequestSha256: sol.expectedSdkRequestSha256,
         expectedAdapterInputsSha256: sol.expectedAdapterInputsSha256,
+        ...(corpus ? { modelKey: corpus.modelKey } : {}),
       }
     : undefined
   if (sol) {
     assertLocalSol(process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test')
     assertLocalSol(
-      sol.profile === 'LOCAL_SOL_EVALUATION_V1' &&
+      (corpus
+        ? corpus.profile === 'LOCAL_CORPUS_EVALUATION_V1' &&
+          ['guest-chat-luna', 'guest-chat-sol'].includes(corpus.modelKey)
+        : sol.profile === 'LOCAL_SOL_EVALUATION_V1') &&
         typeof sol.callId === 'string' &&
         sol.callId.length > 0 &&
         sol.callId.length <= 200,
@@ -425,9 +463,21 @@ export async function createOpenAiTextResponse(params: {
         typeof sol.observeRawResponse === 'function',
     )
     assertLocalSol(!params.invocationProfile && !params.signal)
-    assertLocalSol(JSON.stringify(params.spec) === JSON.stringify(getAiModelSpec('guest-chat-sol')))
-    assertLocalSol(params.spec.provider === 'openai' && params.spec.model === 'gpt-6.1-sol')
-    assertLocalSol(params.timeoutMs === 20_000 && [1024, 2048].includes(params.maxOutputTokens))
+    if (corpus) {
+      const expected = getAiModelSpec(corpus.modelKey)
+      assertLocalSol(JSON.stringify(params.spec) === JSON.stringify(expected))
+      assertLocalSol(params.spec.provider === 'openai' && params.spec.model === expected.model)
+      assertLocalSol(
+        params.timeoutMs === expected.timeoutMs &&
+          params.maxOutputTokens === expected.maxOutputTokens,
+      )
+    } else {
+      assertLocalSol(
+        JSON.stringify(params.spec) === JSON.stringify(getAiModelSpec('guest-chat-sol')),
+      )
+      assertLocalSol(params.spec.provider === 'openai' && params.spec.model === 'gpt-6.1-sol')
+      assertLocalSol(params.timeoutMs === 20_000 && [1024, 2048].includes(params.maxOutputTokens))
+    }
     assertLocalSol(localSolHash(localSolInputs(params)) === sol.expectedAdapterInputsSha256)
     params = { ...params, ...structuredClone(localSolInputs(params)) }
   }
@@ -498,6 +548,7 @@ export async function createOpenAiTextResponse(params: {
         callId: sol.callId,
         expectedSdkRequestSha256: sol.expectedSdkRequestSha256,
         expectedAdapterInputsSha256: sol.expectedAdapterInputsSha256,
+        ...(corpus ? { modelKey: corpus.modelKey } : {}),
       }) === localSolHash(solControl),
     )
     assertLocalSol(!localSolDispatchedCalls.has(solBinding.callId))
@@ -524,19 +575,23 @@ export async function createOpenAiTextResponse(params: {
         receipt.rawResponseSha256 === rawResponseSha256,
     )
     assertLocalSol(localSolHash(raw) === rawResponseSha256)
-    const checked = localSolResponseSchema.safeParse(raw)
-    assertLocalSol(checked.success)
-    const u = checked.data.usage,
-      d = u.input_tokens_details
-    assertLocalSol(
-      u.input_tokens <= params.spec.maxBillableInputTokens &&
-        u.output_tokens <= params.maxOutputTokens &&
-        u.total_tokens === u.input_tokens + u.output_tokens &&
-        Number.isSafeInteger(u.total_tokens) &&
-        d.cached_tokens + d.cache_write_tokens <= u.input_tokens &&
-        (d.cache_write_tokens_details?.ttl_12h_tokens ?? 0) === 0 &&
-        u.output_tokens_details.reasoning_tokens <= u.output_tokens,
-    )
+    if (corpus) {
+      validateLocalCorpusEvaluationResponse(raw, corpus.modelKey)
+    } else {
+      const checked = localSolResponseSchema.safeParse(raw)
+      assertLocalSol(checked.success)
+      const u = checked.data.usage,
+        d = u.input_tokens_details
+      assertLocalSol(
+        u.input_tokens <= params.spec.maxBillableInputTokens &&
+          u.output_tokens <= params.maxOutputTokens &&
+          u.total_tokens === u.input_tokens + u.output_tokens &&
+          Number.isSafeInteger(u.total_tokens) &&
+          d.cached_tokens + d.cache_write_tokens <= u.input_tokens &&
+          (d.cache_write_tokens_details?.ttl_12h_tokens ?? 0) === 0 &&
+          u.output_tokens_details.reasoning_tokens <= u.output_tokens,
+      )
+    }
   }
   if (profile)
     validateLocalPlannerUsage(raw, params.maxOutputTokens, params.spec.maxBillableInputTokens)
@@ -564,7 +619,7 @@ export async function createOpenAiTextResponse(params: {
       .map((item) => item.text)
       .join('\n')
       .trim()
-  if (sol) assertLocalSol(!incomplete && text.length > 0)
+  if (params.localSolEvaluation) assertLocalSol(!incomplete && text.length > 0)
   const tier =
     typeof response.service_tier === 'string' && response.service_tier.length <= 64
       ? response.service_tier
