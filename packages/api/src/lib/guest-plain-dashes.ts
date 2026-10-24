@@ -18,7 +18,30 @@ const NUMBER_START = /^\d/u
  */
 export function guestPlainDashes(text: string): string {
   if (!ANY_DASH.test(text)) return text
+  // A URL's path/query bytes identify its destination. Treat bare URLs and Markdown
+  // destinations alike, including a URL still arriving in a streamed answer.
+  const urls = [...text.matchAll(/https?:\/\/[^\s<>"`]+/giu)].map((match) => {
+    let length = match[0].length
+    if (/\]\(\s*$/u.test(text.slice(0, match.index))) {
+      let depth = 0
+      for (let index = 0; index < match[0].length; index += 1) {
+        // Markdown escapes do not open or close the destination. Skipping pairs
+        // also leaves an even run of backslashes followed by a real delimiter.
+        if (match[0][index] === '\\') index += 1
+        else if (match[0][index] === '(') depth += 1
+        else if (match[0][index] === ')') {
+          if (depth === 0) {
+            length = index
+            break
+          }
+          depth -= 1
+        }
+      }
+    }
+    return { start: match.index, end: match.index + length }
+  })
   return text.replace(DASH, (match: string, offset: number, whole: string) => {
+    if (urls.some((url) => offset >= url.start && offset < url.end)) return match
     const before = whole.slice(0, offset)
     const after = whole.slice(offset + match.length)
     if (!before.trim() || !after.trim()) return ''

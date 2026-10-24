@@ -48,6 +48,61 @@ describe('plain dashes in visitor answers', () => {
     expect(guestPlainDashes('No dashes here.')).toBe('No dashes here.')
   })
 
+  it('preserves exact bare and Markdown URL destinations while normalizing prose', () => {
+    for (const url of [
+      'https://example.org/hours/Friday–Saturday',
+      'https://example.org/plan/arrival—parking?group=6–17#north—gate',
+      'HTTPS://example.org/Friday–Saturday',
+      'https://example.org/area/(north—gate)/Friday–Saturday',
+      String.raw`https://example.org/north\)—gate`,
+      String.raw`https://example.org/north\(—gate`,
+    ]) {
+      expect(guestPlainDashes(`Visit ${url} for details—before you arrive.`)).toBe(
+        `Visit ${url} for details, before you arrive.`,
+      )
+      expect(guestPlainDashes(`[Official hours](${url})—check first.`)).toBe(
+        `[Official hours](${url}), check first.`,
+      )
+    }
+  })
+
+  it('keeps streamed URL destinations stable at every character boundary', () => {
+    for (const text of [
+      'Visit https://example.org/arrival—parking?ages=6–17 for details—before arrival.',
+      '[Official hours](https://example.org/Friday–Saturday)—check first.',
+      '[Official hours](https://example.org/(north—gate)/Friday–Saturday)—check first.',
+      'Visit https://example.org/(north—gate)/Friday–Saturday for hours.',
+      String.raw`[Hours](https://example.org/north\)—gate)—check first.`,
+      String.raw`[Hours](https://example.org/north\(—gate)—check first.`,
+      String.raw`[Hours](https://example.org/north\\)—check first.`,
+      '[Hours]( https://example.org/north—gate)—check first.',
+    ]) {
+      const final = guestPlainDashes(text)
+      let shown = ''
+      for (let end = 1; end <= text.length; end += 1) {
+        const visible = guestPlainDashes(guestPlainDashesStablePrefix(text.slice(0, end)))
+        expect(visible.startsWith(shown) || shown.startsWith(visible)).toBe(true)
+        if (visible.length > shown.length) shown = visible
+        expect(final.startsWith(shown)).toBe(true)
+      }
+    }
+  })
+
+  it('honors Markdown destination escapes and optional opening whitespace', () => {
+    expect(
+      guestPlainDashes(String.raw`[Hours](https://example.org/north\)—gate)—check first.`),
+    ).toBe(String.raw`[Hours](https://example.org/north\)—gate), check first.`)
+    expect(
+      guestPlainDashes(String.raw`[Hours](https://example.org/north\(—gate)—check first.`),
+    ).toBe(String.raw`[Hours](https://example.org/north\(—gate), check first.`)
+    expect(guestPlainDashes(String.raw`[Hours](https://example.org/north\\)—check first.`)).toBe(
+      String.raw`[Hours](https://example.org/north\\), check first.`,
+    )
+    expect(guestPlainDashes('[Hours]( https://example.org/north—gate)—check first.')).toBe(
+      '[Hours]( https://example.org/north—gate), check first.',
+    )
+  })
+
   it('streams the same text it finally stores, one character at a time', () => {
     for (const text of [
       `Open Friday${EN}Saturday, 9 am${EN}5 pm. The Saturn V model${EM}huge${EM}is near Sat${EM}Saturn.`,

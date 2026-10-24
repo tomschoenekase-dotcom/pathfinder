@@ -2147,8 +2147,10 @@ describe('chat router', () => {
       placeFindMany.mockImplementation(async (args) => {
         const query = args as { where?: { id?: { in?: string[] } }; take?: number }
         const ids = query.where?.id?.in
-        return (ids ? tiedPlaces.filter((place) => ids.includes(place.id)) : tiedPlaces)
-          .slice(0, query.take)
+        return (ids ? tiedPlaces.filter((place) => ids.includes(place.id)) : tiedPlaces).slice(
+          0,
+          query.take,
+        )
       })
 
       await caller.chat.send({ ...sendInput, message: 'What places are listed?' })
@@ -4662,6 +4664,20 @@ describe('chat router', () => {
       )
     })
 
+    it.each([
+      'https://example.org/hours/Friday–Saturday?group=6–17#north—gate',
+      '[Official hours](https://example.org/area/(north—gate)/Friday–Saturday)',
+    ])('preserves URL destination bytes in stored and returned answers: %s', async (link) => {
+      setupHappyPath(`Check ${link} before arriving—hours vary.`)
+      const result = await caller.chat.send(sendInput)
+      expect(result.response).toBe(`Check ${link} before arriving, hours vary.`)
+      expect(messageCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'assistant', content: result.response }),
+        }),
+      )
+    })
+
     it('sends the full public venue guide as the cached block between static and dynamic', async () => {
       setupHappyPath('ok')
       placeFindMany.mockResolvedValue(placeRows)
@@ -5825,6 +5841,50 @@ describe('chat router', () => {
       // Trailing whitespace waits for a next word that never comes, as in the trimmed stored answer.
       expect(deltas.join('')).toBe('You can order ahead now.')
       for (const delta of deltas) expect(delta).not.toMatch(/\[|\]|burger-order|season-pass/u)
+    })
+
+    it('preserves URL destination bytes through actual streamed chat and action projection', async () => {
+      const bare = 'https://example.org/hours/Friday–Saturday?ages=6–17'
+      const markdown = '[Parking](https://example.org/area/(north—gate)/arrival–parking)'
+      const raw = `Check ${bare} and ${markdown}—then [[link:burger-order|order ahead]].`
+      const expected = `Check ${bare} and ${markdown}, then order ahead.`
+      setupActions(raw, { links: true, buttons: true })
+      const stream = vi.fn(() => ({
+        async *[Symbol.asyncIterator]() {
+          for (const text of raw)
+            yield { type: 'content_block_delta', delta: { type: 'text_delta', text } }
+        },
+        finalMessage: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: raw }],
+          usage: { input_tokens: 20, output_tokens: 100 },
+        }),
+      }))
+      _setAnthropicClientForTesting({
+        messages: { create: anthropicCreate, stream },
+      } as unknown as AnthropicMessagesClient)
+      const events = []
+      for await (const event of streamChatTurn(ctx, actionInput)) events.push(event)
+      const streamed = events
+        .filter((event) => event.type === 'delta')
+        .map((event) => (event as { delta: string }).delta)
+        .join('')
+      expect(streamed).toBe(expected)
+      expect(events.at(-1)).toMatchObject({ type: 'complete', result: { response: expected } })
+      const complete = events.at(-1)
+      expect(complete?.type === 'complete' && complete.result.blocks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            links: expect.arrayContaining([expect.objectContaining({ href: burgerUrl })]),
+          }),
+        ]),
+      )
+      expect(messageCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'assistant', content: expected }),
+        }),
+      )
+      expect(stream).toHaveBeenCalledOnce()
+      expect(anthropicCreate).not.toHaveBeenCalled()
     })
 
     it('answers an unrelated question with no action', async () => {
