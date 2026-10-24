@@ -747,7 +747,10 @@ export function VoiceControl({
                     return {
                       callId,
                       output: {
-                        grounded: result.context.length > 0,
+                        grounded:
+                          result.context.length > 0 &&
+                          (result.sourceIds.length > 0 ||
+                            result.identityClarificationRequired === true),
                         context: result.context,
                         sourceIds: result.sourceIds,
                         identityClarificationRequired:

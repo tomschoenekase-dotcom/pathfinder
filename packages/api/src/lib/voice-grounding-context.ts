@@ -45,6 +45,7 @@ import {
 
 const MAX_VOICE_CONTEXT_CHARS = 12_000
 const MAX_IDENTITY_CLARIFICATION_CHARS = 1_500
+const MAX_UNSELECTED_PLACE_EXTRAS = 16
 
 export type VoiceGroundingReader = GuestKnowledgeReader & {
   place?: {
@@ -385,6 +386,34 @@ export async function buildVoiceGroundingContext(input: {
     identity: placeIdentity,
     limit: recommendationPartition.recommendationOnly ? 8 : authorizedPlaces.length,
   })
+  // Retrieval and revalidated question additions are selected bodies. Identity
+  // expansion may add further named candidates; compatible identity filtering above
+  // still decides which of those bodies may be used for this question.
+  const selectedPlaceIds = new Set(mergedPlaces.map((place) => place.id))
+  const namedPlaceKeys = new Set(
+    explicitlyNamedGuestPlaceLabels(input.query, authorizedPlaces).map(guestPlaceIdentityKey),
+  )
+  const eligiblePlaces = prioritizedAuthorizedPlaces.filter(
+    (place) =>
+      !(
+        effectiveBasePath === 'NATIVE' &&
+        identityDiscoveryIncomplete &&
+        identityDiscovery.saturatedLabelKeys.has(guestPlaceIdentityKey(place.name))
+      ),
+  )
+  const selectedPlaces = eligiblePlaces.filter((place) => selectedPlaceIds.has(place.id))
+  const identityPlaces = eligiblePlaces.filter(
+    (place) =>
+      !selectedPlaceIds.has(place.id) && namedPlaceKeys.has(guestPlaceIdentityKey(place.name)),
+  )
+  const extraPlaces = eligiblePlaces.filter(
+    (place) =>
+      !selectedPlaceIds.has(place.id) && !namedPlaceKeys.has(guestPlaceIdentityKey(place.name)),
+  )
+  const placeCandidate = (place: SemanticPlace) => ({
+    id: `place:${String(place.id)}`,
+    text: `[PLACE: ${String(place.name)}]\n${[place.type, place.areaName, place.shortDescription, place.longDescription, place.hours].filter(Boolean).join(' · ')}`,
+  })
   const detailedIdentityClarification = placeIdentity.ambiguity?.conflictingClues
     ? 'IDENTITY CLARIFICATION DATA: The supplied floor and location clues do not identify a compatible exhibit. Identity remains unresolved.'
     : placeIdentity.ambiguity
@@ -416,25 +445,14 @@ export async function buildVoiceGroundingContext(input: {
       id: entry.id,
       text: `[KNOWLEDGE: ${entry.title}]\n${entry.content}`,
     })),
-    ...prioritizedAuthorizedPlaces
-      .filter(
-        (place) =>
-          !(
-            effectiveBasePath === 'NATIVE' &&
-            identityDiscoveryIncomplete &&
-            identityDiscovery.saturatedLabelKeys.has(guestPlaceIdentityKey(place.name))
-          ),
-      )
-      .map((place) => ({
-        id: `place:${String(place.id)}`,
-        text: `[PLACE: ${String(place.name)}]\n${[place.type, place.areaName, place.shortDescription, place.longDescription, place.hours].filter(Boolean).join(' · ')}`,
-      })),
+    ...selectedPlaces.map(placeCandidate),
+    ...identityPlaces.map(placeCandidate),
   ]
   const included: typeof coreCandidates = []
   let used = contextPrelude.length
   for (const candidate of coreCandidates) {
     const separator = used > 0 ? 2 : 0
-    if (used + separator + candidate.text.length > MAX_VOICE_CONTEXT_CHARS) continue
+    if (used + separator + candidate.text.length > MAX_VOICE_CONTEXT_CHARS) break
     included.push(candidate)
     used += separator + candidate.text.length
   }
@@ -443,6 +461,15 @@ export async function buildVoiceGroundingContext(input: {
     .map((candidate) => candidate.id)
   const corePackingComplete = omittedCoreSourceIds.length === 0
   const packedCoreSourceIds = included.map((candidate) => candidate.id)
+  const extraCandidates = extraPlaces.map(placeCandidate)
+  if (corePackingComplete) {
+    for (const candidate of extraCandidates.slice(0, MAX_UNSELECTED_PLACE_EXTRAS)) {
+      const separator = used > 0 ? 2 : 0
+      if (used + separator + candidate.text.length > MAX_VOICE_CONTEXT_CHARS) continue
+      included.push(candidate)
+      used += separator + candidate.text.length
+    }
+  }
 
   const includedPlaces = authorizedPlaces.filter((place) =>
     included.some((entry) => entry.id === `place:${place.id}`),
@@ -491,22 +518,21 @@ export async function buildVoiceGroundingContext(input: {
     included.push(candidate)
     used += separator + candidate.text.length
   }
-  const candidates = [...coreCandidates, ...mediaCandidates]
+  const candidates = [...coreCandidates, ...extraCandidates, ...mediaCandidates]
   // Existing clients infer grounded status from nonempty context. Do not forward
   // partial core facts when this packing pass omits a whole selected body.
   const forwarded = corePackingComplete ? included : []
   const groundedContext = forwarded.map((candidate) => candidate.text).join('\n\n')
   const context = corePackingComplete
     ? [contextPrelude, groundedContext].filter(Boolean).join('\n\n')
-    : ''
+    : contextPrelude
   const identityClarificationRequiredBeforePacking =
     placeIdentity.ambiguity !== null || identityDiscoveryIncomplete
   return {
     context,
     corePackingComplete,
     omittedCoreSourceIds,
-    identityClarificationRequired:
-      corePackingComplete && identityClarificationRequiredBeforePacking,
+    identityClarificationRequired: identityClarificationRequiredBeforePacking,
     visitContext: projectGuestVisitContext(
       input.visitContext,
       recommendationPartition.authorizedVisitPlaces,
@@ -514,7 +540,7 @@ export async function buildVoiceGroundingContext(input: {
     sourceIds: forwarded.map((candidate) => candidate.id),
     retrievedSourceIds: candidates.map((candidate) => candidate.id),
     omittedSourceIds: candidates
-      .filter((candidate) => !included.includes(candidate))
+      .filter((candidate) => !forwarded.includes(candidate))
       .map((candidate) => candidate.id),
     trace: {
       packedCoreSourceIds,
