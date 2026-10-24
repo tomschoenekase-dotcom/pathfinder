@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { NativeCoreVisibleState } from '@pathfinder/contracts'
+import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/contracts/venue-package'
 import type { SemanticPlace } from '@pathfinder/db'
 import type { Prisma } from '@prisma/client'
 import type { GuestKnowledgeRow } from './guest-knowledge-retrieval'
@@ -317,12 +318,12 @@ describe('voice grounding production retrieval parity', () => {
     expect(result.sourceIds).not.toContain('place:case-second')
   })
 
-  it('retains the identity flag and header when ordinary grounding fills the budget', async () => {
+  it('retains the identity flag and header when all ordinary core grounding fits', async () => {
     const result = await buildVoiceGroundingContext({
       reader: {
         ...identityReader(),
         venueKnowledgeEntry: {
-          findMany: async () => [row('large', 'Large source', 'x'.repeat(11_900))],
+          findMany: async () => [row('large', 'Large source', 'x'.repeat(11_000))],
         },
       } as never,
       tenantId: 'tenant',
@@ -330,6 +331,8 @@ describe('voice grounding production retrieval parity', () => {
       query: 'Tell me about Case 12 large source',
     })
     expect(result.identityClarificationRequired).toBe(true)
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.trace.identityClarificationRequiredBeforePacking).toBe(true)
     expect(result.context.startsWith('IDENTITY CLARIFICATION DATA')).toBe(true)
     expect(result.context.length).toBeLessThanOrEqual(12_000)
   })
@@ -338,10 +341,11 @@ describe('voice grounding production retrieval parity', () => {
     const header =
       'IDENTITY CLARIFICATION DATA: Multiple authorized places match Case 12. Candidates: Case 12 — First floor · East gallery; Case 12 — Second floor · West gallery'
     const prefix = '[PLACE: Case 12]\nPLACE · First floor · East gallery · '
+    const second = '[PLACE: Case 12]\nPLACE · Second floor · West gallery'
     const edgeCases = [
       place({
         ...duplicateCases[0]!,
-        longDescription: 'x'.repeat(12_000 - header.length - 2 - prefix.length),
+        longDescription: 'x'.repeat(12_000 - header.length - 2 - prefix.length - 2 - second.length),
       }),
       duplicateCases[1]!,
     ]
@@ -354,8 +358,10 @@ describe('voice grounding production retrieval parity', () => {
       query: 'Tell me about Case 12 edge source',
     })
     expect(result.context.length).toBe(12_000)
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.identityClarificationRequired).toBe(true)
     expect(result.sourceIds).toContain('place:case-first')
-    expect(result.sourceIds).not.toContain('place:case-second')
+    expect(result.sourceIds).toContain('place:case-second')
   })
 
   it('finds bounded public facts for voice while excluding private and wrong-scope distractors', async () => {
@@ -679,7 +685,7 @@ describe('voice grounding production retrieval parity', () => {
     expect(result.context).not.toContain('RECOMMENDATION SCOPE')
   })
 
-  it('never emits a partial item or claims an omitted oversized source was included', async () => {
+  it('refuses partial core grounding when an oversized source was omitted', async () => {
     const result = await buildVoiceGroundingContext({
       reader: {
         venueKnowledgeEntry: {
@@ -695,10 +701,111 @@ describe('voice grounding production retrieval parity', () => {
       venueId: 'venue',
       query: 'What is the capacity oversized?',
     })
-    expect(result.context).toContain('Capacity is 137')
-    expect(result.context).not.toContain('x'.repeat(100))
-    expect(result.sourceIds).toEqual(['small'])
+    expect(result.context).toBe('')
+    expect(result.sourceIds).toEqual([])
+    expect(result.corePackingComplete).toBe(false)
+    expect(result.omittedCoreSourceIds).toContain('place:oversized')
+    expect(result.trace.packedCoreSourceIds).toEqual(['small'])
+    expect(result.trace.finalIncludedSourceIds).toEqual([])
     expect(result.omittedSourceIds).toContain('place:oversized')
+  })
+
+  it('refuses schema-valid V02 core capacity loss without reading optional media', async () => {
+    const records = ['a-history', 'b-history', 'z-access'].map((id) => {
+      const content = `Orchid exhibit access. ${id === 'z-access' ? 'The upper platform requires twelve steps; lift availability is unknown. ' : ''}${'Historical exhibit detail. '.repeat(177)}`
+      const authored = KnowledgeEntryInput.parse({
+        title: 'Orchid exhibit access',
+        category: 'EXHIBITS',
+        content,
+      })
+      return { ...row(id, authored.title, authored.content), category: authored.category }
+    })
+    const authoredPlace = PlaceInput.parse({
+      name: 'Orchid exhibit',
+      type: 'EXHIBIT',
+      hours: '10 AM–4 PM',
+    })
+    const mediaFindMany = vi.fn()
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => records },
+        place: {
+          findMany: async () => [
+            place({
+              id: 'orchid',
+              name: authoredPlace.name,
+              type: authoredPlace.type,
+              hours: authoredPlace.hours ?? null,
+            }),
+          ],
+        },
+        venueMediaDerivative: { findMany: mediaFindMany } as never,
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Orchid exhibit access',
+      asOf: new Date('2026-10-24T17:00:00Z'),
+      currentDate: '2026-10-24',
+      mediaPolicy: { venueSlug: 'orchid-venue', showPhotos: true, showLinks: false },
+    })
+    expect(result).toMatchObject({
+      context: '',
+      sourceIds: [],
+      corePackingComplete: false,
+      omittedCoreSourceIds: ['z-access'],
+    })
+    expect(result.trace.packedCoreSourceIds).toEqual(['a-history', 'b-history', 'place:orchid'])
+    expect(result.trace.finalIncludedSourceIds).toEqual([])
+    expect(result.retrievedSourceIds).toContain('z-access')
+    expect(result.omittedSourceIds).toContain('z-access')
+    expect(mediaFindMany).not.toHaveBeenCalled()
+  })
+
+  it('forwards complete core grounding when every selected body fits', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: {
+          findMany: async () => [
+            row(
+              'access',
+              'Orchid access',
+              'The upper platform requires twelve steps; lift availability is unknown.',
+            ),
+          ],
+        },
+        place: { findMany: async () => [place({ id: 'orchid', name: 'Orchid exhibit' })] },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Orchid access',
+    })
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.omittedCoreSourceIds).toEqual([])
+    expect(result.sourceIds).toEqual(['access', 'place:orchid'])
+    expect(result.context).toContain('lift availability is unknown')
+    expect(result.context.length).toBeLessThanOrEqual(12_000)
+  })
+
+  it('clears visible ambiguity on core refusal while retaining original diagnostic ambiguity', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        ...identityReader(),
+        venueKnowledgeEntry: {
+          findMany: async () => [row('large', 'Case 12', 'x'.repeat(12_000))],
+        },
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12',
+    })
+    expect(result).toMatchObject({
+      context: '',
+      sourceIds: [],
+      corePackingComplete: false,
+      identityClarificationRequired: false,
+    })
+    expect(result.trace.identityClarificationRequiredBeforePacking).toBe(true)
+    expect(result.omittedCoreSourceIds).toContain('large')
   })
 
   it('reports the effective legacy fallback separately from native snapshot eligibility', async () => {
@@ -910,6 +1017,8 @@ describe('voice grounding production retrieval parity', () => {
     expect(result.context).not.toContain(editorialCaption)
     expect(result.sourceIds).not.toContain('media:derivative-budget:review:3')
     expect(result.omittedSourceIds).toContain('media:derivative-budget:review:3')
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.omittedCoreSourceIds).toEqual([])
     expect(result.context.length).toBeLessThanOrEqual(12_000)
   })
 

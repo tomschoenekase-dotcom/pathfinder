@@ -438,12 +438,22 @@ export async function buildVoiceGroundingContext(input: {
     included.push(candidate)
     used += separator + candidate.text.length
   }
+  const omittedCoreSourceIds = coreCandidates
+    .filter((candidate) => !included.includes(candidate))
+    .map((candidate) => candidate.id)
+  const corePackingComplete = omittedCoreSourceIds.length === 0
+  const packedCoreSourceIds = included.map((candidate) => candidate.id)
 
   const includedPlaces = authorizedPlaces.filter((place) =>
     included.some((entry) => entry.id === `place:${place.id}`),
   )
   const mediaCandidates: typeof coreCandidates = []
-  if (input.mediaPolicy && input.reader.venueMediaDerivative && includedPlaces.length) {
+  if (
+    corePackingComplete &&
+    input.mediaPolicy &&
+    input.reader.venueMediaDerivative &&
+    includedPlaces.length
+  ) {
     try {
       const selected = await readApprovedGuestPlaceMediaEvidence({
         reader: { venueMediaDerivative: input.reader.venueMediaDerivative },
@@ -482,21 +492,33 @@ export async function buildVoiceGroundingContext(input: {
     used += separator + candidate.text.length
   }
   const candidates = [...coreCandidates, ...mediaCandidates]
-  const groundedContext = included.map((candidate) => candidate.text).join('\n\n')
-  const context = [contextPrelude, groundedContext].filter(Boolean).join('\n\n')
+  // Existing clients infer grounded status from nonempty context. Do not forward
+  // partial core facts when this packing pass omits a whole selected body.
+  const forwarded = corePackingComplete ? included : []
+  const groundedContext = forwarded.map((candidate) => candidate.text).join('\n\n')
+  const context = corePackingComplete
+    ? [contextPrelude, groundedContext].filter(Boolean).join('\n\n')
+    : ''
+  const identityClarificationRequiredBeforePacking =
+    placeIdentity.ambiguity !== null || identityDiscoveryIncomplete
   return {
     context,
-    identityClarificationRequired: placeIdentity.ambiguity !== null || identityDiscoveryIncomplete,
+    corePackingComplete,
+    omittedCoreSourceIds,
+    identityClarificationRequired:
+      corePackingComplete && identityClarificationRequiredBeforePacking,
     visitContext: projectGuestVisitContext(
       input.visitContext,
       recommendationPartition.authorizedVisitPlaces,
     ),
-    sourceIds: included.map((candidate) => candidate.id),
+    sourceIds: forwarded.map((candidate) => candidate.id),
     retrievedSourceIds: candidates.map((candidate) => candidate.id),
     omittedSourceIds: candidates
       .filter((candidate) => !included.includes(candidate))
       .map((candidate) => candidate.id),
     trace: {
+      packedCoreSourceIds,
+      identityClarificationRequiredBeforePacking,
       preOverlayKnowledgeRetrieval: retrieved.trace,
       questionEvidence: {
         ...selected.trace,
@@ -504,7 +526,7 @@ export async function buildVoiceGroundingContext(input: {
         directoryPath: directoryRead.path,
         basePath: authorizedBase.path,
       },
-      finalIncludedSourceIds: included.map((candidate) => candidate.id),
+      finalIncludedSourceIds: forwarded.map((candidate) => candidate.id),
     },
     nativeProjection: input.nativeSnapshot
       ? {

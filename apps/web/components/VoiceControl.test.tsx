@@ -961,6 +961,95 @@ describe('VoiceControl', () => {
     },
   )
 
+  it('forwards core capacity refusal as ungrounded without diagnostic facts or retries', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.start.mockResolvedValue({
+      voiceSessionId: '11111111-1111-4111-8111-111111111111',
+      maxDurationSeconds: 600,
+    })
+    mocks.connected.mockResolvedValue({ connected: true })
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn(), addEventListener: vi.fn() }],
+    })
+    const visitContext = { visitedPlaceIds: [], interests: [] }
+    mocks.groundingContext.mockResolvedValueOnce({
+      context: '',
+      sourceIds: [],
+      corePackingComplete: false,
+      omittedCoreSourceIds: ['DIAGNOSTIC_ACCESS_ID'],
+      identityClarificationRequired: false,
+      visitContext,
+      trace: {
+        packedCoreSourceIds: ['DIAGNOSTIC_PACKED_ID'],
+        identityClarificationRequiredBeforePacking: true,
+        diagnosticBody: 'DIAGNOSTIC_FACT_SENTINEL',
+      },
+    })
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>()
+    const send = vi.fn()
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      vi.fn(() => ({
+        addTrack: vi.fn(),
+        createDataChannel: () => ({
+          readyState: 'open',
+          send,
+          close: vi.fn(),
+          addEventListener: (type: string, listener: (event: MessageEvent<string>) => void) =>
+            listeners.set(type, listener),
+        }),
+        createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'offer-sdp' }),
+        setLocalDescription: vi.fn(),
+        setRemoteDescription: vi.fn(),
+        close: vi.fn(),
+        ontrack: null,
+      })),
+    )
+    render(<VoiceControl {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await waitFor(() => expect(mocks.connected).toHaveBeenCalledOnce())
+    act(() => listeners.get('open')?.({} as MessageEvent<string>))
+    send.mockClear()
+    act(() =>
+      listeners.get('message')?.({
+        data: JSON.stringify({
+          type: 'response.done',
+          response: {
+            id: 'capacity-refusal',
+            status: 'completed',
+            output: [
+              {
+                type: 'function_call',
+                name: 'lookup_venue_knowledge',
+                call_id: 'core-refusal',
+                arguments: JSON.stringify({ query: 'Tell me about Orchid access' }),
+              },
+            ],
+          },
+        }),
+      } as MessageEvent<string>),
+    )
+    await waitFor(() =>
+      expect(
+        send.mock.calls.some(([value]) => JSON.parse(value as string).type === 'response.create'),
+      ).toBe(true),
+    )
+    const messages = send.mock.calls.map(([value]) => JSON.parse(value as string))
+    const outputs = messages.filter((event) => event.type === 'conversation.item.create')
+    expect(outputs).toHaveLength(1)
+    expect(JSON.parse(outputs[0].item.output)).toEqual({
+      grounded: false,
+      context: '',
+      sourceIds: [],
+      identityClarificationRequired: false,
+      visitContext,
+    })
+    expect(JSON.stringify(messages)).not.toContain('DIAGNOSTIC_')
+    expect(JSON.stringify(messages)).not.toContain('GROUNDING_UNAVAILABLE')
+    expect(messages.filter((event) => event.type === 'response.create')).toHaveLength(1)
+    expect(mocks.groundingContext).toHaveBeenCalledOnce()
+  })
+
   it('registers bounded route tools and dispatches exact canonical location inputs', async () => {
     mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
     mocks.start.mockResolvedValue({
