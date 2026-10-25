@@ -14,7 +14,15 @@ function fail(code) {
 
 export function parseHostedVisitorPerformanceArgs(args) {
   const values = new Map()
-  const allowed = new Set(['--revision', '--venue-slug', '--samples', '--report'])
+  const allowed = new Set([
+    '--revision',
+    '--venue-slug',
+    '--samples',
+    '--report',
+    '--send-turns',
+    '--questions',
+    '--serving-route-observation',
+  ])
   for (let index = 0; index < args.length; index += 2) {
     const option = args[index]
     const value = args[index + 1]
@@ -29,7 +37,20 @@ export function parseHostedVisitorPerformanceArgs(args) {
   if (!revision || !FULL_SHA.test(revision)) fail('exact-revision-required')
   if (!SAFE_SLUG.test(venueSlug)) fail('unsafe-venue-slug')
   if (!Number.isSafeInteger(samples) || samples < 1 || samples > 10) fail('samples-out-of-range')
-  return { revision, venueSlug, samples, report: values.get('--report') ?? null }
+  const sendTurns = Number(values.get('--send-turns') ?? '0')
+  if (!Number.isSafeInteger(sendTurns) || sendTurns < 0 || sendTurns > 5)
+    fail('send-turns-out-of-range')
+  const questions = values.get('--questions') ?? null
+  if (sendTurns > 0 && !questions) fail('questions-required-for-send')
+  return {
+    revision,
+    venueSlug,
+    samples,
+    report: values.get('--report') ?? null,
+    sendTurns,
+    questions,
+    servingRouteObservation: values.get('--serving-route-observation') ?? null,
+  }
 }
 
 export function resolveHostedVisitorPerformanceReportPath(value, revision) {
@@ -175,7 +196,9 @@ async function measureNavigation(page, url, expectedPath, expectedOrigin, naviga
     const composer = page.locator('textarea[enterkeyhint="send"]')
     await composer.waitFor({ state: 'visible', timeout: 60_000 })
     const composerVisibleMs = relativeNow()
-    const sendButton = composer.locator('xpath=..').locator('button[type="button"]')
+    const sendButton = composer
+      .locator('xpath=ancestor::section[1]')
+      .getByRole('button', { name: 'Send message', exact: true })
     // A local draft exposes the actual send admission gate; the button is never clicked.
     if (navigationKind === 'first-visit') {
       await composer.fill('Performance harness draft (never sent).')
@@ -193,8 +216,9 @@ async function measureNavigation(page, url, expectedPath, expectedOrigin, naviga
     await page.waitForFunction(
       () => {
         const composerElement = document.querySelector('textarea[enterkeyhint="send"]')
-        const sendButtonElement =
-          composerElement?.parentElement?.querySelector('button[type="button"]')
+        const sendButtonElement = composerElement
+          ?.closest('section')
+          ?.querySelector('button[aria-label="Send message"]')
         return Boolean(sendButtonElement && !sendButtonElement.disabled)
       },
       undefined,
@@ -419,7 +443,452 @@ async function measurePair(browser, url, expectedPath, expectedOrigin, networkPr
   }
 }
 
+export function validateHostedTurnQuestions(value, count) {
+  if (!Number.isSafeInteger(count) || count < 0 || count > 5) fail('send-turns-out-of-range')
+  if (
+    !Array.isArray(value) ||
+    value.length < count ||
+    value.some((q) => typeof q !== 'string' || !q.trim() || q.trim().length > 1000)
+  )
+    fail('invalid-turn-questions')
+  return value.slice(0, count).map((q) => q.trim())
+}
+
+export function isHostedChatTurnRequest(url, method, origin) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.origin !== origin || method !== 'POST') return false
+    return (
+      parsed.pathname === '/api/chat-stream' ||
+      (decodeURIComponent(parsed.pathname).startsWith('/api/trpc/') &&
+        decodeURIComponent(parsed.pathname)
+          .slice('/api/trpc/'.length)
+          .split(',')
+          .some((op) => op === 'chat.send' || op === 'chat.stream'))
+    )
+  } catch {
+    return false
+  }
+}
+export function hostedTurnQuestion(url, body) {
+  try {
+    const value = JSON.parse(body)
+    if (new URL(url).pathname === '/api/chat-stream')
+      return typeof value?.message === 'string' ? value.message : null
+    const operations = decodeURIComponent(new URL(url).pathname)
+      .slice('/api/trpc/'.length)
+      .split(',')
+    if (operations.filter((op) => op === 'chat.send' || op === 'chat.stream').length !== 1)
+      return null
+    const index = operations.findIndex((op) => op === 'chat.send' || op === 'chat.stream')
+    if (index < 0) return null
+    const input = operations.length > 1 || Object.hasOwn(value, '0') ? value[index] : value
+    const question = (input?.json ?? input)?.message
+    return typeof question === 'string' ? question : null
+  } catch {
+    return null
+  }
+}
+export function parseHostedTurnResponse(body, streaming = true) {
+  if (Buffer.byteLength(body, 'utf8') > 1024 * 1024) fail('turn-response-too-large')
+  const events = streaming
+    ? body
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    : []
+  const error = events.find((event) => event.type === 'error')
+  const completes = events.filter((event) => event.type === 'complete')
+  if (streaming && completes.length !== 1 && !error) fail('turn-completion-unconfirmed')
+  const json = streaming ? null : JSON.parse(body)
+  const entry = Array.isArray(json) ? json.find((item) => item?.result || item?.error) : json
+  const result = streaming
+    ? completes[0]?.result
+    : (entry?.result?.data?.json ?? entry?.result?.data)
+  const failure = error ?? entry?.error
+  return {
+    completed:
+      !failure && typeof result?.response === 'string' && result.response.trim().length > 0,
+    response: result?.response ?? null,
+    replyKind: result?.replyKind ?? null,
+    refusalCode:
+      failure?.publicCode ?? failure?.data?.json?.publicCode ?? failure?.data?.publicCode ?? null,
+    error: failure ? 'turn-response-error' : null,
+  }
+}
+export function summarizeHostedTurns(turns) {
+  const summary = {
+    attempted: turns.length,
+    completed: turns.filter((t) => t.status === 'passed').length,
+    failed: turns.filter((t) => t.status !== 'passed').length,
+  }
+  for (const metric of ['firstVisibleAnswerMs', 'completionMs']) {
+    const values = turns
+      .filter((t) => t.status === 'passed')
+      .map((t) => t[metric])
+      .filter((v) => typeof v === 'number' && Number.isFinite(v) && v >= 0)
+    summary[metric] = {
+      observedCount: values.length,
+      median: median(values),
+      minimum: values.length ? Math.min(...values) : null,
+      maximum: values.length ? Math.max(...values) : null,
+    }
+  }
+  return summary
+}
+export function validateServingRouteObservation(value, options) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    value.revision !== options.revision ||
+    value.deployedRevision !== options.revision ||
+    value.venueSlug !== options.venueSlug ||
+    typeof value.observedAt !== 'string' ||
+    !Number.isFinite(Date.parse(value.observedAt)) ||
+    Date.parse(value.observedAt) > Date.now() + 300000 ||
+    typeof value.guideStrategy !== 'string' ||
+    !value.guideStrategy.trim() ||
+    typeof value.modelKey !== 'string' ||
+    !value.modelKey.trim() ||
+    !Array.isArray(value.venueScopeExceptions)
+  )
+    fail('invalid-serving-route-observation')
+  return value
+}
+
+// This observer reads only this submitted turn's new visible message nodes. It ignores
+// baseline messages, typing/status UI and hidden speaker labels; timestamps use one browser clock.
+function installTurnObserver(question) {
+  window.__hostedTurnObserver?.observer.disconnect()
+  const baseline = new Set(document.querySelectorAll('[role="log"] article'))
+  const state = {
+    submittedAt: null,
+    submittedAtMs: null,
+    firstVisibleAnswerMs: null,
+    firstVisibleAnswerText: null,
+    answerText: '',
+    userObserved: false,
+  }
+  function text(element) {
+    if (!element || !element.getClientRects().length) return ''
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    const parts = []
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      const parent = node.parentElement
+      if (!parent || parent.closest('.sr-only,[aria-hidden="true"],[hidden]')) continue
+      const style = getComputedStyle(parent)
+      if (style.display === 'none' || style.visibility === 'hidden') continue
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      if ([...range.getClientRects()].some((rect) => rect.width > 0 && rect.height > 0))
+        parts.push(node.textContent)
+    }
+    return parts.join('').replace(/\s+/g, ' ').trim()
+  }
+  function observe() {
+    if (state.submittedAtMs === null) return
+    const articles = [...document.querySelectorAll('[role="log"] article')]
+    const userIndex = articles.findIndex(
+      (node) =>
+        !baseline.has(node) &&
+        node.dataset.role === 'user' &&
+        text(node) === question.replace(/\s+/g, ' ').trim(),
+    )
+    if (userIndex < 0) return
+    state.userObserved = true
+    const answer = articles
+      .slice(userIndex + 1)
+      .find((node) => !baseline.has(node) && node.dataset.role === 'assistant')
+    const answerText = text(answer)
+    if (!answerText) return
+    state.answerText = answerText
+    if (state.firstVisibleAnswerMs === null) {
+      state.firstVisibleAnswerMs = performance.now() - state.submittedAtMs
+      state.firstVisibleAnswerText = answerText
+    }
+  }
+  const onSubmitClick = (event) => {
+    const composerSection = document
+      .querySelector('textarea[enterkeyhint="send"]')
+      ?.closest('section')
+    const button =
+      event.target instanceof Element
+        ? event.target.closest('button[aria-label="Send message"]')
+        : null
+    if (
+      state.submittedAtMs === null &&
+      button &&
+      composerSection?.contains(button) &&
+      !button.disabled
+    ) {
+      state.submittedAt = new Date().toISOString()
+      state.submittedAtMs = performance.now()
+    }
+  }
+  document.addEventListener('click', onSubmitClick, true)
+  const observer = new MutationObserver(observe)
+  observer.observe(document, { subtree: true, childList: true, characterData: true })
+  const originalFetch = window.fetch
+  state.protocol = {
+    completed: false,
+    completeEventMs: null,
+    replyKind: null,
+    refusalCode: null,
+    error: null,
+    bytes: 0,
+  }
+  const wrappedFetch = async function (input, init) {
+    const response = await originalFetch.call(this, input, init)
+    const url = new URL(typeof input === 'string' ? input : input.url, location.href)
+    let inputQuestion = null
+    try {
+      inputQuestion = JSON.parse(init?.body)?.message
+    } catch {
+      /* Not the actual guest stream input. */
+    }
+    if (
+      url.origin !== location.origin ||
+      url.pathname !== '/api/chat-stream' ||
+      inputQuestion !== question
+    )
+      return response
+    if (!response.ok || !response.body) {
+      state.protocol.error = 'turn-http-error'
+      return response
+    }
+    // A passive clone records terminal protocol events without waiting for Chromium's
+    // requestfinished, which is unreliable for aborted/completed NDJSON subscriptions.
+    void (async () => {
+      const reader = response.clone().body.getReader()
+      const decoder = new TextDecoder()
+      let pending = ''
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          state.protocol.bytes += value?.byteLength ?? 0
+          if (state.protocol.bytes > 1024 * 1024) throw new Error('turn-response-too-large')
+          pending += decoder.decode(value, { stream: !done })
+          const lines = pending.split('\n')
+          pending = lines.pop() ?? ''
+          if (done && pending) lines.push(pending)
+          for (const line of lines.filter(Boolean)) {
+            const event = JSON.parse(line)
+            if (event.type === 'error') {
+              state.protocol.refusalCode = event.publicCode ?? null
+              throw new Error('turn-response-error')
+            }
+            if (event.type === 'complete') {
+              if (typeof event.result?.response !== 'string' || !event.result.response.trim())
+                throw new Error('turn-completion-unconfirmed')
+              state.protocol.completed = true
+              state.protocol.replyKind = event.result.replyKind ?? null
+              state.protocol.completeEventMs = performance.now() - state.submittedAtMs
+              return
+            }
+          }
+          if (done) throw new Error('turn-completion-unconfirmed')
+        }
+      } catch (error) {
+        state.protocol.error =
+          error instanceof Error && /^[a-z0-9-]+$/.test(error.message)
+            ? error.message
+            : 'turn-response-invalid'
+      } finally {
+        void reader.cancel().catch(() => {})
+      }
+    })()
+    return response
+  }
+  window.fetch = wrappedFetch
+  window.__hostedTurnObserver = {
+    observer,
+    state,
+    observe,
+    restoreFetch() {
+      document.removeEventListener('click', onSubmitClick, true)
+      if (window.fetch === wrappedFetch) window.fetch = originalFetch
+    },
+  }
+}
+
+// Local integration can call this on a locally admitted page. The hosted CLI still
+// uses its existing revision admission; this function never bypasses that entrypoint.
+export async function measureHostedChatTurns(
+  page,
+  questions,
+  { expectedOrigin, timeoutMs = 120000 } = {},
+) {
+  questions = validateHostedTurnQuestions(questions, questions.length)
+  if (!expectedOrigin || new URL(page.url()).origin !== expectedOrigin) fail('turn-origin-mismatch')
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000)
+    fail('invalid-turn-timeout')
+  const turns = []
+  let active = null
+  let requestsSent = 0
+  const blockedRequests = []
+  const guard = async (route) => {
+    const request = route.request()
+    if (!isHostedChatTurnRequest(request.url(), request.method(), expectedOrigin))
+      return route.continue()
+    const question = hostedTurnQuestion(request.url(), request.postData())
+    if (
+      !active ||
+      active.admitted ||
+      question !== active.question ||
+      requestsSent >= questions.length
+    ) {
+      blockedRequests.push({ code: 'unexpected-or-repeat-chat-request' })
+      return route.abort('blockedbyclient')
+    }
+    active.admitted = true
+    active.request = request
+    requestsSent += 1
+    return route.continue()
+  }
+  await page.route('**/*', guard)
+  try {
+    for (const [index, question] of questions.entries()) {
+      active = { question, admitted: false, request: null }
+      const turn = {
+        turnIndex: index + 1,
+        question,
+        status: 'failed',
+        submittedAt: null,
+        firstVisibleAnswerMs: null,
+        firstVisibleAnswerText: null,
+        completionMs: null,
+        requestFinishedMs: null,
+        answerText: '',
+        refusal: { classification: 'NOT_CLASSIFIED', explicitCode: null, candidateText: null },
+        requestCount: 0,
+      }
+      try {
+        const composer = page.locator('textarea[enterkeyhint="send"]')
+        await composer.fill(question, { timeout: timeoutMs })
+        const button = composer
+          .locator('xpath=ancestor::section[1]')
+          .getByRole('button', { name: 'Send message', exact: true })
+        await button.waitFor({ state: 'visible', timeout: timeoutMs })
+        await page.evaluate(installTurnObserver, question)
+        await button.click({ timeout: timeoutMs, noWaitAfter: true })
+        await page.waitForFunction(
+          () =>
+            window.__hostedTurnObserver.state.protocol.completed ||
+            window.__hostedTurnObserver.state.protocol.error,
+          undefined,
+          { timeout: timeoutMs },
+        )
+        const protocol = await page.evaluate(() => window.__hostedTurnObserver.state.protocol)
+        turn.refusal.explicitCode = protocol.refusalCode
+        turn.replyKind = protocol.replyKind
+        turn.completeEventMs = protocol.completeEventMs
+        if (!active.admitted || !protocol.completed || protocol.error)
+          fail(protocol.error ?? 'turn-completion-unconfirmed')
+        await page.waitForFunction(
+          () => {
+            const probe = window.__hostedTurnObserver
+            probe.observe()
+            return (
+              probe.state.firstVisibleAnswerMs !== null &&
+              Boolean(
+                document
+                  .querySelector('textarea[enterkeyhint="send"]')
+                  ?.closest('section')
+                  ?.querySelector('button[aria-label="Send message"]'),
+              )
+            )
+          },
+          undefined,
+          { timeout: timeoutMs },
+        )
+        turn.completionMs = await page.evaluate(
+          () => performance.now() - window.__hostedTurnObserver.state.submittedAtMs,
+        )
+        turn.status = 'passed'
+      } catch (error) {
+        turn.failureCode =
+          error instanceof Error && /^[a-z0-9-]+$/.test(error.message)
+            ? error.message
+            : 'turn-measurement-failed'
+      } finally {
+        const observed = await page
+          .evaluate(() => {
+            const probe = window.__hostedTurnObserver
+            if (!probe) return null
+            probe.observe()
+            probe.observer.disconnect()
+            probe.restoreFetch()
+            delete window.__hostedTurnObserver
+            return probe.state
+          })
+          .catch(() => null)
+        if (observed) {
+          turn.submittedAt = observed.submittedAt
+          turn.firstVisibleAnswerMs = observed.firstVisibleAnswerMs
+          turn.firstVisibleAnswerText = observed.firstVisibleAnswerText
+          turn.answerText = observed.answerText
+        }
+        turn.requestCount = active.admitted ? 1 : 0
+        turn.refusal.candidateText = /\b(cannot|can't|unable to|won't|will not)\b/i.test(
+          turn.answerText,
+        )
+          ? turn.answerText
+          : null
+        turn.refusal.classification =
+          turn.refusal.explicitCode === 'REJECTED' ? 'EXPLICIT_REJECTION' : 'REQUIRES_HUMAN_REVIEW'
+        turns.push(turn)
+      }
+      if (turn.status !== 'passed' || blockedRequests.length) break
+    }
+  } finally {
+    active = null
+    // Keep the deny guard on this disposable page until it closes, including late retries.
+    // A subsequent explicit measurement installs its own last-registered guard.
+  }
+  return {
+    requested: questions.length,
+    chatRequestsSent: requestsSent,
+    providerCalls: null,
+    blockedRequests,
+    turns,
+    aggregates: summarizeHostedTurns(turns),
+    status:
+      turns.length === questions.length &&
+      turns.every((t) => t.status === 'passed') &&
+      !blockedRequests.length
+        ? 'passed'
+        : 'failed',
+  }
+}
+
 export async function runHostedVisitorPerformanceMeasurement(options) {
+  const sendTurns = options.sendTurns ?? 0
+  if (!Number.isSafeInteger(sendTurns) || sendTurns < 0 || sendTurns > 5)
+    fail('send-turns-out-of-range')
+  let selectedQuestions = []
+  let questionEvidence = null
+  if (sendTurns > 0) {
+    if (!options.questions) fail('questions-required-for-send')
+    const bytes = await readFile(options.questions)
+    selectedQuestions = validateHostedTurnQuestions(JSON.parse(bytes.toString('utf8')), sendTurns)
+    questionEvidence = {
+      file: path.resolve(options.questions),
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }
+  }
+  let servingRoute = { status: 'UNVERIFIED', observation: null }
+  if (options.servingRouteObservation) {
+    const bytes = await readFile(options.servingRouteObservation)
+    const observation = validateServingRouteObservation(JSON.parse(bytes.toString('utf8')), options)
+    servingRoute = {
+      status: 'SUPPLIED_OBSERVATION_NOT_INDEPENDENTLY_VERIFIED',
+      observation,
+      file: path.resolve(options.servingRouteObservation),
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }
+  }
   const policy = JSON.parse(
     await readFile(path.join(repositoryRoot, 'scripts/release-verification-policy.json'), 'utf8'),
   ).staging
@@ -435,6 +904,7 @@ export async function runHostedVisitorPerformanceMeasurement(options) {
   const { chromium } = await import('@playwright/test')
   const browser = await chromium.launch({ headless: true })
   const profiles = []
+  let chatTurns = null
   try {
     for (const networkProfile of ['unthrottled', 'weak-4g']) {
       const pairs = []
@@ -482,6 +952,26 @@ export async function runHostedVisitorPerformanceMeasurement(options) {
         pairs,
       })
     }
+    if (sendTurns > 0) {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+        serviceWorkers: 'block',
+      })
+      try {
+        const page = await context.newPage()
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
+        await page
+          .locator('textarea[enterkeyhint="send"]')
+          .waitFor({ state: 'visible', timeout: 60000 })
+        chatTurns = await measureHostedChatTurns(page, selectedQuestions, {
+          expectedOrigin: origin,
+        })
+      } finally {
+        await context.close()
+      }
+    }
   } finally {
     await browser.close()
   }
@@ -496,17 +986,28 @@ export async function runHostedVisitorPerformanceMeasurement(options) {
     pairedSampleCountPerProfile: options.samples,
     navigationPairing:
       'Each pair uses one browser context: initial visit followed by same-URL reload with its session storage retained.',
-    chatRequestsSent: 0,
-    providerCalls: 0,
-    status: profiles.some((profile) => profile.status !== 'passed') ? 'failed' : 'passed',
+    chatRequestsSent: chatTurns?.chatRequestsSent ?? 0,
+    providerCalls: sendTurns > 0 ? null : 0,
+    servingRoute,
+    ...(sendTurns > 0 ? { questionEvidence, chatTurns } : {}),
+    status:
+      profiles.some((profile) => profile.status !== 'passed') ||
+      (chatTurns && chatTurns.status !== 'passed')
+        ? 'failed'
+        : 'passed',
     profiles,
     limitations: [
       'Chromium device-class evidence only; physical-device CPU and real-radio variance remain unmeasured.',
       'React/Next hydration has no safe external browser marker here. Composer visible/enabled is reported as send-ready evidence, not hydration completion.',
-      'A fixed draft is typed only in the disposable browser context to enable the send gate; the harness never clicks Send and closes the context after the paired reload.',
+      sendTurns > 0
+        ? 'Navigation pairs type a fixed draft without sending; requested chat turns run once in a separate disposable unthrottled context. The global budget includes attempted turn requests; repeat requests are blocked.'
+        : 'A fixed draft is typed only in the disposable browser context to enable the send gate; the harness never clicks Send and closes the context after the paired reload.',
       'History request timing is observed only when the browser URL names chat.history; batched tRPC operations share one network request span.',
       'A transcript message mutation is observed separately, but this no-send harness cannot prove that visible messages are complete or semantically restored from server history.',
-      'No chat turn was sent, so first submitted turn, useful model text and completed answer timing remain unmeasured.',
+      sendTurns > 0
+        ? 'First visible answer is newly rendered assistant text after this question; completion requires a complete event from the matching stream and the composer to return idle; transport request-finished timing remains unmeasured. A passive response clone observes terminal events. Refusal wording requires human review. Provider call count cannot be inferred from browser requests.'
+        : 'No chat turn was sent, so first submitted turn, useful model text and completed answer timing remain unmeasured.',
+      'Serving route remains unverified unless an observation is supplied; supplied evidence is bound to revision and venue but is not independently verified by this probe.',
       'No approved media asset was present in the empty starter state.',
       'Sample summaries use medians and observed minimum/maximum ranges; no tail percentile is reported.',
     ],
