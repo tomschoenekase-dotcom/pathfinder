@@ -7,6 +7,7 @@ import {
   guestPassedTitleYear,
 } from './guest-event-dates'
 import { GUEST_RECORD_DATE_RULE, guestRecordDate } from './guest-record-dates'
+import { GUEST_STATED_DATES_RULE, guestStatedDatesPassed } from './guest-stated-dates'
 /**
  * Durable version of the production guest-chat system prompt contract.
  * Increment when prompt behavior changes in a way that invalidates evaluation baselines.
@@ -325,6 +326,8 @@ export function buildVenueSystemPromptParts(params: {
   heightOrAgeRideQuestion?: boolean
   /** Show each knowledge entry's last update date (GUEST_CHAT_RECORD_DATES). */
   recordDates?: boolean
+  /** Mark entries whose own stated calendar dates have all passed (GUEST_CHAT_STATED_DATES). */
+  statedDates?: boolean
 }): {
   staticPart: string
   dynamicPart: string
@@ -450,21 +453,28 @@ export function buildVenueSystemPromptParts(params: {
       : [],
   )
   const checkDatesEntries = checkDatesIds.size > 0
+  const statedLatest = new Map<KnowledgeEntry, string>()
+  if (params.statedDates && params.currentDate)
+    for (const entry of detailedEntries) {
+      const latest = guestStatedDatesPassed(entry, params.currentDate)
+      if (latest) statedLatest.set(entry, latest)
+    }
   const knowledgeSection = `${
     guideTopics.length
       ? `\n\nMOST RELEVANT GUIDE TOPICS (full text is in the VENUE GUIDE): ${guideTopics.map((entry) => escapeUntrustedPromptData(entry.title)).join('; ')}`
       : ''
   }${
     detailedEntries.length
-      ? `\n\nKNOWLEDGE BASE:${checkDatesEntries ? ` ${GUEST_DATED_TITLE_RULE}` : ''}${params.recordDates ? ` ${GUEST_RECORD_DATE_RULE}` : ''}\n${detailedEntries
+      ? `\n\nKNOWLEDGE BASE:${checkDatesEntries ? ` ${GUEST_DATED_TITLE_RULE}` : ''}${statedLatest.size ? ` ${GUEST_STATED_DATES_RULE}` : ''}${params.recordDates ? ` ${GUEST_RECORD_DATE_RULE}` : ''}\n${detailedEntries
           .map((entry) => {
             const sourceUrl = safeGuestSourceUrl(entry.sourceUrl)
             const updated = params.recordDates ? guestRecordDate(entry.updatedAt) : null
             const passedYear = checkDatesIds.has(entry)
               ? `title_year_passed="${guestPassedTitleYear(entry.title)}"\n`
               : ''
+            const stated = statedLatest.get(entry)
             return escapeUntrustedPromptData(
-              `[${entry.category}] ${entry.title}\n${passedYear}${updated ? `Updated: ${updated}\n` : ''}${
+              `[${entry.category}] ${entry.title}\n${passedYear}${stated ? `stated_dates_passed="${stated}"\n` : ''}${updated ? `Updated: ${updated}\n` : ''}${
                 entry.id && params.venueGuideUpdatedRecordIds?.has(`knowledge:${entry.id}`)
                   ? `${UPDATED_GUIDE_RECORD}\n`
                   : ''

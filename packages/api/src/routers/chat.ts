@@ -134,6 +134,7 @@ import {
 import { facetCoverage, recognizedStatementCountLines } from '../lib/guest-facet-evidence'
 import { GUEST_DATED_TITLE_RULE, GUEST_DATED_TITLE_RULE_VERSION } from '../lib/guest-event-dates'
 import { GUEST_RECORD_DATES_VERSION, guestRecordDatesEnabled } from '../lib/guest-record-dates'
+import { GUEST_STATED_DATES_VERSION, guestStatedDatesEnabled } from '../lib/guest-stated-dates'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -1715,9 +1716,19 @@ const chatReadRouter = router({
         venueId: venue.id,
         version: GUEST_RECORD_DATES_VERSION,
       })
+    // Off by default until a paid A/B measures it: marks records whose own dates have passed.
+    const statedDatesEnabled = guestStatedDatesEnabled()
+    if (statedDatesEnabled)
+      logger.info({
+        action: 'guest-chat.stated-dates',
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        version: GUEST_STATED_DATES_VERSION,
+      })
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
       currentDate,
       recordDates: recordDatesEnabled,
+      ...(statedDatesEnabled ? { statedDates: true } : {}),
       ...(evidenceStrategyEnabled ? { strategy: 'evidence' as const, indexCoreKnowledge } : {}),
     })
     // Whole guide records for every part of the question, ranked in memory over the same fenced,
@@ -2276,6 +2287,7 @@ const chatReadRouter = router({
           : venueGuide.recordIds,
         venueGuideUpdatedRecordIds: updatedGuideRecordIds,
         recordDates: recordDatesEnabled,
+        ...(statedDatesEnabled ? { statedDates: true } : {}),
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {
