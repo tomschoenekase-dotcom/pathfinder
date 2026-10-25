@@ -48,10 +48,30 @@ export function pointer(document, ref) {
       return value[key]
     }, document)
 }
-function strings(value) {
-  if (typeof value === 'string') return [value]
-  if (value && typeof value === 'object') return Object.values(value).flatMap(strings)
-  return []
+// Accept only authored create/update records or their guest-facing text fields.
+// Provenance, ids, booleans and whole-package/container pointers are not disclosures.
+export function guestRecordText(document, ref) {
+  const match =
+    typeof ref === 'string' &&
+    ref.match(
+      /^\/(places|knowledgeEntries)\/(create|update)\/(0|[1-9]\d*)(?:\/value(?:\/([A-Za-z]+))?)?$/,
+    )
+  if (!match) throw new Error('pointer must identify an authored guest record or text field')
+  const record = pointer(document, `/${match[1]}/${match[2]}/${match[3]}`)
+  const value = record?.value
+  if (!object(value)) throw new Error('guest record value missing')
+  if (value.isEnabled === false || value.isActive === false)
+    throw new Error('guest record is disabled or inactive')
+  const fields =
+    match[1] === 'knowledgeEntries'
+      ? ['title', 'content']
+      : ['name', 'shortDescription', 'longDescription', 'hours', 'areaName']
+  const field = match[4]
+  if (field && !fields.includes(field)) throw new Error('pointer is not guest-facing text')
+  const text = field ? [pointer(document, ref)] : fields.map((key) => value[key])
+  const result = text.filter(nonempty)
+  if (!result.length) throw new Error('guest record has no text')
+  return result
 }
 export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sourcesDir, asOf }) {
   if (!date(asOf)) throw new Error('--as-of must be a real YYYY-MM-DD date')
@@ -150,11 +170,11 @@ export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sou
       fail('UNKNOWN DISCLOSE requires a package record')
     for (const ref of row.records) {
       try {
-        const value = pointer(pkg, ref)
+        const text = guestRecordText(pkg, ref)
         if (
           row.status === 'UNKNOWN' &&
           row.publishImpact === 'DISCLOSE' &&
-          !strings(value).some((s) => /\bunconfirmed\b/i.test(s))
+          !text.some((s) => /\bunconfirmed\b/i.test(s))
         )
           fail('UNKNOWN DISCLOSE record must contain unconfirmed')
       } catch (error) {

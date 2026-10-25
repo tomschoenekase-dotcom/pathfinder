@@ -5,7 +5,7 @@
     {
       "category": "hours-season",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",
@@ -15,7 +15,7 @@
     {
       "category": "closures",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",
@@ -25,7 +25,7 @@
     {
       "category": "admission-prices",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",
@@ -35,7 +35,7 @@
     {
       "category": "tickets-booking",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",
@@ -44,7 +44,7 @@
     {
       "category": "address-parking",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",
@@ -53,7 +53,7 @@
     {
       "category": "contact",
       "status": "KNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [
         {
           "sourceId": "S001",
@@ -69,7 +69,7 @@
     {
       "category": "accessibility",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",
@@ -78,7 +78,7 @@
     {
       "category": "food-allergen-policy",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",
@@ -87,7 +87,7 @@
     {
       "category": "pets-service-animals",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",
@@ -96,7 +96,7 @@
     {
       "category": "weather-policy",
       "status": "UNKNOWN",
-      "records": ["/knowledge/0"],
+      "records": ["/knowledgeEntries/create/0"],
       "sources": [],
       "observedAt": "2026-10-23",
       "publishImpact": "DISCLOSE",

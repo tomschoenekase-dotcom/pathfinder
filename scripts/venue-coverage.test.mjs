@@ -117,7 +117,7 @@ const failures = [
   [
     'invalid pointer escape',
     (c) => {
-      c.rows[5].records = ['/knowledge/~3']
+      c.rows[5].records = ['/knowledgeEntries/create/~3']
     },
   ],
   [
@@ -125,7 +125,12 @@ const failures = [
     async (c, dir) => {
       await writeFile(
         path.join(dir, 'package.json'),
-        JSON.stringify({ schemaVersion: 3, knowledge: [{ body: 'Details available.' }] }),
+        JSON.stringify({
+          schemaVersion: 3,
+          knowledgeEntries: {
+            create: [{ value: { title: 'Details', content: 'Details available.' } }],
+          },
+        }),
       )
     },
   ],
@@ -283,4 +288,62 @@ test('CLI creates report exclusively and refuses input overwrite', async (t) => 
   await assert.rejects(main(args), /overwrite/)
   await assert.rejects(main(['--as-of', '2026-02-30']))
   await assert.rejects(checkCoverage({ ...options, asOf: '2026-02-30' }), /real/)
+})
+
+for (const [name, ref, patch] of [
+  [
+    'metadata source name',
+    '/knowledgeEntries/create/0',
+    (p) => {
+      p.knowledgeEntries.create[0].value.content = 'Details available.'
+      p.knowledgeEntries.create[0].provenance.sourceName = 'unconfirmed'
+    },
+  ],
+  [
+    'metadata pointer',
+    '/knowledgeEntries/create/0/provenance/sourceName',
+    (p) => {
+      p.knowledgeEntries.create[0].provenance.sourceName = 'unconfirmed'
+    },
+  ],
+  [
+    'whole package',
+    '/',
+    (p) => {
+      p[''] = 'unconfirmed'
+    },
+  ],
+  ['numeric schema', '/schemaVersion', (p) => {}],
+  ['operation container', '/knowledgeEntries', (p) => {}],
+  [
+    'disabled record',
+    '/knowledgeEntries/create/0',
+    (p) => {
+      p.knowledgeEntries.create[0].value.isEnabled = false
+    },
+  ],
+  [
+    'non-text field',
+    '/knowledgeEntries/create/0/value/isEnabled',
+    (p) => {
+      p.knowledgeEntries.create[0].value.isEnabled = true
+    },
+  ],
+])
+  test(`guest disclosure/KNOWN pointers reject ${name}`, async (t) => {
+    const { report } = await run(t, async (c, dir) => {
+      const filename = path.join(dir, 'package.json')
+      const pkg = JSON.parse(await readFile(filename, 'utf8'))
+      patch(pkg)
+      await writeFile(filename, JSON.stringify(pkg))
+      c.rows[0].records = [ref]
+      c.rows[5].records = [ref]
+    })
+    assert.equal(report.passed, false)
+  })
+test('explicit guest content field pointers pass', async (t) => {
+  const { report } = await run(t, (c) => {
+    for (const row of c.rows) row.records = ['/knowledgeEntries/create/0/value/content']
+  })
+  assert.equal(report.passed, true, report.errors.join('\n'))
 })

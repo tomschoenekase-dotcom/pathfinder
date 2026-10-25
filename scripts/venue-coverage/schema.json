@@ -51,7 +51,8 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^/"
+              "pattern": "^/(places|knowledgeEntries)/(create|update)/(0|[1-9]\\d*)(/value(/[A-Za-z]+)?)?$",
+              "description": "Authored guest record wrapper/value or guest-facing text field. Metadata, container and inactive/disabled record pointers are rejected."
             }
           },
           "sources": {
