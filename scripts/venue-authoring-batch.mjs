@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -236,6 +236,13 @@ async function prepareVenue(spec, base) {
         !object(acceptance.evidence ?? {})
       )
         throw new Error('Invalid acceptance identity or manifest')
+      // The manifest identity must be the batch venue's own; otherwise one venue could carry another's evidence.
+      if (acceptance.venueId !== spec.id)
+        throw new Error(
+          `Acceptance manifest venueId does not match batch venue id (${spec.id}); evidence cannot be borrowed across venues`,
+        )
+      if (spec.tenantId !== undefined && acceptance.tenantId !== spec.tenantId)
+        throw new Error('Acceptance manifest tenantId does not match batch venue tenantId')
       const manifestBase = path.dirname(files.acceptanceManifest)
       const packageFile = await bounded(manifestBase, acceptance.package)
       if (key(packageFile) !== key(files.package))
@@ -601,6 +608,37 @@ export async function runBatch({
       result.publicationReadiness.verdict = 'NOT_READY'
       result.publicationReadiness.reason =
         'A requested local check failed; acceptance alone cannot promote this batch result'
+    }
+    // acceptance.json must never say PUBLISH_CANDIDATE when the final result is NOT_READY.
+    const acceptanceStage = result.stages.acceptance
+    if (
+      !result.requestedChecksPassed &&
+      acceptanceStage?.report &&
+      acceptanceStage.status === 'MEASURED'
+    ) {
+      const reportFile = path.join(venueDir, 'acceptance.json')
+      const childFile = path.join(venueDir, 'acceptance-child-report.json')
+      try {
+        const original = JSON.parse(await readFile(reportFile, 'utf8'))
+        if (original.verdict === 'PUBLISH_CANDIDATE') {
+          await rename(reportFile, childFile)
+          await save(reportFile, {
+            ...original,
+            verdict: 'NOT_READY',
+            childVerdict: original.verdict,
+            batchDowngrade: {
+              reason: result.publicationReadiness.reason,
+              errors: [...result.errors],
+              originalReport: 'acceptance-child-report.json',
+            },
+          })
+          acceptanceStage.originalReport = await binding(childFile)
+          acceptanceStage.report = await binding(reportFile)
+        }
+      } catch (error) {
+        result.errors.push(`acceptance verdict reconciliation failed: ${error.message}`)
+        result.requestedChecksPassed = false
+      }
     }
     await save(path.join(venueDir, 'result.json'), result)
     results.push(result)

@@ -51,16 +51,30 @@ async function fixture(count = 1) {
     await save(path.join(packet, 'coverage.json'), {
       schemaVersion: 1,
       profile: 'other',
-      rows: categories.map((category) => ({
-        category,
-        status: 'NOT_APPLICABLE',
-        records: [],
-        sources: [],
-        observedAt: '2026-10-24',
-        recheckBy: '2026-10-26',
-        publishImpact: 'NONE',
-        rationale: 'Fictional fixture category does not apply.',
-      })),
+      // Core guest categories can never be NOT_APPLICABLE; they disclose the unknown instead.
+      rows: categories.map((category) =>
+        ['hours-season', 'admission-prices', 'address-parking', 'contact'].includes(category)
+          ? {
+              category,
+              status: 'UNKNOWN',
+              records: ['/knowledgeEntries/create/0'],
+              sources: [],
+              observedAt: '2026-10-24',
+              recheckBy: '2026-10-26',
+              publishImpact: 'DISCLOSE',
+              rationale: 'Fictional fixture discloses this unknown category.',
+            }
+          : {
+              category,
+              status: 'NOT_APPLICABLE',
+              records: [],
+              sources: [],
+              observedAt: '2026-10-24',
+              recheckBy: '2026-10-26',
+              publishImpact: 'NONE',
+              rationale: 'Fictional fixture category does not apply.',
+            },
+      ),
     })
     await save(path.join(packet, 'acceptance-manifest.json'), {
       schemaVersion: 1,
@@ -342,7 +356,7 @@ test('acceptance evidence escapes are refused before any composer can read them'
   await save(path.join(f.base, 'fictional-0', 'acceptance-manifest.json'), {
     schemaVersion: 1,
     tenantId: 'fictional',
-    venueId: 'fictional',
+    venueId: 'fictional-0',
     package: 'package.json',
     evidence: { guestLink: { file: '../outside.json', sha256: 'a'.repeat(64) } },
   })
@@ -453,3 +467,69 @@ test(
     assert.equal(result.requestedChecksPassed, false)
   },
 )
+test('acceptance manifest venueId must equal the batch venue id', async () => {
+  const f = await fixture(2)
+  // fictional-1 points at a manifest that names fictional-0's identity.
+  await save(path.join(f.base, 'fictional-1', 'acceptance-manifest.json'), {
+    schemaVersion: 1,
+    tenantId: 'fictional-tenant',
+    venueId: 'fictional-0',
+    package: 'package.json',
+    evidence: {},
+  })
+  const result = await runBatch({ ...f, toolRunner: previewFixture })
+  assert.equal(
+    result.venues[0].errors.some((e) => /venueId does not match/.test(e)),
+    false,
+  )
+  const borrowed = result.venues[1]
+  assert.equal(borrowed.requestedChecksPassed, false)
+  assert.match(borrowed.errors.join(), /venueId does not match batch venue id/)
+  assert.equal(borrowed.stages.acceptance, undefined)
+  assert.equal(borrowed.publicationReadiness.verdict, 'NOT_READY')
+  assert.equal(result.requestedChecksPassed, false)
+})
+test('batch tenantId, when given, must equal the manifest tenantId', async () => {
+  const f = await fixture()
+  f.manifest.venues[0].tenantId = 'other-tenant'
+  await f.update()
+  const result = await runBatch({ ...f, toolRunner: previewFixture })
+  assert.match(result.venues[0].errors.join(), /tenantId does not match/)
+})
+test('acceptance.json never says PUBLISH_CANDIDATE when the final result is NOT_READY', async () => {
+  const f = await fixture()
+  const coverageFile = path.join(f.base, 'fictional-0', 'coverage.json')
+  const coverage = JSON.parse(await readFile(coverageFile))
+  coverage.rows[0].publishImpact = 'BLOCKS' // a different requested check fails
+  await save(coverageFile, coverage)
+  const candidateRunner = async (command, args, opts) => {
+    if (args[0] !== 'scripts/venue-acceptance-receipt.mjs')
+      return previewFixture(command, args, opts)
+    const fields = Object.fromEntries(
+      Array.from({ length: 9 }, (_, i) => [`f${i}`, { status: 'MEASURED', readinessPassed: true }]),
+    )
+    await save(args[args.indexOf('--output') + 1], {
+      verdict: 'PUBLISH_CANDIDATE',
+      fields,
+      missingItems: [],
+    })
+    return { exitCode: 0, signal: null, failure: null, stdout: '', stderr: '' }
+  }
+  const result = await runBatch({ ...f, toolRunner: candidateRunner })
+  const venue = result.venues[0]
+  assert.equal(venue.requestedChecksPassed, false)
+  assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+  const dir = path.join(f.outputDir, 'fictional-0')
+  const final = JSON.parse(await readFile(path.join(dir, 'acceptance.json')))
+  assert.equal(final.verdict, 'NOT_READY')
+  assert.equal(final.childVerdict, 'PUBLISH_CANDIDATE')
+  assert.ok(final.batchDowngrade.errors.length > 0)
+  const original = JSON.parse(await readFile(path.join(dir, 'acceptance-child-report.json')))
+  assert.equal(original.verdict, 'PUBLISH_CANDIDATE')
+  const bound = hash(await readFile(path.join(dir, 'acceptance.json')))
+  assert.equal(venue.stages.acceptance.report.sha256, bound)
+  assert.equal(
+    venue.stages.acceptance.originalReport.sha256,
+    hash(await readFile(path.join(dir, 'acceptance-child-report.json'))),
+  )
+})

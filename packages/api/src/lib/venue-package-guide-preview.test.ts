@@ -117,6 +117,19 @@ describe('offline production guide preview', () => {
   })
 })
 
+describe('create-only place activity parity', () => {
+  it('rejects create-time isActive/visibility, so no inactive place can reach the projection', () => {
+    // The create value schema (PlaceInput from @pathfinder/contracts/venue-package) is strict and has no
+    // isActive/visibility; import writes neither on create (DB default active, PUBLIC). Production
+    // guestPlaceScope (isActive:true) therefore cannot diverge from the preview for create-only packages.
+    for (const extra of [{ isActive: false }, { visibility: 'SECOND_LAYER' }]) {
+      const input = fixture()
+      Object.assign(input.places.create[0]!.value, extra)
+      expect(() => previewVenuePackageGuide(input, date)).toThrow(/Unrecognized key/)
+    }
+  })
+})
+
 describe('connected-source production eligibility', () => {
   it('excludes known ineligible knowledge consistently with the actual production loader', async () => {
     const original = fixture()
