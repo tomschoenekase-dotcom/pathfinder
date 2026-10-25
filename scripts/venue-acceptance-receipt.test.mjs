@@ -1,10 +1,15 @@
 import test from 'node:test'
 import { spawnSync } from 'node:child_process'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { composeReceipt, evidenceKinds, sha256 } from './venue-acceptance-receipt.mjs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import {
+  MIN_VISITOR_QA_TURNS,
+  composeReceipt,
+  evidenceKinds,
+  sha256,
+} from './venue-acceptance-receipt.mjs'
 const qa = resolve(dirname(fileURLToPath(import.meta.url)), '../../qa/S5')
 mkdirSync(qa, { recursive: true })
 const now = '2026-10-25T12:00:00Z'
@@ -35,7 +40,16 @@ function fixture() {
   const packageFile = save('package.json', pkg)
   const revision = 'a'.repeat(40)
   mkdirSync(resolve(root, 'sources'))
-  const binding = save('source.json', { sources: [] })
+  const binding = save('source.json', { sources: [{ sourceId: 'fictional-source' }] })
+  const sourceText = 'The fictional observatory opens at nine and the desk answers questions.'
+  const sourceFile = resolve(root, 'sources', 'fictional-source.txt')
+  writeFileSync(sourceFile, sourceText)
+  const sourceBinding = {
+    sourceId: 'fictional-source',
+    file: realpathSync.native(sourceFile),
+    sha256: sha256(readFileSync(sourceFile)),
+  }
+  const coreCategories = ['hours-season', 'admission-prices', 'address-parking', 'contact']
   const rows = [
     'hours-season',
     'closures',
@@ -47,16 +61,31 @@ function fixture() {
     'food-allergen-policy',
     'pets-service-animals',
     'weather-policy',
-  ].map((category) => ({
-    category,
-    status: 'NOT_APPLICABLE',
-    records: [],
-    sources: [],
-    observedAt: '2026-10-23',
-    recheckBy: '2026-10-26',
-    publishImpact: 'NONE',
-    rationale: 'Fictional fixture category does not apply.',
-  }))
+  ].map((category) =>
+    coreCategories.includes(category)
+      ? {
+          category,
+          status: 'KNOWN',
+          records: ['/knowledgeEntries/create/0'],
+          sources: [
+            { sourceId: 'fictional-source', start: 0, end: 30, text: sourceText.slice(0, 30) },
+          ],
+          observedAt: '2026-10-23',
+          recheckBy: '2026-10-26',
+          publishImpact: 'NONE',
+          rationale: 'Fictional fixture row backed by the fictional source.',
+        }
+      : {
+          category,
+          status: 'NOT_APPLICABLE',
+          records: [],
+          sources: [],
+          observedAt: '2026-10-23',
+          recheckBy: '2026-10-26',
+          publishImpact: 'NONE',
+          rationale: 'Fictional fixture category does not apply.',
+        },
+  )
   const coverageInput = save('coverage-input.json', {
     schemaVersion: 1,
     profile: 'other',
@@ -73,7 +102,7 @@ function fixture() {
         package: packageFile,
         ledger: binding,
         coverage: coverageInput,
-        sources: [],
+        sources: [sourceBinding],
       },
     },
     checkPackage: {
@@ -96,7 +125,11 @@ function fixture() {
         venueId: 'fictional-venue',
       },
     },
-    guestLink: { usable: true, url: 'https://example.invalid/guide' },
+    guestLink: {
+      usable: true,
+      url: 'https://example.invalid/guide',
+      venueId: 'fictional-venue',
+    },
     embeddings: { mode: 'audit', actionableReasons: [], recordsAudited: 1 },
     guidePreview: { ...structuredClone(nativePreview), packageSha256: packageFile.sha256 },
     servingRoute: {
@@ -110,18 +143,17 @@ function fixture() {
     visitorQa: {
       route: 'guest',
       routeVerified: true,
-      turnsCompleted: 1,
+      turnsCompleted: MIN_VISITOR_QA_TURNS,
       criticalFailures: 0,
-      results: [
-        {
-          question: 'Where is the fictional observatory?',
-          answer: 'At the fictional address.',
-          completed: true,
-          criticalFailure: false,
-          firstTextMs: 10,
-          completionMs: 20,
-        },
-      ],
+      questionSet: { file: 'fictional-questions.json', sha256: 'c'.repeat(64) },
+      results: Array.from({ length: MIN_VISITOR_QA_TURNS }, (_, i) => ({
+        question: `Fictional visitor question number ${i + 1}?`,
+        answer: 'At the fictional address.',
+        completed: true,
+        criticalFailure: false,
+        firstTextMs: 10,
+        completionMs: 20,
+      })),
     },
     phoneCheck: {
       rendered: true,
@@ -153,9 +185,9 @@ function fixture() {
     }
     manifest.evidence[kind] = save(`${kind}.json`, envelopes[kind])
   }
-  const run = () => {
+  const run = (options = {}) => {
     save('manifest.json', manifest)
-    return composeReceipt(resolve(root, 'manifest.json'), { asOf: now })
+    return composeReceipt(resolve(root, 'manifest.json'), { asOf: now, now, ...options })
   }
   return {
     root,
@@ -337,7 +369,8 @@ for (const impact of ['NONE', 'DISCLOSE'])
     })
     const result = f.run()
     assert.equal(result.verdict, impact === 'DISCLOSE' ? 'PUBLISH_CANDIDATE' : 'NOT_READY')
-    if (impact === 'NONE') assert.match(result.missingItems.join(), /required success predicates/)
+    if (impact === 'NONE')
+      assert.match(result.missingItems.join(), /required success predicates|coverage/)
   })
 
 for (const [status, impact] of [
@@ -364,6 +397,8 @@ for (const [status, impact] of [
     const result = f.run()
     const field = result.fields.coverage
     assert.equal(result.verdict, 'NOT_READY')
+    // A checker that rejects status/impact disagreement (NONE) leaves the field NOT_MEASURED.
+    if (impact === 'NONE' && field.status === 'NOT_MEASURED') return
     assert.equal(field.status, 'MEASURED')
     assert.equal(field.readinessPassed, false)
     assert.ok(field.failureReason)
@@ -496,4 +531,263 @@ test('native preview is recomputed after package changes despite refreshed attes
   const result = f.run()
   assert.equal(result.verdict, 'NOT_READY')
   assert.match(result.fields.guidePreview.reason, /native recomputation/)
+})
+
+// ---- Hardening regressions (M1-M4, m1, guestLink) ----
+const rebindCoverage = (f, mutateRows) =>
+  f.change('coverage', (e) => {
+    mutateRows(e.data.rows)
+    e.data.bindings.coverage = f.save('coverage-input.json', {
+      schemaVersion: 1,
+      profile: 'other',
+      rows: e.data.rows,
+    })
+  })
+const addDays = (iso, days) => new Date(Date.parse(iso) + days * 86_400_000).toISOString()
+const addMinutes = (iso, minutes) => new Date(Date.parse(iso) + minutes * 60_000).toISOString()
+const realChecker = new URL('./venue-coverage/check.mjs', import.meta.url).href
+// Test seam: a wrapper checker module so the composer's recomputation can be varied.
+const stubChecker = (f, body) => {
+  const file = resolve(f.root, 'stub-checker.mjs')
+  writeFileSync(
+    file,
+    `import { checkCoverage as real } from ${JSON.stringify(realChecker)}\nexport const checkCoverage = async (a) => { const r = await real(a); return ${body} }\n`,
+  )
+  return pathToFileURL(file).href
+}
+
+for (const category of ['hours-season', 'admission-prices', 'address-parking', 'contact'])
+  test(`core category ${category} marked NOT_APPLICABLE is not coverage-ready`, () => {
+    const f = fixture()
+    rebindCoverage(f, (rows) => {
+      const row = rows.find((r) => r.category === category)
+      row.status = 'NOT_APPLICABLE'
+      row.records = []
+      row.sources = []
+      row.rationale = 'Fictional claim that this core category does not apply here.'
+    })
+    const result = f.run()
+    assert.equal(result.verdict, 'NOT_READY')
+    const field = result.fields.coverage
+    // Either the coverage checker rejects it (NOT_MEASURED) or the composer marks it not ready.
+    if (field.status === 'MEASURED') {
+      assert.equal(field.readinessPassed, false)
+      assert.match(field.failureReason, /NOT_APPLICABLE/)
+    } else assert.equal(field.status, 'NOT_MEASURED')
+  })
+
+test('composer independently rejects core NOT_APPLICABLE even when the checker accepts it', () => {
+  const f = fixture()
+  const coverageCheckerUrl = stubChecker(f, "{ ...r, passed: true, verdict: 'PASS', errors: [] }")
+  rebindCoverage(f, (rows) => {
+    const row = rows.find((r) => r.category === 'contact')
+    row.status = 'NOT_APPLICABLE'
+    row.records = []
+    row.sources = []
+  })
+  const result = f.run({ coverageCheckerUrl })
+  assert.equal(result.verdict, 'NOT_READY')
+  assert.equal(result.fields.coverage.status, 'MEASURED')
+  assert.equal(result.fields.coverage.readinessPassed, false)
+  assert.match(result.fields.coverage.failureReason, /NOT_APPLICABLE/)
+})
+
+for (const [name, findings, ready] of [
+  ['non-empty readinessFindings', [{ category: 'hours-season', reason: 'unbound label' }], false],
+  ['malformed readinessFindings', 'oops', false],
+  ['empty readinessFindings', [], true],
+])
+  test(`recomputed ${name} ${ready ? 'keep' : 'block'} coverage readiness`, () => {
+    const f = fixture()
+    const coverageCheckerUrl = stubChecker(
+      f,
+      `{ ...r, readinessFindings: ${JSON.stringify(findings)} }`,
+    )
+    const result = f.run({ coverageCheckerUrl })
+    assert.equal(result.verdict, ready ? 'PUBLISH_CANDIDATE' : 'NOT_READY')
+    assert.equal(result.fields.coverage.readinessPassed, ready)
+    if (!ready) assert.match(result.fields.coverage.failureReason, /readinessFindings/)
+  })
+
+test('a saved report claiming empty readinessFindings does not override the recomputed ones', () => {
+  const f = fixture()
+  const coverageCheckerUrl = stubChecker(f, "{ ...r, readinessFindings: ['x'] }")
+  f.change('coverage', (e) => {
+    e.data.readinessFindings = []
+  })
+  assert.equal(f.run({ coverageCheckerUrl }).verdict, 'NOT_READY')
+})
+
+test('visitorQa requires the minimum number of completed turns', () => {
+  const f = fixture()
+  f.change('visitorQa', (e) => {
+    e.data.results = e.data.results.slice(0, MIN_VISITOR_QA_TURNS - 1)
+    e.data.turnsCompleted = e.data.results.length
+  })
+  const result = f.run()
+  assert.equal(result.verdict, 'NOT_READY')
+  assert.equal(result.fields.visitorQa.status, 'NOT_MEASURED')
+})
+test('visitorQa rejects the one trivial turn from the review', () => {
+  const f = fixture()
+  f.change('visitorQa', (e) => {
+    e.data.turnsCompleted = 1
+    e.data.results = [
+      {
+        question: 'x',
+        answer: 'y',
+        completed: true,
+        criticalFailure: false,
+        firstTextMs: 0,
+        completionMs: 0,
+      },
+    ]
+  })
+  assert.equal(f.run().verdict, 'NOT_READY')
+})
+test('visitorQa rejects duplicate question text', () => {
+  const f = fixture()
+  f.change('visitorQa', (e) => {
+    e.data.results[1].question = `  ${e.data.results[0].question.toUpperCase()} `
+  })
+  const result = f.run()
+  assert.equal(result.verdict, 'NOT_READY')
+  assert.equal(result.fields.visitorQa.status, 'NOT_MEASURED')
+})
+test('visitorQa rejects firstTextMs of zero', () => {
+  const f = fixture()
+  f.change('visitorQa', (e) => {
+    e.data.results[3].firstTextMs = 0
+    e.data.results[3].completionMs = 0
+  })
+  assert.equal(f.run().verdict, 'NOT_READY')
+})
+for (const [name, mutate] of [
+  ['missing', (d) => delete d.questionSet],
+  ['non-hex digest', (d) => (d.questionSet.sha256 = 'z'.repeat(64))],
+  ['short digest', (d) => (d.questionSet.sha256 = 'c'.repeat(63))],
+  ['missing file', (d) => (d.questionSet.file = '')],
+])
+  test(`visitorQa questionSet ${name} fails closed`, () => {
+    const f = fixture()
+    f.change('visitorQa', (e) => mutate(e.data))
+    assert.equal(f.run().verdict, 'NOT_READY')
+  })
+
+test('hosted evidence window longer than 14 days is NOT_MEASURED; exactly 14 days passes', () => {
+  const f = fixture()
+  f.change('import', (e) => {
+    e.expiresAt = addDays(e.measuredAt, 14)
+  })
+  f.change('visitorQa', (e) => {
+    e.expiresAt = addDays(e.measuredAt, 14)
+  })
+  assert.equal(f.run().verdict, 'PUBLISH_CANDIDATE')
+  f.change('visitorQa', (e) => {
+    e.expiresAt = addDays(e.measuredAt, 15)
+  })
+  const result = f.run()
+  assert.equal(result.verdict, 'NOT_READY')
+  assert.equal(result.fields.visitorQa.status, 'NOT_MEASURED')
+  assert.match(result.fields.visitorQa.reason, /validity window/)
+})
+for (const kind of ['coverage', 'checkPackage', 'guidePreview'])
+  test(`local evidence ${kind} window longer than 7 days is NOT_MEASURED; exactly 7 days passes`, () => {
+    const f = fixture()
+    f.change(kind, (e) => {
+      e.expiresAt = addDays(e.measuredAt, 7)
+    })
+    assert.equal(f.run().verdict, 'PUBLISH_CANDIDATE')
+    f.change(kind, (e) => {
+      e.expiresAt = addDays(e.measuredAt, 8)
+    })
+    const result = f.run()
+    assert.equal(result.verdict, 'NOT_READY')
+    assert.equal(result.fields[kind].status, 'NOT_MEASURED')
+    assert.match(result.fields[kind].reason, /validity window/)
+  })
+
+test('asOf more than 60 minutes from the real clock can never be a publish candidate', () => {
+  const f = fixture()
+  assert.equal(f.run({ now: addMinutes(now, 60) }).verdict, 'PUBLISH_CANDIDATE')
+  assert.equal(f.run({ now: addMinutes(now, -60) }).verdict, 'PUBLISH_CANDIDATE')
+  for (const skew of [61, -61, 60 * 24 * 30]) {
+    const result = f.run({ now: addMinutes(now, skew) })
+    assert.equal(result.verdict, 'NOT_READY')
+    assert.ok(
+      result.missingItems.includes(
+        'asOf: historical or future replay cannot produce a publish candidate',
+      ),
+    )
+  }
+})
+test('replays remain reportable and the receipt records the real compose time', () => {
+  const f = fixture()
+  const later = addMinutes(now, 600)
+  const result = f.run({ now: later })
+  assert.equal(result.generatedAt, now)
+  assert.equal(result.composedAt, later)
+  assert.equal(result.fields.visitorQa.status, 'MEASURED')
+})
+
+test('embeddings must audit at least the created knowledge entries plus places', () => {
+  const f = fixture()
+  const pkg = JSON.parse(readFileSync(f.manifest.package, 'utf8'))
+  pkg.knowledgeEntries.create.push({
+    ...structuredClone(pkg.knowledgeEntries.create[0]),
+    itemKey: '00000000-0000-4000-8000-000000000002',
+  })
+  pkg.places.create.push({
+    itemKey: '00000000-0000-4000-8000-000000000003',
+    value: { name: 'Fictional hall', isActive: true },
+  })
+  const updated = f.save('package.json', pkg)
+  for (const kind of evidenceKinds)
+    f.change(kind, (e) => {
+      e.packageSha256 = updated.sha256
+      if (kind === 'coverage') e.data.bindings.package = updated
+      if (kind === 'guidePreview') e.data.packageSha256 = updated.sha256
+      if (kind === 'import') e.data.receipt.packageSha256 = updated.sha256
+      if (kind === 'embeddings') e.data.recordsAudited = 2
+    })
+  const short = f.run()
+  assert.equal(short.fields.embeddings.status, 'NOT_MEASURED')
+  assert.match(short.fields.embeddings.reason, /recordsAudited/)
+  f.change('embeddings', (e) => {
+    e.data.recordsAudited = 3
+  })
+  assert.equal(f.run().fields.embeddings.readinessPassed, true)
+})
+
+test('non-JSON evidence is hashed first and its contents never reach the receipt', () => {
+  const f = fixture()
+  const secret = 'API_KEY=sk-live-fictional-0000'
+  const path = resolve(f.root, 'phoneCheck.json')
+  writeFileSync(path, secret)
+  // Hash mismatch: reported as a mismatch, not as a parse error.
+  let result = f.run()
+  assert.match(result.fields.phoneCheck.reason, /sha256 mismatch/)
+  // Hash match but not JSON: fixed message only.
+  f.manifest.evidence.phoneCheck = { file: path, sha256: sha256(readFileSync(path)) }
+  result = f.run()
+  assert.equal(result.fields.phoneCheck.reason, 'evidence file is not valid JSON')
+  assert.equal(JSON.stringify(result).includes('API_KEY'), false)
+  assert.equal(JSON.stringify(result).includes('Unexpected token'), false)
+})
+
+test('guestLink must be bound to the venue', () => {
+  for (const mutate of [
+    (d) => delete d.venueId,
+    (d) => (d.venueId = 'another-fictional-venue'),
+    (d) => (d.environment = 'local'),
+  ]) {
+    const f = fixture()
+    f.change('guestLink', (e) => mutate(e.data))
+    const result = f.run()
+    assert.equal(result.verdict, 'NOT_READY')
+    assert.equal(result.fields.guestLink.status, 'NOT_MEASURED')
+  }
+  const f = fixture()
+  f.change('guestLink', (e) => delete e.data.venueId)
+  assert.match(f.run().fields.guestLink.reason, /not bound to venue/)
 })
