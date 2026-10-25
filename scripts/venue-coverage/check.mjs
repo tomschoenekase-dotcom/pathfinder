@@ -1,7 +1,8 @@
 import { readFile, realpath, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 
 export const categories = [
   'hours-season',
@@ -59,6 +60,8 @@ export function guestRecordText(document, ref) {
   if (!match) throw new Error('pointer must identify an authored guest record or text field')
   const record = pointer(document, `/${match[1]}/${match[2]}/${match[3]}`)
   const value = record?.value
+  if (match[1] === 'knowledgeEntries' && record?.provenance?.sourceType === 'SOURCE_CONNECTION')
+    throw new Error('SOURCE_CONNECTION knowledge is excluded from guest publication')
   if (!object(value)) throw new Error('guest record value missing')
   if (value.isEnabled === false || value.isActive === false)
     throw new Error('guest record is disabled or inactive')
@@ -72,6 +75,71 @@ export function guestRecordText(document, ref) {
   const result = text.filter(nonempty)
   if (!result.length) throw new Error('guest record has no text')
   return result
+}
+// Reuse the production temporal classifier and visitor-facing sanitizers. Resolve only
+// already-installed dependencies; no CLI/package-manager/network fallback is permitted.
+let guestVisibilityHelpers
+async function loadGuestVisibilityHelpers() {
+  guestVisibilityHelpers ??= (async () => {
+    let loaderPath
+    for (const anchor of [
+      new URL('../../packages/api/package.json', import.meta.url),
+      new URL('../../node_modules/.pnpm/node_modules/tsx/package.json', import.meta.url),
+    ]) {
+      try {
+        loaderPath = createRequire(anchor).resolve('tsx/esm/api')
+        break
+      } catch {
+        /* Try the existing PNPM shared installation. */
+      }
+    }
+    if (!loaderPath)
+      throw new Error('installed tsx loader unavailable; guest visibility is unverified')
+    const { tsImport } = await import(pathToFileURL(loaderPath).href)
+    const unwrap = (module) => module.default ?? module
+    const dates = unwrap(
+      await tsImport(
+        new URL('../../packages/api/src/lib/guest-event-dates.ts', import.meta.url).href,
+        import.meta.url,
+      ),
+    )
+    const facing = unwrap(
+      await tsImport(
+        new URL('../../packages/api/src/lib/guest-facing-text.ts', import.meta.url).href,
+        import.meta.url,
+      ),
+    )
+    if (
+      typeof dates.classifyGuestDatedEvent !== 'function' ||
+      typeof facing.guestFacingText !== 'function' ||
+      typeof facing.guestFacingTitle !== 'function'
+    )
+      throw new Error('production guest visibility helpers unavailable')
+    return { ...dates, ...facing }
+  })()
+  return guestVisibilityHelpers
+}
+async function guestDisclosureText(document, ref, text, asOf) {
+  const helpers = await loadGuestVisibilityHelpers()
+  const parts = ref.split('/')
+  const record = pointer(document, parts.slice(0, 4).join('/'))
+  const value = record.value
+  if (parts[1] === 'knowledgeEntries') {
+    if (![value.title, value.category, value.content].every(nonempty))
+      throw new Error('guest visibility unverified: knowledge title/category/content required')
+    const status = helpers.classifyGuestDatedEvent(value, asOf)
+    if (!['CURRENT', 'CHECK_DATES', 'PAST'].includes(status))
+      throw new Error('guest visibility unverified: invalid temporal classification')
+    if (status === 'PAST')
+      throw new Error(
+        'UNKNOWN DISCLOSE record is PAST and its body is omitted by the production guide',
+      )
+  }
+  return text.map((part) =>
+    part === value.title || part === value.name
+      ? helpers.guestFacingTitle(part)
+      : helpers.guestFacingText(part),
+  )
 }
 export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sourcesDir, asOf }) {
   if (!date(asOf)) throw new Error('--as-of must be a real YYYY-MM-DD date')
@@ -170,7 +238,9 @@ export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sou
       fail('UNKNOWN DISCLOSE requires a package record')
     for (const ref of row.records) {
       try {
-        const text = guestRecordText(pkg, ref)
+        let text = guestRecordText(pkg, ref)
+        if (row.status === 'UNKNOWN' && row.publishImpact === 'DISCLOSE')
+          text = await guestDisclosureText(pkg, ref, text, asOf)
         if (
           row.status === 'UNKNOWN' &&
           row.publishImpact === 'DISCLOSE' &&
@@ -226,7 +296,7 @@ export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sou
     errors,
     bindings,
     scope:
-      'Presence, linkage and freshness checks only; no factual truth or publication approval is inferred.',
+      'Presence, linkage, freshness and deterministic disclosure eligibility checks only. Production temporal/sanitization helpers are reused; live authority and retrieval are not measured. No factual truth or publication approval is inferred.',
   }
 }
 export async function main(args) {

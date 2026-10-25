@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, cp, rm } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { checkCoverage, main, pointer } from './venue-coverage/check.mjs'
 const fixture = fileURLToPath(new URL('./fixtures/venue-coverage/', import.meta.url))
-async function run(t, mutate = () => {}) {
+async function run(t, mutate = () => {}, asOf = '2026-10-24') {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'fictional-coverage-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   await cp(fixture, dir, { recursive: true })
@@ -19,7 +19,7 @@ async function run(t, mutate = () => {}) {
     ledgerPath: path.join(dir, 'ledger.json'),
     coveragePath,
     sourcesDir: path.join(dir, 'sources'),
-    asOf: '2026-10-24',
+    asOf,
   }
   return { report: await checkCoverage(options), options, dir }
 }
@@ -346,4 +346,104 @@ test('explicit guest content field pointers pass', async (t) => {
     for (const row of c.rows) row.records = ['/knowledgeEntries/create/0/value/content']
   })
   assert.equal(report.passed, true, report.errors.join('\n'))
+})
+
+test('UNKNOWN DISCLOSE cannot rely on an enabled past event body omitted by production', async (t) => {
+  const { report } = await run(
+    t,
+    async (coverage, dir) => {
+      const filename = path.join(dir, 'package.json')
+      const pkg = JSON.parse(await readFile(filename, 'utf8'))
+      Object.assign(pkg.knowledgeEntries.create[0].value, {
+        title: 'Fictional Garden Festival 2025',
+        category: 'Events',
+        content: 'Current opening hours are unconfirmed. Ask the fictional garden before visiting.',
+        isEnabled: true,
+      })
+      pkg.knowledgeEntries.create[0].provenance.sourceType = 'MANUAL'
+      await writeFile(filename, JSON.stringify(pkg))
+    },
+    '2026-10-25',
+  )
+  assert.equal(report.passed, false)
+  assert.ok(report.errors.some((error) => error.includes('PAST')))
+})
+test('SOURCE_CONNECTION knowledge cannot supply a guest-visible disclosure', async (t) => {
+  const { report } = await run(t, async (c, dir) => {
+    const filename = path.join(dir, 'package.json')
+    const pkg = JSON.parse(await readFile(filename, 'utf8'))
+    pkg.knowledgeEntries.create[0].provenance.sourceType = 'SOURCE_CONNECTION'
+    await writeFile(filename, JSON.stringify(pkg))
+  })
+  assert.equal(report.passed, false)
+  assert.ok(report.errors.some((error) => error.includes('SOURCE_CONNECTION')))
+})
+for (const [title, content] of [
+  ['Fictional Garden Festival 2027', 'Current opening hours are unconfirmed. Ask staff.'],
+  [
+    'Fictional Garden Festival 2025',
+    'The 2027 run is announced. Current opening hours are unconfirmed. Ask staff.',
+  ],
+  ['Current visitor information', 'Current opening hours are unconfirmed. Ask staff.'],
+])
+  test(`current or future eligible disclosure remains admissible: ${title} / ${content.slice(0, 12)}`, async (t) => {
+    const { report } = await run(
+      t,
+      async (c, dir) => {
+        const filename = path.join(dir, 'package.json')
+        const pkg = JSON.parse(await readFile(filename, 'utf8'))
+        Object.assign(pkg.knowledgeEntries.create[0].value, {
+          title,
+          category: 'Events',
+          content,
+          isEnabled: true,
+        })
+        await writeFile(filename, JSON.stringify(pkg))
+      },
+      '2026-10-25',
+    )
+    assert.equal(report.passed, true, report.errors.join('\n'))
+  })
+test('a disclosure removed by shared guest-facing sanitization fails closed', async (t) => {
+  const { report } = await run(t, async (c, dir) => {
+    const filename = path.join(dir, 'package.json')
+    const pkg = JSON.parse(await readFile(filename, 'utf8'))
+    pkg.knowledgeEntries.create[0].value.content = 'For testing, opening hours are unconfirmed.'
+    await writeFile(filename, JSON.stringify(pkg))
+  })
+  assert.equal(report.passed, false)
+})
+
+test('unavailable installed production helpers fail closed instead of assuming disclosure visibility', async (t) => {
+  const { options, dir } = await run(t)
+  const isolatedChecker = path.join(dir, 'isolated-checker.mjs')
+  await cp(fileURLToPath(new URL('./venue-coverage/check.mjs', import.meta.url)), isolatedChecker)
+  const isolated = await import(pathToFileURL(isolatedChecker).href)
+  const report = await isolated.checkCoverage(options)
+  assert.equal(report.passed, false)
+  assert.ok(
+    report.errors.some((error) => error.includes('unavailable') || error.includes('Cannot find')),
+  )
+})
+test('invalid temporal classifier input fails closed', async (t) => {
+  const { report } = await run(t, async (c, dir) => {
+    const filename = path.join(dir, 'package.json')
+    const pkg = JSON.parse(await readFile(filename, 'utf8'))
+    pkg.knowledgeEntries.create[0].value.category = 42
+    await writeFile(filename, JSON.stringify(pkg))
+  })
+  assert.equal(report.passed, false)
+  assert.ok(report.errors.some((error) => error.includes('visibility unverified')))
+})
+test('a marker removed from a research bookkeeping title is not a guest disclosure', async (t) => {
+  const { report } = await run(t, async (c, dir) => {
+    const filename = path.join(dir, 'package.json')
+    const pkg = JSON.parse(await readFile(filename, 'utf8'))
+    Object.assign(pkg.knowledgeEntries.create[0].value, {
+      title: 'Visitor hours and unconfirmed source conflicts',
+      content: 'Ask staff for details.',
+    })
+    await writeFile(filename, JSON.stringify(pkg))
+  })
+  assert.equal(report.passed, false)
 })
