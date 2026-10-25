@@ -68,7 +68,11 @@ export function previewVenuePackageGuide(input: unknown, asOf: string) {
       }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
     knowledge: knowledge
-      .filter(({ value }) => value.isEnabled)
+      // Match the production loader's deterministic connected-source exclusion.
+      .filter(
+        ({ value, provenance }) =>
+          value.isEnabled && provenance?.sourceType !== 'SOURCE_CONNECTION',
+      )
       .map(({ id, value, provenance }) => ({
         id,
         title: value.title,
@@ -110,7 +114,7 @@ export function previewVenuePackageGuide(input: unknown, asOf: string) {
     assumptions: [
       'Only package-created rows are projected; existing live rows are not loaded.',
       'Rows are assumed PUBLIC, active and currently authorized for guest publication; no live authority, adoption, visibility or venue activation is verified.',
-      'Disabled knowledge is excluded; missing optional values use public renderer defaults. Source provenance is copied when supplied, otherwise MANUAL/null.',
+      'Disabled and SOURCE_CONNECTION knowledge are excluded as in the production loader; missing optional values use public renderer defaults. Source provenance is copied when supplied, otherwise MANUAL/null.',
       'No live updatedAt is invented; recordDates is off. Venue settings and hosted strategy are not measured.',
       'fullGuideRenderedChars is diagnostic: the unchanged renderer runs with an unlimited full-guide bound; mode uses its production 120000-character default.',
     ],

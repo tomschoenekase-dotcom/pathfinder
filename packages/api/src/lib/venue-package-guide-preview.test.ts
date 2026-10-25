@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { loadGuestVenueDirectory, buildGuestVenueGuidePrompt } from './guest-venue-directory'
 import { previewVenuePackageGuide } from './venue-package-guide-preview'
 
 const date = '2026-10-24'
@@ -113,5 +114,60 @@ describe('offline production guide preview', () => {
     expect(result.counts).toEqual({ places: 1, knowledge: 23 })
     expect(result.assumptions.join(' ')).toContain('no live authority')
     expect(result.scope).toBe('CREATE_ONLY_PACKAGE_PREVIEW')
+  })
+})
+
+describe('connected-source production eligibility', () => {
+  it('excludes known ineligible knowledge consistently with the actual production loader', async () => {
+    const original = fixture()
+    const operation = {
+      ...original.knowledgeEntries.create[0]!,
+      provenance: { ...provenance, sourceType: 'SOURCE_CONNECTION' },
+    }
+    const input = {
+      ...original,
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: { create: [operation], update: [], delete: [] },
+    }
+    const preview = previewVenuePackageGuide(input, date)
+    const directory = await loadGuestVenueDirectory({
+      reader: {
+        venueKnowledgeEntry: {
+          findMany: async () => [
+            {
+              id: operation.itemKey,
+              ...operation.value,
+              sourceType: 'SOURCE_CONNECTION',
+              sourceName: null,
+              sourceUrl: null,
+            },
+          ],
+        },
+        place: { findMany: async () => [] },
+      },
+      tenantId: 'fictional-tenant',
+      venueId: 'fictional-venue',
+      includeSecondLayer: false,
+      asOf: new Date(date),
+    })
+    expect(directory.knowledge).toHaveLength(0)
+    expect(preview.counts).toEqual({ places: 0, knowledge: 0 })
+    expect(preview.default.mode).toBe(
+      buildGuestVenueGuidePrompt(directory, { currentDate: date }).mode,
+    )
+    expect(preview.default.mode).toBe('NONE')
+    expect(preview.evidence.mode).toBe('NONE')
+    expect(preview.assumptions.join(' ')).toContain('no live authority')
+  })
+  it('retains ordinary knowledge and places while excluding connected-source knowledge only', () => {
+    const input = fixture()
+    input.knowledgeEntries.create[0]!.provenance = {
+      ...provenance,
+      sourceType: 'SOURCE_CONNECTION',
+    }
+    input.places.create[0]!.provenance = { ...provenance, sourceType: 'SOURCE_CONNECTION' }
+    const result = previewVenuePackageGuide(input, date)
+    expect(result.counts).toEqual({ places: 1, knowledge: 23 })
+    expect(result.default.mode).toBe('FULL')
   })
 })
