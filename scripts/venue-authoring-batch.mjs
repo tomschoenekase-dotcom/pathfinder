@@ -293,6 +293,28 @@ function readinessCoverage(report) {
     )
   )
 }
+// A cited source qualifies when the auditor completed (exit 1 still saves its negative report),
+// its text target is hash-verified and it has no freshness problem of its own. A source that
+// merely declares no recheckBy is "not verified", which the sourceIntegrity stage reports for
+// the whole ledger; it must not make every other cited source look unaudited.
+function auditedSourceProblem(audit, auditStage, sourceId) {
+  if (
+    !auditStage ||
+    auditStage.status !== 'MEASURED' ||
+    auditStage.failure ||
+    ![0, 1].includes(auditStage.exitCode)
+  )
+    return 'source auditor did not complete'
+  const row = audit?.sources?.find((entry) => entry.sourceId === sourceId)
+  if (!row) return 'source is not in the audited ledger'
+  if (row.passed === true) return null
+  const text = row.targets?.find((target) => target.target === 'text')
+  if (!text || text.status !== 'PASS') return 'retained text is not hash-verified'
+  const own = (audit.errors ?? []).filter((error) => error.startsWith(`sources[${row.index}]:`))
+  return own.every((error) => error.includes(': FRESHNESS_NOT_VERIFIED:'))
+    ? null
+    : 'source has its own integrity or freshness failure'
+}
 function coverageSourceErrors(coverage, audit, auditStage) {
   const errors = []
   for (const sourceId of new Set(
@@ -302,16 +324,16 @@ function coverageSourceErrors(coverage, audit, auditStage) {
     const audited = audit?.bindings?.sources?.find(
       (entry) => entry.sourceId === sourceId && entry.target === 'text',
     )
-    if (
-      !auditStage?.processPassed ||
-      !audit?.sources?.some((row) => row.sourceId === sourceId && row.passed === true) ||
-      !source ||
-      !audited ||
-      key(source.file) !== key(audited.file) ||
-      source.sha256 !== audited.sha256
-    )
+    const problem =
+      auditedSourceProblem(audit, auditStage, sourceId) ??
+      (!source || !audited
+        ? 'retained text binding is missing'
+        : key(source.file) !== key(audited.file) || source.sha256 !== audited.sha256
+          ? 'coverage and auditor bound different text bytes'
+          : null)
+    if (problem)
       errors.push(
-        `COVERAGE_SOURCE_NOT_AUDITED: ${sourceId} retained text must pass the source auditor with identical file and hash`,
+        `COVERAGE_SOURCE_NOT_AUDITED: ${sourceId} retained text must pass the source auditor with identical file and hash (${problem})`,
       )
   }
   return errors

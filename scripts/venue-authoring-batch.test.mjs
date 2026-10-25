@@ -584,6 +584,65 @@ for (const variant of ['raw-only', 'hash-mismatch', 'audit-omitted']) {
   })
 }
 
+async function citedSourceFixture(editLedger) {
+  const f = await fixture()
+  const packet = path.join(f.base, 'fictional-0')
+  const source = await readFile(path.join(packet, 'sources', 'S001.txt'), 'utf8')
+  const coverageFile = path.join(packet, 'coverage.json')
+  const coverage = JSON.parse(await readFile(coverageFile))
+  coverage.rows.find((row) => row.category === 'contact').sources = [
+    { sourceId: 'S001', start: 0, end: source.length, text: source },
+  ]
+  await save(coverageFile, coverage)
+  const other = 'Fictional uncited brochure text.\n'
+  await writeFile(path.join(packet, 'sources', 'S002.txt'), other)
+  const ledgerFile = path.join(packet, 'source-ledger.json')
+  const ledger = JSON.parse(await readFile(ledgerFile))
+  ledger.sources.push({
+    sourceId: 'S002',
+    observedAt: '2026-10-24',
+    text: { file: 'S002.txt', sha256: hash(other) },
+  })
+  editLedger(ledger)
+  await save(ledgerFile, ledger)
+  f.manifest.venues[0].checks = ['sourceIntegrity', 'coverage']
+  await f.update()
+  return (await runBatch(f)).venues[0]
+}
+
+test('an undated uncited source does not make a verified cited source look unaudited', async () => {
+  const venue = await citedSourceFixture(() => {})
+  assert.equal(venue.stages.sourceIntegrity.exitCode, 1)
+  assert.equal(venue.freshness.status, 'NOT_VERIFIED')
+  assert.doesNotMatch(venue.errors.join('\n'), /COVERAGE_SOURCE_NOT_AUDITED/)
+  assert.equal(venue.stages.coverage.readinessPassed, true)
+  // The ledger-level freshness gap still keeps the venue from publication.
+  assert.equal(venue.stages.sourceIntegrity.readinessPassed, false)
+  assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+})
+
+test('a cited source without its own recheckBy is reported by sourceIntegrity, not coverage', async () => {
+  const venue = await citedSourceFixture((ledger) => delete ledger.sources[0].recheckBy)
+  assert.doesNotMatch(venue.errors.join('\n'), /COVERAGE_SOURCE_NOT_AUDITED/)
+  assert.equal(venue.stages.sourceIntegrity.readinessPassed, false)
+  assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+})
+
+for (const [variant, edit] of [
+  ['explicitly stale', (ledger) => (ledger.sources[0].needsRecheck = true)],
+  ['overdue', (ledger) => (ledger.sources[0].recheckBy = '2026-10-24')],
+]) {
+  test(`a cited ${variant} source still fails coverage citation`, async () => {
+    const venue = await citedSourceFixture(edit)
+    assert.match(
+      venue.errors.join('\n'),
+      /COVERAGE_SOURCE_NOT_AUDITED: S001 .*own integrity or freshness failure/,
+    )
+    assert.equal(venue.stages.coverage.readinessPassed, false)
+    assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+  })
+}
+
 test('S1 regression: readiness findings block batch with a specific record reason', async () => {
   const f = await fixture()
   f.manifest.venues[0].checks = ['sourceIntegrity', 'coverage']
