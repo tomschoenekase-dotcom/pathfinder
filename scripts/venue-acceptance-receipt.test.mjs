@@ -19,7 +19,30 @@ function fixture() {
   )
   const packageFile = save('package.json', pkg)
   const revision = 'a'.repeat(40)
-  const binding = save('source.json', { text: 'Fictional observatory hours' })
+  mkdirSync(resolve(root, 'sources'))
+  const binding = save('source.json', { sources: [] })
+  const rows = [
+    'hours-season',
+    'closures',
+    'admission-prices',
+    'tickets-booking',
+    'address-parking',
+    'contact',
+    'accessibility',
+    'food-allergen-policy',
+    'pets-service-animals',
+    'weather-policy',
+  ].map((category) => ({
+    category,
+    status: 'NOT_APPLICABLE',
+    records: [],
+    sources: [],
+    observedAt: '2026-10-23',
+    recheckBy: '2026-10-26',
+    publishImpact: 'NONE',
+    rationale: 'Fictional fixture category does not apply.',
+  }))
+  const coverageInput = save('coverage-input.json', { schemaVersion: 1, profile: 'other', rows })
   const metrics = {
     mode: 'FULL',
     renderedChars: 50,
@@ -32,8 +55,8 @@ function fixture() {
       verdict: 'PASS',
       asOf: '2026-10-25',
       errors: [],
-      rows: [{ status: 'KNOWN', publishImpact: 'NONE' }],
-      bindings: { package: packageFile, ledger: binding, coverage: binding, sources: [binding] },
+      rows,
+      bindings: { package: packageFile, ledger: binding, coverage: coverageInput, sources: [] },
     },
     checkPackage: {
       ready: true,
@@ -239,4 +262,47 @@ test('actionable embedding reasons block', () => {
     e.data.actionableReasons = ['stale']
   })
   assert.equal(f.run().verdict, 'NOT_READY')
+})
+
+test('coverage cannot omit a bound row or invent PASS over invalid input', () => {
+  const f = fixture()
+  f.change('coverage', (e) => {
+    e.data.rows = e.data.rows.slice(1)
+  })
+  assert.equal(f.run().verdict, 'NOT_READY')
+  const g = fixture()
+  const artifact = g.save('coverage-input.json', { schemaVersion: 1, profile: 'other', rows: [] })
+  g.change('coverage', (e) => {
+    e.data.rows = []
+    e.data.bindings.coverage = artifact
+  })
+  assert.equal(g.run().verdict, 'NOT_READY')
+})
+for (const status of ['NEEDS_HUMAN', 'CONFLICTED'])
+  test(`${status} blocks even with NONE impact`, () => {
+    const f = fixture()
+    const e = f.envelopes.coverage
+    e.data.rows[0].status = status
+    e.data.rows[0].humanDecision = 'Which fictional policy applies?'
+    e.data.bindings.coverage = f.save('coverage-input.json', {
+      schemaVersion: 1,
+      profile: 'other',
+      rows: e.data.rows,
+    })
+    f.change('coverage', () => {})
+    assert.equal(f.run().verdict, 'NOT_READY')
+  })
+test('calendar rollover timestamp is rejected', () => {
+  const f = fixture()
+  f.change('phoneCheck', (e) => {
+    e.measuredAt = '2026-02-30T00:00:00Z'
+  })
+  assert.equal(f.run().verdict, 'NOT_READY')
+})
+test('equal instants with different UTC precision preserve chronological order', () => {
+  const f = fixture()
+  f.change('phoneCheck', (e) => {
+    e.measuredAt = '2026-10-25T11:00:00.000Z'
+  })
+  assert.equal(f.run().verdict, 'PUBLISH_CANDIDATE')
 })

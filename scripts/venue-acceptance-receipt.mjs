@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -26,7 +27,10 @@ const hosted = new Set([
 const text = (v) => typeof v === 'string' && v.trim().length > 0
 const empty = (v) => Array.isArray(v) && v.length === 0
 const instant = (v) =>
-  typeof v === 'string' && /^\d{4}-\d\d-\d\dT.*Z$/.test(v) && Number.isFinite(Date.parse(v))
+  typeof v === 'string' &&
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(v) &&
+  Number.isFinite(Date.parse(v)) &&
+  new Date(v).toISOString() === (v.includes('.') ? v : v.replace('Z', '.000Z'))
 
 // Evidence envelopes are explicit operator attestations wrapping saved tool output.
 // This composer validates binding and predicates; it cannot establish the truth of an attestation.
@@ -93,13 +97,40 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
             ...(d.bindings?.sources ?? []),
           ]
           if (
-            bindings.length < 4 ||
+            bindings.length < 3 ||
             d.bindings?.package?.sha256 !== pkg.sha256 ||
             !bindings.every(
               (b) => b && text(b.file) && sha256(readFileSync(resolve(base, b.file))) === b.sha256,
             )
           )
             throw new Error('coverage input binding mismatch')
+          const checker = new URL('./venue-coverage/check.mjs', import.meta.url).href
+          const child = spawnSync(
+            process.execPath,
+            [
+              '--input-type=module',
+              '-e',
+              `import {checkCoverage} from ${JSON.stringify(checker)}; const r=await checkCoverage(JSON.parse(process.argv[1])); process.stdout.write(JSON.stringify(r));`,
+              JSON.stringify({
+                packagePath: pkg.file,
+                ledgerPath: resolve(base, d.bindings.ledger.file),
+                coveragePath: resolve(base, d.bindings.coverage.file),
+                sourcesDir: d.bindings.sources?.length
+                  ? dirname(resolve(base, d.bindings.sources[0].file))
+                  : resolve(dirname(resolve(base, d.bindings.coverage.file)), 'sources'),
+                asOf: asOf.slice(0, 10),
+              }),
+            ],
+            { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+          )
+          if (child.error || child.status !== 0) throw new Error('coverage recomputation failed')
+          const recomputed = JSON.parse(child.stdout)
+          if (
+            !recomputed.passed ||
+            JSON.stringify(recomputed.rows) !== JSON.stringify(d.rows) ||
+            JSON.stringify(recomputed.bindings) !== JSON.stringify(d.bindings)
+          )
+            throw new Error('coverage report does not match recomputed inputs')
           ok =
             d.passed === true &&
             d.asOf === asOf.slice(0, 10) &&
@@ -109,9 +140,8 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
             d.rows.length > 0 &&
             d.rows.every(
               (r) =>
-                ['KNOWN', 'UNKNOWN', 'CONFLICTED', 'NOT_APPLICABLE', 'NEEDS_HUMAN'].includes(
-                  r.status,
-                ) && ['DISCLOSE', 'NONE'].includes(r.publishImpact),
+                ['KNOWN', 'UNKNOWN', 'NOT_APPLICABLE'].includes(r.status) &&
+                ['DISCLOSE', 'NONE'].includes(r.publishImpact),
             )
           break
         }
@@ -219,7 +249,10 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
   if (fields.import.status === 'MEASURED') {
     const imported = fields.import.timestamp
     for (const kind of hosted)
-      if (fields[kind].status === 'MEASURED' && fields[kind].timestamp < imported)
+      if (
+        fields[kind].status === 'MEASURED' &&
+        Date.parse(fields[kind].timestamp) < Date.parse(imported)
+      )
         reject(kind, 'observation predates applied import')
   }
   if (fields.servingRoute.status === 'MEASURED') {
