@@ -4,6 +4,7 @@ import { loadGuestQuerySourceDirectory } from './guest-query-source-directory'
 import { loadGuestVenueDirectory } from './guest-venue-directory'
 import { guestKnowledgeScope } from './guest-knowledge-retrieval'
 import { guestPlaceScope } from './guest-directory-index-loader'
+import { MAX_GUEST_QUERY_SOURCE_BYTES } from './guest-query-source-limits'
 const scope = {
   tenantId: 'tenant-a',
   venueId: 'venue-a',
@@ -98,6 +99,12 @@ function reader(rows = [topic()], places = [place()], activated: string[] = []) 
 }
 const load = (r: ReturnType<typeof reader>, modules = [module()], s = scope) =>
   loadGuestQuerySourceDirectory({ ...s, reader: r, modules })
+// Keep fails-before output bounded: a missing refusal must not dump megabytes of resolved rows.
+const refusalOf = (pending: Promise<unknown>) =>
+  pending.then(
+    () => null,
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  )
 describe('one-read structured source directory authority', () => {
   it('matches legacy whole directory for valid current rows while eliminating deep head selection', async () => {
     const r = reader()
@@ -240,6 +247,76 @@ describe('one-read structured source directory authority', () => {
     const r = reader()
     r.venueKnowledgeEntry.findMany.mockRejectedValueOnce(Error('page failed'))
     await expect(load(r)).rejects.toThrow('page failed')
+  })
+  it.each(['ascii', 'utf8'] as const)(
+    'stops after the page crossing the existing source byte bound: %s',
+    async (encoding) => {
+      const content = encoding === 'utf8' ? '界'.repeat(7000) : 'x'.repeat(20_000)
+      const rows = Array.from({ length: 2500 }, (_, i) => ({
+        ...topic(`large-${String(i).padStart(4, '0')}`, false),
+        content,
+        sourceType: 'MANUAL',
+      }))
+      const r = reader(rows, [])
+      expect(await refusalOf(load(r, []))).toBe('Guest query source exceeds byte bound')
+      // Four 500-row pages already exceed 32 MiB. Do not fetch the fifth page or a final empty
+      // page, and never return a partial source relabeled as complete.
+      expect(r.venueKnowledgeEntry.findMany).toHaveBeenCalledTimes(4)
+      expect(r.venueKnowledgeEntry.findMany.mock.calls[3]![0].where.id?.gt).toBe('large-1499')
+    },
+  )
+  it('combines admitted place and Knowledge bytes in one bound', async () => {
+    const p = place()
+    p.longDescription = 'p'.repeat(Math.floor(MAX_GUEST_QUERY_SOURCE_BYTES / 2))
+    const row = topic('manual', false)
+    row.content = 'k'.repeat(Math.floor(MAX_GUEST_QUERY_SOURCE_BYTES / 2))
+    expect(await refusalOf(load(reader([row], [p]), []))).toBe(
+      'Guest query source exceeds byte bound',
+    )
+  })
+  it.each(['activation', 'stale', 'source-type', 'connected-creator'] as const)(
+    'does not charge an oversized excluded Knowledge body: %s',
+    async (reason) => {
+      const row = topic('excluded', reason === 'stale')
+      row.content = 'z'.repeat(MAX_GUEST_QUERY_SOURCE_BYTES + 1)
+      if (reason === 'source-type') row.sourceType = 'SOURCE_CONNECTION'
+      if (reason === 'connected-creator')
+        row.contentRevision = {
+          createdBy: 'source-connection:fixture',
+          effectiveFrom: null,
+          effectiveUntil: null,
+          operationalFact: null,
+        }
+      const r = reader([row], [], reason === 'activation' ? [row.id] : [])
+      const result = await load(r, [])
+      expect(result.directory.knowledge).toEqual([])
+      expect(result.authority.knowledge).toEqual([
+        expect.objectContaining({ id: row.id, admitted: false }),
+      ])
+    },
+  )
+  it('keeps in-bound whole bytes and authority identical after multiple pages', async () => {
+    const rows = Array.from({ length: 1001 }, (_, i) => ({
+      ...topic(`whole-${String(i).padStart(4, '0')}`, false),
+      content: `Fictional habitat ${i}: keep this entire condition.\nAdult supervision required.`,
+      sourceType: 'MANUAL',
+    }))
+    const r = reader(rows)
+    const old = await loadGuestVenueDirectory({ ...scope, reader: r })
+    const current = await load(r, [])
+    expect(JSON.stringify(current.directory)).toBe(JSON.stringify(old))
+    expect(current.authority.knowledge).toEqual(
+      rows.map((row) => ({
+        id: row.id,
+        updatedAt: row.updatedAt,
+        sourceType: row.sourceType,
+        contentModuleId: null,
+        contentRevisionId: null,
+        contentPublicationId: null,
+        createdBy: undefined,
+        admitted: true,
+      })),
+    )
   })
   it('supports empty authoritative source without synthetic fallback', async () => {
     const result = await load(reader([], []), [])

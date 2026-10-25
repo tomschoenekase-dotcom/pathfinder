@@ -6,6 +6,8 @@ import {
 } from '@pathfinder/db'
 import { loadGuestQuerySourceDirectory } from './guest-query-source-directory'
 import type { GuestVenueDirectory } from './guest-venue-directory'
+import { MAX_GUEST_QUERY_SOURCE_BYTES } from './guest-query-source-limits'
+export { MAX_GUEST_QUERY_SOURCE_BYTES } from './guest-query-source-limits'
 
 type SourceScope = {
   tenantId: string
@@ -38,7 +40,6 @@ export type GuestQuerySource = {
   }
 }
 
-export const MAX_GUEST_QUERY_SOURCE_BYTES = 32 * 1024 * 1024
 export const GUEST_QUERY_SOURCE_CONTRACT = 'guest-query-source-authority-v2' as const
 
 function validateScope(scope: SourceScope) {
