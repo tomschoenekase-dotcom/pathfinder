@@ -89,6 +89,8 @@ async function fixture(count = 1) {
     },
   }
 }
+// Outer orchestration seam only: this synthetic report intentionally cannot satisfy
+// the acceptance composer's native preview recomputation contract.
 const previewFixture = (command, args, opts) => {
   if (args[0] === 'scripts/venue-guide-preview.mjs')
     return runProcess(
@@ -140,7 +142,7 @@ test(
     assert.equal(result.toolBindings.length, 5)
   },
 )
-test('real source and coverage tools plus real acceptance retain missing hosted NOT_READY', async () => {
+test('synthetic outer preview stays structural only while native acceptance rejects its report', async () => {
   const f = await fixture()
   const result = await runBatch({ ...f, toolRunner: previewFixture })
   const venue = result.venues[0]
@@ -362,3 +364,92 @@ test('CLI uses nonzero status for requested failures and emits JSON plus human s
   assert.equal(JSON.parse(child.stdout).requestedChecksPassed, false)
   assert.match(child.stderr, /1 venues: 0 passed, 1 failed/)
 })
+
+test(
+  'native batch retains ordinary knowledge and excludes SOURCE_CONNECTION through acceptance',
+  { skip: process.env.TORCHIKO_BATCH_REAL_PREVIEW !== '1' },
+  async () => {
+    const f = await fixture()
+    const file = path.join(f.base, 'fictional-0', 'package.json')
+    const baselineProcess = await runProcess(process.execPath, [
+      'scripts/venue-guide-preview.mjs',
+      '--package',
+      file,
+      '--as-of',
+      asOf.slice(0, 10),
+    ])
+    assert.equal(baselineProcess.exitCode, 0)
+    const baseline = JSON.parse(baselineProcess.stdout)
+    const pkg = JSON.parse(await readFile(file))
+    pkg.knowledgeEntries.create.push({
+      ...structuredClone(pkg.knowledgeEntries.create[0]),
+      itemKey: '00000000-0000-4000-8000-000000000002',
+      provenance: { ...pkg.knowledgeEntries.create[0].provenance, sourceType: 'SOURCE_CONNECTION' },
+      value: {
+        title: 'Connected-only fictional topic',
+        category: 'general',
+        content: 'Fictional connected-source content.',
+        isEnabled: true,
+      },
+    })
+    await save(file, pkg)
+    const result = await runBatch(f)
+    const venue = result.venues[0]
+    const preview = JSON.parse(
+      await readFile(path.join(f.outputDir, 'fictional-0', 'guidePreview.json')),
+    )
+    const receipt = JSON.parse(
+      await readFile(path.join(f.outputDir, 'fictional-0', 'acceptance.json')),
+    )
+    assert.deepEqual(preview.counts, { places: 0, knowledge: 1 })
+    assert.deepEqual(preview.default, baseline.default)
+    assert.deepEqual(preview.evidence, baseline.evidence)
+    assert.match(preview.assumptions.join(' '), /SOURCE_CONNECTION knowledge are excluded/)
+    assert.equal(preview.packageSha256, hash(await readFile(file)))
+    assert.equal(venue.stages.guidePreview.processPassed, true)
+    assert.equal(venue.stages.guidePreview.readinessPassed, true)
+    assert.equal(receipt.fields.guidePreview.status, 'MEASURED')
+    assert.equal(receipt.fields.guidePreview.readinessPassed, true)
+    assert.equal(receipt.fields.coverage.readinessPassed, true)
+    assert.equal(receipt.fields.guestLink.status, 'NOT_MEASURED')
+    assert.equal(receipt.verdict, 'NOT_READY')
+    assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+  },
+)
+
+test(
+  'expired UNKNOWN disclosure fails coverage while native preview remains measured',
+  { skip: process.env.TORCHIKO_BATCH_REAL_PREVIEW !== '1' },
+  async () => {
+    const f = await fixture()
+    const file = path.join(f.base, 'fictional-0', 'coverage.json')
+    const coverage = JSON.parse(await readFile(file))
+    Object.assign(coverage.rows[0], {
+      status: 'UNKNOWN',
+      publishImpact: 'DISCLOSE',
+      records: ['/knowledgeEntries/create/0/value/content'],
+      recheckBy: '2026-10-24',
+    })
+    await save(file, coverage)
+    const result = await runBatch(f)
+    const venue = result.venues[0]
+    const receipt = JSON.parse(
+      await readFile(path.join(f.outputDir, 'fictional-0', 'acceptance.json')),
+    )
+    assert.equal(venue.stages.coverage.status, 'MEASURED')
+    assert.equal(venue.stages.coverage.checkPassed, false)
+    assert.equal(venue.stages.coverage.processPassed, false)
+    assert.equal(venue.stages.coverage.readinessPassed, false)
+    const report = JSON.parse(
+      await readFile(path.join(f.outputDir, 'fictional-0', 'coverage.json')),
+    )
+    assert.ok(report.errors.some((error) => /stale recheckBy/.test(error)))
+    assert.equal(receipt.fields.coverage.status, 'NOT_MEASURED')
+    assert.match(receipt.fields.coverage.reason, /coverage report does not match recomputed inputs/)
+    assert.equal(receipt.fields.guidePreview.status, 'MEASURED')
+    assert.equal(receipt.fields.guidePreview.readinessPassed, true)
+    assert.equal(receipt.verdict, 'NOT_READY')
+    assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+    assert.equal(result.requestedChecksPassed, false)
+  },
+)
