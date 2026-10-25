@@ -760,3 +760,48 @@ test('an event Hours line bound to the events row is not an hours-season finding
   assert.equal(report.passed, true, report.errors.join('\n'))
   assert.deepEqual(report.readinessFindings, [])
 })
+
+test('S1 regression: coverage uses ledger text.file instead of unaudited legacy text', async (t) => {
+  const { report } = await run(t, async (coverage, dir) => {
+    await writeFile(
+      path.join(dir, 'sources', 'declared.txt'),
+      'Different retained fictional source text.',
+    )
+    await writeFile(
+      path.join(dir, 'ledger.json'),
+      JSON.stringify({ sources: [{ sourceId: 'S001', text: { file: 'declared.txt' } }] }),
+    )
+  })
+  assert.equal(report.passed, false)
+  assert.match(report.errors.join('\n'), /source span does not match retained text/)
+  assert.equal(path.basename(report.bindings.sources[0].file), 'declared.txt')
+})
+
+test('S1 regression: unsafe declared text path never falls back to legacy text', async (t) => {
+  const { report } = await run(t, async (coverage, dir) => {
+    await writeFile(
+      path.join(dir, 'ledger.json'),
+      JSON.stringify({ sources: [{ sourceId: 'S001', text: { file: '../outside.txt' } }] }),
+    )
+  })
+  assert.equal(report.passed, false)
+  assert.match(report.errors.join('\n'), /invalid ledger text.file/)
+  assert.equal(report.bindings.sources.length, 0)
+})
+
+test('S1 regression: coverage binds checker version to its exact git blob', async (t) => {
+  const { report } = await run(t)
+  const checkerBytes = Buffer.from(
+    (await readFile(new URL('./venue-coverage/check.mjs', import.meta.url), 'utf8')).replace(
+      /\r\n/g,
+      '\n',
+    ),
+  )
+  const { createHash } = await import('node:crypto')
+  const expected = createHash('sha1')
+    .update(`blob ${checkerBytes.length}\0`)
+    .update(checkerBytes)
+    .digest('hex')
+  assert.equal(report.bindings.checker?.gitBlob, expected)
+  assert.match(report.bindings.checker.sha256, /^[a-f0-9]{64}$/)
+})

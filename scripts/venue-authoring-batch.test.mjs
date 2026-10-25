@@ -85,6 +85,7 @@ async function fixture(count = 1) {
     })
     venues.push({
       id: name,
+      profile: 'other',
       packet: name,
       destination: name,
       acceptanceManifest: 'acceptance-manifest.json',
@@ -153,7 +154,7 @@ test(
     assert.equal(venue.structural.status, 'PASS')
     assert.equal(venue.stages.coverage.readinessPassed, true)
     assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
-    assert.equal(result.toolBindings.length, 5)
+    assert.equal(result.toolBindings.length, 6)
   },
 )
 test('synthetic outer preview stays structural only while native acceptance rejects its report', async () => {
@@ -532,4 +533,128 @@ test('acceptance.json never says PUBLISH_CANDIDATE when the final result is NOT_
     venue.stages.acceptance.originalReport.sha256,
     hash(await readFile(path.join(dir, 'acceptance-child-report.json'))),
   )
+})
+
+test('S1 regression: batch requires an explicit venue profile', async () => {
+  const f = await fixture()
+  f.manifest.venues[0].checks = ['sourceIntegrity']
+  delete f.manifest.venues[0].profile
+  await f.update()
+  await assert.rejects(runBatch(f), /VENUE_PROFILE_REQUIRED/)
+})
+
+test('S1 regression: batch rejects a zoo coverage profile downgraded to other', async () => {
+  const f = await fixture()
+  f.manifest.venues[0].checks = ['sourceIntegrity', 'coverage']
+  f.manifest.venues[0].profile = 'zoo-wildlife'
+  await f.update()
+  const report = await runBatch(f)
+  assert.equal(report.venues[0].publicationReadiness.verdict, 'NOT_READY')
+  assert.match(report.venues[0].errors.join('\n'), /COVERAGE_PROFILE_MISMATCH/)
+})
+
+for (const variant of ['raw-only', 'hash-mismatch', 'audit-omitted']) {
+  test(`S1 regression: cited coverage text must pass auditor (${variant})`, async () => {
+    const f = await fixture()
+    const packet = path.join(f.base, 'fictional-0')
+    const source = await readFile(path.join(packet, 'sources', 'S001.txt'), 'utf8')
+    const coverageFile = path.join(packet, 'coverage.json')
+    const coverage = JSON.parse(await readFile(coverageFile))
+    coverage.rows.find((row) => row.category === 'contact').sources = [
+      { sourceId: 'S001', start: 0, end: source.length, text: source },
+    ]
+    await save(coverageFile, coverage)
+    f.manifest.venues[0].checks =
+      variant === 'audit-omitted' ? ['coverage'] : ['sourceIntegrity', 'coverage']
+    await f.update()
+    const ledgerFile = path.join(packet, 'source-ledger.json')
+    const ledger = JSON.parse(await readFile(ledgerFile))
+    if (variant === 'raw-only') {
+      ledger.sources[0].raw = ledger.sources[0].text
+      delete ledger.sources[0].text
+    }
+    if (variant === 'hash-mismatch') ledger.sources[0].text.sha256 = '0'.repeat(64)
+    await save(ledgerFile, ledger)
+    const report = await runBatch(f)
+    const venue = report.venues[0]
+    assert.equal(venue.stages.coverage.checkPassed, true)
+    assert.equal(venue.stages.coverage.readinessPassed, false)
+    assert.match(venue.errors.join('\n'), /COVERAGE_SOURCE_NOT_AUDITED: S001/)
+    assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+  })
+}
+
+test('S1 regression: readiness findings block batch with a specific record reason', async () => {
+  const f = await fixture()
+  f.manifest.venues[0].checks = ['sourceIntegrity', 'coverage']
+  await f.update()
+  const file = path.join(f.base, 'fictional-0', 'package.json')
+  const pkg = JSON.parse(await readFile(file))
+  const copy = structuredClone(pkg.knowledgeEntries.create[0])
+  copy.itemKey = '00000000-0000-4000-8000-000000000002'
+  copy.value.content = 'Fictional copied ride schedule.\nHours: 9am to 5pm.'
+  pkg.knowledgeEntries.create.push(copy)
+  await save(file, pkg)
+  const report = await runBatch(f)
+  const venue = report.venues[0]
+  assert.equal(venue.stages.coverage.checkPassed, true)
+  assert.equal(venue.stages.coverage.readinessPassed, false)
+  assert.match(
+    venue.errors.join('\n'),
+    /READINESS_FINDING: hours-season \/knowledgeEntries\/create\/1: labeled record is not bound/,
+  )
+  assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+})
+
+test('S1 regression: batch saves a bound per-venue recheck register', async () => {
+  const f = await fixture()
+  f.manifest.venues[0].checks = ['sourceIntegrity', 'coverage']
+  await f.update()
+  const report = await runBatch(f)
+  const venue = report.venues[0]
+  const file = path.join(f.outputDir, 'fictional-0', 'RECHECK-REGISTER.json')
+  const register = JSON.parse(await readFile(file))
+  assert.equal(register.asOf, asOf.slice(0, 10))
+  assert.equal(register.rows[0].state, 'CURRENT')
+  assert.equal(register.rows[0].recheckBy, '2026-10-26')
+  assert.ok(register.rows[0].itemKey)
+  assert.equal(venue.recheckRegister.sha256, hash(await readFile(file)))
+  assert.equal(
+    register.bindings.package.sha256,
+    venue.inputBindings.find((entry) => entry.file.endsWith('package.json')).sha256,
+  )
+  assert.match(register.bindings.checker.gitBlob, /^[a-f0-9]{40}$/)
+  assert.equal(report.checkerVersion.gitBlob, register.bindings.checker.gitBlob)
+})
+
+test('S1 regression: audited nested text source passes without a legacy alias', async () => {
+  const f = await fixture()
+  f.manifest.venues[0].checks = ['sourceIntegrity', 'coverage']
+  await f.update()
+  const packet = path.join(f.base, 'fictional-0')
+  const source = await readFile(path.join(packet, 'sources', 'S001.txt'), 'utf8')
+  await mkdir(path.join(packet, 'sources', 'nested'))
+  await writeFile(path.join(packet, 'sources', 'nested', 'retained.txt'), source)
+  await writeFile(path.join(packet, 'sources', 'S001.txt'), 'Unrelated fictional legacy text.')
+  const ledgerFile = path.join(packet, 'source-ledger.json')
+  const ledger = JSON.parse(await readFile(ledgerFile))
+  ledger.sources[0].text.file = 'nested/retained.txt'
+  await save(ledgerFile, ledger)
+  const coverageFile = path.join(packet, 'coverage.json')
+  const coverage = JSON.parse(await readFile(coverageFile))
+  coverage.rows.find((row) => row.category === 'contact').sources = [
+    { sourceId: 'S001', start: 0, end: source.length, text: source },
+  ]
+  await save(coverageFile, coverage)
+  const report = await runBatch(f)
+  const venue = report.venues[0]
+  assert.equal(venue.sourceIntegrity.status, 'PASS')
+  assert.equal(venue.stages.coverage.readinessPassed, true, venue.errors.join('\n'))
+  assert.equal(venue.requestedChecksPassed, true)
+  assert.equal(venue.publicationReadiness.verdict, 'NOT_READY')
+  const measured = JSON.parse(
+    await readFile(path.join(f.outputDir, 'fictional-0', 'coverage.json')),
+  )
+  assert.equal(path.basename(measured.bindings.sources[0].file), 'retained.txt')
+  assert.equal(path.basename(measured.bindings.sourcesRoot), 'sources')
 })

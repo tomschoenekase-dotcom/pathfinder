@@ -21,6 +21,7 @@ Exit status is `0` when every requested check passes its readiness predicates, `
   "venues": [
     {
       "id": "fictional-moonbeam",
+      "profile": "other",
       "packet": "packets/fictional-moonbeam",
       "package": "package.json",
       "ledger": "source-ledger.json",
@@ -52,7 +53,7 @@ Each destination retains:
 - a task-local `tmp/`, passed only to that child's `TEMP`, `TMP` and `TMPDIR`;
 - when acceptance identity is supplied, a new acceptance manifest, generated local evidence envelopes and an origin record.
 
-The output root also contains `batch-result.json` and `summary.txt`. The batch report binds the original batch manifest and five tool entrypoints by SHA-256. These hashes do not attest to every transitive import, installed dependency or the host. Partial hashes remain available when a later input is missing or malformed. Input changes or disappearance after execution fail that venue while allowing later venues to finish.
+The output root also contains `batch-result.json` and `summary.txt`. The batch report binds the original batch manifest and six tool entrypoints by SHA-256. These hashes do not attest to every transitive import, installed dependency or the host. Partial hashes remain available when a later input is missing or malformed. Input changes or disappearance after execution fail that venue while allowing later venues to finish.
 
 `MEASURED` means that a child produced saved JSON. It is never sufficient to declare success. Inspect `processPassed`, `readinessPassed`, the saved report and, for publication, the acceptance verdict. Malformed/missing reports are `NOT_MEASURED` and fail the check.
 
@@ -93,3 +94,11 @@ node --test scripts/venue-authoring-batch.test.mjs
 The suite uses fictional packets and a clearly isolated preview fixture for most composition cases; it executes the real source auditor, coverage checker and acceptance composer. Set the process-local `TORCHIKO_BATCH_REAL_PREVIEW=1` only when the existing production preview's local `pnpm`/`tsx`/workspace dependencies are available to also run the production renderer integration test. No dependencies are installed by the runner or tests. Otherwise that single integration test is explicitly skipped.
 
 Tests cover Windows argument metacharacters, bounded child failure/timeout, supported descendant cleanup, mixed venue outcomes, partial hashes, changed/disappearing inputs, measured coverage blockers, missing hosted evidence, reruns, duplicate destinations, traversal, junction escapes and canonical overlap, including malformed packets. No live hosted acceptance, publication, source semantic review or extraction-fidelity review is claimed.
+
+## Coverage coupling and rechecks
+
+Every batch venue must declare `profile`: one of `amusement`, `zoo-wildlife`, `museum`, `garden`, or `other`. The packet's `coverage.profile` and measured coverage profile must equal it; mismatches fail with `COVERAGE_PROFILE_MISMATCH`. Missing or unsupported declarations fail invocation with `VENUE_PROFILE_REQUIRED`. The tool never infers a venue's factual profile.
+
+Every source cited by coverage must pass the retained-source auditor in this run as a text target with the identical canonical path and SHA-256. Missing audit checks, raw-only declarations, failed sources, and divergent bindings produce `COVERAGE_SOURCE_NOT_AUDITED` and fail coverage readiness. For coverage with cited sources, include both `sourceIntegrity` and `coverage` in the selected checks.
+
+Nonempty `readinessFindings` also fail coverage readiness, with `READINESS_FINDING` reasons naming each category and record pointer. A checker contract PASS cannot override those reasons. Each prepared venue saves `RECHECK-REGISTER.json`, bound by hash in `result.json`, even when later checks fail. It preserves the package itemKeys, coverage statuses, earliest deadlines and unbound labeled facts. The batch root binds the checker Git blob as `checkerVersion`; both coverage and register reports also bind it. See [venue-coverage.md](venue-coverage.md) for the register and D3 defaults.

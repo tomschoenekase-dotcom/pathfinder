@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { checkerVersion, profiles } from './venue-coverage/check.mjs'
+import { buildRecheckRegister } from './venue-recheck-register.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 export const checks = ['sourceIntegrity', 'coverage', 'guidePreview', 'acceptance']
@@ -214,6 +216,9 @@ async function prepareVenue(spec, base) {
       partialInputs.push(await binding(files[name]))
     }
     files.sources = await bounded(packet, spec.sources ?? 'sources', true)
+    const coverage = JSON.parse(await readFile(files.coverage, 'utf8'))
+    if (coverage?.profile !== spec.profile)
+      throw new Error('COVERAGE_PROFILE_MISMATCH: coverage.profile must equal batch venue profile')
     const inputs = [
       files.package,
       files.ledger,
@@ -277,6 +282,8 @@ async function prepareVenue(spec, base) {
 function readinessCoverage(report) {
   return (
     report.passed === true &&
+    Array.isArray(report.readinessFindings) &&
+    report.readinessFindings.length === 0 &&
     report.rows?.length > 0 &&
     report.rows.every(
       (r) =>
@@ -285,6 +292,29 @@ function readinessCoverage(report) {
         (r.status !== 'UNKNOWN' || r.publishImpact === 'DISCLOSE'),
     )
   )
+}
+function coverageSourceErrors(coverage, audit, auditStage) {
+  const errors = []
+  for (const sourceId of new Set(
+    (coverage.rows ?? []).flatMap((row) => (row.sources ?? []).map((span) => span.sourceId)),
+  )) {
+    const source = coverage.bindings?.sources?.find((entry) => entry.sourceId === sourceId)
+    const audited = audit?.bindings?.sources?.find(
+      (entry) => entry.sourceId === sourceId && entry.target === 'text',
+    )
+    if (
+      !auditStage?.processPassed ||
+      !audit?.sources?.some((row) => row.sourceId === sourceId && row.passed === true) ||
+      !source ||
+      !audited ||
+      key(source.file) !== key(audited.file) ||
+      source.sha256 !== audited.sha256
+    )
+      errors.push(
+        `COVERAGE_SOURCE_NOT_AUDITED: ${sourceId} retained text must pass the source auditor with identical file and hash`,
+      )
+  }
+  return errors
 }
 function readinessPreview(report, packageHash) {
   return (
@@ -345,6 +375,8 @@ export async function runBatch({
       throw new Error('Venue ids and safe destinations must be unique (case insensitive)')
     ids.add(v.id.toLowerCase())
     destinations.add(v.destination.toLowerCase())
+    if (!profiles.includes(v.profile))
+      throw new Error('VENUE_PROFILE_REQUIRED: each batch venue must declare a supported profile')
     if (
       v.checks !== undefined &&
       (!Array.isArray(v.checks) ||
@@ -425,6 +457,23 @@ export async function runBatch({
     else {
       const packageHash = value.inputs.find((b) => b.file === value.files.package).sha256
       const reports = {}
+      try {
+        const register = buildRecheckRegister(
+          JSON.parse(await readFile(value.files.package, 'utf8')),
+          JSON.parse(await readFile(value.files.coverage, 'utf8')),
+          manifest.asOf.slice(0, 10),
+        )
+        register.bindings = {
+          checker: await checkerVersion(),
+          package: value.inputs.find((b) => b.file === value.files.package),
+          coverage: value.inputs.find((b) => b.file === value.files.coverage),
+        }
+        const registerFile = path.join(venueDir, 'RECHECK-REGISTER.json')
+        await save(registerFile, register)
+        result.recheckRegister = { ...(await binding(registerFile)), summary: register.summary }
+      } catch (error) {
+        result.errors.push(`recheckRegister: ${error.message}`)
+      }
       for (const name of checks.filter((name) => result.requestedChecks.includes(name))) {
         const reportFile = path.join(venueDir, `${name}.json`)
         try {
@@ -557,7 +606,21 @@ export async function runBatch({
           }
           if (name === 'coverage' && report) {
             stage.checkPassed = report.passed === true
-            stage.readinessPassed = readinessCoverage(report)
+            stage.reasons = coverageSourceErrors(
+              report,
+              reports.sourceIntegrity,
+              result.stages.sourceIntegrity,
+            )
+            if (report.profile !== spec.profile)
+              stage.reasons.push(
+                'COVERAGE_PROFILE_MISMATCH: measured profile differs from batch venue profile',
+              )
+            for (const finding of report.readinessFindings ?? [])
+              stage.reasons.push(
+                `READINESS_FINDING: ${finding.category} ${finding.record}: ${finding.reason}`,
+              )
+            stage.readinessPassed = readinessCoverage(report) && stage.reasons.length === 0
+            result.errors.push(...stage.reasons.map((reason) => `coverage: ${reason}`))
           }
           if (name === 'guidePreview' && report) {
             stage.readinessPassed = readinessPreview(report, packageHash)
@@ -659,6 +722,7 @@ export async function runBatch({
         'scripts/venue-coverage/check.mjs',
         'scripts/venue-guide-preview.mjs',
         'scripts/venue-acceptance-receipt.mjs',
+        'scripts/venue-recheck-register.mjs',
       ].map(async (name) => {
         try {
           return await binding(path.join(root, name))
@@ -667,6 +731,7 @@ export async function runBatch({
         }
       }),
     ),
+    checkerVersion: await checkerVersion(),
     requestedChecksPassed: results.every((r) => r.requestedChecksPassed),
     venues: results,
     summary: {

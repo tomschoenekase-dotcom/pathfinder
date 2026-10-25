@@ -423,3 +423,22 @@ test('invalid as-of and duplicate/unknown CLI arguments fail closed', async () =
     )
   }
 })
+
+for (const target of ['raw', 'text']) {
+  test(`S1 regression: matching zero-byte ${target} source fails SOURCE_EMPTY`, async () => {
+    const { createHash } = await import('node:crypto')
+    const { options } = await setup(async (ledger, dir) => {
+      const declaration = ledger.sources[0][target]
+      await writeFile(path.join(dir, 'sources', declaration.file), '')
+      declaration.sha256 = createHash('sha256').update('').digest('hex')
+    })
+    const report = await auditSources(options)
+    assert.equal(report.integrity.status, 'FAIL')
+    assert.match(
+      report.errors.join('\n'),
+      new RegExp(`SOURCE_EMPTY: ${target} retained file is zero bytes`),
+    )
+    assert.equal(report.sources[0].targets.find((entry) => entry.target === target).status, 'FAIL')
+    assert.equal(report.sources[0].passed, false)
+  })
+}

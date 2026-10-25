@@ -197,7 +197,8 @@ export async function auditSources({ ledgerPath, sourcesDir, asOf }) {
         bindings.sources.push({ sourceId: row.sourceId, target, file: actual, sha256: actualHash })
         result.actualSha256 = actualHash
         result.expectedSha256 = declaration.sha256
-        if (actualHash !== declaration.sha256)
+        if (bytes.length === 0) fail('SOURCE_EMPTY', `${target} retained file is zero bytes`)
+        else if (actualHash !== declaration.sha256)
           fail('HASH_MISMATCH', `${target} retained bytes differ from declared hash`)
         else result.status = 'PASS'
       } catch (error) {
@@ -235,6 +236,13 @@ export async function auditSources({ ledgerPath, sourcesDir, asOf }) {
   const freshnessFailures = freshnessErrors.some(
     (error) => !error.includes(': FRESHNESS_NOT_VERIFIED:'),
   )
+  for (const row of rows)
+    row.passed =
+      row.targets.length > 0 &&
+      row.targets.every((target) => target.status === 'PASS') &&
+      ![...integrityErrors, ...freshnessErrors].some((error) =>
+        error.startsWith(`sources[${row.index}]:`),
+      )
   const integrity = { status: integrityErrors.length ? 'FAIL' : 'PASS', errors: integrityErrors }
   const freshness = {
     status: freshnessFailures

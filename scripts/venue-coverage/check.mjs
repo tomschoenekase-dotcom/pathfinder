@@ -16,10 +16,46 @@ export const categories = [
   'pets-service-animals',
   'weather-policy',
 ]
-const profiles = ['amusement', 'zoo-wildlife', 'museum', 'garden', 'other']
+export const profiles = ['amusement', 'zoo-wildlife', 'museum', 'garden', 'other']
 const statuses = ['KNOWN', 'UNKNOWN', 'CONFLICTED', 'NOT_APPLICABLE', 'NEEDS_HUMAN']
 const impacts = ['BLOCKS', 'DISCLOSE', 'NONE']
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex')
+export async function checkerVersion() {
+  const file = fileURLToPath(import.meta.url)
+  const bytes = await readFile(file)
+  // Match Git's LF text normalization on autocrlf Windows checkouts.
+  // sha256 separately binds the exact bytes executed on this host.
+  const gitBytes = Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'))
+  return {
+    file,
+    sha256: hash(bytes),
+    gitBlob: createHash('sha1').update(`blob ${gitBytes.length}\0`).update(gitBytes).digest('hex'),
+    gitBlobNormalization: 'LF',
+  }
+}
+function sourceTextFile(source) {
+  if (!Object.hasOwn(source, 'text')) return `${source.sourceId}.txt`
+  const file = source.text?.file
+  if (
+    typeof file !== 'string' ||
+    !file ||
+    path.isAbsolute(file) ||
+    path.win32.isAbsolute(file) ||
+    /[\\:\x00-\x1f]/.test(file) ||
+    file
+      .split('/')
+      .some(
+        (part) =>
+          !part ||
+          part === '.' ||
+          part === '..' ||
+          /[. ]$|[<>"|?*]/.test(part) ||
+          /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
+      )
+  )
+    throw new Error('invalid ledger text.file; safe source-relative path required')
+  return file
+}
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const nonempty = (v) => typeof v === 'string' && v.trim().length > 0
 const date = (v) =>
@@ -212,6 +248,9 @@ export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sou
     ]),
   )
   bindings.sources = []
+  const root = await realpath(sourcesDir)
+  bindings.sourcesRoot = root
+  bindings.checker = await checkerVersion()
   if (!object(pkg) || pkg.schemaVersion !== 3) errors.push('package: schemaVersion must be 3')
   if (
     !object(coverage) ||
@@ -244,7 +283,6 @@ export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sou
   ]
   const seen = new Set()
   const sourceCache = new Map()
-  const root = await realpath(sourcesDir)
   for (const [i, row] of (Array.isArray(coverage?.rows) ? coverage.rows : []).entries()) {
     const fail = (message) => errors.push(`rows[${i}]: ${message}`)
     if (
@@ -353,7 +391,9 @@ export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sou
       }
       try {
         if (!sourceCache.has(span.sourceId)) {
-          const filename = await realpath(path.join(root, `${span.sourceId}.txt`))
+          const filename = await realpath(
+            path.join(root, sourceTextFile(sourceMap.get(span.sourceId))),
+          )
           const relative = path.relative(root, filename)
           if (relative.startsWith('..') || path.isAbsolute(relative))
             throw new Error('source escapes sources directory')

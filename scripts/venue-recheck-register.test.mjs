@@ -92,3 +92,33 @@ test('CLI binds input hashes, never overwrites inputs and exits non-zero on over
   await assert.rejects(main([...args, '--output', packagePath]), /overwrite/)
   await assert.rejects(main([...args, '--output', output]), /EEXIST/)
 })
+
+test('S1 regression: recheck report binds the checker git blob', async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'recheck-version-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(path.join(dir, 'package.json'), JSON.stringify(pkg))
+  await writeFile(path.join(dir, 'coverage.json'), JSON.stringify(coverage))
+  const output = path.join(dir, 'register.json')
+  await main([
+    '--package',
+    path.join(dir, 'package.json'),
+    '--coverage',
+    path.join(dir, 'coverage.json'),
+    '--as-of',
+    '2026-10-25',
+    '--output',
+    output,
+  ])
+  const report = JSON.parse(await readFile(output))
+  const { createHash } = await import('node:crypto')
+  const bytes = Buffer.from(
+    (await readFile(new URL('./venue-coverage/check.mjs', import.meta.url), 'utf8')).replace(
+      /\r\n/g,
+      '\n',
+    ),
+  )
+  assert.equal(
+    report.bindings.checker?.gitBlob,
+    createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'),
+  )
+})

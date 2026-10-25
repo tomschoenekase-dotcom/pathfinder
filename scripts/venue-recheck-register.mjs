@@ -5,7 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { labeledRecordFindings, pointer } from './venue-coverage/check.mjs'
+import { checkerVersion, labeledRecordFindings, pointer } from './venue-coverage/check.mjs'
 
 const isDate = (v) =>
   typeof v === 'string' &&
@@ -115,6 +115,7 @@ export async function main(args) {
   )
   const sha = (b) => createHash('sha256').update(b).digest('hex')
   register.bindings = {
+    checker: await checkerVersion(),
     package: { file: path.resolve(options.package), sha256: sha(pkgBytes) },
     coverage: { file: path.resolve(options.coverage), sha256: sha(coverageBytes) },
   }

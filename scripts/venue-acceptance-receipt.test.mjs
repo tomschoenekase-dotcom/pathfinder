@@ -10,6 +10,8 @@ import {
   evidenceKinds,
   sha256,
 } from './venue-acceptance-receipt.mjs'
+import { checkerVersion } from './venue-coverage/check.mjs'
+const checkerBinding = await checkerVersion()
 const qa = resolve(dirname(fileURLToPath(import.meta.url)), '../../qa/S5')
 mkdirSync(qa, { recursive: true })
 const now = '2026-10-25T12:00:00Z'
@@ -103,6 +105,8 @@ function fixture() {
         ledger: binding,
         coverage: coverageInput,
         sources: [sourceBinding],
+        sourcesRoot: realpathSync.native(resolve(root, 'sources')),
+        checker: structuredClone(checkerBinding),
       },
     },
     checkPackage: {
@@ -790,4 +794,61 @@ test('guestLink must be bound to the venue', () => {
   const f = fixture()
   f.change('guestLink', (e) => delete e.data.venueId)
   assert.match(f.run().fields.guestLink.reason, /not bound to venue/)
+})
+
+test('nested declared text.file remains a measured candidate through receipt recomputation', () => {
+  const f = fixture()
+  const sourceText = 'The fictional observatory opens at nine and the desk answers questions.'
+  mkdirSync(resolve(f.root, 'sources', 'nested'))
+  const file = resolve(f.root, 'sources', 'nested', 'retained.txt')
+  writeFileSync(file, sourceText)
+  f.change('coverage', (e) => {
+    e.data.bindings.ledger = f.save('source.json', {
+      schemaVersion: 1,
+      sources: [
+        {
+          sourceId: 'fictional-source',
+          text: { file: 'nested/retained.txt', sha256: sha256(readFileSync(file)) },
+        },
+      ],
+    })
+    e.data.bindings.sources[0] = {
+      sourceId: 'fictional-source',
+      file: realpathSync.native(file),
+      sha256: sha256(readFileSync(file)),
+    }
+  })
+  const report = f.run()
+  assert.equal(report.fields.coverage.status, 'MEASURED', report.fields.coverage.reason)
+  assert.equal(report.fields.coverage.readinessPassed, true)
+  assert.equal(report.verdict, 'PUBLISH_CANDIDATE')
+})
+
+test('missing or tampered coverage source-root binding fails receipt recomputation', () => {
+  for (const variant of ['missing', 'tampered']) {
+    const f = fixture()
+    f.change('coverage', (e) => {
+      if (variant === 'missing') delete e.data.bindings.sourcesRoot
+      else e.data.bindings.sourcesRoot = f.root
+    })
+    const report = f.run()
+    assert.equal(report.verdict, 'NOT_READY')
+    assert.equal(report.fields.coverage.status, 'NOT_MEASURED')
+    assert.match(
+      report.fields.coverage.reason,
+      variant === 'missing'
+        ? /coverage sources root binding missing/
+        : /coverage report does not match recomputed inputs/,
+    )
+  }
+})
+
+test('tampered coverage checker binding cannot become a candidate', () => {
+  const f = fixture()
+  f.change('coverage', (e) => {
+    e.data.bindings.checker.gitBlob = '0'.repeat(40)
+  })
+  const report = f.run()
+  assert.equal(report.verdict, 'NOT_READY')
+  assert.match(report.fields.coverage.reason, /coverage report does not match recomputed inputs/)
 })

@@ -126,6 +126,8 @@ export function composeReceipt(
       let readinessNote
       switch (kind) {
         case 'coverage': {
+          if (!text(d.bindings?.sourcesRoot))
+            throw new Error('coverage sources root binding missing')
           const bindings = [
             d.bindings?.package,
             d.bindings?.ledger,
@@ -151,9 +153,7 @@ export function composeReceipt(
                 packagePath: pkg.file,
                 ledgerPath: resolve(base, d.bindings.ledger.file),
                 coveragePath: resolve(base, d.bindings.coverage.file),
-                sourcesDir: d.bindings.sources?.length
-                  ? dirname(resolve(base, d.bindings.sources[0].file))
-                  : resolve(dirname(resolve(base, d.bindings.coverage.file)), 'sources'),
+                sourcesDir: resolve(base, d.bindings.sourcesRoot),
                 asOf: asOf.slice(0, 10),
               }),
             ],
