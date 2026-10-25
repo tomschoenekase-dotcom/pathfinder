@@ -241,3 +241,67 @@ test('CLI never overwrites the legacy ledger or an existing output, and leaves t
   assert.deepEqual(await readFile(fixture.ledgerPath), before)
   assert.equal(JSON.parse(await readFile(output, 'utf8')).sources.length, 1)
 })
+
+test('review regressions: invalid declared freshness is carried for the auditor to reject, never replaced', async () => {
+  const fixture = await legacyVenue([
+    {
+      sourceId: 'C',
+      observedAt: '2026-10-24',
+      textPath: 'sources/C.txt',
+      textSha256: hash('Fictional parking note.'),
+      recheckBy: 'soon',
+      stale: 'yes',
+      status: 404,
+      error: 'HTTP Error 404: Not Found',
+    },
+  ])
+  const coverage = path.join(fixture.venue, 'coverage.json')
+  await writeFile(
+    coverage,
+    JSON.stringify({
+      rows: [{ category: 'contact', recheckBy: '2026-12-01', sources: [{ sourceId: 'C' }] }],
+    }),
+  )
+  const { ledger, report } = await migrateLedger({ ...fixture, coveragePath: coverage })
+  assert.equal(ledger.sources[0].recheckBy, 'soon')
+  assert.equal(ledger.sources[0].stale, 'yes')
+  assert.deepEqual(report.summary.carriedWithFailedLegacyFetch, ['C'])
+  assert.match(report.sources[0].notes.join('\n'), /not a date[\s\S]*not boolean[\s\S]*404/)
+  const strictPath = path.join(fixture.venue, 'strict.json')
+  await writeFile(strictPath, JSON.stringify(ledger))
+  const audit = await auditSources({
+    ledgerPath: strictPath,
+    sourcesDir: fixture.sourcesDir,
+    asOf: '2026-10-25',
+  })
+  assert.match(audit.errors.join('\n'), /RECHECK_DATE_INVALID/)
+  assert.match(audit.errors.join('\n'), /FRESHNESS_FLAG_INVALID/)
+})
+
+test('review regressions: malformed coverage and same output/report paths fail cleanly', async () => {
+  const fixture = await legacyVenue([
+    {
+      sourceId: 'C',
+      observedAt: '2026-10-24',
+      textPath: 'sources/C.txt',
+      textSha256: hash('Fictional parking note.'),
+    },
+  ])
+  const coverage = path.join(fixture.venue, 'coverage.json')
+  await writeFile(coverage, JSON.stringify({ rows: { not: 'an array' } }))
+  const { report } = await migrateLedger({ ...fixture, coveragePath: coverage })
+  assert.deepEqual(report.summary.citedByCoverageButNotCarried, [])
+  const same = path.join(fixture.venue, 'same.json')
+  const args = [
+    '--ledger',
+    fixture.ledgerPath,
+    '--sources-dir',
+    fixture.sourcesDir,
+    '--output',
+    same,
+    '--report',
+    same,
+  ]
+  assert.equal(await main(args, quiet), 2)
+  await assert.rejects(readFile(same))
+})

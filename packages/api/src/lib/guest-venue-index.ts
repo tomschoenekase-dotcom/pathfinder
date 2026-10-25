@@ -110,6 +110,7 @@ export function renderGuestVenueIndex(
   const statuses = directory.knowledge.map((entry) =>
     classifyGuestDatedEvent(entry, options.currentDate),
   )
+  let statedShown = false
   const statedLatest = directory.knowledge.map((entry, index) =>
     options.statedDates && statuses[index] !== 'PAST'
       ? guestStatedDatesPassed(entry, options.currentDate)
@@ -176,12 +177,18 @@ export function renderGuestVenueIndex(
           ? ` (title_year_passed="${guestPassedTitleYear(entry.title)}"; check dates in whole evidence)`
           : ''
     const stated = statedLatest[index]
-    add(
+    const added = add(
       `Topic: [${entry.category}] ${entry.title}${marker}${stated ? ` (stated_dates_passed="${stated}")` : ''}`,
     )
+    if (stated && added) statedShown = true
   }
+  // The rule's length was reserved in the budget; drop the rule itself if every marked line was cut.
+  const shownPrefix =
+    statedLatest.some(Boolean) && !statedShown
+      ? prefix.replace(` ${GUEST_STATED_DATES_RULE}`, '')
+      : prefix
   return {
-    prompt: `${prefix}${coverage}\n${lines.join('\n')}\n${truncated ? partial : 'Every loaded record name is included.'}${suffix}`,
+    prompt: `${shownPrefix}${coverage}\n${lines.join('\n')}\n${truncated ? partial : 'Every loaded record name is included.'}${suffix}`,
     truncated,
     recordIds,
   }

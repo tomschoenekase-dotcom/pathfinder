@@ -75,9 +75,16 @@ const PAIR = new RegExp(`(?:(${MONTH})\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'gu'
 const RANGE_WORD = /(?:\bto\b|\bthrough\b|\bthru\b|\buntil\b|\btill\b|[-–—])/u
 // "Starting March 1, 2026", "opened in April 2025". Observation dates ("prices are from the
 // June 11, 2026 menu", "checked October 23, 2026") say when something was seen, not when it ends.
+// Permanent facts ("restored on March 3, 2025", "founded June 4, 2025") date an event that
+// left something lasting, not a period that ends.
 const OPEN_START =
-  /\b(?:starting|starts|beginning|begins|began|effective|as of|since|from(?: the)?|after|opens|opened|reopens|reopened|launch(?:es|ed)?|available|dated|checked|updated|published|posted|observed|verified|retrieved|accessed)\s+(?:(?:on|in)\s+)?(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+)?$/iu
+  /\b(?:starting|starts|beginning|begins|began|effective|as of|since|from(?: the)?|after|opens|opened|reopens|reopened|launch(?:es|ed)?|available|dated|checked|updated|published|posted|observed|verified|retrieved|accessed|built|restored|founded|renovated|installed|constructed|established|designed|completed|dedicated|acquired|added|introduced)\s+(?:(?:on|in)\s+)?(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+)?$/iu
 const OPEN_START_WINDOW = 40
+// Recurring or continuing periods outlive any one stated date.
+const RECURRING =
+  /\b(?:(?:every|each)\s+(?:(?:other|first|second|third|fourth|last)\s+)?(?:day|week|weekend|month|year|season|spring|summer|fall|autumn|winter|morning|afternoon|evening|night|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)s?|annual(?:ly)?|yearly|weekly|monthly|recurring|year[- ]round|ongoing|thereafter|until further notice|and after|then daily|then weekly|on ?going|(?:daily|weekly|open) after|after(?:wards| that))\b/iu
+// Date-like text this parser does not read ("11/30/26", "4/1", "Nov 30, '26") may name a later date.
+const UNREAD_NUMERIC = /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b|'\d{2}\b/gu
 
 export type GuestStatedDate = { iso: string; year: number; openStart: boolean }
 
@@ -103,6 +110,7 @@ function opensAt(text: string, index: number): boolean {
 export function guestStatedDates(text: string): {
   dates: GuestStatedDate[]
   undatedMonth: boolean
+  unreadNumericDate: boolean
 } {
   const dates: GuestStatedDate[] = []
   const claimed: Array<[number, number]> = []
@@ -149,6 +157,7 @@ export function guestStatedDates(text: string): {
   for (const match of text.matchAll(ISO_DATE)) {
     const start = match.index!
     if (!free(start, start + match[0].length)) continue
+    claimed.push([start, start + match[0].length])
     push(
       iso(Number(match[1]), Number(match[2]), Number(match[3])),
       Number(match[1]),
@@ -158,16 +167,20 @@ export function guestStatedDates(text: string): {
   for (const match of text.matchAll(US_NUMERIC_DATE)) {
     const start = match.index!
     if (!free(start, start + match[0].length)) continue
+    claimed.push([start, start + match[0].length])
     push(
       iso(Number(match[3]), Number(match[1]), Number(match[2])),
       Number(match[3]),
       opensAt(text, start),
     )
   }
-  const undatedMonth = [...text.matchAll(MONTH_NAME)].some((match) =>
-    free(match.index!, match.index! + match[0].length),
-  )
-  return { dates, undatedMonth }
+  const unclaimed = (pattern: RegExp) =>
+    [...text.matchAll(pattern)].some((match) => free(match.index!, match.index! + match[0].length))
+  return {
+    dates,
+    undatedMonth: unclaimed(MONTH_NAME),
+    unreadNumericDate: unclaimed(UNREAD_NUMERIC),
+  }
 }
 
 /**
@@ -182,8 +195,9 @@ export function guestStatedDatesPassed(
   const text = `${entry.title}\n${entry.content ?? ''}`
   const currentYear = Number(currentDate.slice(0, 4))
   if (!Number.isInteger(currentYear) || !/^\d{4}-\d{2}-\d{2}$/u.test(currentDate)) return null
+  if (RECURRING.test(text)) return null
   const stated = guestStatedDates(text)
-  if (stated.undatedMonth) return null
+  if (stated.undatedMonth || stated.unreadNumericDate) return null
   const dates = stated.dates.filter((date) => date.year >= currentYear - 1)
   if (dates.length === 0) return null
   if (dates.some((date) => date.openStart)) return null

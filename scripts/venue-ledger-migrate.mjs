@@ -146,7 +146,11 @@ export async function migrateLedger({ ledgerPath, sourcesDir, coveragePath, atte
         return
       }
       if (!sha(hashValue)) {
-        entry.notes.push(`${target} ${legacyRelative} has no declared SHA-256; not declared`)
+        entry.notes.push(
+          typeof hashValue === 'string' && /^[a-fA-F0-9]{64}$/.test(hashValue)
+            ? `${target} ${legacyRelative} SHA-256 is not lowercase hex; not declared`
+            : `${target} ${legacyRelative} has no declared SHA-256; not declared`,
+        )
         return
       }
       strictSource[target] = { file: relative, sha256: hashValue }
@@ -166,6 +170,12 @@ export async function migrateLedger({ ledgerPath, sourcesDir, coveragePath, atte
     if (legacyRecheck.value) {
       strictSource.recheckBy = legacyRecheck.value
       entry.recheckByOrigin = 'legacy recheckBy'
+    } else if (Object.hasOwn(source, 'recheckBy')) {
+      // A declared but unreadable deadline is carried as-is so the auditor fails it; it is never
+      // silently replaced by a coverage-derived date.
+      strictSource.recheckBy = source.recheckBy
+      entry.recheckByOrigin = 'legacy recheckBy (invalid, carried unchanged)'
+      entry.notes.push(`legacy recheckBy ${JSON.stringify(source.recheckBy)} is not a date`)
     } else if (entry.sourceId && deadlines.has(entry.sourceId)) {
       const derived = deadlines.get(entry.sourceId)
       strictSource.recheckBy = derived.recheckBy
@@ -174,8 +184,30 @@ export async function migrateLedger({ ledgerPath, sourcesDir, coveragePath, atte
       entry.recheckByOrigin = null
       entry.notes.push('no recheckBy: no legacy date and no coverage row with a recheckBy cites it')
     }
+    // Freshness flags are carried as declared, including invalid ones the auditor must reject.
     for (const flag of ['stale', 'needsRecheck'])
-      if (typeof source[flag] === 'boolean') strictSource[flag] = source[flag]
+      if (Object.hasOwn(source, flag)) {
+        strictSource[flag] = source[flag]
+        if (typeof source[flag] !== 'boolean')
+          entry.notes.push(`legacy ${flag} ${JSON.stringify(source[flag])} is not boolean`)
+      }
+    const legacyStatus = source.status ?? source.fetchStatus ?? source.httpStatus ?? null
+    const legacyError = source.error ?? source.fetchError ?? null
+    const statusWords = [source.status, source.fetchStatus].filter(
+      (value) => typeof value === 'string',
+    )
+    const failed =
+      Boolean(legacyError) ||
+      [source.status, source.httpStatus].some((value) => Number(value) >= 400) ||
+      statusWords.some((value) => /FAIL|ERROR/i.test(value))
+    if (failed) {
+      entry.legacyFetch = { status: legacyStatus, error: legacyError }
+      entry.notes.push(
+        `legacy fetch failed ${JSON.stringify(legacyStatus)}${legacyError ? ` (${legacyError})` : ''}: retained bytes may be historical or an error page`,
+      )
+    }
+    // Descriptive legacy statuses ("FETCHED_EMPTY_DYNAMIC_SHELL") are kept visible, not judged.
+    entry.legacyStatusWords = statusWords
 
     if (problems.length || entry.targets.length === 0) {
       report.excluded.push({
@@ -183,8 +215,8 @@ export async function migrateLedger({ ledgerPath, sourcesDir, coveragePath, atte
         sourceId: entry.sourceId,
         reason: problems.length ? problems.join('; ') : 'no auditable retained target',
         notes: entry.notes,
-        legacyStatus: source.status ?? source.fetchStatus ?? null,
-        legacyError: source.error ?? source.fetchError ?? null,
+        legacyStatus,
+        legacyError,
       })
       continue
     }
@@ -192,8 +224,10 @@ export async function migrateLedger({ ledgerPath, sourcesDir, coveragePath, atte
     report.sources.push(entry)
   }
   const cited = new Set(
-    (coverage?.rows ?? []).flatMap((row) =>
-      (row?.sources ?? []).map((source) => source?.sourceId).filter(text),
+    (Array.isArray(coverage?.rows) ? coverage.rows : []).flatMap((row) =>
+      (Array.isArray(row?.sources) ? row.sources : [])
+        .map((source) => source?.sourceId)
+        .filter(text),
     ),
   )
   const carried = new Set(strict.map((source) => source.sourceId))
@@ -206,6 +240,12 @@ export async function migrateLedger({ ledgerPath, sourcesDir, coveragePath, atte
     withRecheckBy: strict.filter((source) => source.recheckBy).length,
     withoutRecheckBy: strict.filter((source) => !source.recheckBy).map((source) => source.sourceId),
     citedByCoverageButNotCarried: [...cited].filter((id) => !carried.has(id)).sort(),
+    legacyStatusWords: report.sources
+      .flatMap((entry) => entry.legacyStatusWords)
+      .reduce((counts, word) => ({ ...counts, [word]: (counts[word] ?? 0) + 1 }), {}),
+    carriedWithFailedLegacyFetch: report.sources
+      .filter((entry) => entry.legacyFetch)
+      .map((entry) => entry.sourceId),
     citedByCoverageWithoutText: [...cited]
       .filter((id) => carried.has(id) && !strict.find((source) => source.sourceId === id).text)
       .sort(),
@@ -235,6 +275,10 @@ export async function main(argv = process.argv.slice(2), io = process) {
         'Required: --ledger --sources-dir --output --report [--coverage] [--attested-text]',
       )
     const ledgerFile = await realpath(options.ledgerPath)
+    if (
+      path.resolve(options.output).toLowerCase() === path.resolve(options.reportPath).toLowerCase()
+    )
+      throw new Error('output and report must be different files')
     for (const out of [options.output, options.reportPath])
       if (path.resolve(out).toLowerCase() === ledgerFile.toLowerCase())
         throw new Error('outputs must not overwrite the legacy ledger')

@@ -107,6 +107,22 @@ describe('guest stated dates', () => {
     ).toBe('2026-10-03')
   })
 
+  it('review regressions: unread later dates, recurrence and permanent facts stay unmarked', () => {
+    for (const text of [
+      'Sale 3/1/2026 to 3/31/2026, extended to 11/30/26.',
+      'Prices valid through March 2026; new prices from 4/1.',
+      "Held Oct 3, 2026; next run Nov 30, '26 to be confirmed.",
+      'Free admission on September 14, 2026 and every first Sunday.',
+      'Weekends through October 24, 2026 and daily after.',
+      'Runs Oct 10-12, 2026 each year.',
+      'Annual festival, last held October 12, 2025.',
+      'The carousel was restored on March 3, 2025.',
+      'Built on June 4, 2025, the lodge has a fireplace.',
+      'Founded June 4, 2025. Open daily 9-5.',
+    ])
+      expect(guestStatedDatesPassed(topic(text), '2026-11-15'), text).toBeNull()
+  })
+
   it('does not read lower-case "may" or bad input as dates', () => {
     expect(guestStatedDates('Guests may 3 bags each in 2026.').dates).toEqual([])
     expect(guestStatedDates('February 30, 2026 is not a date.').dates).toEqual([])
