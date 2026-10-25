@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 3,
+  "knowledge": {
+    "create": [],
+    "update": [],
+    "delete": []
+  },
+  "places": {
+    "create": [],
+    "update": [],
+    "delete": []
+  }
+}
