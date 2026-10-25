@@ -88,6 +88,7 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
       const d = e.data
       if (!d || typeof d !== 'object') throw new Error('missing typed data')
       let ok = false
+      let coverageValidated = false
       switch (kind) {
         case 'coverage': {
           const bindings = [
@@ -131,11 +132,15 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
             JSON.stringify(recomputed.bindings) !== JSON.stringify(d.bindings)
           )
             throw new Error('coverage report does not match recomputed inputs')
+          if (
+            d.passed !== true ||
+            d.asOf !== asOf.slice(0, 10) ||
+            d.verdict !== 'PASS' ||
+            !empty(d.errors)
+          )
+            throw new Error('coverage report metadata does not match current recomputation')
+          coverageValidated = true
           ok =
-            d.passed === true &&
-            d.asOf === asOf.slice(0, 10) &&
-            d.verdict === 'PASS' &&
-            empty(d.errors) &&
             Array.isArray(d.rows) &&
             d.rows.length > 0 &&
             d.rows.every(
@@ -234,13 +239,20 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
         const effective = overrides.length ? overrides[0] : (d.workloadOverride ?? d.modelKey)
         ok = overrides.length <= 1 && d.effectiveModelKey === effective
       }
-      if (!ok) throw new Error('required success predicates not satisfied')
+      if (!ok && !coverageValidated) throw new Error('required success predicates not satisfied')
       fields[kind] = {
         status: 'MEASURED',
         file: artifact.file,
         sha256: artifact.sha256,
         timestamp: e.measuredAt,
         expiresAt: e.expiresAt,
+        readinessPassed: ok,
+      }
+      if (!ok) {
+        const failureReason =
+          'required success predicates not satisfied: coverage contains publication blockers, unresolved human decisions or undisclosed unknowns'
+        fields[kind].failureReason = failureReason
+        missingItems.push(`${kind}: ${failureReason}`)
       }
     } catch (error) {
       reject(kind, error.message)
@@ -291,7 +303,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     )
     if (!opts['--manifest'] || !opts['--output'])
       throw new Error('--manifest and --output are required')
-    const result = composeReceipt(opts['--manifest'], { asOf: opts['--as-of'] })
+    const result = composeReceipt(opts['--manifest'], {
+      asOf: opts['--as-of'],
+    })
     const output = resolve(opts['--output'])
     const inputs = [
       opts['--manifest'],
@@ -301,7 +315,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       ),
     ].map((x) => resolve(x))
     if (inputs.includes(output)) throw new Error('Output must not overwrite an input')
-    writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' })
+    writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`, {
+      flag: 'wx',
+    })
     process.exitCode = result.verdict === 'PUBLISH_CANDIDATE' ? 0 : 1
   } catch (error) {
     console.error(error.message)

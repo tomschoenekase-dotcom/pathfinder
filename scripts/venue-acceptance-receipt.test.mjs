@@ -42,7 +42,11 @@ function fixture() {
     publishImpact: 'NONE',
     rationale: 'Fictional fixture category does not apply.',
   }))
-  const coverageInput = save('coverage-input.json', { schemaVersion: 1, profile: 'other', rows })
+  const coverageInput = save('coverage-input.json', {
+    schemaVersion: 1,
+    profile: 'other',
+    rows,
+  })
   const metrics = {
     mode: 'FULL',
     renderedChars: 50,
@@ -56,7 +60,12 @@ function fixture() {
       asOf: '2026-10-25',
       errors: [],
       rows,
-      bindings: { package: packageFile, ledger: binding, coverage: coverageInput, sources: [] },
+      bindings: {
+        package: packageFile,
+        ledger: binding,
+        coverage: coverageInput,
+        sources: [],
+      },
     },
     checkPackage: {
       ready: true,
@@ -271,7 +280,11 @@ test('coverage cannot omit a bound row or invent PASS over invalid input', () =>
   })
   assert.equal(f.run().verdict, 'NOT_READY')
   const g = fixture()
-  const artifact = g.save('coverage-input.json', { schemaVersion: 1, profile: 'other', rows: [] })
+  const artifact = g.save('coverage-input.json', {
+    schemaVersion: 1,
+    profile: 'other',
+    rows: [],
+  })
   g.change('coverage', (e) => {
     e.data.rows = []
     e.data.bindings.coverage = artifact
@@ -322,4 +335,85 @@ for (const impact of ['NONE', 'DISCLOSE'])
     const result = f.run()
     assert.equal(result.verdict, impact === 'DISCLOSE' ? 'PUBLISH_CANDIDATE' : 'NOT_READY')
     if (impact === 'NONE') assert.match(result.missingItems.join(), /required success predicates/)
+  })
+
+for (const [status, impact] of [
+  ['UNKNOWN', 'BLOCKS'],
+  ['CONFLICTED', 'NONE'],
+  ['NEEDS_HUMAN', 'DISCLOSE'],
+  ['UNKNOWN', 'NONE'],
+])
+  test(`valid measured coverage with ${status}/${impact} retains negative evidence`, () => {
+    const f = fixture()
+    f.change('coverage', (e) => {
+      const row = e.data.rows[0]
+      row.status = status
+      row.publishImpact = impact
+      row.records = ['/knowledgeEntries/create/0/value/content']
+      if (['CONFLICTED', 'NEEDS_HUMAN'].includes(status))
+        row.humanDecision = 'Which fictional hours are confirmed?'
+      e.data.bindings.coverage = f.save('coverage-input.json', {
+        schemaVersion: 1,
+        profile: 'other',
+        rows: e.data.rows,
+      })
+    })
+    const result = f.run()
+    const field = result.fields.coverage
+    assert.equal(result.verdict, 'NOT_READY')
+    assert.equal(field.status, 'MEASURED')
+    assert.equal(field.readinessPassed, false)
+    assert.ok(field.failureReason)
+    assert.equal(field.file, f.manifest.evidence.coverage.file)
+    assert.equal(field.sha256, f.manifest.evidence.coverage.sha256)
+    assert.equal(field.timestamp, f.envelopes.coverage.measuredAt)
+  })
+test('missing, stale and hash-invalid coverage are not measured', () => {
+  for (const failure of ['missing', 'stale', 'hash']) {
+    const f = fixture()
+    if (failure === 'missing') delete f.manifest.evidence.coverage
+    else if (failure === 'stale')
+      f.change('coverage', (e) => {
+        e.expiresAt = '2026-10-24T00:00:00Z'
+      })
+    else f.save('coverage.json', { invalid: true })
+    const result = f.run()
+    assert.equal(result.fields.coverage.status, 'NOT_MEASURED')
+    assert.equal(result.verdict, 'NOT_READY')
+  }
+})
+
+for (const [name, mutate] of [
+  [
+    'stale report day',
+    (d) => {
+      d.asOf = '2026-10-24'
+    },
+  ],
+  [
+    'inconsistent saved verdict',
+    (d) => {
+      d.verdict = 'FAIL'
+    },
+  ],
+  [
+    'inconsistent saved errors',
+    (d) => {
+      d.errors = ['invented error']
+    },
+  ],
+  [
+    'inconsistent saved passed',
+    (d) => {
+      d.passed = false
+    },
+  ],
+])
+  test(`invalid coverage metadata: ${name} stays NOT_MEASURED`, () => {
+    const f = fixture()
+    f.change('coverage', (e) => mutate(e.data))
+    const result = f.run()
+    assert.equal(result.fields.coverage.status, 'NOT_MEASURED')
+    assert.equal(result.verdict, 'NOT_READY')
+    assert.match(result.fields.coverage.reason, /metadata/)
   })
