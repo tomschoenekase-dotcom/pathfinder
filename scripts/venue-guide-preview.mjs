@@ -1,7 +1,8 @@
 import { writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
-import { delimiter, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
+import { resolve } from 'node:path'
 
 try {
   const args = process.argv.slice(2)
@@ -22,42 +23,42 @@ try {
     throw new Error('--package and --as-of are required')
   const packagePath = resolve(options['--package'])
   const root = fileURLToPath(new URL('../', import.meta.url))
-  const code = `import { readFileSync } from 'node:fs'; import { createHash } from 'node:crypto'; import { previewVenuePackageGuide } from './src/lib/venue-package-guide-preview.ts'; const source = readFileSync(process.argv[1]); process.stdout.write(JSON.stringify({...previewVenuePackageGuide(JSON.parse(source.toString('utf8')), process.argv[2]), packageSha256: createHash('sha256').update(source).digest('hex')}))`
-  const rendererArgs = [
-    '--dir',
-    'packages/api',
-    'exec',
-    'tsx',
-    '-e',
-    code,
-    packagePath,
-    options['--as-of'],
-  ]
-  // Windows .cmd launch needs a shell; encode PowerShell literals instead of interpolating cmd text.
-  const windowsScript = `& pnpm ${rendererArgs.map((arg) => `'${arg.replaceAll("'", "''")}'`).join(' ')}; exit $LASTEXITCODE`
-  const spawnOptions = {
-    windowsHide: true,
-    cwd: root,
-    encoding: 'utf8',
-    maxBuffer: 4 * 1024 * 1024,
-    env: {
-      ...process.env,
-      PATH: `${resolve(root, 'node_modules/.pnpm/node_modules/.bin')}${delimiter}${process.env.PATH ?? ''}`,
-    },
+  // Resolve an installed local loader only. No package-manager or network fallback.
+  let loader
+  for (const anchor of [
+    'packages/api/package.json',
+    'package.json',
+    'node_modules/.pnpm/node_modules/package.json',
+  ]) {
+    try {
+      loader = createRequire(resolve(root, anchor)).resolve('tsx')
+      break
+    } catch (error) {
+      if (error.code !== 'MODULE_NOT_FOUND') throw error
+    }
   }
-  const child =
-    process.platform === 'win32'
-      ? spawnSync(
-          'powershell.exe',
-          [
-            '-NoProfile',
-            '-NonInteractive',
-            '-EncodedCommand',
-            Buffer.from(windowsScript, 'utf16le').toString('base64'),
-          ],
-          spawnOptions,
-        )
-      : spawnSync('pnpm', rendererArgs, spawnOptions)
+  if (!loader) throw new Error('Installed local tsx renderer loader is unavailable')
+  const code = `import { readFileSync } from 'node:fs'; import { createHash } from 'node:crypto'; const native = await import('./src/lib/venue-package-guide-preview.ts'); const {previewVenuePackageGuide} = native.default ?? native; const source = readFileSync(process.argv[1]); process.stdout.write(JSON.stringify({...previewVenuePackageGuide(JSON.parse(source.toString('utf8')), process.argv[2]), packageSha256: createHash('sha256').update(source).digest('hex')}))`
+  // Run the renderer in the direct child so timeout termination cannot orphan a shell grandchild.
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      pathToFileURL(loader).href,
+      '--input-type=module',
+      '-e',
+      code,
+      packagePath,
+      options['--as-of'],
+    ],
+    {
+      windowsHide: true,
+      timeout: 30_000,
+      cwd: resolve(root, 'packages/api'),
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024,
+    },
+  )
   if (child.error) throw child.error
   if (child.status !== 0) throw new Error(child.stderr || `Renderer exited ${child.status}`)
   const report = JSON.parse(child.stdout)

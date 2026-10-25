@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { isDeepStrictEqual } from 'node:util'
 
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 export const evidenceKinds = [
@@ -122,7 +123,7 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
                 asOf: asOf.slice(0, 10),
               }),
             ],
-            { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+            { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 30_000, windowsHide: true },
           )
           if (child.error || child.status !== 0) throw new Error('coverage recomputation failed')
           const recomputed = JSON.parse(child.stdout)
@@ -182,7 +183,25 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
             Number.isInteger(d.recordsAudited) &&
             d.recordsAudited > 0
           break
-        case 'guidePreview':
+        case 'guidePreview': {
+          if (d.asOf !== asOf.slice(0, 10))
+            throw new Error('guide preview must match the current as-of day')
+          const child = spawnSync(
+            process.execPath,
+            [
+              fileURLToPath(new URL('./venue-guide-preview.mjs', import.meta.url)),
+              '--package',
+              pkg.file,
+              '--as-of',
+              asOf.slice(0, 10),
+            ],
+            { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 40_000, windowsHide: true },
+          )
+          if (child.error || child.status !== 0)
+            throw new Error('guide preview recomputation failed')
+          const recomputed = JSON.parse(child.stdout)
+          if (!isDeepStrictEqual(d, recomputed))
+            throw new Error('guide preview does not match native recomputation')
           ok =
             d.schemaVersion === 1 &&
             d.packageSha256 === pkg.sha256 &&
@@ -196,6 +215,7 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
                 d[s].rendererTruncated === false,
             )
           break
+        }
         case 'servingRoute':
           ok =
             ['default', 'evidence'].includes(d.guideStrategy) &&

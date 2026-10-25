@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { spawnSync } from 'node:child_process'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -7,6 +8,20 @@ import { composeReceipt, evidenceKinds, sha256 } from './venue-acceptance-receip
 const qa = resolve(dirname(fileURLToPath(import.meta.url)), '../../qa/S5')
 mkdirSync(qa, { recursive: true })
 const now = '2026-10-25T12:00:00Z'
+const nativeChild = spawnSync(
+  process.execPath,
+  [
+    fileURLToPath(new URL('./venue-guide-preview.mjs', import.meta.url)),
+    '--package',
+    fileURLToPath(new URL('./fixtures/venue-acceptance/package.json', import.meta.url)),
+    '--as-of',
+    now.slice(0, 10),
+  ],
+  { encoding: 'utf8', timeout: 40_000, windowsHide: true },
+)
+assert.equal(nativeChild.status, 0, nativeChild.stderr)
+const nativePreview = JSON.parse(nativeChild.stdout)
+
 function fixture() {
   const root = mkdtempSync(resolve(qa, 'fixture-'))
   const save = (name, data) => {
@@ -47,12 +62,6 @@ function fixture() {
     profile: 'other',
     rows,
   })
-  const metrics = {
-    mode: 'FULL',
-    renderedChars: 50,
-    maxFullChars: 120000,
-    rendererTruncated: false,
-  }
   const data = {
     coverage: {
       passed: true,
@@ -89,13 +98,7 @@ function fixture() {
     },
     guestLink: { usable: true, url: 'https://example.invalid/guide' },
     embeddings: { mode: 'audit', actionableReasons: [], recordsAudited: 1 },
-    guidePreview: {
-      schemaVersion: 1,
-      packageSha256: packageFile.sha256,
-      scope: 'CREATE_ONLY_PACKAGE_PREVIEW',
-      default: metrics,
-      evidence: { ...metrics, mode: 'DIRECTORY' },
-    },
+    guidePreview: { ...structuredClone(nativePreview), packageSha256: packageFile.sha256 },
     servingRoute: {
       guideStrategy: 'default',
       modelKey: 'fictional-model',
@@ -417,3 +420,80 @@ for (const [name, mutate] of [
     assert.equal(result.verdict, 'NOT_READY')
     assert.match(result.fields.coverage.reason, /metadata/)
   })
+
+for (const [name, mutate] of [
+  [
+    'stale rendering day',
+    (d) => {
+      d.asOf = '2020-01-01'
+    },
+  ],
+  [
+    'future rendering day',
+    (d) => {
+      d.asOf = '2099-01-01'
+    },
+  ],
+  [
+    'missing rendering day',
+    (d) => {
+      delete d.asOf
+    },
+  ],
+  [
+    'impossible FULL size',
+    (d) => {
+      d.default.renderedChars = 999999
+    },
+  ],
+  [
+    'impossible evidence mode',
+    (d) => {
+      d.evidence.mode = 'FULL'
+    },
+  ],
+  [
+    'incorrect full-guide size',
+    (d) => {
+      d.default.fullGuideRenderedChars += 1
+    },
+  ],
+  [
+    'invented record count',
+    (d) => {
+      d.counts.knowledge += 1
+    },
+  ],
+  [
+    'omitted authority assumptions',
+    (d) => {
+      d.assumptions = []
+    },
+  ],
+])
+  test(`native preview rejects ${name}`, () => {
+    const f = fixture()
+    f.change('guidePreview', (e) => mutate(e.data))
+    const result = f.run()
+    assert.equal(result.verdict, 'NOT_READY')
+    assert.equal(result.fields.guidePreview.status, 'NOT_MEASURED')
+    assert.match(result.fields.guidePreview.reason, /as-of day|native recomputation/)
+  })
+
+test('native preview is recomputed after package changes despite refreshed attestation hashes', () => {
+  const f = fixture()
+  const pkg = JSON.parse(readFileSync(f.manifest.package, 'utf8'))
+  pkg.knowledgeEntries.create[0].value.content +=
+    ' Additional fictional visitor guidance changes rendered length.'
+  const updated = f.save('package.json', pkg)
+  for (const kind of evidenceKinds)
+    f.change(kind, (e) => {
+      e.packageSha256 = updated.sha256
+      if (kind === 'coverage') e.data.bindings.package = updated
+      if (kind === 'guidePreview') e.data.packageSha256 = updated.sha256
+      if (kind === 'import') e.data.receipt.packageSha256 = updated.sha256
+    })
+  const result = f.run()
+  assert.equal(result.verdict, 'NOT_READY')
+  assert.match(result.fields.guidePreview.reason, /native recomputation/)
+})

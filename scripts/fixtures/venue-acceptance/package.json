@@ -8,11 +8,16 @@
   "knowledgeEntries": {
     "create": [
       {
-        "itemKey": "fictional-hours",
+        "itemKey": "00000000-0000-4000-8000-000000000001",
         "value": {
           "title": "Fictional observatory hours",
           "content": "Current hours are unconfirmed; contact the fictional observatory before visiting.",
-          "isEnabled": true
+          "isEnabled": true,
+          "category": "GENERAL"
+        },
+        "provenance": {
+          "sourceType": "MANUAL",
+          "contentOrigin": "AI_GENERATED"
         }
       }
     ],
