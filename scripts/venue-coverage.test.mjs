@@ -463,7 +463,9 @@ test('invalid temporal classifier input fails closed', async (t) => {
   assert.equal(report.passed, false)
   assert.ok(report.errors.some((error) => error.includes('visibility unverified')))
 })
-test('raw bookkeeping title retained by production is not silently sanitized', async (t) => {
+test('a title-only "unconfirmed" is not a guest disclosure', async (t) => {
+  // Superseded 2026-10-25: this case previously passed. A body like "Ask staff for details."
+  // states nothing unconfirmed to a guest who receives the body without its title.
   const { report } = await run(t, async (c, dir) => {
     const filename = path.join(dir, 'package.json')
     const pkg = JSON.parse(await readFile(filename, 'utf8'))
@@ -473,5 +475,200 @@ test('raw bookkeeping title retained by production is not silently sanitized', a
     })
     await writeFile(filename, JSON.stringify(pkg))
   })
+  assert.equal(report.passed, false)
+  assert.match(report.errors.join('\n'), /body must state unconfirmed/)
+})
+async function withPackage(t, edit, mutate = () => {}) {
+  return run(t, async (c, dir) => {
+    const filename = path.join(dir, 'package.json')
+    const pkg = JSON.parse(await readFile(filename, 'utf8'))
+    edit(pkg)
+    await writeFile(filename, JSON.stringify(pkg))
+    await mutate(c, dir)
+  })
+}
+for (const content of [
+  'Hours are not unconfirmed.',
+  'Admission is $50. It is NOT UNCONFIRMED.',
+  'Prices are no longer unconfirmed.',
+  'Parking isn’t unconfirmed today.',
+]) {
+  test(`negated disclosure is rejected: ${content}`, async (t) => {
+    const { report } = await withPackage(t, (pkg) => {
+      pkg.knowledgeEntries.create[0].value.content = content
+    })
+    assert.equal(report.passed, false)
+    assert.match(report.errors.join('\n'), /body must state unconfirmed/)
+  })
+}
+test('disclosure inside a multi-sentence body still counts', async (t) => {
+  const { report } = await withPackage(t, (pkg) => {
+    pkg.knowledgeEntries.create[0].value.content =
+      'Visitors enter at the north gate. Current visitor details are unconfirmed.'
+  })
   assert.equal(report.passed, true, report.errors.join('\n'))
+})
+const addRecord = async (dir, value) => {
+  const filename = path.join(dir, 'package.json')
+  const pkg = JSON.parse(await readFile(filename, 'utf8'))
+  pkg.knowledgeEntries.create.push({
+    itemKey: '00000000-0000-4000-8000-00000000000' + (pkg.knowledgeEntries.create.length + 1),
+    provenance: { contentOrigin: 'AI_GENERATED', sourceName: 'Fictional fixture' },
+    value: { title: 'Fictional booking', category: 'Tickets', ...value },
+  })
+  await writeFile(filename, JSON.stringify(pkg))
+  return `/knowledgeEntries/create/${pkg.knowledgeEntries.create.length - 1}`
+}
+const matrix = [
+  [
+    'UNKNOWN with impact NONE',
+    (c) => Object.assign(c.rows[3], { publishImpact: 'NONE' }),
+    /UNKNOWN requires publishImpact BLOCKS or DISCLOSE/,
+  ],
+  [
+    'CONFLICTED with impact NONE',
+    (c) =>
+      Object.assign(c.rows[3], {
+        status: 'CONFLICTED',
+        publishImpact: 'NONE',
+        humanDecision: 'Which booking terms apply?',
+      }),
+    /CONFLICTED requires publishImpact/,
+  ],
+  [
+    'NEEDS_HUMAN with impact NONE',
+    (c) =>
+      Object.assign(c.rows[3], {
+        status: 'NEEDS_HUMAN',
+        publishImpact: 'NONE',
+        humanDecision: 'Which booking terms apply?',
+      }),
+    /NEEDS_HUMAN requires publishImpact/,
+  ],
+  [
+    'KNOWN with impact BLOCKS',
+    (c) => Object.assign(c.rows[5], { publishImpact: 'BLOCKS' }),
+    /KNOWN cannot have publishImpact BLOCKS/,
+  ],
+  [
+    'NOT_APPLICABLE hours',
+    (c) =>
+      Object.assign(c.rows[0], {
+        status: 'NOT_APPLICABLE',
+        publishImpact: 'NONE',
+        records: [],
+        rationale: 'This fictional garden is a virtual exhibit only.',
+      }),
+    /hours-season cannot be NOT_APPLICABLE/,
+  ],
+  [
+    'NOT_APPLICABLE with a throwaway rationale',
+    (c) =>
+      Object.assign(c.rows[9], {
+        status: 'NOT_APPLICABLE',
+        publishImpact: 'NONE',
+        records: [],
+        rationale: 'n/a',
+      }),
+    /NOT_APPLICABLE requires a specific rationale/,
+  ],
+  [
+    'CONFLICTED DISCLOSE without an unconfirmed body',
+    async (c, dir) => {
+      const ref = await addRecord(dir, { content: 'Booking is online.' })
+      Object.assign(c.rows[3], {
+        status: 'CONFLICTED',
+        humanDecision: 'Which booking terms apply?',
+        records: [ref],
+      })
+    },
+    /rows\[3\]: CONFLICTED DISCLOSE needs at least one record body that states unconfirmed/,
+  ],
+  [
+    'recheckBy years after observedAt',
+    (c) => Object.assign(c.rows[0], { recheckBy: '2099-12-31' }),
+    /recheckBy is too far after observedAt/,
+  ],
+  [
+    'one-character span',
+    (c) => {
+      c.rows[5].sources[0] = {
+        ...c.rows[5].sources[0],
+        end: c.rows[5].sources[0].start + 1,
+        text: 'F',
+      }
+    },
+    /rows\[5\]: invalid source span/,
+  ],
+  [
+    'string isEnabled',
+    async (c, dir) => {
+      c.rows[3].records = [
+        await addRecord(dir, { content: 'Booking is unconfirmed.', isEnabled: 'false' }),
+      ]
+    },
+    /isEnabled must be boolean/,
+  ],
+]
+for (const [name, mutate, expected] of matrix)
+  test(`status, impact and evidence rules reject: ${name}`, async (t) => {
+    const { report } = await run(t, mutate)
+    assert.equal(report.passed, false, name)
+    assert.match(report.errors.join('\n'), expected)
+  })
+test('labeled hours and price records outside their rows become readiness findings', async (t) => {
+  const { report } = await withPackage(t, (pkg) => {
+    pkg.knowledgeEntries.create.push(
+      {
+        itemKey: '00000000-0000-4000-8000-000000000002',
+        provenance: { contentOrigin: 'AI_GENERATED', sourceName: 'Fictional fixture' },
+        value: {
+          title: 'Lantern Walk',
+          category: 'Attractions',
+          content:
+            'Lantern Walk is a fictional evening path.\nHours: 6pm to 9pm Friday.\nPrice: $4.',
+        },
+      },
+      {
+        itemKey: '00000000-0000-4000-8000-000000000003',
+        provenance: { contentOrigin: 'AI_GENERATED', sourceName: 'Fictional fixture' },
+        value: {
+          title: 'Retired Path',
+          category: 'Attractions',
+          content: 'Retired Path is closed.\nHours: 9am to 5pm daily.',
+          isEnabled: false,
+        },
+      },
+    )
+  })
+  // Contract checks still pass; readiness is reported separately and never relabels the verdict.
+  assert.equal(report.passed, true, report.errors.join('\n'))
+  assert.deepEqual(
+    report.readinessFindings.map((f) => [f.category, f.record]),
+    [
+      ['hours-season', '/knowledgeEntries/create/1'],
+      ['admission-prices', '/knowledgeEntries/create/1'],
+    ],
+  )
+})
+test('binding a labeled record to its row clears the readiness finding', async (t) => {
+  const { report } = await withPackage(
+    t,
+    (pkg) => {
+      pkg.knowledgeEntries.create.push({
+        itemKey: '00000000-0000-4000-8000-000000000002',
+        provenance: { contentOrigin: 'AI_GENERATED', sourceName: 'Fictional fixture' },
+        value: {
+          title: 'Lantern Walk',
+          category: 'Attractions',
+          content: 'Lantern Walk is a fictional evening path.\nHours: unconfirmed for this season.',
+        },
+      })
+    },
+    (c) => {
+      c.rows[0].records.push('/knowledgeEntries/create/1/value/content')
+    },
+  )
+  assert.equal(report.passed, true, report.errors.join('\n'))
+  assert.deepEqual(report.readinessFindings, [])
 })
