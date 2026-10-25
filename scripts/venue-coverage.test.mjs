@@ -672,3 +672,91 @@ test('binding a labeled record to its row clears the readiness finding', async (
   assert.equal(report.passed, true, report.errors.join('\n'))
   assert.deepEqual(report.readinessFindings, [])
 })
+for (const [content, ok] of [
+  ['Hours are not listed or unconfirmed.', true],
+  ['The price isn\u2019t posted and is unconfirmed.', true],
+  ['No unconfirmed claims appear here.', false],
+  ['Parking is available without unconfirmed fees.', false],
+]) {
+  test(`negation must sit next to unconfirmed: ${content}`, async (t) => {
+    const { report } = await withPackage(t, (pkg) => {
+      pkg.knowledgeEntries.create[0].value.content = content
+    })
+    assert.equal(report.passed, ok, report.errors.join('\n'))
+  })
+}
+const labeledRecord = (n, content, extra = {}) => ({
+  itemKey: `00000000-0000-4000-8000-00000000001${n}`,
+  provenance: {
+    contentOrigin: 'AI_GENERATED',
+    sourceName: 'Fictional fixture',
+    ...extra.provenance,
+  },
+  value: { title: `Fictional ride ${n}`, category: 'Attractions', content, ...extra.value },
+})
+test('labeled facts with no coverage row for their category are reported', async (t) => {
+  const { report } = await withPackage(t, (pkg) => {
+    pkg.knowledgeEntries.create.push(
+      labeledRecord(1, 'A fictional train.\nHeight: minimum height unconfirmed'),
+    )
+  })
+  assert.deepEqual(
+    report.readinessFindings.map((f) => [f.category, f.record, f.reason]),
+    [
+      [
+        'rider-height-safety',
+        '/knowledgeEntries/create/1',
+        'labeled record has no coverage row for its category',
+      ],
+    ],
+  )
+})
+test('labeled findings cover update ops and place hours, and skip connected sources', async (t) => {
+  const { report } = await withPackage(t, (pkg) => {
+    pkg.knowledgeEntries.update.push({
+      id: '10000000-0000-4000-8000-000000000001',
+      ...labeledRecord(2, 'An updated fictional path.\nHours: 9am to 5pm daily.'),
+    })
+    pkg.knowledgeEntries.create.push(
+      labeledRecord(3, 'A connected fictional feed.\nHours: 8am to 4pm.', {
+        provenance: { sourceType: 'SOURCE_CONNECTION' },
+      }),
+    )
+    pkg.places.create.push({
+      itemKey: '00000000-0000-4000-8000-000000000020',
+      provenance: { contentOrigin: 'AI_GENERATED', sourceName: 'Fictional fixture' },
+      value: { name: 'Fictional Kiosk', type: 'shop', hours: 'Daily 10am to 4pm' },
+    })
+  })
+  assert.deepEqual(
+    report.readinessFindings.map((f) => [f.category, f.record]),
+    [
+      ['hours-season', '/knowledgeEntries/update/0'],
+      ['hours-season', '/places/create/0'],
+    ],
+  )
+})
+test('an event Hours line bound to the events row is not an hours-season finding', async (t) => {
+  const { report } = await withPackage(
+    t,
+    (pkg) => {
+      pkg.knowledgeEntries.create.push(
+        labeledRecord(4, 'A fictional lantern night.\nHours: 6pm to 9pm on December 5, 2026.'),
+      )
+    },
+    (c) => {
+      c.rows.push({
+        category: 'events',
+        status: 'KNOWN',
+        records: ['/knowledgeEntries/create/1'],
+        sources: [{ ...c.rows[5].sources[0] }],
+        observedAt: '2026-10-23',
+        recheckBy: '2026-11-15',
+        publishImpact: 'NONE',
+        rationale: 'Fictional dated event row.',
+      })
+    },
+  )
+  assert.equal(report.passed, true, report.errors.join('\n'))
+  assert.deepEqual(report.readinessFindings, [])
+})

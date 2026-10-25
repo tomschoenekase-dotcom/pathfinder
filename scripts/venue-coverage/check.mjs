@@ -82,7 +82,7 @@ export function guestRecordText(document, ref) {
 // A disclosure is a body line that says "unconfirmed" without negating it. Titles alone do not
 // count: a guest can receive a record body without reading "Unconfirmed" as a caution.
 const negatedUnconfirmed =
-  /\b(?:not|no longer|never|isn['’]t|aren['’]t|wasn['’]t)\s+(?:\w+\s+){0,2}unconfirmed\b/i
+  /\b(?:not|no|no longer|never|without|isn['’]t|aren['’]t|wasn['’]t)\s+unconfirmed\b/i
 export function bodyDiscloses(document, ref) {
   const parts = ref.split('/')
   const value = pointer(document, parts.slice(0, 4).join('/'))?.value ?? {}
@@ -127,12 +127,16 @@ export function labeledRecordFindings(document, rows) {
           const labeled =
             (nonempty(body) && label.test(body)) ||
             (category === 'hours-season' && group === 'places' && nonempty(value.hours))
-          if (!labeled || !bound.has(category) || bound.get(category).has(ref)) continue
+          if (!labeled || bound.get(category)?.has(ref)) continue
+          // A dated event's own Hours line may be governed by the events row instead.
+          if (category === 'hours-season' && bound.get('events')?.has(ref)) continue
           findings.push({
             category,
             record: ref,
             title: value.title ?? value.name ?? null,
-            reason: 'labeled record is not bound to its coverage category row',
+            reason: bound.has(category)
+              ? 'labeled record is not bound to its coverage category row'
+              : 'labeled record has no coverage row for its category',
           })
         }
       })

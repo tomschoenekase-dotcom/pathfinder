@@ -621,8 +621,9 @@ export async function runBatch({
       try {
         const original = JSON.parse(await readFile(reportFile, 'utf8'))
         if (original.verdict === 'PUBLISH_CANDIDATE') {
-          await rename(reportFile, childFile)
-          await save(reportFile, {
+          // Write the downgraded report first, then swap, so acceptance.json is never missing.
+          const pendingFile = path.join(venueDir, 'acceptance.downgraded.pending.json')
+          await save(pendingFile, {
             ...original,
             verdict: 'NOT_READY',
             childVerdict: original.verdict,
@@ -632,6 +633,8 @@ export async function runBatch({
               originalReport: 'acceptance-child-report.json',
             },
           })
+          await rename(reportFile, childFile)
+          await rename(pendingFile, reportFile)
           acceptanceStage.originalReport = await binding(childFile)
           acceptanceStage.report = await binding(reportFile)
         }
