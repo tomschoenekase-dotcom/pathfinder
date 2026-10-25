@@ -306,3 +306,20 @@ test('equal instants with different UTC precision preserve chronological order',
   })
   assert.equal(f.run().verdict, 'PUBLISH_CANDIDATE')
 })
+for (const impact of ['NONE', 'DISCLOSE'])
+  test(`native valid UNKNOWN/${impact} requires guest disclosure to be a candidate`, () => {
+    const f = fixture()
+    f.change('coverage', (e) => {
+      e.data.rows[0].status = 'UNKNOWN'
+      e.data.rows[0].publishImpact = impact
+      e.data.rows[0].records = ['/knowledgeEntries/create/0/value/content']
+      e.data.bindings.coverage = f.save('coverage-input.json', {
+        schemaVersion: 1,
+        profile: 'other',
+        rows: e.data.rows,
+      })
+    })
+    const result = f.run()
+    assert.equal(result.verdict, impact === 'DISCLOSE' ? 'PUBLISH_CANDIDATE' : 'NOT_READY')
+    if (impact === 'NONE') assert.match(result.missingItems.join(), /required success predicates/)
+  })

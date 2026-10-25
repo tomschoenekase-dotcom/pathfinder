@@ -141,7 +141,8 @@ export function composeReceipt(manifestPath, { asOf = new Date().toISOString() }
             d.rows.every(
               (r) =>
                 ['KNOWN', 'UNKNOWN', 'NOT_APPLICABLE'].includes(r.status) &&
-                ['DISCLOSE', 'NONE'].includes(r.publishImpact),
+                ['DISCLOSE', 'NONE'].includes(r.publishImpact) &&
+                (r.status !== 'UNKNOWN' || r.publishImpact === 'DISCLOSE'),
             )
           break
         }

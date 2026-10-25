@@ -18,5 +18,5 @@ Data contracts:
 - visitorQa: route guest, routeVerified true, turnsCompleted positive integer, criticalFailures 0, results matching count: {question,answer,completed:true,criticalFailure:false,firstTextMs,completionMs}.
 - phoneCheck: rendered/passed true, viewport, checkedBy.
 
-The fixture package is fictional and intentionally empty; tests create fictional evidence in machine-workspace temporary directories. This contract reports no accuracy percentage and grants no publication authority.
-Coverage is recomputed by the S2 checker against its actual bound files and compared to saved rows/bindings. No unresolved NEEDS_HUMAN or CONFLICTED row can yield a candidate, regardless of impact. Zero cited sources is accepted when the native checker permits it. UTC timestamps require a real canonical calendar instant; chronology uses numeric instants.
+The fixture package contains one fictional guest record with an explicit unconfirmed disclosure; tests create fictional evidence in machine-workspace temporary directories. This contract reports no accuracy percentage and grants no publication authority.
+Coverage is recomputed by the S2 checker against its actual bound files and compared to saved rows/bindings. No unresolved NEEDS_HUMAN or CONFLICTED row can yield a candidate, regardless of impact. UNKNOWN requires DISCLOSE with guest-visible unconfirmed wording; NONE cannot yield a candidate. Zero cited sources is accepted when the native checker permits it. UTC timestamps require a real canonical calendar instant; chronology uses numeric instants.

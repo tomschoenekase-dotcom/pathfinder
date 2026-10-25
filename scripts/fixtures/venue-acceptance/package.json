@@ -1,12 +1,21 @@
 {
   "schemaVersion": 3,
-  "knowledge": {
+  "places": {
     "create": [],
     "update": [],
     "delete": []
   },
-  "places": {
-    "create": [],
+  "knowledgeEntries": {
+    "create": [
+      {
+        "itemKey": "fictional-hours",
+        "value": {
+          "title": "Fictional observatory hours",
+          "content": "Current hours are unconfirmed; contact the fictional observatory before visiting.",
+          "isEnabled": true
+        }
+      }
+    ],
     "update": [],
     "delete": []
   }
