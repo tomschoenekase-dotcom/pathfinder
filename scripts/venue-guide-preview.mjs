@@ -36,6 +36,7 @@ try {
   // Windows .cmd launch needs a shell; encode PowerShell literals instead of interpolating cmd text.
   const windowsScript = `& pnpm ${rendererArgs.map((arg) => `'${arg.replaceAll("'", "''")}'`).join(' ')}; exit $LASTEXITCODE`
   const spawnOptions = {
+    windowsHide: true,
     cwd: root,
     encoding: 'utf8',
     maxBuffer: 4 * 1024 * 1024,
