@@ -1,0 +1,2 @@
+# These fictional retained files are exact-byte SHA-256 targets, including text.
+sources/* -text

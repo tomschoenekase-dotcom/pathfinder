@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "sourceId": "SHTML",
+      "observedAt": "2026-10-24T12:00:00Z",
+      "recheckBy": "2026-10-30",
+      "raw": {
+        "file": "garden.html",
+        "sha256": "32a65db7ffe2272c012544ca46265831090fc69301d6f414e357eb4f4084db10"
+      },
+      "text": {
+        "file": "garden.txt",
+        "sha256": "815cb159ea9c95b9bcc0b3dffc718f2ee1c9bbdcfcdf8ba54d299aec78d6299d"
+      }
+    },
+    {
+      "sourceId": "SPDF",
+      "observedAt": "2026-10-24",
+      "recheckBy": "2026-10-30",
+      "raw": {
+        "file": "map.pdf",
+        "sha256": "57b5de6f1d97f799de9380462ff0c06ff02591022643273f772f0c8660cbce5c"
+      },
+      "text": {
+        "file": "map.txt",
+        "sha256": "79acf507a7f7001a780e364f5f7991317aa333d5f48060cc5c662b81b4e0522b"
+      }
+    }
+  ]
+}
