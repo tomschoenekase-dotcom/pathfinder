@@ -17,7 +17,10 @@ type SetupReader = {
   venue: {
     findFirst(args: unknown): Promise<{ guideMode: string | null; chatAppearance: unknown } | null>
   }
-  place: { count(args: unknown): Promise<number> }
+  place: {
+    count(args: unknown): Promise<number>
+    findMany(args: unknown): Promise<Array<{ id: string }>>
+  }
 }
 
 /**
@@ -111,10 +114,17 @@ export const venuesCheckPackage: OperatorReadTool = {
       },
     })
     // Creates are active by default; V3 updates replace the full desired activity state.
-    const activeUpdates =
+    const activeUpdateIds =
       parsed.data.schemaVersion === 3
-        ? parsed.data.places.update.filter(({ value }) => value.isActive).length
-        : 0
+        ? parsed.data.places.update.filter(({ value }) => value.isActive).map(({ id }) => id)
+        : []
+    const existingUpdateRows = activeUpdateIds.length
+      ? await (context.database as unknown as SetupReader).place.findMany({
+          where: { tenantId: input.tenantId, venueId: input.venueId, id: { in: activeUpdateIds } },
+          select: { id: true },
+        })
+      : []
+    const activeUpdates = new Set(existingUpdateRows.map(({ id }) => id)).size
     const venueSetup = await venueSetupFindings(context.database, {
       tenantId: input.tenantId,
       venueId: input.venueId,
@@ -143,7 +153,7 @@ export const venuesCheckPackage: OperatorReadTool = {
       otherWarningCount: other.length,
       // Settings, not package content: they never change ready, but fix them before testing answers.
       venueSetup,
-      note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block an import.',
+      note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block importable. Writing-guide warnings and exact in-package duplicates block ready.',
     }
   },
 }

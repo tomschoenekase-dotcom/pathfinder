@@ -332,7 +332,7 @@ describe('venues.check_package', () => {
           chatAppearance: { timeZone: 'America/Chicago' },
         }),
       },
-      place: { count },
+      place: { count, findMany: async () => existing.map(({ id }) => ({ id })) },
     }
     const identity = {
       itemKey: '22222222-2222-4222-a222-222222222222',
@@ -404,5 +404,127 @@ describe('venues.check_package', () => {
     expect(result.errors[0].code).toBe('INVALID_PACKAGE')
     expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
     expect(mocks.preview).not.toHaveBeenCalled()
+  })
+})
+
+describe('package-check polish regressions', () => {
+  const targetId = 'cm00000000000000000000001'
+  const identity = {
+    itemKey: '22222222-2222-4222-a222-222222222222',
+    provenance: payload.knowledgeEntries.create[0]!.provenance,
+  }
+  const desired = {
+    name: 'Cloud Lantern',
+    type: 'gallery',
+    itemType: null,
+    shortDescription: null,
+    longDescription: null,
+    lat: 41,
+    lng: -87,
+    tags: [],
+    importanceScore: 0,
+    areaName: null,
+    hours: null,
+    photoUrl: null,
+    isActive: true,
+  }
+  const database = (places: any[] = []) => ({
+    venue: {
+      findFirst: async () => ({
+        id: VENUE,
+        name: 'Cloud Lantern Museum',
+        guideMode: 'location_aware',
+        aiFeaturedPlaceId: null,
+        description: null,
+        category: null,
+        guideNotes: null,
+        chatTheme: null,
+        chatAccentColor: null,
+        chatFont: null,
+        chatLogoUrl: null,
+        chatBannerUrl: null,
+        aiGuideNotes: null,
+        aiTone: null,
+        aiGuideName: null,
+        chatAppearance: { timeZone: 'America/Chicago' },
+      }),
+    },
+    place: { findMany: async () => places, count: async () => 0 },
+    venueKnowledgeEntry: { findMany: async () => [] },
+    contentVersion: { groupBy: async () => [] },
+    operationalUpdate: { groupBy: async () => [] },
+    analyticsEvent: { groupBy: async () => [] },
+    dailyRollup: { groupBy: async () => [] },
+    venueLocation: { groupBy: async () => [] },
+    venueMediaPlaceLink: { groupBy: async () => [] },
+  })
+  async function actualPreview(input: unknown, places: any[] = []) {
+    const core = await vi.importActual<typeof import('../../lib/venue-package-core')>(
+      '../../lib/venue-package-core',
+    )
+    const { VenuePackagePayload } = await import('../../schemas/venue-package')
+    return core.buildVenuePackagePreview(
+      database(places) as never,
+      TENANT,
+      VENUE,
+      VenuePackagePayload.parse(input),
+    )
+  }
+  it('does not collide distinct all-non-Latin place names or knowledge titles', async () => {
+    const result = await actualPreview({
+      schemaVersion: 1,
+      places: ['雲灯', '星庭'].map((name) => ({ name, type: 'gallery', lat: 41, lng: -87 })),
+      knowledgeEntries: ['開園', '入場'].map((title) => ({
+        title,
+        category: 'GENERAL',
+        content: 'Fictional policy is unconfirmed.',
+      })),
+    })
+    expect(result.report.warnings.filter(({ code }) => code === 'DUPLICATE_IN_PACKAGE')).toEqual([])
+  })
+  it('does not call delete-and-create replacement an existing-content duplicate', async () => {
+    const result = await actualPreview(
+      {
+        ...payload,
+        places: {
+          create: [
+            { ...identity, value: { name: 'Cloud Lantern', type: 'gallery', lat: 41, lng: -87 } },
+          ],
+          update: [],
+          delete: [{ ...identity, itemKey: '33333333-3333-4333-a333-333333333333', id: targetId }],
+        },
+      },
+      [{ id: targetId, ...desired }],
+    )
+    expect(
+      result.report.warnings.filter(({ code }) => code === 'DUPLICATE_EXISTING_CONTENT'),
+    ).toEqual([])
+  })
+  it('keeps missing update ids out of active-place advice', async () => {
+    mocks.preview.mockResolvedValue({
+      report: {
+        ...report(),
+        errors: [{ code: 'TARGET_NOT_FOUND', path: 'places.update.0', message: 'Missing target.' }],
+      },
+    })
+    const result: any = await venuesCheckPackage.handler(
+      {
+        tenantId: TENANT,
+        venueId: VENUE,
+        payload: {
+          ...payload,
+          places: {
+            create: [],
+            delete: [],
+            update: [{ ...identity, id: targetId, value: desired }],
+          },
+        },
+      },
+      { ...context, database: database() },
+    )
+    expect(result.importable).toBe(false)
+    expect(result.venueSetup.some(({ code }: any) => code === 'VENUE_SETUP_GUIDE_MODE')).toBe(true)
+    expect(result.note).toContain('warnings never block importable')
+    expect(result.note).toContain('exact in-package duplicates block ready')
   })
 })

@@ -463,9 +463,12 @@ function duplicateWarnings(
   current: Awaited<ReturnType<typeof contentState>>,
 ) {
   const warnings: Array<{ code: string; path: string; message: string }> = []
+  const deletedPlaceIds = new Set(
+    payload.schemaVersion === 3 ? payload.places.delete.map(({ id }) => id) : [],
+  )
   const existingPlaceNames = new Map(
     current.places
-      .filter((place) => place.isActive)
+      .filter((place) => place.isActive && !deletedPlaceIds.has(place.id))
       .map((place) => [normalizeLabel(place.name), place.id]),
   )
   const existingKnowledgeTitles = new Map(
@@ -514,7 +517,7 @@ function duplicateWarnings(
   const seenPlaces = new Set<string>()
   placeCandidates.forEach((place) => {
     const normalized = normalizeLabel(place.name)
-    if (seenPlaces.has(normalized)) {
+    if (normalized && seenPlaces.has(normalized)) {
       warnings.push({
         code: 'DUPLICATE_IN_PACKAGE',
         path: place.path,
@@ -536,7 +539,7 @@ function duplicateWarnings(
   const seenKnowledge = new Set<string>()
   knowledgeCandidates.forEach((entry) => {
     const normalized = normalizeLabel(entry.title)
-    if (seenKnowledge.has(normalized)) {
+    if (normalized && seenKnowledge.has(normalized)) {
       warnings.push({
         code: 'DUPLICATE_IN_PACKAGE',
         path: entry.path,
