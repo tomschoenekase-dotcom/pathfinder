@@ -76,7 +76,8 @@ export function guestRecordText(document, ref) {
   if (!result.length) throw new Error('guest record has no text')
   return result
 }
-// Reuse the production temporal classifier and visitor-facing sanitizers. Resolve only
+// Reuse the production temporal classifier. The current renderer preserves raw text,
+// including research prose; legacy guest-facing sanitizers do not govern eligibility. Resolve only
 // already-installed dependencies; no CLI/package-manager/network fallback is permitted.
 let guestVisibilityHelpers
 async function loadGuestVisibilityHelpers() {
@@ -103,19 +104,9 @@ async function loadGuestVisibilityHelpers() {
         import.meta.url,
       ),
     )
-    const facing = unwrap(
-      await tsImport(
-        new URL('../../packages/api/src/lib/guest-facing-text.ts', import.meta.url).href,
-        import.meta.url,
-      ),
-    )
-    if (
-      typeof dates.classifyGuestDatedEvent !== 'function' ||
-      typeof facing.guestFacingText !== 'function' ||
-      typeof facing.guestFacingTitle !== 'function'
-    )
-      throw new Error('production guest visibility helpers unavailable')
-    return { ...dates, ...facing }
+    if (typeof dates.classifyGuestDatedEvent !== 'function')
+      throw new Error('production guest visibility classifier unavailable')
+    return dates
   })()
   return guestVisibilityHelpers
 }
@@ -135,11 +126,7 @@ async function guestDisclosureText(document, ref, text, asOf) {
         'UNKNOWN DISCLOSE record is PAST and its body is omitted by the production guide',
       )
   }
-  return text.map((part) =>
-    part === value.title || part === value.name
-      ? helpers.guestFacingTitle(part)
-      : helpers.guestFacingText(part),
-  )
+  return text
 }
 export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sourcesDir, asOf }) {
   if (!date(asOf)) throw new Error('--as-of must be a real YYYY-MM-DD date')
@@ -296,7 +283,7 @@ export async function checkCoverage({ packagePath, ledgerPath, coveragePath, sou
     errors,
     bindings,
     scope:
-      'Presence, linkage, freshness and deterministic disclosure eligibility checks only. Production temporal/sanitization helpers are reused; live authority and retrieval are not measured. No factual truth or publication approval is inferred.',
+      'Presence, linkage, freshness and deterministic disclosure eligibility checks only. The production temporal classifier is reused; raw renderer-retained text remains eligible; live authority and retrieval are not measured. No factual truth or publication approval is inferred.',
   }
 }
 export async function main(args) {

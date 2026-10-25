@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, cp, rm } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { createRequire } from 'node:module'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { checkCoverage, main, pointer } from './venue-coverage/check.mjs'
 const fixture = fileURLToPath(new URL('./fixtures/venue-coverage/', import.meta.url))
@@ -404,14 +406,40 @@ for (const [title, content] of [
     )
     assert.equal(report.passed, true, report.errors.join('\n'))
   })
-test('a disclosure removed by shared guest-facing sanitization fails closed', async (t) => {
-  const { report } = await run(t, async (c, dir) => {
+test('raw research prose retained by the production renderer remains a disclosure', async (t) => {
+  const { report, options } = await run(t, async (c, dir) => {
     const filename = path.join(dir, 'package.json')
     const pkg = JSON.parse(await readFile(filename, 'utf8'))
     pkg.knowledgeEntries.create[0].value.content = 'For testing, opening hours are unconfirmed.'
     await writeFile(filename, JSON.stringify(pkg))
   })
-  assert.equal(report.passed, false)
+  assert.equal(report.passed, true, report.errors.join('\n'))
+  let cli
+  for (const anchor of [
+    new URL('../packages/api/package.json', import.meta.url),
+    new URL('../node_modules/.pnpm/node_modules/tsx/package.json', import.meta.url),
+  ]) {
+    try {
+      cli = createRequire(anchor).resolve('tsx/cli')
+      break
+    } catch {
+      /* Existing installed dependency only. */
+    }
+  }
+  assert.ok(cli, 'installed tsx CLI required for the production-renderer regression')
+  const pkg = JSON.parse(await readFile(options.packagePath, 'utf8'))
+  const entry = pkg.knowledgeEntries.create[0].value
+  const moduleUrl = new URL('../packages/api/src/lib/guest-venue-directory.ts', import.meta.url)
+    .href
+  const code = `import {buildGuestVenueGuidePrompt} from ${JSON.stringify(moduleUrl)};const entry=${JSON.stringify(entry)};const result=buildGuestVenueGuidePrompt({incomplete:false,places:[],knowledge:[{id:'fictional-regression',...entry,sourceType:'MANUAL',sourceName:null,sourceUrl:null}]},{currentDate:'2026-10-24'});process.stdout.write(JSON.stringify({mode:result.mode,retained:result.prompt.includes(entry.content)}));`
+  const child = spawnSync(process.execPath, [cli, '-e', code], {
+    cwd: fileURLToPath(new URL('../', import.meta.url)),
+    encoding: 'utf8',
+    timeout: 10000,
+    windowsHide: true,
+  })
+  assert.equal(child.status, 0, child.stderr)
+  assert.deepEqual(JSON.parse(child.stdout), { mode: 'FULL', retained: true })
 })
 
 test('unavailable installed production helpers fail closed instead of assuming disclosure visibility', async (t) => {
@@ -435,7 +463,7 @@ test('invalid temporal classifier input fails closed', async (t) => {
   assert.equal(report.passed, false)
   assert.ok(report.errors.some((error) => error.includes('visibility unverified')))
 })
-test('a marker removed from a research bookkeeping title is not a guest disclosure', async (t) => {
+test('raw bookkeeping title retained by production is not silently sanitized', async (t) => {
   const { report } = await run(t, async (c, dir) => {
     const filename = path.join(dir, 'package.json')
     const pkg = JSON.parse(await readFile(filename, 'utf8'))
@@ -445,5 +473,5 @@ test('a marker removed from a research bookkeeping title is not a guest disclosu
     })
     await writeFile(filename, JSON.stringify(pkg))
   })
-  assert.equal(report.passed, false)
+  assert.equal(report.passed, true, report.errors.join('\n'))
 })
