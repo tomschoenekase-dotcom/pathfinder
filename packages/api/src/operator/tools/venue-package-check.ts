@@ -98,19 +98,36 @@ export const venuesCheckPackage: OperatorReadTool = {
     const { errors, warnings } = preview.report
     const quality = guideQualityFindings(warnings)
     const plan = counts(parsed.data)
+    const touchedPlaceIds =
+      parsed.data.schemaVersion === 3
+        ? [...parsed.data.places.update, ...parsed.data.places.delete].map(({ id }) => id)
+        : []
     const activePlaces = await (context.database as unknown as SetupReader).place.count({
-      where: { tenantId: input.tenantId, venueId: input.venueId, isActive: true },
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        isActive: true,
+        ...(touchedPlaceIds.length ? { id: { notIn: touchedPlaceIds } } : {}),
+      },
     })
+    // Creates are active by default; V3 updates replace the full desired activity state.
+    const activeUpdates =
+      parsed.data.schemaVersion === 3
+        ? parsed.data.places.update.filter(({ value }) => value.isActive).length
+        : 0
     const venueSetup = await venueSetupFindings(context.database, {
       tenantId: input.tenantId,
       venueId: input.venueId,
-      placesAfterImport: Math.max(0, activePlaces + plan.places.create - plan.places.remove),
+      placesAfterImport: activePlaces + plan.places.create + activeUpdates,
     })
     const other = warnings.filter((warning) => !warning.code.startsWith('GUIDE_QUALITY_'))
     return {
       venueId: input.venueId,
       importable: errors.length === 0,
-      ready: errors.length === 0 && quality.total === 0,
+      ready:
+        errors.length === 0 &&
+        quality.total === 0 &&
+        !other.some((warning) => warning.code === 'DUPLICATE_IN_PACKAGE'),
       plan,
       errors: errors.slice(0, SHOWN).map(trim),
       errorCount: errors.length,

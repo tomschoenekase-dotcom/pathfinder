@@ -104,17 +104,34 @@ describe('venues.propose_package_import apply', () => {
     })
   })
 
-  it('keeps the failing step and its reason on the receipt', async () => {
-    mocks.approve.mockRejectedValue(
-      new TRPCError({ code: 'CONFLICT', message: 'Venue package changed' }),
-    )
-    const failure = await venuesPackageImportKind.apply(args(), context).catch((error) => error)
-    expect(failure.code).toBe('CONFLICT')
-    expect(failure.summary).toBe(
-      'The approve step failed (CONFLICT): Venue package changed. Nothing was applied. Retry with a new operationId; the saved draft stays unapplied.',
-    )
-    expect(mocks.apply).not.toHaveBeenCalled()
-  })
+  it.each([
+    { code: 'CONFLICT', longReason: false },
+    { code: 'CONFLICT', longReason: true },
+    { code: 'P2028', longReason: false },
+    { code: 'P2028', longReason: true },
+  ])(
+    'retains receipt recovery for $code with longReason=$longReason',
+    async ({ code, longReason }) => {
+      const reason = longReason
+        ? `Venue package changed: ${'detail '.repeat(200)}`
+        : 'Venue package changed'
+      const error =
+        code === 'CONFLICT'
+          ? new TRPCError({ code: 'CONFLICT', message: reason })
+          : Object.assign(new Error(reason), { code })
+      mocks.approve.mockRejectedValue(error)
+      const failure = await venuesPackageImportKind.apply(args(), context).catch((error) => error)
+      expect(failure.code).toBe(code)
+      expect(failure.summary).toContain(
+        `The approve step failed (${code}). Retain the original operationId and exact content; inspect operator.get_operation and the package receipt. Do not use a new operationId without no-effect proof.`,
+      )
+      expect(failure.summary).toContain('Reason: Venue package changed')
+      expect(failure.summary.length).toBeLessThanOrEqual(500)
+      expect(failure.summary).not.toContain('Retry with a new operationId')
+      expect(failure.summary).not.toContain('Nothing was applied.')
+      expect(mocks.apply).not.toHaveBeenCalled()
+    },
+  )
 })
 
 describe('venues.propose_package_import revert', () => {
@@ -175,7 +192,8 @@ describe('venues.propose_package_import revert', () => {
       original(),
       revertContext({ id: 'pkg-1', updatedAt: packageUpdatedAt }),
     ).catch((error) => error)
-    expect(failure.summary).toContain('The revert step failed (CONFLICT): A newer venue package')
+    expect(failure.summary).toContain('The revert step failed (CONFLICT).')
+    expect(failure.summary).toContain('Reason: A newer venue package was applied')
 
     await expect(
       venuesPackageImportKind.revert!(original(null), revertContext(null)),
@@ -185,6 +203,30 @@ describe('venues.propose_package_import revert', () => {
 })
 
 describe('venues.check_package', () => {
+  it.each([
+    { code: 'DUPLICATE_IN_PACKAGE', ready: false },
+    { code: 'SEMANTIC_DUPLICATE_IN_PACKAGE', ready: true },
+  ])('keeps importability separate from readiness for $code', async ({ code, ready }) => {
+    mocks.preview.mockResolvedValue({
+      report: report([
+        { code, path: 'knowledgeEntries.create.0.value.title', message: 'Duplicate' },
+      ]),
+    })
+    const result: any = await venuesCheckPackage.handler(
+      { tenantId: TENANT, venueId: VENUE, payload },
+      context,
+    )
+    expect(result).toMatchObject({
+      importable: true,
+      ready,
+      guideQuality: { total: 0 },
+      otherWarningCount: 1,
+    })
+    expect(mocks.draft).not.toHaveBeenCalled()
+    expect(mocks.approve).not.toHaveBeenCalled()
+    expect(mocks.apply).not.toHaveBeenCalled()
+  })
+
   it('reports plan, errors and guide-quality findings without saving anything', async () => {
     mocks.preview.mockResolvedValue({
       report: report([
@@ -238,6 +280,118 @@ describe('venues.check_package', () => {
       context,
     )
     expect(configured.venueSetup).toEqual([])
+  })
+
+  it.each([
+    {
+      label: 'deactivating the last active place',
+      active: true,
+      update: false,
+      remove: false,
+      empty: true,
+    },
+    {
+      label: 'reactivating an inactive place',
+      active: false,
+      update: true,
+      remove: false,
+      empty: false,
+    },
+    {
+      label: 'deleting an inactive place while another remains',
+      active: false,
+      update: null,
+      remove: true,
+      empty: false,
+    },
+    {
+      label: 'replacing the last active place with a new place',
+      active: true,
+      update: null,
+      remove: true,
+      empty: false,
+    },
+  ])('projects active places after $label', async ({ active, update, remove, empty }) => {
+    mocks.preview.mockResolvedValue({ report: report() })
+    const targetId = 'cm00000000000000000000001'
+    const remainingId = 'cm00000000000000000000002'
+    const replacing = active && remove
+    const existing = [
+      { id: targetId, isActive: active },
+      ...(remove && !active ? [{ id: remainingId, isActive: true }] : []),
+    ]
+    const count = vi.fn(
+      async ({ where }: any) =>
+        existing.filter((place) => place.isActive && !where.id?.notIn.includes(place.id)).length,
+    )
+    const database = {
+      ...context.database,
+      venue: {
+        findFirst: async () => ({
+          guideMode: 'location_aware',
+          chatAppearance: { timeZone: 'America/Chicago' },
+        }),
+      },
+      place: { count },
+    }
+    const identity = {
+      itemKey: '22222222-2222-4222-a222-222222222222',
+      provenance: payload.knowledgeEntries.create[0]!.provenance,
+    }
+    const result: any = await venuesCheckPackage.handler(
+      {
+        tenantId: TENANT,
+        venueId: VENUE,
+        payload: {
+          ...payload,
+          places: {
+            create: replacing
+              ? [
+                  {
+                    ...identity,
+                    value: { name: 'New gallery', type: 'gallery', lat: 41, lng: -87 },
+                  },
+                ]
+              : [],
+            update:
+              update === null
+                ? []
+                : [
+                    {
+                      ...identity,
+                      id: targetId,
+                      value: {
+                        name: 'Fictional gallery',
+                        type: 'gallery',
+                        itemType: 'room',
+                        shortDescription: null,
+                        longDescription: null,
+                        lat: 41,
+                        lng: -87,
+                        tags: [],
+                        importanceScore: 0,
+                        areaName: null,
+                        hours: null,
+                        photoUrl: null,
+                        isActive: update,
+                      },
+                    },
+                  ],
+            delete: remove
+              ? [{ ...identity, itemKey: '33333333-3333-4333-a333-333333333333', id: targetId }]
+              : [],
+          },
+        },
+      },
+      { ...context, database },
+    )
+    expect(result.ready).toBe(true)
+    expect(result.venueSetup.some(({ code }: any) => code === 'VENUE_SETUP_GUIDE_MODE')).toBe(empty)
+    expect(count).toHaveBeenCalledWith({
+      where: { tenantId: TENANT, venueId: VENUE, isActive: true, id: { notIn: [targetId] } },
+    })
+    expect(mocks.draft).not.toHaveBeenCalled()
+    expect(mocks.apply).not.toHaveBeenCalled()
   })
 
   it('names schema problems instead of throwing', async () => {

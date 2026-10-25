@@ -47,7 +47,7 @@ Run `venues.check_package` with the same `payload` or attached `file` you would 
 
 Also fix `otherWarnings` such as `DUPLICATE_IN_PACKAGE` (two records with the same title): give each record its own clear title or merge them. The import itself adds a semantic duplicate scan whose warnings never block it.
 
-If an import fails, its receipt `result.summary` names the step (draft, approve or apply) and the reason. A failed import changes nothing guests see. Retry with a new `operationId`; never reuse the failed one, because it replays the saved draft.
+If an import fails or its response is interrupted, retain the original `operationId` and exact content. Read `result.summary`, then inspect `operator.get_operation` with that ID and the package receipt before deciding what happened. A failed status alone does not prove no effect. Never start a second import while the outcome is unknown or partial. `NOT_RECORDED` permits retrying the same ID and content; `APPLIED` means the import landed. `operator.recover_operation` with `originalOperationId` can resume interrupted `APPROVED` work; it cannot approve work or guarantee resolution of a terminal `FAILED / OUTCOME_UNKNOWN` operation. Keep unresolved outcomes held for receipt review. A reconciled terminal `FAILED_NO_EFFECT` permits a new UUID. Changed content requires a new UUID only after the earlier attempt is proved to have no effect; retain its receipt.
 
 ### Self-test before you hand a venue over
 
