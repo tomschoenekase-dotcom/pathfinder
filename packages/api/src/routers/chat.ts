@@ -134,7 +134,11 @@ import {
 import { facetCoverage, recognizedStatementCountLines } from '../lib/guest-facet-evidence'
 import { GUEST_DATED_TITLE_RULE, GUEST_DATED_TITLE_RULE_VERSION } from '../lib/guest-event-dates'
 import { GUEST_RECORD_DATES_VERSION, guestRecordDatesEnabled } from '../lib/guest-record-dates'
-import { GUEST_STATED_DATES_VERSION, guestStatedDatesEnabled } from '../lib/guest-stated-dates'
+import {
+  GUEST_STATED_DATES_VERSION,
+  guestStatedDatesForModel,
+  guestStatedDatesMode,
+} from '../lib/guest-stated-dates'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -1716,14 +1720,25 @@ const chatReadRouter = router({
         venueId: venue.id,
         version: GUEST_RECORD_DATES_VERSION,
       })
-    // Off by default until a paid A/B measures it: marks records whose own dates have passed.
-    const statedDatesEnabled = guestStatedDatesEnabled()
+    // Off by default. "luna" reads the venue's configured guest model before the guide is built;
+    // any failure leaves the marker off, and the later admission read stays authoritative.
+    const statedDatesMode = guestStatedDatesMode()
+    let statedDatesPrimaryModelKey: string | null = null
+    if (statedDatesMode === 'luna')
+      statedDatesPrimaryModelKey = await resolveRuntimeAiWorkloadConfiguration(
+        { workloadId: 'guest-chat', tenantId: venue.tenantId, venueId: input.venueId },
+        ctx.db,
+      )
+        .then((configuration) => configuration.primaryModelKey)
+        .catch(() => null)
+    const statedDatesEnabled = guestStatedDatesForModel(statedDatesMode, statedDatesPrimaryModelKey)
     if (statedDatesEnabled)
       logger.info({
         action: 'guest-chat.stated-dates',
         tenantId: venue.tenantId,
         venueId: venue.id,
         version: GUEST_STATED_DATES_VERSION,
+        mode: statedDatesMode,
       })
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
       currentDate,

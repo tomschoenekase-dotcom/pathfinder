@@ -14,10 +14,33 @@ export const GUEST_STATED_DATES_VERSION = 'guest-stated-dates-v1'
 export const GUEST_STATED_DATES_RULE =
   'A topic marked stated_dates_passed writes no calendar date after the one shown, and that date is before today. Anything it limits to its stated dates (an event, a season, a dated schedule, a price or offer period) is over: never present those as current or upcoming. Details it gives without any date are not affected. If the visitor needs current dates, hours or prices the topic no longer covers, say they are not posted and suggest checking with the venue.'
 
+export type GuestStatedDatesMode = 'off' | 'on' | 'luna'
+
+/**
+ * GUEST_CHAT_STATED_DATES: "on" marks for every model; "luna" marks only when the venue's
+ * configured guest-chat model is a Luna model (2026-10-25 A/B: Luna false "still on" claims
+ * fell 10 to 3 of 36, Sol was unchanged at 12/12); anything else is off.
+ */
+export function guestStatedDatesMode(
+  env: Record<string, string | undefined> = process.env,
+): GuestStatedDatesMode {
+  const value = env.GUEST_CHAT_STATED_DATES?.trim().toLowerCase()
+  return value === 'on' || value === 'luna' ? value : 'off'
+}
+
 export function guestStatedDatesEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return env.GUEST_CHAT_STATED_DATES?.trim().toLowerCase() === 'on'
+  return guestStatedDatesMode(env) === 'on'
+}
+
+/** Whether a turn whose configured primary guest model is `primaryModelKey` gets the marker. */
+export function guestStatedDatesForModel(
+  mode: GuestStatedDatesMode,
+  primaryModelKey: string | null | undefined,
+): boolean {
+  if (mode === 'on') return true
+  return mode === 'luna' && /^guest-chat-luna(?:-|$)/u.test(primaryModelKey ?? '')
 }
 
 const MONTHS: Record<string, number> = {

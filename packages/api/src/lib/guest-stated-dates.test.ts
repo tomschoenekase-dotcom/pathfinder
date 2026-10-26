@@ -3,6 +3,8 @@ import {
   GUEST_STATED_DATES_RULE,
   guestStatedDates,
   guestStatedDatesEnabled,
+  guestStatedDatesForModel,
+  guestStatedDatesMode,
   guestStatedDatesPassed,
 } from './guest-stated-dates'
 import { classifyGuestDatedEvent } from './guest-event-dates'
@@ -128,6 +130,21 @@ describe('guest stated dates', () => {
     expect(guestStatedDates('February 30, 2026 is not a date.').dates).toEqual([])
     expect(guestStatedDatesPassed(topic('Held October 3, 2026.'), 'tomorrow')).toBeNull()
     expect(guestStatedDatesPassed({ title: 'Plain', content: null }, '2026-11-01')).toBeNull()
+  })
+
+  it('luna mode marks only turns whose configured guest model is a Luna model', () => {
+    expect(guestStatedDatesMode({})).toBe('off')
+    expect(guestStatedDatesMode({ GUEST_CHAT_STATED_DATES: ' Luna ' })).toBe('luna')
+    expect(guestStatedDatesMode({ GUEST_CHAT_STATED_DATES: 'sol' })).toBe('off')
+    expect(guestStatedDatesForModel('luna', 'guest-chat-luna')).toBe(true)
+    expect(guestStatedDatesForModel('luna', 'guest-chat-luna-reasoning')).toBe(true)
+    expect(guestStatedDatesForModel('luna', 'guest-chat-sol')).toBe(false)
+    expect(guestStatedDatesForModel('luna', 'guest-chat-lunar')).toBe(false)
+    expect(guestStatedDatesForModel('luna', null)).toBe(false)
+    expect(guestStatedDatesForModel('on', 'guest-chat-sol')).toBe(true)
+    expect(guestStatedDatesForModel('off', 'guest-chat-luna')).toBe(false)
+    // "on" keeps its meaning; "luna" alone never turns on the unconditional path.
+    expect(guestStatedDatesEnabled({ GUEST_CHAT_STATED_DATES: 'luna' })).toBe(false)
   })
 
   it('is off unless GUEST_CHAT_STATED_DATES is on, and its rule never hides a record', () => {

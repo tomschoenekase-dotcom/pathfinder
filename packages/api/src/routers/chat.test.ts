@@ -4108,6 +4108,53 @@ describe('chat router', () => {
       const lastDeveloperText = (request: CapturedWire) =>
         request.input.filter((item) => item.role === 'developer').at(-1)!.content[0]!.text
 
+      describe('stated dates (GUEST_CHAT_STATED_DATES=luna)', () => {
+        const endedEvent = {
+          id: 'knowledge-lanterns',
+          title: 'Moonbeam Lantern Nights',
+          category: 'Seasonal events',
+          content:
+            'Moonbeam Lantern Nights runs Thursday to Sunday, October 1 to October 31, 2026.',
+          sourceType: 'FOUNDER_PROVIDED',
+          sourceName: 'Reviewed guide',
+          sourceUrl: null,
+          updatedAt: new Date('2026-10-01T00:00:00Z'),
+          lastReviewedAt: new Date('2026-10-01T00:00:00Z'),
+        }
+        async function promptFor(
+          mode: string | null,
+          primary: 'guest-chat-luna' | 'guest-chat-sol',
+        ): Promise<string> {
+          vi.useFakeTimers({ toFake: ['Date'] })
+          vi.setSystemTime(new Date('2026-11-15T18:00:00.000Z'))
+          if (mode) vi.stubEnv('GUEST_CHAT_STATED_DATES', mode)
+          setupHappyPath('unused anthropic text')
+          routeTo(primary)
+          venueKnowledgeEntryFindMany.mockResolvedValue([endedEvent])
+          const create = vi.fn().mockResolvedValueOnce({
+            status: 'completed',
+            output_text: 'It ended October 31.',
+            usage: openAiUsage,
+          })
+          setOpenAiResponsesClientForTesting({ responses: { create } })
+          await caller.chat.send(sendInput)
+          vi.useRealTimers()
+          vi.unstubAllEnvs()
+          return JSON.stringify(create.mock.calls[0]?.[0])
+        }
+
+        it('marks ended records for a Luna route', async () => {
+          const prompt = await promptFor('luna', 'guest-chat-luna')
+          expect(prompt).toContain('stated_dates_passed=\\"2026-10-31\\"')
+          expect(prompt).toContain('A topic marked stated_dates_passed')
+        })
+
+        it('leaves Sol routes and the unset flag unmarked', async () => {
+          expect(await promptFor('luna', 'guest-chat-sol')).not.toContain('stated_dates_passed')
+          expect(await promptFor(null, 'guest-chat-luna')).not.toContain('stated_dates_passed')
+        })
+      })
+
       it('strips the check from the answer, history and evidence on an economy route', async () => {
         vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
         setupHappyPath('unused anthropic text')
