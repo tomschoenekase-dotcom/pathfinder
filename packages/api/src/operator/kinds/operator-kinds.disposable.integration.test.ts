@@ -294,6 +294,8 @@ describe.skipIf(!enabled)(
           'crm.propose_stage_change',
           'venues.propose_create',
           'venues.propose_knowledge',
+          'venues.propose_guest_model',
+          'venues.propose_guest_model_reset',
           'venues.propose_update',
           'venues.propose_package_import',
           'venues.propose_publish',
