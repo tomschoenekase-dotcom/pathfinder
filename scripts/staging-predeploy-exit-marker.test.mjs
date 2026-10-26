@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,7 +9,9 @@ import test from 'node:test'
 const root = path.resolve(import.meta.dirname, '..')
 const config = JSON.parse(await readFile(path.join(root, 'railway.staging.web.json'), 'utf8'))
 const [command] = config.deploy.preDeployCommand
-const shell = process.platform === 'win32' ? 'C:/Program Files/Git/bin/sh.exe' : '/bin/sh'
+// Git's bin/sh.exe is only a launcher that starts usr/bin/bash.exe as a child. Killing the
+// launcher on timeout leaves that child running, so use the real shell binary directly.
+const shell = process.platform === 'win32' ? 'C:/Program Files/Git/usr/bin/sh.exe' : '/bin/sh'
 const secret = 'SYNTHETIC-ENV-MUST-NOT-BE-PRINTED'
 const body = command.match(/^sh -c '([^']+)'$/u)?.[1]
 
@@ -67,7 +70,8 @@ for (const code of [0, 1, 2, 127]) {
 test('no exit marker exists while the synthetic child has not returned', () => {
   // A shell function keeps the stalled child in this one process, so the bounded
   // timeout kills no unrelated process and leaves no spawned fixture descendant.
-  const result = spawnSync(shell, ['-c', `node() { while :; do :; done; }; ${body}`], {
+  const tag = `exit-marker-stall-${randomUUID()}`
+  const result = spawnSync(shell, ['-c', `: ${tag}; node() { while :; do :; done; }; ${body}`], {
     env: { SYSTEMROOT: 'C:/Windows', FIXTURE_PRIVATE_VALUE: secret },
     encoding: 'utf8',
     timeout: 500,
@@ -77,4 +81,21 @@ test('no exit marker exists while the synthetic child has not returned', () => {
   assert.equal(result.error?.code, 'ETIMEDOUT')
   assert.equal(result.stdout, '')
   assert.equal(result.stderr, '')
+  // The busy loop must not outlive the test (a survivor pins one CPU core forever).
+  const survivors =
+    process.platform === 'win32'
+      ? execFileSync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-Command',
+            // Built from parts so this query's own command line cannot match.
+            `$t = '${tag}'; @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*: ' + $t + ';*') }).Count`,
+          ],
+          { encoding: 'utf8', timeout: 30_000 },
+        ).trim()
+      : execFileSync('sh', ['-c', `ps -eo args | grep -F -- '${tag}' | grep -vc grep || true`], {
+          encoding: 'utf8',
+        }).trim()
+  assert.equal(survivors, '0', 'stalled fixture shell survived its timeout')
 })
