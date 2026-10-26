@@ -72,7 +72,7 @@ export const VenueLocationDraftFieldsSchema = z
           context.addIssue({ code: 'custom', message: 'Accessibility facts are too large.' })
         }
       })
-      .default({}),
+      .prefault({}),
   })
   .strict()
 

@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
+const dashboardBaseUrl = process.env.PLAYWRIGHT_DASHBOARD_BASE_URL ?? 'http://127.0.0.1:3001'
+
 const draft = (applicability?: object) =>
   JSON.stringify(
     {
@@ -22,7 +24,7 @@ test.beforeEach(async ({ page }) => {
   // The fixture uses an in-memory client; fail any accidental API/provider request.
   await page.route('**/api/**', (route) => route.abort('blockedbyclient'))
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto('/dev-fixtures/fact-applicability')
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/fact-applicability`)
   await page.getByLabel('Action target').selectOption('fixture-fact')
 })
 

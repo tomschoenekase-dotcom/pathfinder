@@ -279,7 +279,7 @@ export const adminProspectCrmCoreRouter = router({
           cursor: z.string().min(1).max(1000).optional(),
         })
         .strict()
-        .default({ limit: 100 }),
+        .prefault({ limit: 100 }),
     )
     .query(({ input }) =>
       withTenantIsolationBypass(async () => {

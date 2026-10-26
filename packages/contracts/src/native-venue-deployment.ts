@@ -77,7 +77,7 @@ function boundedJson(value: unknown, budget: { nodes: number }, depth = 0): bool
   )
 }
 const GeoBoundary = z
-  .union([z.record(z.unknown()), z.array(z.unknown())])
+  .union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
   .refine(
     (value) =>
       boundedJson(value, { nodes: 0 }) &&

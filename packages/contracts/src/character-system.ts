@@ -276,9 +276,9 @@ const CharacterAssetManifestBaseSchema = z
         shadow: Identifier.optional(),
       })
       .strict()
-      .default({}),
-    states: z.record(CharacterStateSchema, CharacterStateMappingSchema).default({}),
-    stateFallbacks: z.record(CharacterStateSchema, CharacterStateSchema).default({}),
+      .prefault({}),
+    states: z.partialRecord(CharacterStateSchema, CharacterStateMappingSchema).prefault({}),
+    stateFallbacks: z.partialRecord(CharacterStateSchema, CharacterStateSchema).prefault({}),
     supportedThemes: z.array(Identifier).min(1).max(12),
     supportedContexts: z.array(CharacterPresentationContextSchema).min(1).max(4),
     voice: CharacterVoiceSeamSchema.optional(),
@@ -671,7 +671,7 @@ export const CharacterPresentationSelectionSchema = z
       })
       .strict(),
   ])
-  .default({ mode: 'classic' })
+  .prefault({ mode: 'classic' })
 export type CharacterPresentationSelection = z.infer<typeof CharacterPresentationSelectionSchema>
 
 export const CustomPersonalityBoundsSchema = z

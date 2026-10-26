@@ -230,7 +230,7 @@ const synthesisDraftSchema = VenuePackagePayloadV1Object.extend({
       context.addIssue({
         code: z.ZodIssueCode.too_big,
         maximum: VENUE_PACKAGE_ITEM_LIMIT,
-        type: 'array',
+        origin: 'array',
         inclusive: true,
         message: 'A media synthesis draft can contain at most 500 total import entries.',
       })
@@ -645,9 +645,9 @@ const GEMINI_VIDEO_RESPONSE_SCHEMA = {
   required: ['summary', 'visibleText', 'objects', 'spatialClues', 'uncertainties', 'observations'],
   properties: {
     summary: { type: 'string' },
-    visibleText: { type: 'array', items: { type: 'string' } },
+    visibleText: { origin: 'array', items: { type: 'string' } },
     objects: {
-      type: 'array',
+      origin: 'array',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -658,10 +658,10 @@ const GEMINI_VIDEO_RESPONSE_SCHEMA = {
         },
       },
     },
-    spatialClues: { type: 'array', items: { type: 'string' } },
-    uncertainties: { type: 'array', items: { type: 'string' } },
+    spatialClues: { origin: 'array', items: { type: 'string' } },
+    uncertainties: { origin: 'array', items: { type: 'string' } },
     observations: {
-      type: 'array',
+      origin: 'array',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -1218,7 +1218,11 @@ async function synthesize(
             model,
             capability: 'MEDIA_SYNTHESIS',
             parseResponse: (text) =>
-              parseProviderJson(text, z.record(z.unknown()), 'Media batch-summary provider output'),
+              parseProviderJson(
+                text,
+                z.record(z.string(), z.unknown()),
+                'Media batch-summary provider output',
+              ),
             usageSink,
             budgetGate,
             messages: [

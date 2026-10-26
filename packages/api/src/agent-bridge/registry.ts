@@ -123,7 +123,7 @@ export function createAgentBridgeRegistry(
             'VALIDATE',
             'EXPORT',
           ]),
-          requestPayload: z.record(z.unknown()),
+          requestPayload: z.record(z.string(), z.unknown()),
           characterId: z.string().trim().min(1).max(191).optional(),
           baseVersion: z.number().int().positive().optional(),
           baseRevision: z.number().int().positive().optional(),
@@ -258,7 +258,7 @@ export function createAgentBridgeRegistry(
           venueId: z.string().trim().min(1).max(191),
           requestId: z.string().trim().min(1).max(191),
           leaseToken: z.string().uuid(),
-          resultPayload: z.record(z.unknown()),
+          resultPayload: z.record(z.string(), z.unknown()),
           characterSpec: z.unknown().optional(),
           assetStorageReference: z.unknown().optional(),
         })
@@ -328,7 +328,7 @@ export function createAgentBridgeRegistry(
           agentRoles: z.array(z.string().trim().min(1).max(191)).max(50),
           modelProvider: z.string().trim().min(1).max(100).optional(),
           modelName: z.string().trim().min(1).max(191).optional(),
-          safeHealth: z.record(z.unknown()).default({}),
+          safeHealth: z.record(z.string(), z.unknown()).prefault({}),
         })
         .strict()
         .parse(raw)
@@ -339,7 +339,7 @@ export function createAgentBridgeRegistry(
       const input = z
         .object({
           workerKey: z.string().trim().min(1).max(191),
-          safeHealth: z.record(z.unknown()).default({}),
+          safeHealth: z.record(z.string(), z.unknown()).prefault({}),
         })
         .strict()
         .parse(raw)
@@ -373,7 +373,7 @@ export function createAgentBridgeRegistry(
         .object({
           venueId: z.string().trim().min(1).max(191).optional(),
           toolName: z.string().trim().min(1).max(191),
-          arguments: z.record(z.unknown()),
+          arguments: z.record(z.string(), z.unknown()),
           executionClaim: McpExecutionClaim.optional(),
         })
         .strict()

@@ -5,7 +5,7 @@ export const PROSPECT_STAGING_PACKAGE_MAX_RECORDS = 100_000
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u)
 const externalId = z.string().trim().min(1).max(191)
-const jsonObject = z.record(z.unknown())
+const jsonObject = z.record(z.string(), z.unknown())
 
 export const ProspectStagingRecordKind = z.enum([
   'PROSPECT',
@@ -22,7 +22,7 @@ const baseRecord = z.object({
   externalId,
   parentExternalId: externalId.optional(),
   raw: jsonObject,
-  normalized: jsonObject.default({}),
+  normalized: jsonObject.prefault({}),
   status: z.string().trim().min(1).max(100),
 })
 
@@ -58,7 +58,7 @@ export const ProspectStagingPackageV1 = z
         models: z.array(z.string().trim().min(1).max(191)).max(50).default([]),
       })
       .strict(),
-    counts: z.record(ProspectStagingRecordKind, z.number().int().min(0)),
+    counts: z.partialRecord(ProspectStagingRecordKind, z.number().int().min(0)),
     records: z
       .array(z.discriminatedUnion('kind', [ordinaryRecord, draftRecord]))
       .max(PROSPECT_STAGING_PACKAGE_MAX_RECORDS),

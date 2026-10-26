@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@types/react": "19.1.16",
-    "next": "15.5.27",
+    "next": "15.5.28",
     "react": "19.1.4"
   }
 }

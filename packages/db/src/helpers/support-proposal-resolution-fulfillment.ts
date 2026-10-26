@@ -14,7 +14,7 @@ import {
 } from './support-fulfillment-sources'
 
 type TransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0]
-type Fulfillment = typeof SupportCompletionProposalResolutionFulfillment._type
+type Fulfillment = typeof SupportCompletionProposalResolutionFulfillment._output
 type Replacement = Omit<Fulfillment['replacements'][number], 'replacementFulfillmentKind'>
 type Kind = Fulfillment['replacements'][number]['replacementFulfillmentKind']
 export type SupportProposalResolutionReader = Pick<

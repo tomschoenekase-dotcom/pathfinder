@@ -80,7 +80,7 @@ const RuntimePackBaseSchema = z
       .min(1)
       .max(32),
     supportedStates: z.array(RuntimePackStateSchema).min(1).max(14),
-    stateFallbacks: z.record(RuntimePackStateSchema, RuntimePackStateSchema),
+    stateFallbacks: z.partialRecord(RuntimePackStateSchema, RuntimePackStateSchema),
     supportedContexts: z.array(RuntimePackContextSchema).min(1).max(4),
   })
   .strict()

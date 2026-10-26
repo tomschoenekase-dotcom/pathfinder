@@ -21,7 +21,7 @@ export const CreateClientPreviewFeedbackInput = z
     venueId: z.string().trim().min(1).max(191),
     packageId: z.string().trim().min(1).max(191),
     body: z.string().trim().min(1).max(20_000),
-    context: PreviewFeedbackContext.default({ kind: 'GENERAL' }),
+    context: PreviewFeedbackContext.prefault({ kind: 'GENERAL' }),
     attachments: SupportAttachmentReferences.default([]),
   })
   .strict()

@@ -276,7 +276,7 @@ export async function searchGuestWeb(params: {
   let recognizedCompletedToolCalls = 0
   let toolCallCountKnown = true
   for (const rawItem of response.output) {
-    const item = z.record(z.unknown()).safeParse(rawItem)
+    const item = z.record(z.string(), z.unknown()).safeParse(rawItem)
     if (
       !item.success ||
       typeof item.data.type !== 'string' ||
@@ -316,7 +316,7 @@ export async function searchGuestWeb(params: {
   const consultedReferences = new Map<string, GuestWebSearchReference>()
   const citedReferences = new Map<string, GuestWebSearchReference>()
   for (const rawItem of response.output) {
-    const item = z.record(z.unknown()).safeParse(rawItem)
+    const item = z.record(z.string(), z.unknown()).safeParse(rawItem)
     if (!item.success || typeof item.data.type !== 'string')
       throw laterError(
         'Guest web search returned an unknown output item',
@@ -329,7 +329,7 @@ export async function searchGuestWeb(params: {
           'incomplete-provider-response',
         )
       toolCalls += 1
-      const action = z.record(z.unknown()).safeParse(item.data.action)
+      const action = z.record(z.string(), z.unknown()).safeParse(item.data.action)
       const sources = action.success ? z.array(sourceSchema).safeParse(action.data.sources) : null
       if (sources?.success) {
         for (const source of sources.data) {
@@ -357,7 +357,7 @@ export async function searchGuestWeb(params: {
         'invalid-provider-response',
       )
     for (const rawPart of content.data) {
-      const part = z.record(z.unknown()).safeParse(rawPart)
+      const part = z.record(z.string(), z.unknown()).safeParse(rawPart)
       if (!part.success || part.data.type !== 'output_text' || typeof part.data.text !== 'string')
         throw laterError(
           'Guest web search returned unsupported message content',

@@ -44,7 +44,7 @@ const rigCapabilities = z
       .array(z.string().regex(/^[a-z][a-zA-Z0-9]{0,63}$/u))
       .min(1)
       .max(32),
-    stateControls: z.record(
+    stateControls: z.partialRecord(
       z.enum(FACTORY_STATES),
       z.array(z.string().regex(/^[a-z][a-zA-Z0-9]{0,63}$/u)).max(16),
     ),
@@ -62,7 +62,7 @@ const spec = z
     source,
     masterReference: z.string().min(1).max(500),
     protectedTraits: z.array(z.string().trim().min(1).max(200)).max(40),
-    slotMap: z.record(z.string().min(1).max(500)),
+    slotMap: z.record(z.string(), z.string().min(1).max(500)),
     supportedStates: z.array(z.enum(FACTORY_STATES)).min(1),
     status: z.enum([
       'requested',
@@ -85,10 +85,10 @@ const jsonValue: z.ZodType<JsonValue> = z.lazy(() =>
     z.number().finite(),
     z.string().max(2_000_000),
     z.array(jsonValue).max(500),
-    z.record(jsonValue),
+    z.record(z.string(), jsonValue),
   ]),
 )
-const jsonObject = z.record(jsonValue)
+const jsonObject = z.record(z.string(), jsonValue)
 
 function translate(error: unknown): never {
   if (error instanceof CustomCharacterFactoryActionError) {

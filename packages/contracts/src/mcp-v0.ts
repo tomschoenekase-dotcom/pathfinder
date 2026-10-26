@@ -31,7 +31,7 @@ const JsonValue: z.ZodType<JsonValue> = z.lazy(() =>
     z.number().finite(),
     z.string(),
     z.array(JsonValue),
-    z.record(JsonValue),
+    z.record(z.string(), JsonValue),
   ]),
 )
 
@@ -1069,7 +1069,7 @@ const SupportPackageDraftFields = {
   expectedVersion: z.number().int().positive(),
   fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
   draftKey: z.string().uuid(),
-  payload: z.record(JsonValue),
+  payload: z.record(z.string(), JsonValue),
   operationCounts: SupportPackageDraftApplyParameters.shape.operationCounts,
 }
 
@@ -1384,7 +1384,7 @@ export const McpMeetingProcessInput = McpRequestedScope.extend({
         .object({
           type: McpMeetingExtractionType,
           content: z.string().trim().min(1).max(8_000),
-          structuredData: z.record(JsonValue).default({}),
+          structuredData: z.record(z.string(), JsonValue).prefault({}),
           confidence: z.number().min(0).max(1).optional(),
           sourceStartOffset: z.number().int().nonnegative().optional(),
           sourceEndOffset: z.number().int().nonnegative().optional(),

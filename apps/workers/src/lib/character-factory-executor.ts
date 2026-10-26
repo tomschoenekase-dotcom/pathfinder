@@ -82,7 +82,7 @@ const artifactReferenceSchema = z.discriminatedUnion('kind', [
 const completionSchema = z
   .object({
     requestId,
-    resultPayload: z.record(z.unknown()).superRefine((value, context) => {
+    resultPayload: z.record(z.string(), z.unknown()).superRefine((value, context) => {
       try {
         if (JSON.stringify(value).length > 100_000)
           context.addIssue({ code: 'custom', message: 'Result payload is too large.' })

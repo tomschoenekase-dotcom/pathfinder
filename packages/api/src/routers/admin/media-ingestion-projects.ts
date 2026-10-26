@@ -244,7 +244,7 @@ export const mediaIngestionProjectsRouter = router({
             videoSecondsPerSample: z.number().int().min(1).max(60).default(8),
             useGeminiVideoUnderstanding: z.boolean().default(false),
           })
-          .default({}),
+          .prefault({}),
       }),
     )
     .mutation(async ({ ctx, input }) => {

@@ -35,11 +35,12 @@ import { VenueBotResponseDepth } from './venue-bot-configuration'
 
 // Operator input never exposes a server-issued approval receipt. Preserve all configuration
 // refinements while omitting that authority field from both Zod and the advertised JSON schema.
-const SourceConnectionDraftInput = SourceConnectionConfigSchema.innerType()
+const SourceConnectionDraftInput = z
+  .strictObject(SourceConnectionConfigSchema.shape)
   .omit({ approval: true })
   .superRefine((config, context) => {
     const result = SourceConnectionConfigSchema.safeParse(config)
-    if (!result.success) for (const issue of result.error.issues) context.addIssue(issue)
+    if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue })
   })
 
 /**
@@ -186,7 +187,7 @@ export const OperatorWriteResult = z
     status: OperatorProposalStatus,
     argsHash: Sha256Hex,
     approveUrl: z.string().url().max(2000).optional(),
-    result: z.record(z.unknown()).optional(),
+    result: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
 export type OperatorWriteResult = z.infer<typeof OperatorWriteResult>
@@ -454,7 +455,7 @@ const readInput = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict(
 /** A venue package given inline or as an attached .json file (check and import take the same). */
 const VenuePackageSourceShape = {
   /** The same venue-package JSON the dashboard importer accepts (schemaVersion 1, 2 or 3). */
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
   /** Or the package as an attached .json file; the server downloads it and uses it unchanged. */
   file: z
     .object({
@@ -532,7 +533,7 @@ const OrganizationFilters = {
 export const OperatorPlanStep = z
   .object({
     tool: z.enum(OPERATOR_PLAN_STEP_TOOLS),
-    arguments: z.record(z.unknown()),
+    arguments: z.record(z.string(), z.unknown()),
     dependsOn: z.array(z.number().int().min(0).max(11)).max(11).optional(),
   })
   .strict()
@@ -586,7 +587,7 @@ const AppearanceGuestActionsProposeInput = z
   )
 
 /** Same appearance fields as Release B's McpAppearanceUpdateInput, scoped by tenantId. */
-const appearanceUpdateBase = McpAppearanceUpdateInput.innerType().innerType()
+const appearanceUpdateBase = z.strictObject(McpAppearanceUpdateInput.shape)
 const AppearanceProposeInput = appearanceUpdateBase
   .omit({ clientId: true, expectedUpdatedAt: true })
   // Omitted means apply to the current version, as venues.propose_update does.
@@ -1312,7 +1313,7 @@ export const OPERATOR_MCP_INPUTS = {
     importId: Identifier,
     fileHash: Sha256Hex,
     mappingHash: Sha256Hex,
-    mapping: z.record(z.string().min(1).max(300)).optional(),
+    mapping: z.record(z.string(), z.string().min(1).max(300)).optional(),
     selectedSheets: z.array(z.string().min(1).max(300)).min(1).max(100).optional(),
   }).refine((value) => Boolean(value.mapping) === Boolean(value.selectedSheets), {
     message: 'Provide mapping and selectedSheets together',
@@ -1328,7 +1329,7 @@ export const OPERATOR_MCP_INPUTS = {
       .strict()
       .optional(),
     csvText: z.string().min(1).max(100_000).optional(),
-    mapping: z.record(z.string().min(1).max(300)).optional(),
+    mapping: z.record(z.string(), z.string().min(1).max(300)).optional(),
   }).refine((value) => Boolean(value.file) !== Boolean(value.csvText), {
     message: 'Provide exactly one CSV attachment or csvText',
   }),
@@ -1543,7 +1544,7 @@ export const OPERATOR_MCP_INPUTS = {
     requiredWorkerRoles: z.array(Identifier).max(50).default([]),
     requiredWorkerCapabilities: z.array(Identifier).max(100).default([]),
     /** When the reminder stops itself. Checked at run time before anything happens. */
-    stopRules: RoutineStopRules.default({}),
+    stopRules: RoutineStopRules.prefault({}),
     /** A dollar budget for the spend its runs can trigger. Omit for none. */
     budget: RoutineBudget.nullable().default(null),
   }),
@@ -2063,13 +2064,13 @@ const OperatorCampaignDetail = z
     members: z
       .object({
         total: z.number().int().nonnegative(),
-        byStatus: z.record(z.number().int().nonnegative()),
+        byStatus: z.record(z.string(), z.number().int().nonnegative()),
       })
       .strict(),
     drafts: z
       .object({
         total: z.number().int().nonnegative(),
-        byStatus: z.record(z.number().int().nonnegative()),
+        byStatus: z.record(z.string(), z.number().int().nonnegative()),
       })
       .strict(),
     batches: z
@@ -2508,7 +2509,7 @@ const OperatorProposalView = z
     /** The one safe next step for this recorded state. */
     nextAction: z.string().max(500).optional(),
     approveUrl: z.string().url().max(2000).optional(),
-    result: z.record(z.unknown()).optional(),
+    result: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
 
@@ -3166,7 +3167,7 @@ export const OPERATOR_MCP_OUTPUTS = {
       planHash: Sha256Hex,
       sourceName: z.string(),
       targetName: z.string(),
-      counts: z.record(z.number().int().nonnegative()),
+      counts: z.record(z.string(), z.number().int().nonnegative()),
       blockers: z.array(z.string()),
       sourceOpportunity: z.object({ id: Identifier, stage: z.string() }).strict().nullable(),
       targetOpportunity: z.object({ id: Identifier, stage: z.string() }).strict().nullable(),
@@ -3531,8 +3532,8 @@ export const OPERATOR_MCP_OUTPUTS = {
       chatTheme: z.string().max(40),
       chatAccentColor: z.string().max(7).nullable(),
       chatFont: z.string().max(40),
-      chatAppearance: z.record(z.unknown()).nullable(),
-      guestActions: z.array(z.record(z.unknown())).max(40),
+      chatAppearance: z.record(z.string(), z.unknown()).nullable(),
+      guestActions: z.array(z.record(z.string(), z.unknown())).max(40),
     })
     .strict(),
   'support.list': Page(
@@ -4106,7 +4107,7 @@ export const OPERATOR_MCP_OUTPUTS = {
         })
         .strict()
         .nullable(),
-      agreementCounts: z.record(z.number().int().nonnegative()),
+      agreementCounts: z.record(z.string(), z.number().int().nonnegative()),
       baseAgreement: z
         .object({
           agreementId: Identifier,
@@ -4368,102 +4369,11 @@ export const OPERATOR_MCP_OUTPUTS = {
 // Minimal zod -> JSON Schema converter (only the constructs used in this file)
 // ---------------------------------------------------------------------------
 
-type ZodDefLike = { typeName: string } & Record<string, unknown>
-
-function unwrapEffects(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let current = schema
-  while ((current._def as ZodDefLike).typeName === 'ZodEffects') {
-    current = (current._def as unknown as { schema: z.ZodTypeAny }).schema
-  }
-  return current
-}
-
-function toJsonSchema(input: z.ZodTypeAny): Record<string, unknown> {
-  const schema = unwrapEffects(input)
-  const def = schema._def as ZodDefLike
-  switch (def.typeName) {
-    case 'ZodString': {
-      const out: Record<string, unknown> = { type: 'string' }
-      for (const check of (def.checks ?? []) as Array<{
-        kind: string
-        value?: number
-        regex?: RegExp
-      }>) {
-        if (check.kind === 'min') out.minLength = check.value
-        else if (check.kind === 'max') out.maxLength = check.value
-        else if (check.kind === 'uuid') out.format = 'uuid'
-        else if (check.kind === 'email') out.format = 'email'
-        else if (check.kind === 'url') out.format = 'uri'
-        else if (check.kind === 'datetime') out.format = 'date-time'
-        else if (check.kind === 'regex' && check.regex) out.pattern = check.regex.source
-      }
-      return out
-    }
-    case 'ZodNumber': {
-      const out: Record<string, unknown> = { type: 'number' }
-      for (const check of (def.checks ?? []) as Array<{
-        kind: string
-        value?: number
-        inclusive?: boolean
-      }>) {
-        if (check.kind === 'int') out.type = 'integer'
-        else if (check.kind === 'min') {
-          out[check.inclusive === false ? 'exclusiveMinimum' : 'minimum'] = check.value
-        } else if (check.kind === 'max') {
-          out[check.inclusive === false ? 'exclusiveMaximum' : 'maximum'] = check.value
-        }
-      }
-      return out
-    }
-    case 'ZodBoolean':
-      return { type: 'boolean' }
-    case 'ZodNull':
-      return { type: 'null' }
-    case 'ZodLiteral':
-      return { const: def.value }
-    case 'ZodEnum':
-      return { type: 'string', enum: [...(def.values as string[])] }
-    case 'ZodUnknown':
-      return {}
-    case 'ZodOptional':
-      return toJsonSchema(def.innerType as z.ZodTypeAny)
-    case 'ZodNullable':
-      return { anyOf: [toJsonSchema(def.innerType as z.ZodTypeAny), { type: 'null' }] }
-    case 'ZodDefault':
-      return {
-        ...toJsonSchema(def.innerType as z.ZodTypeAny),
-        default: (def.defaultValue as () => unknown)(),
-      }
-    case 'ZodArray': {
-      const out: Record<string, unknown> = {
-        type: 'array',
-        items: toJsonSchema(def.type as z.ZodTypeAny),
-      }
-      const min = def.minLength as { value: number } | null
-      const max = def.maxLength as { value: number } | null
-      if (min) out.minItems = min.value
-      if (max) out.maxItems = max.value
-      return out
-    }
-    case 'ZodUnion':
-      return { anyOf: (def.options as z.ZodTypeAny[]).map((option) => toJsonSchema(option)) }
-    case 'ZodDiscriminatedUnion':
-      return { oneOf: (def.options as z.ZodTypeAny[]).map((option) => toJsonSchema(option)) }
-    case 'ZodRecord':
-      return { type: 'object', additionalProperties: toJsonSchema(def.valueType as z.ZodTypeAny) }
-    case 'ZodObject': {
-      const shape = (schema as z.AnyZodObject).shape as Record<string, z.ZodTypeAny>
-      const properties: Record<string, unknown> = {}
-      const required: string[] = []
-      for (const [key, value] of Object.entries(shape)) {
-        properties[key] = toJsonSchema(value)
-        if (!value.isOptional()) required.push(key)
-      }
-      return { type: 'object', properties, required, additionalProperties: false }
-    }
-    default:
-      throw new Error(`operator-mcp: unsupported zod type ${def.typeName}`)
-  }
+// Zod's supported converter preserves validation bounds without relying on private internals.
+function toJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+  const json = z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input' })
+  // The catalog promises an explicit required-key list even for all-optional objects.
+  return { ...json, required: json.required ?? [] }
 }
 
 const rootSchema = (schema: z.ZodTypeAny): JsonSchema => ({

@@ -28,7 +28,7 @@ const listInput = z
     status: z.enum(['CURRENT', 'CANDIDATE', 'SUPERSEDED', 'ALL']).default('CURRENT'),
     limit: z.number().int().min(1).max(100).default(50),
   })
-  .default({})
+  .prefault({})
 
 const commonCreate = z.object({
   requestId: z.string().uuid(),
@@ -131,7 +131,7 @@ export const adminCompanyBrainRouter = router({
         decision: z.string().trim().min(1).max(20_000),
         scope: z
           .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
-          .default({}),
+          .prefault({}),
       }),
     )
     .mutation(({ ctx, input }) =>

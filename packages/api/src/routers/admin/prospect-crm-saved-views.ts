@@ -65,9 +65,9 @@ export const adminProspectCrmSavedViewsRouter = router({
       z
         .object({
           name: prospectBoundedText(191),
-          filters: z.record(z.unknown()),
+          filters: z.record(z.string(), z.unknown()),
           columns: z.array(z.string().trim().min(1).max(100)).max(20),
-          sort: z.record(z.unknown()).default({}),
+          sort: z.record(z.string(), z.unknown()).prefault({}),
           isShared: z.boolean().default(false),
         })
         .strict(),
