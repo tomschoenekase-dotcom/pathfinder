@@ -52,6 +52,8 @@ export type VenueReadService = (
 export type OperatorReadTool = Readonly<{
   name: OperatorToolName
   capability: OperatorCapability
+  /** Location of the paginated output; omitted for a top-level page. */
+  pagePath?: readonly string[]
   handler: (args: unknown, context: OperatorCallContext) => Promise<unknown>
 }>
 
@@ -223,6 +225,7 @@ export function createOperatorRegistry(
           },
           record,
           (inner) => read.handler(inner, context),
+          read.pagePath,
         )
         return validateOutput(name, result)
       }

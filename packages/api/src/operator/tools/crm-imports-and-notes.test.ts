@@ -5,6 +5,7 @@ import { OPERATOR_MCP_OUTPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { operatorContactView, type SnapshotContactInput } from '../crm-projection'
 import { OperatorNotFoundError } from '../grants'
+import { createOperatorRegistry } from '../registry'
 import { crmAccountReadTools } from './crm-accounts'
 import { crmImportReadTools } from './crm-imports'
 import { OperatorInvalidCursorError } from './page'
@@ -114,6 +115,60 @@ describe('crm.get_import', () => {
     row(6, 'QUARANTINED'),
     row(7, 'VALID'),
   ]
+
+  it('round-trips nested row cursors through the registry without changing import metadata', async () => {
+    const database = importFake(rows)
+    const registry = createOperatorRegistry({ reads: [getImport] })
+    const context = { database, grant: { capabilities: ['crm:read'] }, now: at(3) } as any
+    const first = (await registry.callTool(
+      'crm.get_import',
+      { importId: 'import-1', limit: 2 },
+      context,
+    )) as any
+    expect(first.rows).toMatchObject({ complete: false })
+    expect(first.rows.nextCursor).not.toBe('row-002')
+    const second = (await registry.callTool(
+      'crm.get_import',
+      { importId: 'import-1', limit: 2, cursor: first.rows.nextCursor },
+      context,
+    )) as any
+    expect(second.rows.items.map((entry: any) => entry.rowId)).toEqual(['row-003', 'row-004'])
+    expect(second.import).toEqual(first.import)
+    expect(second.dispositions).toEqual(first.dispositions)
+    const third = (await registry.callTool(
+      'crm.get_import',
+      { importId: 'import-1', limit: 25, cursor: second.rows.nextCursor },
+      context,
+    )) as any
+    expect(third.rows).toMatchObject({ complete: true, nextCursor: null })
+    expect(third.rows.items.map((entry: any) => entry.rowId)).toEqual([
+      'row-005',
+      'row-006',
+      'row-007',
+    ])
+  })
+
+  it('rejects changed import or row filters and raw foreign positions before the handler runs', async () => {
+    const database = importFake(rows)
+    const registry = createOperatorRegistry({ reads: [getImport] })
+    const context = { database, grant: { capabilities: ['crm:read'] }, now: at(3) } as any
+    const first = (await registry.callTool(
+      'crm.get_import',
+      { importId: 'import-1', limit: 2 },
+      context,
+    )) as any
+    database.prospectImport.findUnique.mockClear()
+    for (const args of [
+      { importId: 'import-2', cursor: first.rows.nextCursor },
+      { importId: 'import-1', rowStatus: 'FAILED', cursor: first.rows.nextCursor },
+      { importId: 'import-1', cursor: 'row-from-another-import' },
+    ]) {
+      await expect(registry.callTool('crm.get_import', args, context)).rejects.toMatchObject({
+        code: 'INVALID_CURSOR',
+      })
+    }
+    expect(database.prospectImport.findUnique).not.toHaveBeenCalled()
+  })
 
   it('reconciles every disposition to the recorded total and matches its own output contract', async () => {
     const out = await run(getImport, { importId: 'import-1' }, importFake(rows))

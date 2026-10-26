@@ -162,6 +162,7 @@ export function importedMailReferences(value: unknown) {
 const getImport: OperatorReadTool = {
   name: 'crm.get_import',
   capability: 'crm:read',
+  pagePath: ['rows'],
   async handler(raw, context) {
     const input = OPERATOR_MCP_INPUTS['crm.get_import'].parse(raw)
     const database = context.database
