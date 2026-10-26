@@ -11,7 +11,9 @@ const usage = { input_tokens: 10, output_tokens: 5, input_tokens_details: { cach
 const system = [{ type: 'text' as const, text: 'Rules.' }]
 const messages = [{ role: 'user' as const, content: 'Hello' }]
 
-const callOnce = async (key: 'guest-chat-sol' | 'guest-chat-sol-fast') => {
+const callOnce = async (
+  key: 'guest-chat-sol' | 'guest-chat-sol-fast' | 'guest-chat-terra-fast',
+) => {
   const create = vi.fn().mockResolvedValue({ status: 'completed', output_text: 'Done', usage })
   setOpenAiResponsesClientForTesting({ responses: { create } })
   const spec = getAiModelSpec(key)
@@ -89,5 +91,25 @@ describe('Sol Fast-mode model key', () => {
     expect(getAiModelSpec('guest-chat-sol').serviceTier).toBeUndefined()
     expect(await callOnce('guest-chat-sol')).not.toHaveProperty('service_tier')
     expect((await callStream('guest-chat-sol')).request).not.toHaveProperty('service_tier')
+  })
+
+  it('offers Terra on Fast mode at low effort, never the unsupported minimal effort', async () => {
+    const spec = getAiModelSpec('guest-chat-terra-fast')
+    expect(spec).toMatchObject({
+      model: 'gpt-6.1-terra',
+      reasoningEffort: 'low',
+      serviceTier: 'fast',
+    })
+    expect(spec.pricingUsdPerMillionTokens).toEqual({
+      input: 2,
+      output: 10,
+      cacheWrite: 2.5,
+      cacheRead: 0.1,
+    })
+    const request = await callOnce('guest-chat-terra-fast')
+    expect(request.model).toBe('gpt-6.1-terra')
+    expect(request.reasoning).toEqual({ effort: 'low' })
+    expect(request.service_tier).toBe('fast')
+    expect(request.prompt_cache_options).toEqual({ mode: 'explicit' })
   })
 })

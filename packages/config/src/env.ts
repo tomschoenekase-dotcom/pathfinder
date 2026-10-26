@@ -184,6 +184,7 @@ const rawEnvSchema = z
         'guest-chat-luna-reasoning',
         'guest-chat-sol',
         'guest-chat-sol-fast',
+        'guest-chat-terra-fast',
       ])
       .optional(),
     // Direct, fixed-endpoint DeepSeek visitor-chat routes. This remains

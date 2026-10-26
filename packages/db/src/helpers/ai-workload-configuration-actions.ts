@@ -362,7 +362,8 @@ export async function resolveRuntimeAiWorkloadConfiguration(
     (process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna' ||
       process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna-reasoning' ||
       process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol' ||
-      process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol-fast')
+      process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol-fast' ||
+      process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-terra-fast')
       ? process.env.GUEST_CHAT_DEFAULT_MODEL_KEY
       : undefined
   // Preserve the built-in registry during rolling deploys and in narrow test

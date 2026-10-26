@@ -13,6 +13,7 @@ export const AI_MODEL_KEYS = {
   GUEST_CHAT_LUNA_REASONING: 'guest-chat-luna-reasoning',
   GUEST_CHAT_SOL: 'guest-chat-sol',
   GUEST_CHAT_SOL_FAST: 'guest-chat-sol-fast',
+  GUEST_CHAT_TERRA_FAST: 'guest-chat-terra-fast',
   GUEST_CHAT_OPENAI: 'guest-chat-openai',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -239,6 +240,17 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
     serviceTier: 'fast',
     pricingVersion: 'openai-fast-public-2026-10-26',
     pricingUsdPerMillionTokens: { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
+  },
+  // A faster, cheaper option on gpt-6.1-terra with Fast mode (2x the $1/$5 standard rates).
+  // Effort is pinned to low: Terra does not accept "minimal". In the 2026-10-26 replay it was about
+  // twice as fast as Sol but omitted more needed conditions, so it is not the default.
+  [AI_MODEL_KEYS.GUEST_CHAT_TERRA_FAST]: {
+    ...openAiSolSpec(2_048),
+    model: 'gpt-6.1-terra',
+    reasoningEffort: 'low',
+    serviceTier: 'fast',
+    pricingVersion: 'openai-fast-public-2026-10-26',
+    pricingUsdPerMillionTokens: { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1 },
   },
   [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
