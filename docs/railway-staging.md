@@ -306,6 +306,12 @@ constructs queues or changes their contents. The existing `REDIS_RESOURCE_ID` an
 must match the reviewed staging resource; no extra resource variable is required. Staging database
 drain remains zero other client sessions, with all application instances stopped.
 
+The October 26 evening exception in `production-cutover-20261026.md` additionally
+permits the explicit `--preserve-dormant-queues` CLI option. This uses the separate,
+versioned read-only preservation proof, with two unchanged snapshots at least 30 seconds
+apart and mandatory `EVAL_RO`/`CLIENT LIST` permissions. All stopped-service, database,
+backup and freshness checks remain required; no queue or worker flag is changed.
+
 The historical October 3 source endpoint is exactly 267 migrations and 297 public tables, ending with
 `20261002121000_prospect_organization_merge`, with LF-normalized manifest SHA-256
 `cbad930003f17d1953495a8d477a64b138b55db29022632aa20b93b2b8af2e00`. The 255/280 endpoint below

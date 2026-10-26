@@ -2,6 +2,41 @@
 
 > **Migration instruction status: RESTRICTED PRODUCTION EXCEPTION — LIVE GATES REQUIRED.**
 
+## October 26 evening owner update
+
+The owner selected `machine/torchiko/20261026-orphan-shell-fix` at
+`6ac2284bacfa9a78a87e332cb082870d0a7a4449`, including prompt v44, as the new starting
+candidate. This supersedes the historical source and model selections below. The final
+release SHA still requires exact-head checks, CI, new captures and formal blind P2.
+
+- "yeah. i agree to switch to sol fast" authorizes
+  `GUEST_CHAT_DEFAULT_MODEL_KEY=guest-chat-sol-fast` at release.
+- "ill give 15 dollar budget" sets a hard $15 cap for formal P2, using a fresh ledger,
+  serial requests through `scripts/with-torchiko-openai.mjs`, stopping on the first error.
+- "if stuff needs to be done, get it done." authorizes the rehearsed read-only dormant
+  queue invariant for this release only, replacing the historical all-zero requirement.
+
+Use the separate `release269-queue-preservation.mjs` checker and its versioned proof.
+The staging CLI selects it explicitly with `--preserve-dormant-queues`; its default
+remains the all-zero check. Production's private adapter supplies the same versioned
+proof from its pinned read-only connection. Never relabel an all-zero receipt.
+The new proof requires two snapshots at least 30 seconds apart, identical counts,
+job identities/states/attempts and canonical key contents, zero workers on every queue,
+and only the reviewed waiting business jobs and delayed schedulers. Unknown pending
+queues, active/prioritized/child-waiting jobs, attempted jobs, expiring keys, overflow,
+missing reads or permission errors refuse release. `EVAL_RO` and `CLIENT LIST` are
+mandatory. Canonical contents are compared instead of unstable raw Redis DUMP bytes.
+Database-session, stopped-service, preservation and freshness checks still apply.
+Never execute, delete, move or pause queued jobs or change worker flags.
+
+Deploy staging and production only between 22:00 and 06:00 America/Chicago, after all
+gates pass. Keep `GUEST_CHAT_TODAY_STATUS` off. `GUEST_CHAT_STATED_DATES=luna` does
+nothing with Sol. After release, watch for 15 minutes, including first-text p95 and
+fallback rate, and run visitor QA. Schedule/status engine development follows release
+behind its own default-off flag. No email is authorized.
+
+## Historical scope before the evening update
+
 ## Owner scope and immutable source
 
 Tom's October 25 instruction, recorded in the assigned overnight packet:

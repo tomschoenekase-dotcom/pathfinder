@@ -84,6 +84,7 @@ export async function main(args = process.argv.slice(2), environment = process.e
       'queue-proof': { type: 'string' },
       receipt: { type: 'string' },
       readback: { type: 'boolean', default: false },
+      'preserve-dormant-queues': { type: 'boolean', default: false },
     },
   })
   const target = values.target
@@ -175,6 +176,7 @@ export async function main(args = process.argv.slice(2), environment = process.e
           environment,
           releaseSha,
           createConnection: (url, options) => new Redis(url, options),
+          preserveDormantQueues: values['preserve-dormant-queues'],
         })
       },
       deploy: async () => {

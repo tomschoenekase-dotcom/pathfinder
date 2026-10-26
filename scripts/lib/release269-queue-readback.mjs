@@ -95,6 +95,7 @@ export async function readRelease269StagingQueues({
   releaseSha,
   createConnection,
   now = Date.now,
+  preserveDormantQueues = false,
 }) {
   assert.match(releaseSha ?? '', /^[a-f0-9]{40}$/u, 'release269-queue-release-required')
   const resourceIdentity = assertRelease269StagingRedis(environment)
@@ -113,6 +114,16 @@ export async function readRelease269StagingQueues({
     })
     connection.on('error', () => {})
     await connection.connect()
+    if (preserveDormantQueues) {
+      const { readPreservedQueues } = await import('./release269-queue-preservation.mjs')
+      return await readPreservedQueues({
+        connection,
+        target: 'staging',
+        releaseSha,
+        resourceIdentity,
+        now,
+      })
+    }
     const raw = await connection.call('EVAL_RO', RELEASE269_QUEUE_COUNTS_LUA, '0', ...names)
     assert.ok(
       typeof raw === 'string' && Buffer.byteLength(raw) <= 131072,

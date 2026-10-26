@@ -13,6 +13,10 @@ import {
   withStagingApplicationHold,
 } from '../run-staging-migration-predeploy.mjs'
 import { assertStagingMigrationAdmission } from './staging-migration-admission.mjs'
+import {
+  QUEUE_PRESERVATION_SCHEMA,
+  assertPreservedQueueProof,
+} from './release269-queue-preservation.mjs'
 
 export const RELEASE269_APPROVAL = 'torchiko-staging-lineage-to-269-20261026'
 export const RELEASE269_PROOF_SCHEMA = 'torchiko-release269-preservation/v1'
@@ -200,9 +204,8 @@ export function assertRelease269Drain(snapshot, queues, { target, releaseSha, st
     )
   }
   assert.equal(snapshot.affectedEventRows, 0, 'release269-event-rewrite-not-admitted')
-  assert.equal(
-    queues?.schema,
-    'torchiko-release269-queue-drain/v1',
+  assert.ok(
+    ['torchiko-release269-queue-drain/v1', QUEUE_PRESERVATION_SCHEMA].includes(queues?.schema),
     'release269-queue-proof-required',
   )
   assert.equal(queues.target, target)
@@ -219,8 +222,10 @@ export function assertRelease269Drain(snapshot, queues, { target, releaseSha, st
     queueObserved >= startedAt - 60_000 && queueObserved <= now && now - queueObserved <= 60_000,
     'release269-queues-not-fresh',
   )
-  for (const key of ['waiting', 'active', 'delayed', 'prioritized', 'waitingChildren'])
-    assert.equal(queues[key], 0, 'release269-queue-not-drained')
+  if (queues.schema === QUEUE_PRESERVATION_SCHEMA) assertPreservedQueueProof(queues)
+  else
+    for (const key of ['waiting', 'active', 'delayed', 'prioritized', 'waitingChildren'])
+      assert.equal(queues[key], 0, 'release269-queue-not-drained')
 }
 
 export function assertRelease269Preserved(before, after) {

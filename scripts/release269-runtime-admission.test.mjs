@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import {
+  QUEUE_PRESERVATION_SCHEMA,
+  QUEUE_PRESERVATION_APPROVAL,
+} from './lib/release269-queue-preservation.mjs'
+import { RELEASE269_QUEUE_BASE_NAMES } from './lib/release269-queue-readback.mjs'
 import { fileURLToPath } from 'node:url'
 import { readFile } from 'node:fs/promises'
 import {
@@ -304,6 +309,42 @@ test('exact production267→269 preserves all original data and physical history
   assert.deepEqual(h.events, ['before', 'armed', 'deploy', 'after', 'verified'])
 })
 
+test('reviewed dormant queue proof admits pending jobs but retains session and freshness gates', () => {
+  const h = harness()
+  const proof = {
+    ...h.queues,
+    schema: QUEUE_PRESERVATION_SCHEMA,
+    approval: QUEUE_PRESERVATION_APPROVAL,
+    firstObservedAt: new Date(Date.parse(h.queues.observedAt) - 30000).toISOString(),
+    waiting: 6,
+    delayed: 4,
+    failed: 0,
+    workers: 0,
+    preserved: true,
+    transport: 'EVAL_RO-and-CLIENT-LIST',
+    registry: [...RELEASE269_QUEUE_BASE_NAMES],
+    countsSha256: 'a'.repeat(64),
+    jobsSha256: 'b'.repeat(64),
+    canonicalSha256: 'c'.repeat(64),
+  }
+  const now = Date.parse(h.queues.observedAt)
+  const scope = {
+    target: 'production',
+    releaseSha: h.queues.releaseSha,
+    startedAt: now - 1000,
+    now,
+  }
+  assert.doesNotThrow(() => assertRelease269Drain(h.before, proof, scope))
+  assert.throws(() =>
+    assertRelease269Drain({ ...h.before, blockingClientSessions: 1 }, proof, scope),
+  )
+  assert.throws(() => assertRelease269Drain(h.before, { ...proof, workers: 1 }, scope))
+  assert.throws(() =>
+    assertRelease269Drain(h.before, { ...proof, resourceIdentity: 'other' }, scope),
+  )
+  assert.throws(() => assertRelease269Drain(h.before, proof, { ...scope, now: now + 60001 }))
+})
+
 test('production requires known zero prioritized and waiting-children counts on both queue reads', async (t) => {
   for (const key of ['prioritized', 'waitingChildren']) {
     for (const rejectedRead of [1, 2]) {
@@ -410,7 +451,10 @@ test('long repeatable-read scans keep their start timestamp and expire before mi
         return { ...(await readSnapshot()), observedAt: observation.observedAt }
       }
       h.options.now = () => clock
-      h.options.readQueues = async () => ({ ...h.queues, observedAt: new Date(clock).toISOString() })
+      h.options.readQueues = async () => ({
+        ...h.queues,
+        observedAt: new Date(clock).toISOString(),
+      })
       if (scanMilliseconds > 60_000) {
         await assert.rejects(h.run(), /readback-not-fresh/u)
         assert.ok(!h.events.includes('deploy'))
