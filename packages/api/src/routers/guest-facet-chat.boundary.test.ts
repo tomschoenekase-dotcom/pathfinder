@@ -1197,7 +1197,7 @@ describe('facet actual chat independent boundaries', () => {
     expect(prompt()).not.toContain(counters)
   })
 
-  it('preserves frozen FULL control evidence with only the reviewed v43 hours-scope delta', async () => {
+  it('preserves frozen FULL control evidence with only the reviewed v43 and v44 deltas', async () => {
     vi.stubEnv('GUEST_GUIDE_STRATEGY', undefined)
     const row = ridePlace(
       'full-control',
@@ -1221,9 +1221,34 @@ describe('facet actual chat independent boundaries', () => {
       createHash('sha256')
         .update(JSON.stringify(actual, null, 2))
         .digest('hex'),
-    ).toBe('84ec17aa4be6bc17e4a60a296d8617e1e6ec20b3e4f915fa4068431887377989')
+    ).toBe('57d8aa84ee7b6a6ebfe1b6b717586ce4ad2ed080f0e4f30827c2ec2491b8b92c')
+    // Reverse ONLY the five reviewed v44 rule edits (exact strings) before the v43 reversal.
+    const v44Edits: Array<[v44: string, v43: string]> = [
+      [
+        '- Answer questions about this place (its hours, prices, policies, exhibits, animals, staff and services) only when the supplied venue context supports the answer. Never infer a missing policy, hour, location, accessibility detail, or operational fact. A general educational question that does not depend on this place (how a steam engine works, what a stingray is) deserves a brief, accurate explanation from well-established general knowledge; then connect it to a supplied venue detail when one fits. Never present general knowledge as something the place says, offers or exhibits.',
+        '- Answer factual questions only when the supplied venue context supports the answer. Never infer a missing policy, hour, location, accessibility detail, or operational fact.',
+      ],
+      [
+        'then share what you do know. Never fabricate. Refer visitors to staff only for operational or safety facts staff would know (access, availability, allergens, rules); never claim staff will explain a topic, demonstrate something or run a program unless the venue facts say so. Don\'t add routine disclaimers ("can vary", "ask staff") to answers you can give; keep that caution for allergies, safety, ride restrictions, unconfirmed accessibility and live status (open now, waits, closures). State what the venue facts say as fact even when the visitor asks about today (if they say a lift is working, say it is working); a brief offer to check changeable status may follow the fact, never replace it.',
+        'then share what you do know. Never fabricate. Don\'t add routine disclaimers ("can vary", "ask staff") to answers you can give; keep that caution for allergies, safety, ride restrictions, unconfirmed accessibility and live status (open now, waits, closures).',
+      ],
+      [
+        'ask for measured height when a known height rule needs it, after first naming any suitable options that have no height minimum or allow riding with an adult.',
+        'ask for measured height when a known height rule needs it.',
+      ],
+      [
+        "Keep stated limits and exceptions with their subject. When the visitor names specific dates, give each date's opening and closing times, not only whether it is open now.",
+        'Keep stated limits and exceptions with their subject.',
+      ],
+      [
+        "Treat dated events or seasons that have already ended, and today's timed activities whose end time has passed, as over; never present them as upcoming or current.",
+        'Treat dated events or seasons that have already ended as past; never present them as upcoming or current.',
+      ],
+    ]
+    const historicalV44 = (text: string) =>
+      v44Edits.reduce((value, [v44, v43]) => value.split(v44).join(v43), text)
     const historicalHours = (text: string) =>
-      text
+      historicalV44(text)
         .replace(
           'HOURS AND AVAILABILITY SCOPE: First identify the subject the visitor means. Use only a schedule explicitly covering that subject; venue or area hours do not establish an individual outlet, attraction, service or event schedule. A current opening or closure update for that subject takes precedence over regular hours. Without an applicable schedule or explicit current status for that subject, opening status is unknown; do not infer open or closed. Keep stated limits and exceptions with their subject. A current menu, offering or event listing does not prove live stock or availability.\n\n',
           '',
@@ -1236,7 +1261,7 @@ describe('facet actual chat independent boundaries', () => {
       ...actual,
       prompt: historicalHours(actual.prompt),
       system: {
-        staticPart: actual.system.staticPart,
+        staticPart: historicalV44(actual.system.staticPart),
         dynamicPart: historicalHours(actual.system.dynamicPart),
       },
     }
