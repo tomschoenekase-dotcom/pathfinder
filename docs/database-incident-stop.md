@@ -2,6 +2,18 @@
 
 > **Production incident state: ACTIVE. Staging exception state: APPROVED.**
 
+## Restricted overnight candidate exception — October 25–26, 2026
+
+Tom authorized finishing the gated overnight packet for application source
+`bebd9f1791f82120caa528cc5a12060a0f0bc8ea`. The
+[release-specific record](production-cutover-20261026.md) admits only its two named migrations,
+reviewed admission tooling and documentation, subject to measured improvement over production,
+exact-head CI, fresh independent backup/rehearsal and preservation evidence, exact three-service
+staging admission and protected promotion. The bounded runtime must prove zero affected event
+projection rows; positive or unknown counts stop release. The incident remains ACTIVE by default.
+Only `GUEST_CHAT_STATED_DATES=luna` may change in production service variables. No release gate,
+worker restriction, data-preservation requirement or credential boundary is waived.
+
 ## Restricted guest source-link correction — approved 2026-10-10
 
 Tom's continued-repair instruction authorizes the [code-only source-link correction record](production-guide-source-links-20261010.md)

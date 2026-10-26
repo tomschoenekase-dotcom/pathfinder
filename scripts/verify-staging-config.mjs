@@ -1,7 +1,7 @@
 import { access, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { EXPECTED as expectedMigration } from './run-staging-migration-predeploy.mjs'
+import { RELEASE269_APPROVAL } from './lib/release269-runtime-admission.mjs'
 import { RAILWAY_STATUS_COMMAND } from './lib/railway-cli-contract.mjs'
 import {
   STAGING_MIGRATION_APPROVAL_VARIABLE,
@@ -11,7 +11,7 @@ import {
 const root = resolve(import.meta.dirname, '..')
 const runbook = await readFile(resolve(root, 'docs/railway-staging.md'), 'utf8')
 const iacRunbook = await readFile(resolve(root, 'docs/railway-iac-migration.md'), 'utf8')
-const predeployServiceContract = buildStagingPredeployServiceContract(expectedMigration.approval)
+const predeployServiceContract = buildStagingPredeployServiceContract(RELEASE269_APPROVAL)
 
 const services = [
   {
@@ -20,7 +20,7 @@ const services = [
     dockerfile: 'Dockerfile.web.staging',
     healthcheckPath: '/api/health',
     preDeployCommand: [
-      `sh -c 'node /migration/scripts/run-staging-migration-predeploy.mjs; code=$?; printf "{\\"kind\\":\\"staging-predeploy-process-exit\\",\\"exitCode\\":%s}\\n" "$code"; exit "$code"'`,
+      `sh -c 'node /migration/scripts/run-release269-migration.mjs; code=$?; printf "{\\"kind\\":\\"staging-predeploy-process-exit\\",\\"exitCode\\":%s}\\n" "$code"; exit "$code"'`,
     ],
   },
   {
@@ -135,14 +135,14 @@ for (const service of services) {
       )
     }
 
-    const approval = `ENV ${STAGING_MIGRATION_APPROVAL_VARIABLE}=${expectedMigration.approval}`
+    const approval = `ENV ${STAGING_MIGRATION_APPROVAL_VARIABLE}=${RELEASE269_APPROVAL}`
     if (!dockerfile.includes(approval)) {
       throw new Error(`${service.dockerfile}: staging migration approval is stale`)
     }
     if (
       !runbook.includes(
         `\`${STAGING_MIGRATION_APPROVAL_VARIABLE}\` to the exact source pin in\n` +
-          '`Dockerfile.web.staging` and `scripts/run-staging-migration-predeploy.mjs`',
+          '`Dockerfile.web.staging` and `scripts/lib/release269-runtime-admission.mjs`',
       ) ||
       !runbook.includes('does not inherit Docker image `ENV`')
     ) {

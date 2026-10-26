@@ -15,6 +15,7 @@ const inertArchiveMarker = '## Post-resolution external exercise archive — INE
 const restrictedProductionMarker =
   'Migration instruction status: RESTRICTED PRODUCTION EXCEPTION — LIVE GATES REQUIRED.'
 const restrictedProductionRecords = new Set([
+  'production-cutover-20261026.md',
   'production-cutover-20260930.md',
   'production-cutover-20261001.md',
   'production-cutover-20261003.md',
@@ -22,6 +23,34 @@ const restrictedProductionRecords = new Set([
   'production-guide-grounding-20261010.md',
   'production-guide-source-links-20261010.md',
 ])
+
+test('overnight 269 exception retains exact scope and fail-closed preservation', async () => {
+  const approval = await readFile(new URL('production-cutover-20261026.md', docsRoot), 'utf8')
+  const stop = await readFile(new URL('database-incident-stop.md', docsRoot), 'utf8')
+  const workflow = await readFile(new URL('staging-release-workflow.md', docsRoot), 'utf8')
+  assert.equal(hasLeadingMarker(approval, restrictedProductionMarker), true)
+  for (const required of [
+    'bebd9f1791f82120caa528cc5a12060a0f0bc8ea',
+    'a18fde4b947561b70c1909c5df134ae3b1fef4e4',
+    '20261022001000_deterministic_event_search_projection',
+    '20261023001000_add_fact_applicability',
+    'f2c54b4fda515d68a9f8e45227aac3b26c0b978f5a5505827a71b853fefc67f1',
+    'cbad930003f17d1953495a8d477a64b138b55db29022632aa20b93b2b8af2e00',
+    'zero affected',
+    'protected promotion gate',
+    'verified-held',
+    'incident remains ACTIVE',
+    'GUEST_CHAT_STATED_DATES=luna',
+    'NOT PROVEN',
+  ]) assert.ok(approval.includes(required), `Missing required scope: ${required}`)
+  assert.match(approval, /fresh post-drain/)
+  assert.match(approval, /Independently repeat production drain/)
+  assert.match(approval, /positive or unknown affected count/)
+  assert.match(approval, /No seed, reset, restore over production or staging/)
+  assert.match(stop, /production-cutover-20261026\.md/)
+  assert.match(workflow, /production-cutover-20261026\.md/)
+  assert.deepEqual(findUnsafeInstructions(approval), [])
+})
 
 test('October 10 source-link correction stays code-only and incident-bound', async () => {
   const approval = await readFile(

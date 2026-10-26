@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { RELEASE269_APPROVAL } from './lib/release269-runtime-admission.mjs'
 
 import {
   EXPECTED,
@@ -763,7 +764,7 @@ test('staging image pins the same exact migration approval as the predeploy', as
   const dockerfile = await readFile('Dockerfile.web.staging', 'utf8')
   assert.match(
     dockerfile,
-    new RegExp(`^ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=${EXPECTED.approval}$`, 'mu'),
+    new RegExp(`^ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=${RELEASE269_APPROVAL}$`, 'mu'),
   )
 })
 
@@ -790,7 +791,7 @@ test('staging runbook requires the exact Railway service-level predeploy approva
   assert.match(runbook, /does not inherit Docker image `ENV`/u)
   assert.match(runbook, /PATHFINDER_STAGING_MIGRATION_APPROVAL/u)
   assert.match(runbook, /Dockerfile\.web\.staging/u)
-  assert.match(runbook, /scripts\/run-staging-migration-predeploy\.mjs/u)
+  assert.match(runbook, /scripts\/lib\/release269-runtime-admission\.mjs/u)
 })
 
 test('preserved-data backup evidence must match the live migration ledger boundary', () => {

@@ -25,7 +25,7 @@ ENV NODE_ENV=production
 ENV PRISMA_QUERY_ENGINE_LIBRARY=/app/prisma-engine/query-engine.node
 ENV PATHFINDER_PRISMA_DIR=/migration/prisma
 ENV PATHFINDER_PRISMA_CLI=/migration/node_modules/.bin/prisma
-ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-267-20261003
+ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=torchiko-staging-lineage-to-269-20261026
 
 COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
@@ -33,6 +33,11 @@ COPY --from=builder --chown=node:node /app/apps/web/public ./apps/web/public
 COPY --from=builder --chown=node:node /app/prisma-engine/query-engine.node /app/prisma-engine/query-engine.node
 COPY --from=builder --chown=node:node /migration /migration
 COPY --from=builder --chown=node:node /app/scripts/run-staging-migration-predeploy.mjs /migration/scripts/run-staging-migration-predeploy.mjs
+COPY --from=builder --chown=node:node /app/scripts/run-release269-migration.mjs /migration/scripts/run-release269-migration.mjs
+COPY --from=builder --chown=node:node /app/scripts/lib/release269-migration-contract.mjs /migration/scripts/lib/release269-migration-contract.mjs
+COPY --from=builder --chown=node:node /app/scripts/lib/release269-runtime-admission.mjs /migration/scripts/lib/release269-runtime-admission.mjs
+COPY --from=builder --chown=node:node /app/scripts/lib/release269-readback.mjs /migration/scripts/lib/release269-readback.mjs
+COPY --from=builder --chown=node:node /app/scripts/lib/production-migration-admission.mjs /migration/scripts/lib/production-migration-admission.mjs
 COPY --from=builder --chown=node:node /app/scripts/lib/staging-migration-admission.mjs /migration/scripts/lib/staging-migration-admission.mjs
 COPY --from=builder --chown=node:node /app/scripts/lib/operator-cli-failure.mjs /migration/scripts/lib/operator-cli-failure.mjs
 

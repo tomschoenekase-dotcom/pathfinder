@@ -16,7 +16,7 @@ test('only staging web captures its fixed migration child status; other services
   assert.equal(config.deploy.preDeployCommand.length, 1)
   assert.equal(
     body,
-    'node /migration/scripts/run-staging-migration-predeploy.mjs; code=$?; printf "{\\"kind\\":\\"staging-predeploy-process-exit\\",\\"exitCode\\":%s}\\n" "$code"; exit "$code"',
+    'node /migration/scripts/run-release269-migration.mjs; code=$?; printf "{\\"kind\\":\\"staging-predeploy-process-exit\\",\\"exitCode\\":%s}\\n" "$code"; exit "$code"',
   )
   for (const service of ['dashboard', 'workers']) {
     const other = JSON.parse(
@@ -35,7 +35,7 @@ for (const code of [0, 1, 2, 127]) {
       const executable = path.join(directory, 'node')
       await writeFile(
         executable,
-        `#!/bin/sh\n[ "$#" -eq 1 ] && [ "$1" = /migration/scripts/run-staging-migration-predeploy.mjs ] || exit 125\nprintf 'synthetic-child-complete\\n'\nexit ${code}\n`,
+        `#!/bin/sh\n[ "$#" -eq 1 ] && [ "$1" = /migration/scripts/run-release269-migration.mjs ] || exit 125\nprintf 'synthetic-child-complete\\n'\nexit ${code}\n`,
       )
       await chmod(executable, 0o700)
       const result = spawnSync(shell, ['-c', command], {
