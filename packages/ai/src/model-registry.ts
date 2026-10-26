@@ -12,6 +12,7 @@ export const AI_MODEL_KEYS = {
   GUEST_CHAT_LUNA: 'guest-chat-luna',
   GUEST_CHAT_LUNA_REASONING: 'guest-chat-luna-reasoning',
   GUEST_CHAT_SOL: 'guest-chat-sol',
+  GUEST_CHAT_SOL_FAST: 'guest-chat-sol-fast',
   GUEST_CHAT_OPENAI: 'guest-chat-openai',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -28,6 +29,8 @@ export type AiModelSpec = {
   maxOutputTokens: number
   /** OpenAI reasoning effort when the route pins one; otherwise the model's default effort. */
   reasoningEffort?: 'none' | 'minimal' | 'low'
+  /** OpenAI processing tier the route requests; omitted means the project default (standard). */
+  serviceTier?: 'fast'
   timeoutMs: number
   maxAttempts: number
   maxInputUtf8Bytes: number
@@ -228,6 +231,15 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   },
   // Reasoning tokens count against the output cap, so Sol gets more room than Luna.
   [AI_MODEL_KEYS.GUEST_CHAT_SOL]: openAiSolSpec(2_048),
+  // The same Sol route on OpenAI Fast mode (service_tier "fast"): billed at twice the standard
+  // rates. A 2026-10-26 replay of captured guest requests gave the same graded accuracy as
+  // standard Sol with a much lower and steadier time to first text.
+  [AI_MODEL_KEYS.GUEST_CHAT_SOL_FAST]: {
+    ...openAiSolSpec(2_048),
+    serviceTier: 'fast',
+    pricingVersion: 'openai-fast-public-2026-10-26',
+    pricingUsdPerMillionTokens: { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
+  },
   [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),

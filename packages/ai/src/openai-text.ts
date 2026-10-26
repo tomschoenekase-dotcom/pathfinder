@@ -506,6 +506,9 @@ export async function createOpenAiTextResponse(params: {
           service_tier: profile === 'LOCAL_LUNA_FAST_V1' ? ('fast' as const) : ('default' as const),
         }
       : {}),
+    ...(!profile && !sol && params.spec.serviceTier
+      ? { service_tier: params.spec.serviceTier }
+      : {}),
     ...(sol ? { service_tier: 'default' as const } : {}),
   }
   const requestBytes = profile ? Buffer.from(JSON.stringify(request), 'utf8') : undefined
@@ -688,6 +691,9 @@ export async function createOpenAiTextStream(params: {
       ...prompt,
       max_output_tokens: params.maxOutputTokens,
       reasoning: { effort: params.spec.reasoningEffort ?? reasoningEffort(params.spec.model) },
+      ...(params.invocationProfile === undefined && params.spec.serviceTier
+        ? { service_tier: params.spec.serviceTier }
+        : {}),
       store: false,
       stream: true,
     },
