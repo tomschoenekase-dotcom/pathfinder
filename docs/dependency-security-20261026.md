@@ -23,3 +23,10 @@ all browser-deliverable files. Its synthetic PostgreSQL and Redis URLs use
 loopback port 1 rather than a potentially running local service.
 The fact-applicability visual tests use the configured dashboard origin, just
 as the other visual fixtures do; their assertions and viewport coverage remain.
+
+The character source-boundary test excludes generated `.next` traces and installed
+dependencies, matching the other source scanners. Its exact importer assertion
+is unchanged; a fixture proves nested application source remains included.
+The batch process-tree test allows a bounded two-second OS reap wait after the
+kill signal. It still requires the renderer PID to disappear with ESRCH and
+retains the timeout, tree-kill and confirmed-cleanup assertions.

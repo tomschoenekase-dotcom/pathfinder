@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFile, readdir } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +12,8 @@ async function sourceFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true })
   const nested = await Promise.all(
     entries.map(async (entry) => {
+      // Next standalone traces contain copies of other apps; they are not web source.
+      if (entry.isDirectory() && ['.next', 'node_modules'].includes(entry.name)) return []
       const resolved = path.join(directory, entry.name)
       if (entry.isDirectory()) return sourceFiles(resolved)
       return /\.(?:ts|tsx)$/u.test(entry.name) ? [resolved] : []
@@ -18,6 +21,26 @@ async function sourceFiles(directory) {
   )
   return nested.flat()
 }
+
+test('source discovery retains nested application files and excludes generated copies', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'character-boundary-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const files = [
+    'components/Nested.tsx',
+    'app/deep/page.tsx',
+    '.custom/StillSource.ts',
+    '.next/standalone/apps/dashboard/Generated.tsx',
+    'node_modules/library/Dependency.ts',
+  ]
+  for (const file of files) {
+    await mkdir(path.dirname(path.join(root, file)), { recursive: true })
+    await writeFile(path.join(root, file), "import { Character } from '@pathfinder/ui/character'\n")
+  }
+  assert.deepEqual(
+    (await sourceFiles(root)).map((file) => path.relative(root, file).replaceAll('\\', '/')).sort(),
+    files.slice(0, 3).sort(),
+  )
+})
 
 test('the character renderer remains behind an explicit package subpath', async () => {
   const packageJson = JSON.parse(

@@ -5,6 +5,7 @@ import { copyFile, mkdir, mkdtemp, readFile, symlink, unlink, writeFile } from '
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { setTimeout as delay } from 'node:timers/promises'
 import { runBatch, runProcess } from './venue-authoring-batch.mjs'
 
 const fixtureRoot = fileURLToPath(new URL('./fixtures/venue-authoring-batch/', import.meta.url))
@@ -141,6 +142,18 @@ test('timeout terminates supported parent-and-renderer topology', async () => {
   assert.equal(result.cleanupUnconfirmed, false)
   const pid = Number(result.stdout.trim())
   assert.ok(Number.isSafeInteger(pid) && pid > 0)
+  // A process-group signal can close the parent's pipes before the OS reaps its child.
+  // Still require ESRCH; a surviving renderer must fail after the bounded cleanup wait.
+  const cleanupDeadline = Date.now() + 2000
+  while (Date.now() < cleanupDeadline) {
+    try {
+      process.kill(pid, 0)
+    } catch (error) {
+      if (error.code === 'ESRCH') break
+      throw error
+    }
+    await delay(20)
+  }
   assert.throws(() => process.kill(pid, 0), /ESRCH|no such process/i)
 })
 test(
