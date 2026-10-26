@@ -174,7 +174,31 @@ export function assertRelease269Drain(snapshot, queues, { target, releaseSha, st
     observed >= startedAt && observed <= now && now - observed <= 60_000,
     'release269-readback-not-fresh',
   )
-  assert.equal(snapshot.otherClientSessions, 0, 'release269-clients-remain')
+  if (target === 'staging')
+    assert.equal(snapshot.otherClientSessions, 0, 'release269-clients-remain')
+  else {
+    for (const key of [
+      'otherClientSessions',
+      'approvedIdleProviderClientSessions',
+      'blockingClientSessions',
+      'activeOrTransactionalClientSessions',
+    ])
+      assert.ok(
+        Number.isSafeInteger(snapshot[key]) && snapshot[key] >= 0,
+        'release269-client-proof-required',
+      )
+    assert.equal(snapshot.blockingClientSessions, 0, 'release269-clients-remain')
+    assert.equal(
+      snapshot.activeOrTransactionalClientSessions,
+      0,
+      'release269-active-client-remains',
+    )
+    assert.equal(
+      snapshot.otherClientSessions,
+      snapshot.approvedIdleProviderClientSessions,
+      'release269-clients-remain',
+    )
+  }
   assert.equal(snapshot.affectedEventRows, 0, 'release269-event-rewrite-not-admitted')
   assert.equal(
     queues?.schema,
@@ -311,7 +335,11 @@ export async function runRelease269({
       dataPolicy: 'preserve-existing',
     })
   }
-  const queues = await readQueues({ startedAt })
+  assertRelease269Drain(before, await readQueues({ startedAt }), {
+    ...scope,
+    startedAt,
+    now: now(),
+  })
   // Recheck both source and data after proof acquisition. The second complete
   // readback must be from this invocation and cannot hide a concurrent writer.
   await inspect()
@@ -324,6 +352,7 @@ export async function runRelease269({
     before.physicalLedgerHash,
     'release269-prewrite-ledger-drift',
   )
+  const queues = await readQueues({ startedAt })
   assertRelease269Drain(immediate, queues, { ...scope, startedAt, now: now() })
   for (const key of ['schemaHash', 'securityHash', 'policyHash', 'sequenceStateHash']) {
     assert.equal(immediate[key], before[key], 'release269-prewrite-schema-or-security-drift')

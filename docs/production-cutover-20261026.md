@@ -46,6 +46,30 @@ bound to that exact source SHA. A later code-only release must explicitly bind i
 reviewed compatible schema evidence. This does not require a fresh migration or backup. Legitimate
 new applicability values are permitted after migration; old-fact defaults are a transition check.
 
+Staging predeploy reads all 28 canonical queues directly from the pinned staging Redis resource
+using `EVAL_RO` and only `LLEN`/`ZCARD`. It reads again after the final database snapshot, so an
+earlier image build cannot make queue evidence stale. Waiting includes paused jobs; waiting,
+active, delayed, prioritized and waiting-children counts must each be zero. No queue, scheduler,
+job or marker is created, repaired or removed. The image carries an isolated jobs dependency
+closure for this reader; existing `REDIS_RESOURCE_ID` supplies the resource identity. Static staging
+queue JSON is not admission evidence. Production's private queue receipt must still come from a
+fresh complete-registry read within 60 seconds, including the final pre-mutation read.
+The private production adapter may call exported `runRelease269` with the exact-service read-only
+Redis collector as `readQueues`, preserving every source, target, backup and database guard. A static
+file must not be reused after it expires; never refresh a timestamp without querying Redis again.
+
+Writer drain means zero application, unclassified or active/transactional database clients.
+Staging additionally requires zero other clients. Production retains the historical management
+exception from the October 3 private `release-ops-lib.mjs`, narrowed to the role/application pairs
+observed on October 26: `supabase_admin` with an empty application or `postgres_exporter`,
+`authenticator` with `PostgREST`, `postgres` with `Supavisor`, and `pgbouncer` with the case-insensitive
+`^supavisor([ /:_-]|$)` prefix. Every exception also requires state `idle` and no transaction.
+A matching name under another role, an unknown client, missing metadata or any transaction blocks
+release. Private session-classification receipts record these observations; they do not authorize
+terminating provider sessions. Recheck the counts before and after preservation snapshots.
+Each check clears only the current connection's statistics snapshot with `pg_stat_clear_snapshot()`
+before reading activity, as required by [PostgreSQL's transaction statistics behavior](https://www.postgresql.org/docs/17/monitoring-stats.html#MONITORING-STATS-VIEWS).
+
 ## Required order and evidence
 
 1. Complete clean candidate verification and the full API/script checks. Compare approximately

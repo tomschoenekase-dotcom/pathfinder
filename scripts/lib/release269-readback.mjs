@@ -14,6 +14,42 @@ const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0)
 const ordered = (rows) =>
   [...rows].sort((left, right) => compareText(JSON.stringify(left), JSON.stringify(right)))
 
+// Retain the historical provider-management distinction, narrowed to the exact
+// role/application pairs observed for this release. Never exempt active clients.
+export function summarizeRelease269Clients(rows) {
+  let approvedIdleProviderClientSessions = 0
+  let activeOrTransactionalClientSessions = 0
+  for (const row of rows) {
+    const idle = row.state === 'idle' && row.hasTransaction === false
+    if (!idle) activeOrTransactionalClientSessions += 1
+    const application = typeof row.application === 'string' ? row.application.toLowerCase() : null
+    const approved =
+      (row.role === 'supabase_admin' && ['', 'postgres_exporter'].includes(application)) ||
+      (row.role === 'authenticator' && application === 'postgrest') ||
+      (row.role === 'postgres' && application === 'supavisor') ||
+      (row.role === 'pgbouncer' && /^supavisor([ /:_-]|$)/u.test(application ?? ''))
+    if (idle && approved) approvedIdleProviderClientSessions += 1
+  }
+  return {
+    otherClientSessions: rows.length,
+    approvedIdleProviderClientSessions,
+    blockingClientSessions: rows.length - approvedIdleProviderClientSessions,
+    activeOrTransactionalClientSessions,
+  }
+}
+
+const CLIENT_SESSIONS_SQL = `SELECT usename AS role, application_name AS application,
+  state, xact_start IS NOT NULL AS "hasTransaction" FROM pg_stat_activity
+  WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend'`
+
+export async function readRelease269Clients(query) {
+  // pg_stat_activity caches its own snapshot within a transaction. Refresh that
+  // snapshot explicitly without resetting statistics or changing shared state.
+  // The boolean result avoids exposing PostgreSQL's void type to Prisma.
+  await query('SELECT pg_stat_clear_snapshot() IS NULL AS ignored')
+  return summarizeRelease269Clients(await query(CLIENT_SESSIONS_SQL))
+}
+
 // This is the exact migration selection and early-return predicate. Missing or
 // stale linked projections count as affected too. No row rewrite is admitted.
 export const AFFECTED_EVENT_ROWS_SQL = `
@@ -51,9 +87,7 @@ async function snapshotInside(database, scope) {
   await database.$executeRawUnsafe("SET LOCAL TIME ZONE 'UTC'")
   await database.$executeRawUnsafe("SET LOCAL DateStyle = 'ISO, YMD'")
   const query = (sql) => database.$queryRawUnsafe(sql)
-  const [{ count: otherClientSessions }] =
-    await query(`SELECT count(*)::int AS count FROM pg_stat_activity
-    WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend'`)
+  const clientsBefore = await readRelease269Clients(query)
   const ledger =
     await query(`SELECT id, migration_name, checksum, finished_at, rolled_back_at, logs,
     encode(sha256(convert_to(to_jsonb(m)::text,'UTF8')),'hex') AS "rowHash"
@@ -213,15 +247,18 @@ async function snapshotInside(database, scope) {
         (name) => indexes.some((row) => row.relname === name),
       )
   }
-  const [{ count: finalOtherClients }] =
-    await query(`SELECT count(*)::int AS count FROM pg_stat_activity
-    WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend'`)
+  const clientsAfter = await readRelease269Clients(query)
   return {
     schema: RELEASE269_PROOF_SCHEMA,
     ...scope,
     manifestHash: RELEASE269.manifestHash,
     observedAt: new Date().toISOString(),
-    otherClientSessions: Math.max(otherClientSessions, finalOtherClients),
+    ...Object.fromEntries(
+      Object.keys(clientsBefore).map((key) => [
+        key,
+        Math.max(clientsBefore[key], clientsAfter[key]),
+      ]),
+    ),
     activeLedgerCount: ledger.filter((row) => row.rolled_back_at === null).length,
     physicalLedgerCount: ledger.length,
     ledger,

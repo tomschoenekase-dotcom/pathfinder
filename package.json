@@ -3,10 +3,10 @@
   "_bust": "1",
   "private": true,
   "scripts": {
-    "build": "pnpm characters:sync && turbo run build",
+    "build": "pnpm characters:sync && turbo run build --concurrency=2",
     "dev": "turbo run dev --filter=@pathfinder/web --filter=@pathfinder/dashboard",
     "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "turbo run typecheck --concurrency=2",
     "test": "pnpm characters:sync && turbo run test --concurrency=2 && pnpm test:scripts",
     "audit:prod": "node scripts/audit-production-dependencies.mjs",
     "test:accessibility": "node scripts/run-packet-2-accessibility.mjs",

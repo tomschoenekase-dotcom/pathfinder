@@ -16,6 +16,7 @@ import { assertStagingReleaseIdentity } from './lib/staging-migration-admission.
 import { assertRelease269Manifest } from './lib/release269-migration-contract.mjs'
 import { release269Target, runRelease269 } from './lib/release269-runtime-admission.mjs'
 import { readRelease269Snapshot } from './lib/release269-readback.mjs'
+import { readRelease269StagingQueues } from './lib/release269-queue-readback.mjs'
 
 export function release269PrismaDirectory(root, target, environment) {
   const pinned = path.join(root, 'packages/db/prisma')
@@ -94,7 +95,15 @@ export async function main(args = process.argv.slice(2), environment = process.e
   const prismaDirectory = release269PrismaDirectory(root, target, environment)
   const require = createRequire(path.join(prismaDirectory, '../package.json'))
   const { PrismaClient } = require('@prisma/client')
-  assert.ok(environment.RELEASE269_QUEUE_RESOURCE_ID, 'release269-queue-identity-required')
+  const queueResourceIdentity =
+    environment.RELEASE269_QUEUE_RESOURCE_ID ?? environment.REDIS_RESOURCE_ID
+  assert.ok(queueResourceIdentity, 'release269-queue-identity-required')
+  if (environment.RELEASE269_QUEUE_RESOURCE_ID && environment.REDIS_RESOURCE_ID)
+    assert.equal(
+      environment.RELEASE269_QUEUE_RESOURCE_ID,
+      environment.REDIS_RESOURCE_ID,
+      'release269-queue-identity-mismatch',
+    )
   if (target === 'production') assert.ok(values.receipt, 'release269-private-journal-required')
   if (values.readback) assert.ok(values.receipt, 'release269-private-readback-file-required')
   let journalStarted = false
@@ -123,7 +132,7 @@ export async function main(args = process.argv.slice(2), environment = process.e
     target,
     releaseSha,
     databaseResource: resource,
-    queueResourceIdentity: environment.RELEASE269_QUEUE_RESOURCE_ID,
+    queueResourceIdentity,
   }
   const readSnapshot = () => readRelease269Snapshot(database, scope)
   try {
@@ -154,8 +163,20 @@ export async function main(args = process.argv.slice(2), environment = process.e
           manifest,
         }
       },
-      readQueues: () =>
-        boundedJson(values['queue-proof'], environment.PATHFINDER_RELEASE269_QUEUE_PROOF_JSON),
+      readQueues: async () => {
+        if (target !== 'staging')
+          return boundedJson(
+            values['queue-proof'],
+            environment.PATHFINDER_RELEASE269_QUEUE_PROOF_JSON,
+          )
+        const jobsRequire = createRequire('/migration-jobs/package.json')
+        const Redis = jobsRequire('ioredis')
+        return readRelease269StagingQueues({
+          environment,
+          releaseSha,
+          createConnection: (url, options) => new Redis(url, options),
+        })
+      },
       deploy: async () => {
         const child = release269MigrationChildEnvironment(environment, releaseSha, target)
         const cli = require.resolve('prisma/build/index.js')

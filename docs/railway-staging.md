@@ -299,6 +299,12 @@ runtime uses the [overnight release exception](production-cutover-20261026.md), 
 projection rows before any write, full original-data preservation, fresh release-bound backup and
 restore proof, and the existing held-web sequence. Positive or unknown affected counts stop release.
 Historical 267 admission remains frozen separately. No inventory validation alone admits a hosted write.
+The 269 staging runner reads the complete queue registry from the pinned existing Redis service
+inside predeploy, then repeats that read after the final database snapshot. Do not preload a static
+queue JSON attestation before a build. The reader requires every pending state to be zero and never
+constructs queues or changes their contents. The existing `REDIS_RESOURCE_ID` and private endpoint
+must match the reviewed staging resource; no extra resource variable is required. Staging database
+drain remains zero other client sessions, with all application instances stopped.
 
 The historical October 3 source endpoint is exactly 267 migrations and 297 public tables, ending with
 `20261002121000_prospect_organization_merge`, with LF-normalized manifest SHA-256

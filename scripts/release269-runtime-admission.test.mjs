@@ -21,7 +21,12 @@ import {
   PRODUCTION_ENVIRONMENT,
   PRODUCTION_PROJECT,
 } from './lib/production-migration-admission.mjs'
-import { tableHashSql, AFFECTED_EVENT_ROWS_SQL } from './lib/release269-readback.mjs'
+import {
+  tableHashSql,
+  AFFECTED_EVENT_ROWS_SQL,
+  summarizeRelease269Clients,
+  readRelease269Clients,
+} from './lib/release269-readback.mjs'
 import {
   release269PrismaDirectory,
   release269MigrationChildEnvironment,
@@ -138,6 +143,9 @@ function snapshot(target = 'production', complete = false) {
     manifestHash: RELEASE269.manifestHash,
     observedAt: iso(1000),
     otherClientSessions: 0,
+    approvedIdleProviderClientSessions: 0,
+    blockingClientSessions: 0,
+    activeOrTransactionalClientSessions: 0,
     ledger,
     activeLedgerCount: ledger.length,
     physicalLedgerCount: ledger.length,
@@ -291,6 +299,28 @@ test('exact production267→269 preserves all original data and physical history
   const h = harness()
   assert.deepEqual(await h.run(), { state: 'complete269', changed: true })
   assert.deepEqual(h.events, ['before', 'armed', 'deploy', 'after', 'verified'])
+})
+
+test('queues are freshly read again after the last database snapshot and a late job stops deploy', async () => {
+  for (const lateJob of [false, true]) {
+    const h = harness()
+    const ordering = []
+    const originalRead = h.options.readSnapshot
+    h.options.readSnapshot = async () => {
+      ordering.push('database')
+      return originalRead()
+    }
+    h.options.readQueues = async () => {
+      ordering.push('queues')
+      const second = ordering.filter((item) => item === 'queues').length === 2
+      return { ...h.queues, waiting: second && lateJob ? 1 : 0 }
+    }
+    if (lateJob) {
+      await assert.rejects(h.run(), /queue-not-drained/u)
+      assert.ok(!h.events.includes('deploy'))
+    } else await h.run()
+    assert.deepEqual(ordering.slice(0, 4), ['database', 'queues', 'database', 'queues'])
+  }
 })
 
 test('staging verified migration remains held; failures never become held success', async () => {
@@ -574,6 +604,7 @@ test('staging image includes the new runner dependency closure and leaves histor
     'run-staging-migration-predeploy.mjs',
     'release269-runtime-admission.mjs',
     'release269-readback.mjs',
+    'release269-queue-readback.mjs',
     'release269-migration-contract.mjs',
     'production-migration-admission.mjs',
     'staging-migration-admission.mjs',
@@ -581,4 +612,81 @@ test('staging image includes the new runner dependency closure and leaves histor
   ])
     assert.ok(docker.includes(name))
   assert.ok(docker.includes(RELEASE269_APPROVAL))
+  assert.ok(docker.includes('pnpm --filter @pathfinder/jobs --prod deploy /migration-jobs'))
+  assert.ok(
+    docker.includes('COPY --from=builder --chown=node:node /migration-jobs /migration-jobs'),
+  )
+  const builder = docker.slice(
+    docker.indexOf('FROM base AS builder'),
+    docker.indexOf('FROM base AS runner'),
+  )
+  const runner = docker.slice(docker.indexOf('FROM base AS runner'))
+  assert.ok(builder.includes('ENV NODE_OPTIONS=--max-old-space-size=6144'))
+  assert.ok(!runner.includes('NODE_OPTIONS'))
+})
+
+test('each client read refreshes its connection statistics snapshot before observing sessions', async () => {
+  const calls = []
+  let generation = 0
+  const query = async (sql) => {
+    calls.push(sql)
+    if (sql === 'SELECT pg_stat_clear_snapshot() IS NULL AS ignored') {
+      generation += 1
+      return [{ ignored: false }]
+    }
+    assert.match(sql, /FROM pg_stat_activity/u)
+    return generation === 1
+      ? []
+      : [{ role: 'postgres', application: 'application', state: 'idle', hasTransaction: false }]
+  }
+  assert.equal((await readRelease269Clients(query)).otherClientSessions, 0)
+  assert.equal((await readRelease269Clients(query)).blockingClientSessions, 1)
+  assert.equal(calls.length, 4)
+  assert.equal(calls[0], calls[2])
+})
+
+test('only observed role/application provider pairs are exempt while idle and transaction-free', async () => {
+  const rows = [
+    ['supabase_admin', ''],
+    ['supabase_admin', 'postgres_exporter'],
+    ['authenticator', 'PostgREST'],
+    ['postgres', 'Supavisor'],
+    ['pgbouncer', 'supavisor tenant-pool'],
+  ].map(([role, application]) => ({ role, application, state: 'idle', hasTransaction: false }))
+  const clients = summarizeRelease269Clients(rows)
+  assert.equal(clients.approvedIdleProviderClientSessions, rows.length)
+  assert.equal(clients.blockingClientSessions, 0)
+  const h = harness()
+  Object.assign(h.before, clients)
+  await h.run()
+  for (const patch of [
+    { state: 'active' },
+    { hasTransaction: true },
+    { state: null },
+    { hasTransaction: undefined },
+    { role: 'application-role' },
+    { application: 'unclassified' },
+    { role: 'postgres', application: 'PostgREST' },
+  ]) {
+    for (const row of rows) {
+      const summary = summarizeRelease269Clients([{ ...row, ...patch }])
+      assert.equal(summary.blockingClientSessions, 1)
+      const f = harness()
+      Object.assign(f.before, summary)
+      await assert.rejects(f.run())
+      assert.ok(!f.events.includes('deploy'))
+    }
+  }
+  const staging = harness('staging')
+  Object.assign(staging.before, clients)
+  await assert.rejects(staging.run(), /clients-remain/u)
+  for (const field of [
+    'approvedIdleProviderClientSessions',
+    'blockingClientSessions',
+    'activeOrTransactionalClientSessions',
+  ]) {
+    const f = harness()
+    delete f.before[field]
+    await assert.rejects(f.run(), /client-proof-required/u)
+  }
 })
