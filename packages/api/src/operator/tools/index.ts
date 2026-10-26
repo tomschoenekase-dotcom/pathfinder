@@ -29,6 +29,7 @@ import { venueReleaseReadTools } from './venue-releases'
 import { venueSourceReadTools } from './venue-sources'
 import { sourceConnectionReadTools } from './source-connections'
 import { venueReadTools } from './venues'
+import { guestModelReadTools } from './guest-model'
 import { attentionReadTools } from './attention'
 import { evidenceReadTools } from './evidence'
 
@@ -51,6 +52,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...routineReadTools,
   ...accessReadTools,
   ...venueReadTools,
+  ...guestModelReadTools,
   ...evidenceReadTools,
   ...attentionReadTools,
   ...venueSourceReadTools,

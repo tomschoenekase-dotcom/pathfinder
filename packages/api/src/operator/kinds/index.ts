@@ -16,6 +16,7 @@ import { crmOutreachDraftKind } from './crm-outreach-draft'
 import { crmOutreachLogKind } from './crm-outreach-log'
 import { crmStageChangeKind } from './crm-stage-change'
 import { venuesCreateKind } from './venues-create'
+import { VENUE_GUEST_MODEL_KINDS } from './venues-guest-model'
 import { venuesContentChangesetKind } from './venues-content-changeset'
 import { venuesKnowledgeKind } from './venues-knowledge'
 import { venuesPackageImportKind } from './venues-package-import'
@@ -45,6 +46,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   venuesSourceKind,
   sourceConnectionKind,
   venuesPublishKind,
+  ...VENUE_GUEST_MODEL_KINDS,
   ...CRM_MAINTENANCE_KINDS,
   ...CRM_PROSPECT_ADMIN_KINDS,
   crmOrganizationMergeKind,

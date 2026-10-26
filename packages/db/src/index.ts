@@ -991,6 +991,7 @@ export {
   AiConfigurationActionError,
   configurationOverrideFromRow,
   configurationValuesFromRow,
+  guestChatDeploymentDefaultModelKey,
   resetAiWorkloadConfigurationOverrideAction,
   resolveRuntimeAiWorkloadConfiguration,
   saveAiWorkloadConfigurationOverrideAction,

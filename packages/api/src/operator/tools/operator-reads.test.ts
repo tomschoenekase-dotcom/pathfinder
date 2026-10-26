@@ -225,6 +225,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'venues.get_release_preflight',
         'venues.get_preview_link',
         'venues.get_guest_link',
+        'venues.get_guest_model',
         'support.list',
         'operator.get_manual',
         'customers.list',

@@ -288,6 +288,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'venues.get_release_preflight',
   'venues.get_preview_link',
   'venues.get_guest_link',
+  'venues.get_guest_model',
   'appearance.get',
   'support.list',
   'operator.get_manual',
@@ -405,6 +406,8 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'venues.propose_package_import',
   'venues.propose_content_changeset',
   'venues.propose_publish',
+  'venues.propose_guest_model',
+  'venues.propose_guest_model_reset',
   'venues.propose_operational_update',
   'venues.propose_operational_update_schedule',
   'venues.propose_operational_update_end',
@@ -482,6 +485,25 @@ const TimeZoneName = z
 
 const tenantScope = { tenantId: Identifier } as const
 const venueScope = { tenantId: Identifier, venueId: Identifier } as const
+
+/**
+ * The visitor-chat routes an operator may pick for one venue. Every key is a governed public
+ * visitor route (packages/ai AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS; a test keeps them in that set).
+ * Direct DeepSeek canaries and the legacy mini route stay dashboard-only.
+ */
+export const OPERATOR_GUEST_MODEL_KEYS = [
+  'guest-chat-sol-fast',
+  'guest-chat-terra-fast',
+  'guest-chat-sol',
+  'guest-chat-luna',
+  'guest-chat-luna-reasoning',
+  'guest-chat',
+] as const
+export const OperatorGuestModelKey = z.enum(OPERATOR_GUEST_MODEL_KEYS)
+export type OperatorGuestModelKey = z.infer<typeof OperatorGuestModelKey>
+
+/** The guest-chat override revision you read: a number, or null when the venue has no override row. */
+const GuestModelExpectedRevision = z.number().int().positive().nullable().optional()
 
 const OperationalUpdateType = z.enum([
   'GENERAL_NOTICE',
@@ -915,6 +937,7 @@ export const OPERATOR_MCP_INPUTS = {
   'venues.get_release_preflight': VenueReleasePreflightInput,
   'venues.get_preview_link': VenuePreviewLinkInput,
   'venues.get_guest_link': readInput({ ...venueScope }),
+  'venues.get_guest_model': readInput({ ...venueScope }),
   'appearance.get': readInput({ ...venueScope }),
   'support.list': readInput({
     ...tenantScope,
@@ -1451,6 +1474,20 @@ export const OPERATOR_MCP_INPUTS = {
     ...venueScope,
     /** The venue updatedAt you read. Omitted means publish the current version. */
     expectedUpdatedAt: IsoDateTime.optional(),
+  }),
+  'venues.propose_guest_model': writeInput({
+    ...venueScope,
+    /** One of OPERATOR_GUEST_MODEL_KEYS; anything else is refused. */
+    modelKey: OperatorGuestModelKey,
+    /** Why, in a few words; kept in the configuration history. */
+    reason: z.string().trim().min(1).max(300).optional(),
+    /** venueOverride.revision from venues.get_guest_model. Omitted means the current state. */
+    expectedRevision: GuestModelExpectedRevision,
+  }),
+  'venues.propose_guest_model_reset': writeInput({
+    ...venueScope,
+    reason: z.string().trim().min(1).max(300).optional(),
+    expectedRevision: GuestModelExpectedRevision,
   }),
   'reports.propose_generate': writeInput({
     ...venueScope,
@@ -3432,6 +3469,60 @@ export const OPERATOR_MCP_OUTPUTS = {
         .max(10),
     })
     .strict(),
+  'venues.get_guest_model': z
+    .object({
+      tenantId: Identifier,
+      venueId: Identifier,
+      workloadId: z.literal('guest-chat'),
+      /** The model this venue's visitor chat uses now, and the layer that decided it. */
+      effective: z
+        .object({
+          modelKey: z.string().max(80),
+          provider: z.string().max(40),
+          model: z.string().max(120),
+          fastMode: z.boolean(),
+          source: z.enum([
+            'PLATFORM_DEFAULT',
+            'DEPLOYMENT_DEFAULT',
+            'WORKLOAD_OVERRIDE',
+            'CLIENT_OVERRIDE',
+            'VENUE_OVERRIDE',
+          ]),
+          sourceDetail: z.string().max(300),
+        })
+        .strict(),
+      /** GUEST_CHAT_DEFAULT_MODEL_KEY on this deployment, or null when unset. */
+      deploymentDefaultModelKey: z.string().max(80).nullable(),
+      /** The stored venue override row, or null when none was ever saved. */
+      venueOverride: z
+        .object({
+          active: z.boolean(),
+          modelKey: z.string().max(80).nullable(),
+          /** Other stored settings on the row (timeouts, fallback); kept by a model change. */
+          otherSettings: z.array(z.string().max(40)).max(10),
+          revision: z.number().int().positive(),
+          updatedAt: IsoDateTime,
+        })
+        .strict()
+        .nullable(),
+      choices: z
+        .array(
+          z
+            .object({
+              modelKey: OperatorGuestModelKey,
+              title: z.string().max(80),
+              description: z.string().max(300),
+              recommended: z.boolean(),
+              /** False when this deployment has no key for the provider; setting it is refused. */
+              available: z.boolean(),
+              current: z.boolean(),
+            })
+            .strict(),
+        )
+        .max(12),
+      guidance: z.string().max(500),
+    })
+    .strict(),
   'appearance.get': z
     .object({
       venueId: Identifier,
@@ -4252,6 +4343,8 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.propose_package_import': OperatorWriteResult,
   'venues.propose_content_changeset': OperatorWriteResult,
   'venues.propose_publish': OperatorWriteResult,
+  'venues.propose_guest_model': OperatorWriteResult,
+  'venues.propose_guest_model_reset': OperatorWriteResult,
   'reports.propose_generate': OperatorWriteResult,
   'reports.propose_publish': OperatorWriteResult,
   'routines.propose_create': OperatorWriteResult,
@@ -4556,6 +4649,13 @@ const seeds: readonly Seed[] = [
     'venues.get_guest_link',
     'Get visitor chatbot link',
     `Return the public visitor chatbot link (and its QR variant) for a venue, whether it works now, and anything that stops it working (not published, no guest content, slug shared with another customer, no guest web origin) with the action that fixes each. Share this link with visitors; it is not a private preview.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
+    'venues.get_guest_model',
+    'Get visitor chat model',
+    `Read which AI model answers this venue's visitor chat, where that choice comes from (platform default, deployment default, workload, client or venue override), the venue override revision, and the allowed choices with a one-line description each. Sol + Fast is the recommended default.${READ}`,
     'venues:read',
     'venue',
   ],
@@ -5292,6 +5392,22 @@ const seeds: readonly Seed[] = [
     'venues:propose',
     'venue',
     'venues.publish',
+  ],
+  [
+    'venues.propose_guest_model',
+    'Set visitor chat model',
+    `Choose the AI model for one venue's visitor chat with a venue override. Only the listed model keys are accepted; use guest-chat-sol-fast unless there is a measured reason not to. Other stored override settings are kept. Pass venueOverride.revision from venues.get_guest_model as expectedRevision (null when there is none) to refuse a change made since, or omit it. Replaying the same operationId returns the same receipt.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.guest-model',
+  ],
+  [
+    'venues.propose_guest_model_reset',
+    'Reset visitor chat model',
+    `Remove this venue's own visitor chat model choice so it follows the client, workload or deployment default again. Other stored override settings, if any, are kept. Changes nothing when the venue has no model override.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.guest-model-reset',
   ],
   [
     'reports.propose_generate',

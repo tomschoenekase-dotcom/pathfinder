@@ -123,6 +123,8 @@ export const OPERATOR_KIND_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PLAN_SCOPE_INCOMPLETE',
   'BILLING_ACTIVE',
   'EXECUTION_CLOSED',
+  // The chosen visitor chat model's provider has no key on this deployment.
+  'MODEL_UNAVAILABLE',
 ])
 
 /** Durable failure codes that make the effect of a FAILED operation first-class and queryable. */
