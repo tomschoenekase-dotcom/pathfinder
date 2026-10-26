@@ -385,6 +385,27 @@ describe('guest chat prompt provenance', () => {
     expect(hashGuestChatPromptManifest(prompts)).toBe(GUEST_CHAT_PROMPT_CONTRACT_HASH)
   })
 
+  it('adds the today status cue only when one is supplied', () => {
+    const base = {
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      currentDate: '2026-11-23',
+      currentLocalTime: 'Monday, November 23, 2026 at 10:05 AM',
+    }
+    const without = buildVenueSystemPrompt(base)
+    expect(buildVenueSystemPrompt({ ...base, todayStatusCue: null })).toBe(without)
+    expect(buildVenueSystemPrompt({ ...base, todayStatusCue: '' })).toBe(without)
+    const withCue = buildVenueSystemPrompt({
+      ...base,
+      todayStatusCue:
+        "TODAY'S POSTED VENUE STATUS (server check of the venue's posted hours): closed today.",
+    })
+    expect(withCue).toContain("TODAY'S POSTED VENUE STATUS")
+    expect(withCue.replace(/\n\nTODAY'S POSTED VENUE STATUS[^\n]*/u, '')).toBe(without)
+  })
+
   it('marks adjacent identity continuity as bounded untrusted data', () => {
     const prompt = buildVenueSystemPrompt({
       venue,

@@ -311,6 +311,8 @@ export function buildVenueSystemPromptParts(params: {
   currentLocalTime?: string
   /** A conservative server calculation that a posted regular opening time is still ahead. */
   beforeOpeningStatusCue?: string | null
+  /** A conservative server calculation that the venue is closed today (GUEST_CHAT_TODAY_STATUS). */
+  todayStatusCue?: string | null
   /**
    * Records the cached full venue guide already carries in full ("place:<id>", "knowledge:<id>").
    * Retrieved records in this set are named rather than repeated; any other record keeps its
@@ -617,10 +619,14 @@ DATE: ${params.currentLocalTime ? `At the venue it is ${params.currentLocalTime}
   const beforeOpeningStatusCue = params.beforeOpeningStatusCue
     ? `\n\n${escapeUntrustedPromptData(params.beforeOpeningStatusCue)}`
     : ''
+  // Absent unless the flag produced a cue, so the prompt is byte-identical when it is off.
+  const todayStatusCue = params.todayStatusCue
+    ? `\n\n${escapeUntrustedPromptData(params.todayStatusCue)}`
+    : ''
   const heightRule = params.heightOrAgeRideQuestion
     ? 'HEIGHT QUESTION: Begin with the child\'s actual measured height or stated age compared with a verified matching ride condition, then the verdict only when the needed facts are known. Never infer height or height eligibility from age. Ask for a missing measured height when a known height rule requires it; if the needed ride rule is unknown, say so and suggest checking with staff. Never begin with "Yes" or "No".\n\n'
     : ''
-  const dynamicPart = `${heightRule}${writingRule}${hoursScopeRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
+  const dynamicPart = `${heightRule}${writingRule}${hoursScopeRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${todayStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
 
 ${dynamicVenueData}
 

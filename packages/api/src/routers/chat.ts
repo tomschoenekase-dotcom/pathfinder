@@ -81,6 +81,7 @@ import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-qu
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
+import { guestTodayStatusCue, guestTodayStatusEnabled } from '../lib/guest-today-status'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -1713,6 +1714,7 @@ const chatReadRouter = router({
     })
     // Off by default: record dates change the cached prompt prefix for every model.
     const recordDatesEnabled = guestRecordDatesEnabled()
+    const todayStatusEnabled = guestTodayStatusEnabled()
     if (recordDatesEnabled)
       logger.info({
         action: 'guest-chat.record-dates',
@@ -2297,6 +2299,22 @@ const chatReadRouter = router({
                 activeUpdates,
               })
             : null,
+        // Flag-gated (GUEST_CHAT_TODAY_STATUS=on, default off); same trust guards as above.
+        ...(todayStatusEnabled &&
+        guideLoadStatus === 'READY' &&
+        !guestDirectory.incomplete &&
+        updatedGuideRecordIds.size === 0
+          ? {
+              todayStatusCue: guestTodayStatusCue({
+                question: trimmedInput,
+                now: operationalNow,
+                timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
+                knowledge: evidenceStrategyEnabled ? indexCoreKnowledge : guestDirectory.knowledge,
+                activeUpdates,
+                venueName: venue.name,
+              }),
+            }
+          : {}),
         venueGuideRecordIds: updatedGuideRecordIds.size
           ? new Set([...venueGuide.recordIds].filter((id) => !updatedGuideRecordIds.has(id)))
           : venueGuide.recordIds,
