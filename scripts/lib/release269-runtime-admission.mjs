@@ -219,7 +219,7 @@ export function assertRelease269Drain(snapshot, queues, { target, releaseSha, st
     queueObserved >= startedAt - 60_000 && queueObserved <= now && now - queueObserved <= 60_000,
     'release269-queues-not-fresh',
   )
-  for (const key of ['waiting', 'active', 'delayed'])
+  for (const key of ['waiting', 'active', 'delayed', 'prioritized', 'waitingChildren'])
     assert.equal(queues[key], 0, 'release269-queue-not-drained')
 }
 
@@ -363,6 +363,9 @@ export async function runRelease269({
     manifestHash: manifest.hash,
     observedAt: immediate.observedAt,
   })
+  // Source inspection and durable journaling may take time. Neither can extend
+  // the database or queue evidence's existing 60-second admission window.
+  assertRelease269Drain(immediate, queues, { ...scope, startedAt, now: now() })
   await deploy()
   const after = await readSnapshot()
   assertRelease269Snapshot(after, scope)

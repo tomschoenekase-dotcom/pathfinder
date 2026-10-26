@@ -26,6 +26,7 @@ import {
   AFFECTED_EVENT_ROWS_SQL,
   summarizeRelease269Clients,
   readRelease269Clients,
+  readRelease269Snapshot,
 } from './lib/release269-readback.mjs'
 import {
   release269PrismaDirectory,
@@ -262,6 +263,8 @@ function harness(target = 'production') {
     waiting: 0,
     active: 0,
     delayed: 0,
+    prioritized: 0,
+    waitingChildren: 0,
   }
   const events = []
   let deployed = false
@@ -299,6 +302,163 @@ test('exact production267→269 preserves all original data and physical history
   const h = harness()
   assert.deepEqual(await h.run(), { state: 'complete269', changed: true })
   assert.deepEqual(h.events, ['before', 'armed', 'deploy', 'after', 'verified'])
+})
+
+test('production requires known zero prioritized and waiting-children counts on both queue reads', async (t) => {
+  for (const key of ['prioritized', 'waitingChildren']) {
+    for (const rejectedRead of [1, 2]) {
+      for (const value of [1, undefined, null, '0', -1, 0.5, NaN, false]) {
+        await t.test(`${key}=${String(value)} on read ${rejectedRead}`, async () => {
+          const h = harness('production')
+          let reads = 0
+          h.options.readQueues = async () => {
+            const queues = { ...h.queues }
+            if (++reads === rejectedRead) {
+              if (value === undefined) delete queues[key]
+              else queues[key] = value
+            }
+            return queues
+          }
+          await assert.rejects(h.run(), /queue-not-drained/u)
+          assert.equal(reads, rejectedRead)
+          assert.ok(!h.events.includes('armed'))
+          assert.ok(!h.events.includes('deploy'))
+        })
+      }
+    }
+  }
+})
+
+test('production accepts all five pending states at zero while preserving failed history', async () => {
+  const h = harness('production')
+  h.queues.failed = 4
+  let reads = 0
+  h.options.readQueues = async () => {
+    reads += 1
+    return { ...h.queues }
+  }
+  assert.deepEqual(await h.run(), { state: 'complete269', changed: true })
+  assert.equal(reads, 2)
+  assert.equal(h.queues.failed, 4)
+  assert.deepEqual(h.events, ['before', 'armed', 'deploy', 'after', 'verified'])
+})
+
+test('long repeatable-read scans keep their start timestamp and expire before migration', async (t) => {
+  for (const scanMilliseconds of [1000, 60_001]) {
+    await t.test(`${scanMilliseconds}ms preservation scan`, async () => {
+      let clock = time
+      let tableReads = 0
+      let sessionReads = 0
+      const transaction = {
+        $executeRawUnsafe: async (sql) => {
+          assert.ok(
+            [
+              'SET TRANSACTION READ ONLY',
+              "SET LOCAL TIME ZONE 'UTC'",
+              "SET LOCAL DateStyle = 'ISO, YMD'",
+            ].includes(sql),
+          )
+          // Transaction setup is also part of the observation's age.
+          if (sql === 'SET TRANSACTION READ ONLY') clock += 10
+        },
+        $queryRawUnsafe: async (sql) => {
+          if (sql.includes('pg_stat_clear_snapshot()')) return [{ ignored: false }]
+          if (sql.includes('FROM pg_stat_activity')) {
+            sessionReads += 1
+            return []
+          }
+          if (sql.includes('FROM public._prisma_migrations')) return []
+          if (sql.includes('FROM pg_catalog.pg_tables')) return [{ tablename: 'synthetic_rows' }]
+          if (sql.includes('FROM information_schema.columns'))
+            return [{ table_name: 'synthetic_rows', column_name: 'id' }]
+          if (sql.includes('row_to_json(original)')) {
+            tableReads += 1
+            clock += scanMilliseconds
+            return [{ count: '0', hash: digest('empty synthetic rows') }]
+          }
+          if (sql === AFFECTED_EVENT_ROWS_SQL) return [{ count: 0 }]
+          if (sql.includes('FROM public.product_plan_capabilities'))
+            return [
+              { plan_tier: 'free', enabled: false },
+              { plan_tier: 'pro', enabled: false },
+            ]
+          // This inert database has no additional schema or security objects.
+          if (
+            /FROM (?:pg_constraint c|pg_index i|pg_proc p|pg_trigger t|pg_enum e|pg_policies|pg_class c|pg_views|pg_sequences|pg_namespace WHERE|pg_default_acl d)/u.test(
+              sql,
+            )
+          )
+            return []
+          assert.fail('unexpected synthetic readback query')
+        },
+      }
+      const database = {
+        $transaction: async (read, options) => {
+          assert.equal(options.isolationLevel, 'RepeatableRead')
+          return read(transaction)
+        },
+      }
+      // Exercise the actual collector timestamp through the full admission path;
+      // unrelated schema/backup evidence comes from the complete release fixture.
+      const h = harness('production')
+      const collected = []
+      const readSnapshot = h.options.readSnapshot
+      h.options.readSnapshot = async () => {
+        clock += 1000
+        const observation = await readRelease269Snapshot(database, {}, { now: () => clock })
+        collected.push(observation)
+        return { ...(await readSnapshot()), observedAt: observation.observedAt }
+      }
+      h.options.now = () => clock
+      h.options.readQueues = async () => ({ ...h.queues, observedAt: new Date(clock).toISOString() })
+      if (scanMilliseconds > 60_000) {
+        await assert.rejects(h.run(), /readback-not-fresh/u)
+        assert.ok(!h.events.includes('deploy'))
+      } else assert.deepEqual(await h.run(), { state: 'complete269', changed: true })
+      assert.equal(collected[0].observedAt, iso(1000))
+      assert.equal(collected[0].tables[0].count, '0')
+      assert.equal(collected.length, scanMilliseconds > 60_000 ? 1 : 3)
+      assert.equal(tableReads, collected.length)
+      assert.equal(sessionReads, collected.length * 2)
+    })
+  }
+})
+
+test('final source inspection and armed-journal delays cannot outlive the freshness window', async (t) => {
+  for (const phase of ['final-inspect', 'armed-record']) {
+    for (const delay of [1000, 60_001]) {
+      await t.test(`${phase} delayed ${delay}ms`, async () => {
+        const h = harness('production')
+        let clock = time + 2000
+        let firstClock = true
+        h.options.now = () => {
+          if (firstClock) {
+            firstClock = false
+            return time
+          }
+          return clock
+        }
+        let inspections = 0
+        const inspect = h.options.inspectSource
+        h.options.inspectSource = async () => {
+          if (++inspections === 3 && phase === 'final-inspect') clock += delay
+          return inspect()
+        }
+        const record = h.options.record
+        h.options.record = async (name, evidence) => {
+          await record(name, evidence)
+          if (name === 'armed' && phase === 'armed-record') clock += delay
+        }
+        if (delay > 60_000) {
+          await assert.rejects(h.run(), /readback-not-fresh/u)
+          assert.ok(!h.events.includes('deploy'))
+          assert.ok(!h.events.includes('after'))
+        } else assert.deepEqual(await h.run(), { state: 'complete269', changed: true })
+        assert.equal(inspections, 3)
+        assert.ok(h.events.includes('armed'))
+      })
+    }
+  }
 })
 
 test('queues are freshly read again after the last database snapshot and a late job stops deploy', async () => {

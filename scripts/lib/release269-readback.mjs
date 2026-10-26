@@ -82,7 +82,10 @@ export function tableHashSql(name, columns) {
   FROM (SELECT ${selected} FROM public.${relation}) original) hashes`
 }
 
-async function snapshotInside(database, scope) {
+async function snapshotInside(database, scope, now) {
+  // Conservatively date the repeatable-read view before any transaction work;
+  // a long scan must consume its freshness window, never renew it at completion.
+  const observedAt = new Date(now()).toISOString()
   await database.$executeRawUnsafe('SET TRANSACTION READ ONLY')
   await database.$executeRawUnsafe("SET LOCAL TIME ZONE 'UTC'")
   await database.$executeRawUnsafe("SET LOCAL DateStyle = 'ISO, YMD'")
@@ -252,7 +255,7 @@ async function snapshotInside(database, scope) {
     schema: RELEASE269_PROOF_SCHEMA,
     ...scope,
     manifestHash: RELEASE269.manifestHash,
-    observedAt: new Date().toISOString(),
+    observedAt,
     ...Object.fromEntries(
       Object.keys(clientsBefore).map((key) => [
         key,
@@ -315,8 +318,8 @@ async function snapshotInside(database, scope) {
   }
 }
 
-export async function readRelease269Snapshot(database, scope) {
-  return database.$transaction((transaction) => snapshotInside(transaction, scope), {
+export async function readRelease269Snapshot(database, scope, { now = Date.now } = {}) {
+  return database.$transaction((transaction) => snapshotInside(transaction, scope, now), {
     isolationLevel: 'RepeatableRead',
     maxWait: 10_000,
     timeout: 300_000,
