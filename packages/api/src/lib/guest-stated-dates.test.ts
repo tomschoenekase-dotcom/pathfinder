@@ -55,7 +55,7 @@ describe('guest stated dates', () => {
   it('covers the authored records the title-year rule cannot see', () => {
     const lanterns = topic(
       'Hours: Thursday to Sunday, October 1 to October 31, 2026, 6 pm to 10 pm.',
-      "Pumpkin Glow Nights",
+      'Pumpkin Glow Nights',
     )
     // No year in the title, so the existing server rule calls it current forever.
     expect(classifyGuestDatedEvent(lanterns, '2027-03-01')).toBe('CURRENT')
