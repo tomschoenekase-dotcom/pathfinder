@@ -2,6 +2,28 @@
 
 > **Migration instruction status: RESTRICTED PRODUCTION EXCEPTION — LIVE GATES REQUIRED.**
 
+## October 26 later owner direction: release-focused QA
+
+After the comparison grader stopped, the owner said: "you can keep on using the
+budget and stuff and doing the testing things", "just keep on working on that and
+just do the work that you need to do", and "We're not necessarily trying to compare
+all the old shit anymore."
+
+This supersedes the comparative blind-P2 requirement below. The selected release
+remains Sol + Fast with the reviewed application changes. Reuse the completed
+candidate answers for record-based QA; spend further calls only on unresolved
+questions, necessary verification and live QA. Incorrect safety, availability,
+date, hours or price claims still require correction before release. An unfinished
+comparison is not represented as a passed comparison.
+
+The original $15 total cap remains: account for prior spend and unknown-call
+reservations before any new paid run. Keep the stopped journal closed; a new run
+must use a fresh journal bound to the remaining shared budget, the scoped launcher,
+serial calls and first-error stopping. The owner authorizes this resumed testing.
+Exact-head CI, migration preservation, fresh backups and restore rehearsals,
+staging admission, the 22:00–06:00 Central window, dormant queues, unchanged worker
+flags, default-off status features and post-release visitor QA remain required.
+
 ## October 26 evening owner update
 
 The owner selected `machine/torchiko/20261026-orphan-shell-fix` at
