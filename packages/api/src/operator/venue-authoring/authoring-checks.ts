@@ -226,7 +226,7 @@ function lineChecks(record: AuthoringRecord, field: Field): AuthoringFinding[] {
           code: 'CONFLICTING_FACT',
           path: field.path,
           message: `"${record.title}" has two different ${label[1]} lines ("${clip(previous, 50)}" and "${clip(label[2]!, 50)}").`,
-          fix: `Keep one ${label[1]} line with the best-supported value (the safer one for a safety rule). If it truly differs by day or season, write each case on the same line with its dates.`,
+          fix: `Verify the conflicting ${label[1]} values against the authoritative source before choosing one; do not invent a stricter or looser safety rule. If unresolved, state the uncertainty and direct visitors to staff. If values truly differ by day or season, label each case with its dates.`,
         })
       }
       labels.set(key, label[2]!)
@@ -370,6 +370,9 @@ export function venuePackageAuthoringFindings(
         ...dateChecks(field, now),
         ...lineChecks(record, field),
       ]),
+      ...(record.hours
+        ? dateChecks({ path: `${record.path}.hours`, text: record.hours }, now)
+        : []),
       ...hoursCheck(record),
     ]),
     ...repeatedText(records),

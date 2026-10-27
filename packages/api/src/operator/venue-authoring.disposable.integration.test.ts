@@ -32,6 +32,12 @@ vi.mock('../lib/venue-package-semantic-analysis', async (importOriginal) => {
 })
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit: vi.fn().mockResolvedValue(true) }))
 
+// Exercise configuration writes without a real provider credential or inference call.
+const providers = vi.hoisted(() => ({ available: true }))
+vi.mock('../routers/admin/ai-provider-connections', () => ({
+  providerHasExecutionKey: (provider: string) => provider === 'openai' && providers.available,
+}))
+
 import { OperatorCapability } from '@pathfinder/contracts/operator-mcp'
 import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db'
 
@@ -388,6 +394,7 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
     expect(refused.structuredContent.issues[0].allowed).toContain('guest-chat-terra-fast')
     expect(refused.structuredContent.hint).toContain('venues.get_guest_model')
 
+    expect(terra[0].available).toBe(true)
     const set = await call('venues.propose_guest_model', {
       operationId: randomUUID(),
       tenantId,
@@ -395,10 +402,6 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
       modelKey: terra[0].modelKey,
       expectedRevision: view.structuredContent.venueOverride?.revision ?? null,
     })
-    if (!terra[0].available) {
-      expect(set.structuredContent.error).toBe('MODEL_UNAVAILABLE')
-      return
-    }
     expect(set.structuredContent).toMatchObject({
       status: 'APPLIED',
       result: {
@@ -423,5 +426,24 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
     })
     const after = await call('venues.get_guest_model', { tenantId, venueId })
     expect(after.structuredContent.effective.source).not.toBe('VENUE_OVERRIDE')
+  })
+
+  it('refuses unavailable providers without changing the effective venue model', async () => {
+    providers.available = false
+    try {
+      const before = await call('venues.get_guest_model', { tenantId, venueId })
+      const refused = await call('venues.propose_guest_model', {
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        modelKey: 'guest-chat-terra-fast',
+      })
+      expect(refused.structuredContent.error).toBe('MODEL_UNAVAILABLE')
+      const after = await call('venues.get_guest_model', { tenantId, venueId })
+      expect(after.structuredContent.effective).toEqual(before.structuredContent.effective)
+      expect(after.structuredContent.venueOverride).toEqual(before.structuredContent.venueOverride)
+    } finally {
+      providers.available = true
+    }
   })
 })

@@ -23,6 +23,24 @@ function codes(payload: VenuePackagePayload) {
 }
 
 describe('venuePackageAuthoringFindings', () => {
+  it('checks season dates in the dedicated hours field', () => {
+    const payload = VenuePackagePayload.parse({
+      schemaVersion: 1,
+      knowledgeEntries: [],
+      places: [
+        { name: 'Garden Tram', type: 'ride', hours: '10am-6pm daily, May 23 to August 16' },
+        { name: 'River Boat', type: 'ride', hours: '10am-6pm daily, May 23 to August 16, 2026' },
+        { name: 'Winter Walk', type: 'trail', hours: '10am-6pm, November 27 to December 19, 2026' },
+      ],
+    })
+    expect(
+      venuePackageAuthoringFindings(payload, NOW).map(({ code, path }) => [code, path]),
+    ).toEqual([
+      ['UNDATED_SEASON', 'places.0.hours'],
+      ['STALE_DATE', 'places.1.hours'],
+    ])
+  })
+
   it('flags dates a visitor or the guide could read two ways', () => {
     expect(codes(topics('The park closes early on 7/4 for fireworks.'))).toEqual(['AMBIGUOUS_DATE'])
     expect(codes(topics('Fireworks start 10/11/26 at dusk.'))).toEqual(['AMBIGUOUS_DATE'])

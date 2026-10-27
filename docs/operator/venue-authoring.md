@@ -27,7 +27,12 @@ Available today: everything in this guide unless it is marked **Planned**.
    - A second package for a venue that already has records needs those records' search
      embeddings first. Until the venue embedding refresh runs (an operator step in the Torchiko
      runbook, not an MCP tool), `errors` holds `SEMANTIC_SCAN_INCOMPLETE` and the import would be
-     refused with nothing changed. Ask the operator for the refresh, then check again.
+     refused with nothing changed. Ask the operator for the venue-scoped refresh, then check
+     again. The existing refresh requires an active venue; it does not work on an unpublished
+     draft. Do not publish a draft merely to clear this error. Finish its source/content review
+     and obtain publication authorization first, or leave the package unapplied. Keep global
+     worker flags unchanged. A successful check is not proof that embeddings are current for
+     every record: it checks only the existing records relevant to this package's duplicate scan.
 3. **Import (a write).** `venues.propose_package_import` with the same package and a new UUID
    `operationId`. In this deployment the write applies in the same call: status `APPLIED` means
    the venue's records changed. `FAILED` or `STALE` means nothing changed for a validation error;
@@ -58,7 +63,8 @@ A version 3 package has `places` and `knowledgeEntries`, each an object with opt
 - `provenance`: `sourceType` (required, for example `official_website`, `venue_staff`,
   `printed_map`), `contentOrigin` (required: `HUMAN_AUTHORED` or `AI_GENERATED`), and optional
   `sourceName` and credential-free `sourceUrl`;
-- `value`: the record. `update` and `delete` also take the existing record `id`.
+- `value`: the record for `create` and `update`. `update` and `delete` also take the existing
+  record `id`; `delete` has no `value` field.
 
 A `create` value may leave out optional fields. An `update` value is the record's complete desired
 state: every field, with `null` for an empty one, and `isActive` or `isEnabled`. To retire a place

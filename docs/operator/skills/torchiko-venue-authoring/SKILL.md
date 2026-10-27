@@ -10,13 +10,14 @@ The contract lives in the server, not in this skill, so it always matches what t
 1. Call `operator.get_manual` with `{"section": "venue-authoring"}`. Read `text` (workflow, where
    information belongs, unknown and seasonal facts, voice, examples) and use `schema` (the
    schemaVersion 3 package JSON Schema generated from the live validator) to build the package.
-2. Keep a private source ledger outside the package. Never invent a fact to fill a field; every
-   text field reaches visitors.
+2. Keep a private source ledger outside the package. Never invent a fact to fill a field;
+   visitor-facing record text can reach visitors, so keep research notes outside those fields.
 3. `venues.check_package` until `ready` is true. Fix every `errors` entry using its `fix` and
    `example`, every `guideQuality` finding and `DUPLICATE_IN_PACKAGE`; resolve or justify every
-   `authoring` finding; fix `venueSetup` with `appearance.propose_update`.
+   `authoring` finding; follow each `venueSetup` finding's guidance for appearance or venue settings.
 4. `venues.propose_package_import` once, with a new UUID `operationId`. `APPLIED` changed the
-   records; visitors see them only after `venues.propose_publish`. On any other failure, keep the
+   records. An already-published guide changes immediately; drafts stay hidden until an authorized
+   `venues.propose_publish`. On any other failure, keep the
    same `operationId` and follow the manual's import recovery before sending anything else.
 5. `venues.get_guest_link` must say `usable`; then ask the guide the manual's self-test questions.
 

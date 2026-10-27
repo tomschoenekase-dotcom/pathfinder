@@ -174,7 +174,7 @@ export const venuesCheckPackage: OperatorReadTool = {
         shown: authoring.slice(0, SHOWN).map(trim),
         next:
           authoring.length === 0
-            ? 'No meaning problems found.'
+            ? 'No advisory patterns detected. This is not a fact check; verify source facts and unresolved uncertainty before importing.'
             : 'Advice only: fix each finding or confirm it is a false positive. These never block import or ready.',
       },
       note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block importable. Writing-guide warnings and exact in-package duplicates block ready.',

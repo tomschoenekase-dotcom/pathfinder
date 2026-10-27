@@ -233,12 +233,14 @@ function invalidType(
       message: `Required field "${key}" is missing.`,
       fix:
         key === 'places' || key === 'knowledgeEntries'
-          ? `schemaVersion 3 needs ${key} as an object of operation lists, even when empty.`
+          ? issue.expected === 'array'
+            ? `Add ${key} as an array of records, even when empty.`
+            : `schemaVersion 3 needs ${key} as an object of operation lists, even when empty.`
           : key === 'provenance'
             ? 'Every schemaVersion 3 operation needs provenance: sourceType and contentOrigin are required.'
             : `Add "${key}" with a ${issue.expected} value. Never invent a fact to fill it: if the fact is unknown, leave the record out.`,
       ...(key === 'places' || key === 'knowledgeEntries'
-        ? { example: `"${key}": { "create": [] }` }
+        ? { example: issue.expected === 'array' ? `"${key}": []` : `"${key}": { "create": [] }` }
         : key === 'provenance'
           ? {
               example:

@@ -22,6 +22,22 @@ function v3Place(value: Record<string, unknown>) {
 }
 
 describe('explainVenuePackageIssues', () => {
+  it('repairs missing legacy lists with arrays instead of version 3 operation objects', () => {
+    for (const schemaVersion of [1]) {
+      const issue = explain({ schemaVersion, places: [] }).find(
+        (entry) => entry.path === 'knowledgeEntries',
+      )!
+      expect(issue.code).toBe('MISSING_FIELD')
+      expect(issue.fix).toContain('array of records')
+      const repaired = { schemaVersion, places: [], ...JSON.parse(`{${issue.example}}`) }
+      const parsed = VenuePackagePayload.safeParse(repaired)
+      expect(
+        parsed.success ||
+          !parsed.error.issues.some((entry) => entry.path[0] === 'knowledgeEntries'),
+      ).toBe(true)
+    }
+  })
+
   it('explains a missing or unsupported schemaVersion with a version 3 skeleton', () => {
     for (const json of [{}, { schemaVersion: 4, places: [], knowledgeEntries: [] }]) {
       const [issue] = explain(json)
