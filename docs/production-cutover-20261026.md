@@ -29,6 +29,22 @@ mandatory. Canonical contents are compared instead of unstable raw Redis DUMP by
 Database-session, stopped-service, preservation and freshness checks still apply.
 Never execute, delete, move or pause queued jobs or change worker flags.
 
+The owner subsequently requested: "Review and rehearse a read-only exception for
+that delayed staging evaluation job, then keep going if it passes. Don’t run or
+change any queued jobs or worker flags. Same $15 cap and release window."
+After the complete read-only inventory also identified the companion recovery
+scheduler, the owner clarified: "Include both after rehearsal".
+
+Version 2 of the preservation proof admits at most one dormant delayed scheduler
+in each of the staging-only `evaluation-run` and
+`guest-answer-attribution-evaluation` queues. Their exact job names must be
+`evaluation-run-dispatch` and `guest-answer-attribution-evaluation-recovery`,
+respectively, with `repeat:<job-name>:<numeric-time>` identities. All original
+zero-attempt, never-processed, no-consumer, freshness, complete-inventory and
+unchanged-content checks still apply. Ordinary evaluation jobs, waiting jobs,
+duplicates and the same scheduler names in production remain refused. The new
+schema version prevents an old proof from silently standing in for this review.
+
 Deploy staging and production only between 22:00 and 06:00 America/Chicago, after all
 gates pass. Keep `GUEST_CHAT_TODAY_STATUS` off. `GUEST_CHAT_STATED_DATES=luna` does
 nothing with Sol. After release, watch for 15 minutes, including first-text p95 and

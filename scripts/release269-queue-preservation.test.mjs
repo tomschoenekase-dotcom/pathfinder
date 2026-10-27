@@ -91,6 +91,75 @@ test('preserves stable dormant jobs with two reads 30 seconds apart on one read-
 test('handles the staging prefix without relaxing its job-name allowlist', async () => {
   assertPreservedQueueProof(await fixture({ target: 'staging' }).run())
 })
+
+for (const [queue, name] of [
+  ['evaluation-run', 'evaluation-run-dispatch'],
+  ['guest-answer-attribution-evaluation', 'guest-answer-attribution-evaluation-recovery'],
+]) {
+  const seed = (s, target = 'staging') => {
+    const key = (target === 'staging' ? 'staging--' : '') + queue
+    s.counts[key].delayed = 1
+    s.jobs[key] = [
+      {
+        id: `repeat:${name}:1793000000000`,
+        name,
+        state: 'delayed',
+        attemptsMade: '0',
+        ats: '0',
+        processedOn: null,
+      },
+    ]
+    return { count: s.counts[key], jobs: s.jobs[key] }
+  }
+  test(`preserves one untouched staging ${name} scheduler`, async () => {
+    const proof = await fixture({ target: 'staging', mutate: (s) => seed(s) }).run()
+    assertPreservedQueueProof(proof)
+    assert.equal(proof.delayed, 1)
+  })
+  test(`refuses ${name} in production`, async () => {
+    await assert.rejects(fixture({ mutate: (s) => seed(s, 'production') }).run())
+  })
+  for (const [label, alter] of Object.entries({
+    'ordinary job identity': ({ jobs }) => {
+      jobs[0].id = 'ordinary-evaluation'
+    },
+    'wrong name': ({ jobs }) => {
+      jobs[0].name = 'evaluation-run-execute'
+    },
+    'waiting state': ({ count, jobs }) => {
+      count.delayed = 0
+      count.waiting = 1
+      jobs[0].state = 'wait'
+    },
+    'prior attempt': ({ jobs }) => {
+      jobs[0].attemptsMade = '1'
+    },
+    'prior start': ({ jobs }) => {
+      jobs[0].ats = '1'
+    },
+    'processed timestamp': ({ jobs }) => {
+      jobs[0].processedOn = '1793000000000'
+    },
+    'second scheduler': ({ count, jobs }) => {
+      count.delayed = 2
+      jobs.push({ ...jobs[0], id: `repeat:${name}:1793000000001` })
+    },
+  }))
+    test(`refuses staging ${name}: ${label}`, async () => {
+      await assert.rejects(fixture({ target: 'staging', mutate: (s) => alter(seed(s)) }).run())
+    })
+  test(`refuses staging ${name} changing between snapshots`, async () => {
+    await assert.rejects(
+      fixture({
+        target: 'staging',
+        mutate: (s, read) => {
+          const { jobs } = seed(s)
+          if (read === 2) jobs[0].id = `repeat:${name}:1793000000001`
+        },
+      }).run(),
+    )
+  })
+}
 for (const command of ['EVAL_RO', 'CLIENT', 'SCAN', 'GET'])
   test(`refuses ${command} permission/transport errors without exposing details`, async () => {
     await assert.rejects(fixture({ failure: command }).run(), {

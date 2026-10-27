@@ -6,7 +6,7 @@ import {
   RELEASE269_QUEUE_COUNTS_LUA,
 } from './release269-queue-readback.mjs'
 
-export const QUEUE_PRESERVATION_SCHEMA = 'torchiko-release269-queue-preservation/v1'
+export const QUEUE_PRESERVATION_SCHEMA = 'torchiko-release269-queue-preservation/v2'
 export const QUEUE_PRESERVATION_APPROVAL = 'torchiko-preserve-dormant-queues-20261026'
 const LIMIT = 2000
 const MAX_KEYS = 10000
@@ -20,6 +20,11 @@ const ALLOWED = Object.freeze({
   'daily-rollup': { 'daily-rollup-scheduler': 'delayed' },
   'weekly-digest': { 'weekly-digest-scheduler': 'delayed' },
   'account-summary-refresh': { 'account-summary-refresh-scheduler': 'delayed' },
+})
+// Owner-reviewed staging-only dormant scheduler exception. Never admit evaluation work.
+const STAGING_EVALUATION_SCHEDULERS = Object.freeze({
+  'evaluation-run': 'evaluation-run-dispatch',
+  'guest-answer-attribution-evaluation': 'guest-answer-attribution-evaluation-recovery',
 })
 
 // No queue objects or write commands. Reaching the cap refuses, including exactly 2000 rows.
@@ -148,9 +153,19 @@ async function read(connection, target, now) {
     assert.equal(rows.length, count.waiting + count.delayed, 'queue-count-job-mismatch')
     if (!registry.includes(name)) assert.equal(rows.length, 0, 'queue-unregistered-pending')
     const base = registry.includes(name) ? name.slice(prefix.length) : null
+    const stagingScheduler = target === 'staging' ? STAGING_EVALUATION_SCHEDULERS[base] : null
+    if (stagingScheduler) assert.ok(rows.length <= 1, 'queue-staging-scheduler-count')
     for (const job of rows) {
       assert.ok(typeof job.id === 'string' && job.id.length > 0, 'queue-job-id')
-      assert.equal(ALLOWED[base]?.[job.name], job.state, 'queue-job-not-allowlisted')
+      if (stagingScheduler) {
+        assert.equal(job.name, stagingScheduler, 'queue-staging-scheduler-name')
+        assert.equal(job.state, 'delayed', 'queue-staging-scheduler-state')
+        assert.ok(
+          job.id.startsWith(`repeat:${stagingScheduler}:`) &&
+            /^\d+$/u.test(job.id.slice(`repeat:${stagingScheduler}:`.length)),
+          'queue-staging-scheduler-identity',
+        )
+      } else assert.equal(ALLOWED[base]?.[job.name], job.state, 'queue-job-not-allowlisted')
       assert.ok(['wait', 'delayed'].includes(job.state), 'queue-job-state')
       assert.equal(job.attemptsMade, '0', 'queue-job-attempted')
       assert.equal(job.ats, '0', 'queue-job-started')
