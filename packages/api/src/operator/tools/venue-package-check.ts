@@ -11,6 +11,7 @@ import {
 } from '../kinds/venues-package-import'
 import type { OperatorReadTool } from '../registry'
 import { venuePackageAuthoringFindings } from '../venue-authoring/authoring-checks'
+import { packageEmbeddingReadiness } from '../venue-authoring/embedding-readiness'
 import { explainVenuePackageIssues, withPreviewFix } from '../venue-authoring/package-issues'
 
 const SHOWN = 40
@@ -100,7 +101,19 @@ export const venuesCheckPackage: OperatorReadTool = {
       input.venueId,
       parsed.data,
     )
-    const { errors, warnings } = preview.report
+    const { warnings } = preview.report
+    // A preview without its own errors can still be refused by the import's duplicate scan when
+    // existing records lack embeddings; report that here instead of after a failed import.
+    const errors: Issue[] = [
+      ...preview.report.errors,
+      ...(preview.report.errors.length === 0
+        ? await packageEmbeddingReadiness(context.database, {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            payload: parsed.data,
+          })
+        : []),
+    ]
     const quality = guideQualityFindings(warnings)
     const plan = counts(parsed.data)
     const touchedPlaceIds =

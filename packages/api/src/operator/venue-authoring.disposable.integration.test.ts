@@ -48,8 +48,8 @@ import {
  * An agent with no repository context authors a venue through the real operator MCP endpoint, a
  * real OAuth grant and a disposable PostgreSQL: it discovers the authoring contract, checks a
  * broken package and reads field-level fixes, checks and imports the contract's own complete
- * example, updates a record by id, publishes, and switches that one venue's model by its spoken
- * name. The venue, places and owner are fictional; nothing here reaches a hosted environment.
+ * example, reads record ids, sees a second package predicted to fail until embeddings refresh,
+ * publishes, and switches that one venue's model by its spoken name. The venue, places and owner are fictional; nothing here reaches a hosted environment.
  */
 const enabled =
   process.env.RUN_OPERATOR_DB_INTEGRATION === '1' &&
@@ -218,6 +218,11 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
           guideMode: 'non_location',
         })
       ).record.id
+      // Venues the MCP creates start as drafts; mirror that so publish is a real step.
+      await db.venue.updateMany({
+        where: { tenantId, id: { in: [venueId, siblingVenueId] } },
+        data: { isActive: false },
+      })
     })
     access = await connect()
   })
@@ -317,7 +322,7 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
     expect(link.structuredContent.usable).toBe(false)
   })
 
-  it('updates a record by the id venues.list_content returns, then publishes', async () => {
+  it('reads ids from venues.list_content, and predicts the refusal until embeddings refresh', async () => {
     const listed = await call('venues.list_content', {
       tenantId,
       venueId,
@@ -329,21 +334,29 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
     )!
     const update = docJson('example:update-and-retire')
     update.places.update = [{ ...update.places.update[0], id: comet.id }]
+    // The other imported places have no embeddings yet (the refresher is an operator step), so
+    // the import's duplicate scan would refuse this package. The check says so before importing.
     const checked = await call('venues.check_package', { tenantId, venueId, payload: update })
-    expect(checked.structuredContent).toMatchObject({ importable: true, ready: true })
-    const applied = await call('venues.propose_package_import', {
+    expect(checked.structuredContent).toMatchObject({ importable: false, ready: false })
+    expect(checked.structuredContent.errors[0]).toMatchObject({
+      code: 'SEMANTIC_SCAN_INCOMPLETE',
+      path: 'places',
+    })
+    expect(checked.structuredContent.errors[0].fix).toContain('embedding refresh')
+    const refused = await call('venues.propose_package_import', {
       operationId: randomUUID(),
       tenantId,
       venueId,
       payload: update,
     })
-    expect(applied.structuredContent.status, JSON.stringify(applied.structuredContent)).toBe(
-      'APPLIED',
-    )
+    expect(refused.structuredContent).toMatchObject({
+      status: 'FAILED',
+      result: { failureCode: 'PACKAGE_REJECTED' },
+    })
     const row = await withTenantIsolationBypass(() =>
       db.place.findFirstOrThrow({ where: { tenantId, venueId, id: comet.id } }),
     )
-    expect(row.longDescription).toContain('Height: 44 in to ride; 38 in with an adult')
+    expect(row.longDescription).toContain('Height: 42 in to ride; 36 in with an adult')
 
     const published = await call('venues.propose_publish', {
       operationId: randomUUID(),

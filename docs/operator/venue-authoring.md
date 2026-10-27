@@ -24,6 +24,10 @@ Available today: everything in this guide unless it is marked **Planned**.
      block an import, but fix each one or be able to say why it is a false positive.
    - `venueSetup`: settings to fix before testing answers (time zone, guide mode).
      Fix and check again until `ready` is true.
+   - A second package for a venue that already has records needs those records' search
+     embeddings first. Until the venue embedding refresh runs (an operator step in the Torchiko
+     runbook, not an MCP tool), `errors` holds `SEMANTIC_SCAN_INCOMPLETE` and the import would be
+     refused with nothing changed. Ask the operator for the refresh, then check again.
 3. **Import (a write).** `venues.propose_package_import` with the same package and a new UUID
    `operationId`. In this deployment the write applies in the same call: status `APPLIED` means
    the venue's records changed. `FAILED` or `STALE` means nothing changed for a validation error;
