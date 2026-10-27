@@ -80,3 +80,8 @@ test('enum comparison retains type, labels and their relative order', () => {
   ])
     assert.throws(() => logicalEnumRows(invalid))
 })
+
+test('lowercase escape strings remain untouched', () => {
+  const value = "CHECK (note = e'quote\\\'ARRAY[''OPEN''::character varying]::text[]')"
+  assert.equal(canonical(value), value)
+})

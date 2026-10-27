@@ -57,7 +57,7 @@ export function logicalConstraintDefinition(definition) {
     // strings and dollar quoting are uncommon in pg_get_constraintdef output,
     // but preserve them too instead of interpreting their contents as SQL.
     const rest = definition.slice(offset)
-    const quoted = /^(?:E'(?:\\.|[^']|'')*'|'(?:[^']|'')*'|"(?:[^"]|"")*")/u.exec(rest)
+    const quoted = /^(?:[eE]'(?:\\.|[^']|'')*'|'(?:[^']|'')*'|"(?:[^"]|"")*")/u.exec(rest)
     if (quoted) {
       output += quoted[0]
       offset += quoted[0].length
