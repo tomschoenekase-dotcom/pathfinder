@@ -19,7 +19,7 @@ import {
 } from './release269-queue-preservation.mjs'
 
 export const RELEASE269_APPROVAL = 'torchiko-staging-lineage-to-269-20261026'
-export const RELEASE269_PROOF_SCHEMA = 'torchiko-release269-preservation/v1'
+export const RELEASE269_PROOF_SCHEMA = 'torchiko-release269-preservation/v2'
 const SHA = /^[a-f0-9]{40}$/u
 const HASH = /^[a-f0-9]{64}$/u
 const ROLLBACK_NAME = '20260912080000_add_guest_conversation_disposition'
@@ -92,6 +92,7 @@ export function assertRelease269Snapshot(snapshot, { target, releaseSha, resourc
   assert.equal(snapshot.dataHash, hashJson(snapshot.tables), 'release269-data-hash-mismatch')
   exactHash(snapshot.physicalLedgerHash)
   exactHash(snapshot.schemaHash)
+  exactHash(snapshot.physicalSchemaHash)
   for (const key of [
     'policyHash',
     'sequenceStateHash',
@@ -359,7 +360,13 @@ export async function runRelease269({
   )
   const queues = await readQueues({ startedAt })
   assertRelease269Drain(immediate, queues, { ...scope, startedAt, now: now() })
-  for (const key of ['schemaHash', 'securityHash', 'policyHash', 'sequenceStateHash']) {
+  for (const key of [
+    'schemaHash',
+    'physicalSchemaHash',
+    'securityHash',
+    'policyHash',
+    'sequenceStateHash',
+  ]) {
     assert.equal(immediate[key], before[key], 'release269-prewrite-schema-or-security-drift')
   }
   await inspect()

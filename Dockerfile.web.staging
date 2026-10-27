@@ -41,6 +41,7 @@ COPY --from=builder --chown=node:node /app/scripts/run-release269-migration.mjs 
 COPY --from=builder --chown=node:node /app/scripts/lib/release269-migration-contract.mjs /migration/scripts/lib/release269-migration-contract.mjs
 COPY --from=builder --chown=node:node /app/scripts/lib/release269-runtime-admission.mjs /migration/scripts/lib/release269-runtime-admission.mjs
 COPY --from=builder --chown=node:node /app/scripts/lib/release269-readback.mjs /migration/scripts/lib/release269-readback.mjs
+COPY --from=builder --chown=node:node /app/scripts/lib/release269-logical-schema.mjs /migration/scripts/lib/release269-logical-schema.mjs
 COPY --from=builder --chown=node:node /app/scripts/lib/release269-queue-readback.mjs /migration/scripts/lib/release269-queue-readback.mjs
 COPY --from=builder --chown=node:node /app/scripts/lib/release269-queue-preservation.mjs /migration/scripts/lib/release269-queue-preservation.mjs
 COPY --from=builder --chown=node:node /app/scripts/lib/production-migration-admission.mjs /migration/scripts/lib/production-migration-admission.mjs

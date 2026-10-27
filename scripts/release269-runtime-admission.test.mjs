@@ -160,6 +160,7 @@ function snapshot(target = 'production', complete = false) {
     tables,
     dataHash: hashJson(tables),
     schemaHash: digest(complete ? '269-schema' : '267-schema'),
+    physicalSchemaHash: digest(complete ? '269-physical-schema' : '267-physical-schema'),
     policyHash: digest('policies and RLS'),
     sequenceStateHash: digest('sequence state'),
     security,
@@ -307,6 +308,21 @@ test('exact production267→269 preserves all original data and physical history
   const h = harness()
   assert.deepEqual(await h.run(), { state: 'complete269', changed: true })
   assert.deepEqual(h.events, ['before', 'armed', 'deploy', 'after', 'verified'])
+})
+
+test('logical restore equivalence never hides raw live catalog drift or admits old proofs', async () => {
+  const h = harness()
+  let reads = 0
+  h.options.readSnapshot = async () => ({
+    ...structuredClone(h.before),
+    physicalSchemaHash: ++reads === 1 ? h.before.physicalSchemaHash : digest('catalog changed'),
+  })
+  await assert.rejects(h.run(), /prewrite-schema-or-security-drift/u)
+  assert.ok(!h.events.includes('deploy'))
+  const old = harness()
+  old.evidence.schema = 'torchiko-release269-preservation/v1'
+  await assert.rejects(old.run())
+  assert.ok(!old.events.includes('deploy'))
 })
 
 test('reviewed dormant queue proof admits pending jobs but retains session and freshness gates', () => {
@@ -808,6 +824,7 @@ test('staging image includes the new runner dependency closure and leaves histor
     'run-staging-migration-predeploy.mjs',
     'release269-runtime-admission.mjs',
     'release269-readback.mjs',
+    'release269-logical-schema.mjs',
     'release269-queue-readback.mjs',
     'release269-migration-contract.mjs',
     'production-migration-admission.mjs',

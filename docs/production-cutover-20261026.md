@@ -94,6 +94,19 @@ cannot name its own commit and is not evidence of a successful release.
 
 ## Exact migration scope
 
+The preservation receipt is version 2. Logical archive restoration can renumber
+enum sort positions while preserving label order, and PostgreSQL can redistribute
+an unbounded varchar-literal array's text cast onto its elements. Schema comparison
+normalizes only those two representations. Every enum label and relative order,
+literal, predicate, constraint, column, index, function, trigger, policy and view
+remains covered. Unknown expression forms stay byte-sensitive. A separate raw
+`physicalSchemaHash` retains the original catalog representation and must remain
+identical across the two live pre-mutation reads. Version 1 receipts are rejected;
+new source-bound backup and rehearsal receipts are required. No migration SQL,
+original data, physical ledger, ownership/ACL, queue or freshness guard is removed.
+The enum representation is documented in the PostgreSQL 17 `pg_enum` catalog;
+the literal-array rewrite was reproduced by a native PostgreSQL 17 dump/restore.
+
 Only the complete 267-to-269 transition is admitted, never a partial 268-row endpoint:
 
 - `20261022001000_deterministic_event_search_projection`, checksum

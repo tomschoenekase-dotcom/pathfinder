@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { RELEASE269 } from './release269-migration-contract.mjs'
 import { RELEASE269_PROOF_SCHEMA, hashJson } from './release269-runtime-admission.mjs'
 import { VERIFIED_BASELINE_CHECKSUMS } from '../run-staging-migration-predeploy.mjs'
+import { logicalConstraintDefinition, logicalEnumRows } from './release269-logical-schema.mjs'
 
 export const APPLICABILITY_COLUMNS = Object.freeze([
   'applicability_scope',
@@ -269,13 +270,31 @@ async function snapshotInside(database, scope, now) {
     publicTableCount: relations.length,
     tables,
     dataHash: hashJson(tables),
-    schemaHash: hashJson({
+    physicalSchemaHash: hashJson({
       columns: ordered(columns),
       constraints: ordered(constraints),
       indexes: ordered(indexes),
       functions: ordered(functions),
       triggers: ordered(triggers),
       enums: ordered(enums),
+      policies: ordered(
+        policies.map((row) => ({ ...row, roles: [...row.roles].sort(compareText) })),
+      ),
+      rowSecurity: ordered(rowSecurity),
+      views: ordered(views),
+    }),
+    schemaHash: hashJson({
+      columns: ordered(columns),
+      constraints: ordered(
+        constraints.map((row) => ({
+          ...row,
+          definition: logicalConstraintDefinition(row.definition),
+        })),
+      ),
+      indexes: ordered(indexes),
+      functions: ordered(functions),
+      triggers: ordered(triggers),
+      enums: ordered(logicalEnumRows(enums)),
       policies: ordered(
         policies.map((row) => ({ ...row, roles: [...row.roles].sort(compareText) })),
       ),
