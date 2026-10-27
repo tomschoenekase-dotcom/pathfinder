@@ -607,8 +607,19 @@ const AppearanceProposeInput = appearanceUpdateBase
     path: ['chatAppearance'],
   })
 
+/** Parts of operator.get_manual an agent can request on their own. */
+export const OPERATOR_MANUAL_SECTIONS = ['full', 'venue-authoring'] as const
+
 const PackageCheckIssue = z
-  .object({ code: z.string().max(80), path: z.string().max(300), message: z.string().max(600) })
+  .object({
+    code: z.string().max(80),
+    path: z.string().max(300),
+    message: z.string().max(600),
+    /** What to change so the package is accepted or reads correctly. */
+    fix: z.string().max(600).optional(),
+    /** A valid snippet for the field, when one helps. */
+    example: z.string().max(600).optional(),
+  })
   .strict()
 
 export const OPERATOR_MCP_INPUTS = {
@@ -946,7 +957,10 @@ export const OPERATOR_MCP_INPUTS = {
     status: SupportRequestStatus.optional(),
     cursor: Cursor.optional(),
   }),
-  'operator.get_manual': readInput({}),
+  'operator.get_manual': readInput({
+    /** Omit for the full manual; venue-authoring returns the authoring contract and its schema. */
+    section: z.enum(OPERATOR_MANUAL_SECTIONS).optional(),
+  }),
   'operator.get_proposal': readInput({ proposalId: Identifier }),
   'operator.list_proposals': readInput({
     status: OperatorProposalStatus.optional(),
@@ -3438,6 +3452,18 @@ export const OPERATOR_MCP_OUTPUTS = {
       otherWarningCount: z.number().int().nonnegative(),
       /** Venue settings to fix before testing; absent when the package shape is invalid. */
       venueSetup: z.array(PackageCheckIssue).max(2).optional(),
+      /**
+       * Meaning checks (dates without a year, ended runs, placeholders, conflicting lines, repeated
+       * cautions, near-duplicate topics, facts in voice notes). Advice: never blocks import or ready.
+       */
+      authoring: z
+        .object({
+          total: z.number().int().nonnegative(),
+          shown: z.array(PackageCheckIssue).max(40),
+          next: z.string().max(500),
+        })
+        .strict()
+        .optional(),
       note: z.string().max(500),
     })
     .strict(),
@@ -3517,11 +3543,21 @@ export const OPERATOR_MCP_OUTPUTS = {
               /** False when this deployment has no key for the provider; setting it is refused. */
               available: z.boolean(),
               current: z.boolean(),
+              /** From the central model registry, the same values billing and routing use. */
+              provider: z.string().max(40),
+              /** The provider's API model id, for example gpt-6.1-terra. */
+              model: z.string().max(120),
+              fastMode: z.boolean(),
+              pricingUsdPerMillionTokens: z
+                .object({ input: z.number().nonnegative(), output: z.number().nonnegative() })
+                .strict(),
+              /** Names an owner may say for this choice, for mapping speech to a modelKey. */
+              alsoKnownAs: z.array(z.string().max(60)).max(8),
             })
             .strict(),
         )
         .max(12),
-      guidance: z.string().max(500),
+      guidance: z.string().max(600),
     })
     .strict(),
   'appearance.get': z
@@ -3550,7 +3586,15 @@ export const OPERATOR_MCP_OUTPUTS = {
       .strict(),
   ),
   'operator.get_manual': z
-    .object({ version: z.string().max(40), text: z.string().max(60_000) })
+    .object({
+      version: z.string().max(40),
+      text: z.string().max(60_000),
+      section: z.enum(OPERATOR_MANUAL_SECTIONS).optional(),
+      /** venue-authoring only: JSON Schema of schemaVersion 3, generated from the live validator. */
+      schema: z.record(z.string(), z.unknown()).optional(),
+      /** Other sections an agent can request. */
+      sections: z.array(z.string().max(40)).max(10).optional(),
+    })
     .strict(),
   'operator.get_proposal': OperatorProposalView,
   'operator.list_proposals': Page(OperatorProposalView),
@@ -4509,7 +4553,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.check_package',
     'Check venue package',
-    `Check a venue package (inline payload or attached .json file) without saving or changing anything: the import plan, validation errors, and guideQuality findings with exact record paths and what to fix (research or pin notes, "listed" voice, labels in names, source links, weak first sentences, missing Height: lines, question titles). Fix and re-check until ready is true, then import with venues.propose_package_import.${READ}`,
+    `Preview a venue package (inline payload or attached .json file) without saving or changing anything. Returns the import plan; errors (each with the field path, the problem, a fix and often a valid example); guideQuality writing findings (block ready); otherWarnings such as DUPLICATE_IN_PACKAGE (block ready); authoring meaning checks such as dates without a year, ended runs, placeholder facts and facts in voice notes (advice only); and venueSetup settings to fix. Fix and re-check until ready is true, then import once with venues.propose_package_import. The authoring contract and package JSON Schema are in operator.get_manual with section "venue-authoring".${READ}`,
     'venues:read',
     'venue',
   ],
@@ -4565,7 +4609,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.get_guest_model',
     'Get visitor chat model',
-    `Read which AI model answers this venue's visitor chat, where that choice comes from (platform default, deployment default, workload, client or venue override), the venue override revision, and the allowed choices with a one-line description each. Sol + Fast is the recommended default.${READ}`,
+    `Read which AI model answers this venue's visitor chat, where that choice comes from (platform default, deployment default, workload, client or venue override), the venue override revision, and the allowed choices, each with its API model id, provider, Fast mode, price per million tokens, common names (for example "Terra" or "6.1 Terra") and a one-line tradeoff. Sol + Fast is the recommended default. Map an owner's spoken model name to a modelKey with these fields; a model not listed is not available for visitor chat.${READ}`,
     'venues:read',
     'venue',
   ],
@@ -4586,7 +4630,7 @@ const seeds: readonly Seed[] = [
   [
     'operator.get_manual',
     'Get operator manual',
-    `Read the operating manual for this tool surface.${READ}`,
+    `Read the operating manual for this tool surface. Omit section for the full manual. Pass section "venue-authoring" before building or changing a venue guide: it returns the authoring contract (workflow, where each kind of information belongs, unknown and seasonal facts, voice settings, complete examples) and schema, the venue-package JSON Schema generated from the live validator.${READ}`,
     'operator:read',
     'platform',
   ],
@@ -5258,7 +5302,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_package_import',
     'Import venue package JSON',
-    `Run venues.check_package on the same payload or file first and fix it until ready is true. Import the same venue-package JSON the dashboard JSON importer accepts (schemaVersion 1, 2 or 3: places, knowledge entries and, from version 2, venue settings). Pass it inline as payload, or attach the .json file as file and the server downloads it, so large packages need not be retyped; every record, its full text and provenance are imported exactly as supplied. Retrying with the same operationId and the same content never imports twice. The server validates it, runs the duplicate scan, then approves and applies it in one step, so the content is live for the venue at once. Version 3 may also update and remove existing items by id. Validation errors or an incomplete duplicate scan fail the operation with the reasons and change nothing. Applied packages appear in the dashboard history and can be reverted there. Place coordinates go on each place as lat and lng decimal-degree numbers given together (for example lat 42.4651, lng -92.3420); strings and latitude/longitude or coordinates keys are rejected. To change coordinates of an existing place, send a version 3 update for that place id; it replaces the place's whole state, so include every field. Other venue tools cannot set coordinates. Write records for visitors, not as research notes: each record's first sentence says what the thing is ("X is a junior roller coaster"), exact facts go on labeled lines (Height:, Hours:, Price:, Also called:), and source names, URLs, checked-on dates, pin or mapping notes and source disagreements stay out of the text (sources go in sourceUrl and sourceName). operator.get_manual, "Writing guide records", has the full standard.${PROPOSE}`,
+    `Run venues.check_package on the same payload or file first and fix it until ready is true. Import the same venue-package JSON the dashboard JSON importer accepts (schemaVersion 1, 2 or 3: places, knowledge entries and, from version 2, venue settings). Pass it inline as payload, or attach the .json file as file and the server downloads it, so large packages need not be retyped; every record, its full text and provenance are imported exactly as supplied. Retrying with the same operationId and the same content never imports twice. The server validates it, runs the duplicate scan, then approves and applies it in one step: status APPLIED means the venue's records changed. Visitors see them only when the venue is published (venues.propose_publish); a published venue shows them at once. Version 3 may also update and remove existing items by id. Validation errors or an incomplete duplicate scan fail the operation with the reasons and change nothing. Applied packages appear in the dashboard history and can be reverted there. Place coordinates go on each place as lat and lng decimal-degree numbers given together (for example lat 42.4651, lng -92.3420); strings and latitude/longitude or coordinates keys are rejected. To change coordinates of an existing place, send a version 3 update for that place id; it replaces the place's whole state, so include every field. Other venue tools cannot set coordinates. Write records for visitors, not as research notes: each record's first sentence says what the thing is ("X is a junior roller coaster"), exact facts go on labeled lines (Height:, Hours:, Price:, Also called:), and source names, URLs, checked-on dates, pin or mapping notes and source disagreements stay out of the text (sources go in sourceUrl and sourceName). operator.get_manual with section "venue-authoring" has the full contract, examples and schema.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.package-import',
@@ -5306,7 +5350,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_guest_model',
     'Set visitor chat model',
-    `Choose the AI model for one venue's visitor chat with a venue override. Only the listed model keys are accepted; use guest-chat-sol-fast unless there is a measured reason not to. Other stored override settings are kept. Pass venueOverride.revision from venues.get_guest_model as expectedRevision (null when there is none) to refuse a change made since, or omit it. Replaying the same operationId returns the same receipt.${PROPOSE}`,
+    `Choose the AI model for one venue's visitor chat with a venue override. Only the listed model keys are accepted; use guest-chat-sol-fast unless there is a measured reason not to. Other stored override settings are kept. Only this venue changes; other venues and the client keep their models. A key that is not listed is refused, never replaced by another model. Pass venueOverride.revision from venues.get_guest_model as expectedRevision (null when there is none) to refuse a change made since, or omit it. The receipt (result) shows previous and effective model, API model id, Fast mode and source. Replaying the same operationId returns the same receipt.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.guest-model',
@@ -5314,7 +5358,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_guest_model_reset',
     'Reset visitor chat model',
-    `Remove this venue's own visitor chat model choice so it follows the client, workload or deployment default again. Other stored override settings, if any, are kept. Changes nothing when the venue has no model override.${PROPOSE}`,
+    `Remove this venue's own visitor chat model choice so it follows the client, workload or deployment default again. Other stored override settings, if any, are kept. Changes nothing when the venue has no model override. The receipt (result) shows the previous model and the inherited model now in effect, with its source.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.guest-model-reset',

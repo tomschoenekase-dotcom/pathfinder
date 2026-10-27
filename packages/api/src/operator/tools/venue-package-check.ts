@@ -10,6 +10,9 @@ import {
   resolvePackageAttachment,
 } from '../kinds/venues-package-import'
 import type { OperatorReadTool } from '../registry'
+import { venuePackageAuthoringFindings } from '../venue-authoring/authoring-checks'
+import { packageEmbeddingReadiness } from '../venue-authoring/embedding-readiness'
+import { explainVenuePackageIssues, withPreviewFix } from '../venue-authoring/package-issues'
 
 const SHOWN = 40
 
@@ -55,11 +58,13 @@ export async function venueSetupFindings(
     })
   return findings
 }
-type Issue = { code: string; path: string; message: string }
-const trim = ({ code, path, message }: Issue): Issue => ({
+type Issue = { code: string; path: string; message: string; fix?: string; example?: string }
+const trim = ({ code, path, message, fix, example }: Issue): Issue => ({
   code: code.slice(0, 80),
   path: path.slice(0, 300),
   message: message.slice(0, 600),
+  ...(fix ? { fix: fix.slice(0, 600) } : {}),
+  ...(example ? { example: example.slice(0, 600) } : {}),
 })
 
 /**
@@ -76,9 +81,7 @@ export const venuesCheckPackage: OperatorReadTool = {
     await assertVenueInGrant(context.grant, input.tenantId, input.venueId, context.database)
     const parsed = VenuePackagePayload.safeParse(input.payload)
     if (!parsed.success) {
-      const errors = parsed.error.issues.map((issue) =>
-        trim({ code: 'INVALID_PACKAGE', path: issue.path.join('.'), message: issue.message }),
-      )
+      const errors = explainVenuePackageIssues(parsed.error.issues, input.payload).map(trim)
       return {
         venueId: input.venueId,
         importable: false,
@@ -89,7 +92,7 @@ export const venuesCheckPackage: OperatorReadTool = {
         guideQuality: { total: 0, shown: [], next: 'Fix the package shape first.' },
         otherWarnings: [],
         otherWarningCount: 0,
-        note: 'The package does not match the venue-package schema; nothing was checked further.',
+        note: 'The package does not match the venue-package schema; nothing was checked further. Each error names the field, the fix and, where useful, a valid example. operator.get_manual with section "venue-authoring" has the full contract and schema.',
       }
     }
     const preview = await buildVenuePackagePreview(
@@ -98,7 +101,19 @@ export const venuesCheckPackage: OperatorReadTool = {
       input.venueId,
       parsed.data,
     )
-    const { errors, warnings } = preview.report
+    const { warnings } = preview.report
+    // A preview without its own errors can still be refused by the import's duplicate scan when
+    // existing records lack embeddings; report that here instead of after a failed import.
+    const errors: Issue[] = [
+      ...preview.report.errors,
+      ...(preview.report.errors.length === 0
+        ? await packageEmbeddingReadiness(context.database, {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            payload: parsed.data,
+          })
+        : []),
+    ]
     const quality = guideQualityFindings(warnings)
     const plan = counts(parsed.data)
     const touchedPlaceIds =
@@ -131,6 +146,7 @@ export const venuesCheckPackage: OperatorReadTool = {
       placesAfterImport: activePlaces + plan.places.create + activeUpdates,
     })
     const other = warnings.filter((warning) => !warning.code.startsWith('GUIDE_QUALITY_'))
+    const authoring = venuePackageAuthoringFindings(parsed.data, context.now)
     return {
       venueId: input.venueId,
       importable: errors.length === 0,
@@ -139,7 +155,7 @@ export const venuesCheckPackage: OperatorReadTool = {
         quality.total === 0 &&
         !other.some((warning) => warning.code === 'DUPLICATE_IN_PACKAGE'),
       plan,
-      errors: errors.slice(0, SHOWN).map(trim),
+      errors: errors.slice(0, SHOWN).map(withPreviewFix).map(trim),
       errorCount: errors.length,
       guideQuality: {
         total: quality.total,
@@ -149,10 +165,18 @@ export const venuesCheckPackage: OperatorReadTool = {
             ? 'Every record meets the writing guide.'
             : 'Rewrite the named records to the operator manual standard ("Writing guide records") and check again.',
       },
-      otherWarnings: other.slice(0, SHOWN).map(trim),
+      otherWarnings: other.slice(0, SHOWN).map(withPreviewFix).map(trim),
       otherWarningCount: other.length,
       // Settings, not package content: they never change ready, but fix them before testing answers.
       venueSetup,
+      authoring: {
+        total: authoring.length,
+        shown: authoring.slice(0, SHOWN).map(trim),
+        next:
+          authoring.length === 0
+            ? 'No advisory patterns detected. This is not a fact check; verify source facts and unresolved uncertainty before importing.'
+            : 'Advice only: fix each finding or confirm it is a false positive. These never block import or ready.',
+      },
       note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block importable. Writing-guide warnings and exact in-package duplicates block ready.',
     }
   },
