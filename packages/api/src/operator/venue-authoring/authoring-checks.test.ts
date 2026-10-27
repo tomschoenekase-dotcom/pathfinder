@@ -194,6 +194,23 @@ describe('venuePackageAuthoringFindings', () => {
 })
 
 describe('false-positive guards found on real packages', () => {
+  it('uses the actual start month for an abbreviated range, not modal words or an earlier date', () => {
+    const duringRun = new Date('2026-10-20T15:00:00Z')
+    for (const content of [
+      'The festival may run October 1 to 24, 2026.',
+      'Tickets go on sale May 1, 2026; the festival runs October 1 to 24, 2026.',
+    ]) {
+      expect(venuePackageAuthoringFindings(topics(content), duringRun)).toEqual([])
+      expect(codes(topics(content))).toEqual(['STALE_DATE'])
+    }
+  })
+
+  it('does not silently treat a date after a calendar cue as a fraction', () => {
+    expect(codes(topics('The festival opens on 1/2.'))).toEqual(['AMBIGUOUS_DATE'])
+    expect(codes(topics('Hours: 10am-6pm on 3/4.'))).toEqual(['AMBIGUOUS_DATE'])
+    expect(codes(topics('The trail is 1/2 mile long.'))).toEqual([])
+  })
+
   it('accepts historic years, negated guarantees and fixed holiday closure lists', () => {
     expect(
       codes(

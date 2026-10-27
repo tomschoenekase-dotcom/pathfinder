@@ -155,7 +155,12 @@ function dateChecks(field: Field, now: Date): AuthoringFinding[] {
       const second = Number(match[2])
       const after = sentence.slice((match.index ?? 0) + match[0].length)
       const fraction = !match[3] && first < second && [2, 3, 4, 8].includes(second)
-      if (first > 12 || second > 31 || fraction || MEASURE_AFTER.test(after)) continue
+      const before = sentence.slice(0, match.index)
+      const calendarCue = /\b(?:on|from|until|through|date|dates|opens?|closes?)\s*:?\s*$/iu.test(
+        before,
+      )
+      if (first > 12 || second > 31 || (fraction && !calendarCue) || MEASURE_AFTER.test(after))
+        continue
       findings.push({
         code: 'AMBIGUOUS_DATE',
         path: field.path,
@@ -182,9 +187,14 @@ function dateChecks(field: Field, now: Date): AuthoringFinding[] {
     if (saysEnded || PAST_CUE.test(sentence)) continue
     let ended = false
     for (const match of sentence.matchAll(RANGE_END_WITH_YEAR)) {
-      const monthText = (match[1] ?? sentence.match(new RegExp(MONTH, 'iu'))?.[0] ?? '')
-        .slice(0, 3)
-        .toLowerCase()
+      // For "October 1 to 24", inherit the closest preceding month/day, never a modal
+      // "may" or an earlier ticket-sale date elsewhere in the sentence.
+      const precedingDates = [
+        ...sentence
+          .slice(0, match.index)
+          .matchAll(new RegExp(`\\b(${MONTH})\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`, 'giu')),
+      ]
+      const monthText = (match[1] ?? precedingDates.at(-1)?.[1] ?? '').slice(0, 3).toLowerCase()
       const month = MONTHS[monthText]
       if (month === undefined) continue
       if (Date.UTC(Number(match[3]), month, Number(match[2])) < today) ended = true

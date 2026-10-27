@@ -39,6 +39,15 @@ type VenueArgs = Readonly<{
   expectedRevision?: number | null | undefined
 }>
 
+/** Recheck at the domain boundary, including no-op paths, after the proposal-level check. */
+function assertExpectedRevision(args: VenueArgs, revision: number | null | undefined) {
+  if (args.expectedRevision !== undefined && args.expectedRevision !== (revision ?? null)) {
+    throw new OperatorStaleError(
+      'The venue model settings changed; read them again before retrying.',
+    )
+  }
+}
+
 /** The deployment has no execution key for the chosen model's provider; nothing was recorded. */
 export class GuestModelUnavailableError extends Error {
   readonly code = 'MODEL_UNAVAILABLE'
@@ -174,6 +183,7 @@ export const venuesGuestModelKind: OperatorProposalKind<SetArgs> = {
   apply: async (args, context) => {
     const before = await snapshot(context.database, args)
     const row = await readVenueGuestModelOverride(context.database, args.tenantId, args.venueId)
+    assertExpectedRevision(args, row?.revision)
     const values = liveOverrideValues(row)
     if (row && !row.isTombstone && row.enabled && values.primaryModelKey === args.modelKey) {
       return outcome(context, args, before, {
@@ -229,6 +239,7 @@ export const venuesGuestModelResetKind: OperatorProposalKind<ResetArgs> = {
   apply: async (args, context) => {
     const before = await snapshot(context.database, args)
     const row = await readVenueGuestModelOverride(context.database, args.tenantId, args.venueId)
+    assertExpectedRevision(args, row?.revision)
     const values = liveOverrideValues(row)
     if (!row || values.primaryModelKey === undefined) {
       return outcome(context, args, before, { changed: false, revision: row?.revision ?? null })

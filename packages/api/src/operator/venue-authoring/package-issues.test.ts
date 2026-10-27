@@ -22,6 +22,23 @@ function v3Place(value: Record<string, unknown>) {
 }
 
 describe('explainVenuePackageIssues', () => {
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])(
+    'returns usable repair advice for the unsupported key %s',
+    (key) => {
+      const json = JSON.parse(
+        JSON.stringify({
+          schemaVersion: 1,
+          places: [{ name: 'Garden Tram', type: 'ride', [key]: 'unsupported' }],
+          knowledgeEntries: [],
+        }),
+      )
+      const issue = explain(json).find((entry) => entry.path === `places.0.${key}`)!
+      expect(issue.code).toBe('UNKNOWN_FIELD')
+      expect(typeof issue.fix).toBe('string')
+      expect(issue.fix.length).toBeGreaterThan(20)
+    },
+  )
+
   it('repairs missing legacy lists with arrays instead of version 3 operation objects', () => {
     for (const schemaVersion of [1]) {
       const issue = explain({ schemaVersion, places: [] }).find(

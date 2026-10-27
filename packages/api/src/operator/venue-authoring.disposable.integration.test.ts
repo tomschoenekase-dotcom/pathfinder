@@ -39,7 +39,12 @@ vi.mock('../routers/admin/ai-provider-connections', () => ({
 }))
 
 import { OperatorCapability } from '@pathfinder/contracts/operator-mcp'
-import { createVenueAction, db, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  createVenueAction,
+  db,
+  saveAiWorkloadConfigurationOverrideAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { resolveOperatorConfig } from './config'
 import { handleOperatorMcpRequest } from './http'
@@ -120,7 +125,7 @@ async function call(name: string, args: Record<string, unknown>): Promise<ToolRe
   return response.body.result as ToolResult
 }
 
-async function connect() {
+async function connect(scope?: { tenantIds: string[]; capabilities: OperatorCapability[] }) {
   const registered = (await (
     await handleClientRegistration(
       new Request('https://app.operator.test/oauth/register', {
@@ -157,9 +162,9 @@ async function connect() {
     },
     decision: {
       decision: 'approve',
-      allTenants: true,
-      tenantIds: [],
-      capabilities: [...OperatorCapability.options],
+      allTenants: scope === undefined,
+      tenantIds: scope?.tenantIds ?? [],
+      capabilities: scope?.capabilities ?? [...OperatorCapability.options],
       expiresInDays: 1,
     },
     now: new Date(),
@@ -428,6 +433,91 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
     expect(after.structuredContent.effective.source).not.toBe('VENUE_OVERRIDE')
   })
 
+  it('checks only relevant embedding coverage and never creates package or embedding work', async () => {
+    const counts = async () => ({
+      packages: await db.venuePackage.count({ where: { tenantId, venueId } }),
+      dispatches: await db.embeddingDispatch.count({ where: { tenantId } }),
+      proposals: await db.operatorProposal.count({ where: { targetTenantId: tenantId } }),
+    })
+    const before = await counts()
+    const settingsOnly = await call('venues.check_package', {
+      tenantId,
+      venueId,
+      payload: {
+        schemaVersion: 3,
+        venue: { identity: { description: 'A fictional family park.' } },
+        places: {},
+        knowledgeEntries: {},
+      },
+    })
+    expect(settingsOnly.structuredContent).toMatchObject({ importable: true, errorCount: 0 })
+    const topicOnly = await call('venues.check_package', {
+      tenantId,
+      venueId,
+      payload: {
+        schemaVersion: 3,
+        places: {},
+        knowledgeEntries: {
+          create: [
+            {
+              itemKey: randomUUID(),
+              provenance: { sourceType: 'venue_staff', contentOrigin: 'HUMAN_AUTHORED' },
+              value: {
+                title: 'Lost belongings',
+                category: 'Visiting',
+                content: 'Lost belongings are held at the front desk.',
+              },
+            },
+          ],
+        },
+      },
+    })
+    expect(
+      topicOnly.structuredContent.errors.map((entry: any) => [entry.code, entry.path]),
+    ).toEqual([['SEMANTIC_SCAN_INCOMPLETE', 'knowledgeEntries']])
+    const places = await withTenantIsolationBypass(() =>
+      db.place.findMany({ where: { tenantId, venueId } }),
+    )
+    const allPlacesUpdated = await call('venues.check_package', {
+      tenantId,
+      venueId,
+      payload: {
+        schemaVersion: 3,
+        knowledgeEntries: {},
+        places: {
+          update: places.map((place) => ({
+            itemKey: randomUUID(),
+            id: place.id,
+            provenance: { sourceType: 'venue_staff', contentOrigin: 'HUMAN_AUTHORED' },
+            value: {
+              name: place.name,
+              type: place.type,
+              itemType: place.itemType,
+              shortDescription: place.shortDescription,
+              longDescription: place.longDescription,
+              tags: place.tags,
+              importanceScore: place.importanceScore,
+              areaName: place.areaName,
+              hours: '10am-6pm daily',
+              photoUrl: place.photoUrl,
+              lat: place.lat,
+              lng: place.lng,
+              isActive: true,
+            },
+          })),
+        },
+      },
+    })
+    // Every existing place is replaced in this package, so none needs a comparison vector.
+    // Missing topic vectors must not block a places-only change.
+    expect(allPlacesUpdated.structuredContent).toMatchObject({ importable: true, errorCount: 0 })
+    expect(await counts()).toEqual(before)
+    const placesAfter = await withTenantIsolationBypass(() =>
+      db.place.findMany({ where: { tenantId, venueId }, orderBy: { id: 'asc' } }),
+    )
+    expect(placesAfter).toEqual(places.sort((a, b) => a.id.localeCompare(b.id)))
+  })
+
   it('refuses unavailable providers without changing the effective venue model', async () => {
     providers.available = false
     try {
@@ -444,6 +534,153 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
       expect(after.structuredContent.venueOverride).toEqual(before.structuredContent.venueOverride)
     } finally {
       providers.available = true
+    }
+  })
+
+  it('replays a model-change receipt without another write, and refuses changed arguments', async () => {
+    const args = { tenantId, venueId, modelKey: 'guest-chat-sol-fast', operationId: randomUUID() }
+    const first = await call('venues.propose_guest_model', args)
+    expect(first.structuredContent.status).toBe('APPLIED')
+    const before = await call('venues.get_guest_model', { tenantId, venueId })
+    const historyBefore = await db.aiScopedWorkloadConfigurationHistory.count({
+      where: { tenantId, venueId },
+    })
+    const replay = await call('venues.propose_guest_model', args)
+    expect(replay.structuredContent.proposalId).toBe(first.structuredContent.proposalId)
+    expect(replay.structuredContent.result).toEqual(first.structuredContent.result)
+    const reused = await call('venues.propose_guest_model', {
+      ...args,
+      modelKey: 'guest-chat-terra-fast',
+    })
+    expect(reused.structuredContent.error).toBe('OPERATION_ID_REUSED')
+    const after = await call('venues.get_guest_model', { tenantId, venueId })
+    expect(after.structuredContent).toEqual(before.structuredContent)
+    expect(
+      await db.aiScopedWorkloadConfigurationHistory.count({ where: { tenantId, venueId } }),
+    ).toBe(historyBefore)
+  })
+
+  it('allows only one of two competing model edits at the same revision', async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const before = await call('venues.get_guest_model', { tenantId, venueId })
+      const modelKeys = ['guest-chat-sol-fast', 'guest-chat-terra-fast', 'guest-chat-luna'].filter(
+        (key) => key !== before.structuredContent.effective.modelKey,
+      )
+      const results = await Promise.all(
+        modelKeys.map((modelKey) =>
+          call('venues.propose_guest_model', {
+            tenantId,
+            venueId,
+            modelKey,
+            expectedRevision: before.structuredContent.venueOverride.revision,
+            operationId: randomUUID(),
+          }),
+        ),
+      )
+      expect(results.map((result) => result.structuredContent.status).sort()).toEqual([
+        'APPLIED',
+        'STALE',
+      ])
+      const winner = results.find((result) => result.structuredContent.status === 'APPLIED')!
+      const after = await call('venues.get_guest_model', { tenantId, venueId })
+      expect(after.structuredContent.effective.modelKey).toBe(
+        winner.structuredContent.result.modelKey,
+      )
+      expect(after.structuredContent.venueOverride.revision).toBe(
+        before.structuredContent.venueOverride.revision + 1,
+      )
+    }
+  })
+
+  it('keeps unrelated dashboard settings through model changes and reset', async () => {
+    const before = await call('venues.get_guest_model', { tenantId, venueId })
+    await saveAiWorkloadConfigurationOverrideAction(
+      {
+        scope: { level: 'VENUE', tenantId, venueId, workloadId: 'guest-chat' },
+        actor: { type: 'HUMAN', id: ownerId, role: 'PLATFORM_ADMIN' },
+        expectedRevision: before.structuredContent.venueOverride.revision,
+        enabled: true,
+        values: { primaryModelKey: 'guest-chat-terra-fast', timeoutMs: 9000 },
+        unsafeChangesEnabled: true,
+        reason: 'Disposable dashboard settings fixture',
+      },
+      db,
+    )
+    const set = await call('venues.propose_guest_model', {
+      tenantId,
+      venueId,
+      modelKey: 'guest-chat-sol-fast',
+      operationId: randomUUID(),
+    })
+    expect(set.structuredContent.status).toBe('APPLIED')
+    const reset = await call('venues.propose_guest_model_reset', {
+      tenantId,
+      venueId,
+      operationId: randomUUID(),
+    })
+    expect(reset.structuredContent.status).toBe('APPLIED')
+    const row = await db.aiScopedWorkloadConfigurationOverride.findFirstOrThrow({
+      where: { tenantId, venueId, workloadId: 'guest-chat' },
+    })
+    expect(row).toMatchObject({
+      timeoutMs: 9000,
+      timeoutMsSet: true,
+      primaryModelKeySet: false,
+      isTombstone: false,
+    })
+    const after = await call('venues.get_guest_model', { tenantId, venueId })
+    expect(after.structuredContent.effective.source).not.toBe('VENUE_OVERRIDE')
+    expect(after.structuredContent.venueOverride.otherSettings).toEqual(['timeoutMs'])
+  })
+
+  it('limits a real read-only OAuth grant to its tenant and refuses model writes', async () => {
+    const foreignTenantId = `authoring-other-${suffix}`
+    const foreignVenueId = await withTenantIsolationBypass(async () => {
+      await db.tenant.create({
+        data: { id: foreignTenantId, name: 'Silver Birch Museum', slug: foreignTenantId },
+      })
+      const created = await createVenueAction({
+        tenantId: foreignTenantId,
+        actor: { type: 'HUMAN', id: ownerId, role: 'OWNER' },
+        name: 'Silver Birch Museum',
+        baseSlug: `silver-birch-${suffix}`,
+        callerSuppliedSlug: true,
+        guideMode: 'non_location',
+      })
+      return created.record.id
+    })
+    const originalAccess = access
+    const before = await call('venues.get_guest_model', { tenantId, venueId })
+    const proposalCount = await db.operatorProposal.count({ where: { targetTenantId: tenantId } })
+    try {
+      access = await connect({
+        tenantIds: [tenantId],
+        capabilities: ['operator:read', 'venues:read'],
+      })
+      const manual = await call('operator.get_manual', { section: 'venue-authoring' })
+      expect(manual.isError).toBe(false)
+      const own = await call('venues.get_guest_model', { tenantId, venueId })
+      expect(own.structuredContent).toEqual(before.structuredContent)
+      const foreign = await call('venues.get_guest_model', {
+        tenantId: foreignTenantId,
+        venueId: foreignVenueId,
+      })
+      expect(foreign.structuredContent.error).toBe('NOT_FOUND')
+      expect(foreign.structuredContent.effective).toBeUndefined()
+      const write = await call('venues.propose_guest_model', {
+        tenantId,
+        venueId,
+        modelKey: 'guest-chat-terra-fast',
+        operationId: randomUUID(),
+      })
+      expect(write.structuredContent.error).toBe('CAPABILITY_DENIED')
+      expect(await db.operatorProposal.count({ where: { targetTenantId: tenantId } })).toBe(
+        proposalCount,
+      )
+      const after = await call('venues.get_guest_model', { tenantId, venueId })
+      expect(after.structuredContent).toEqual(before.structuredContent)
+    } finally {
+      access = originalAccess
     }
   })
 })

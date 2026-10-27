@@ -585,6 +585,38 @@ describe('venues.propose_guest_model', () => {
 })
 
 describe('venues.propose_guest_model_reset', () => {
+  it.each([
+    ['venues.propose_guest_model', 'guest-chat-sol-fast'],
+    ['venues.propose_guest_model', 'guest-chat-sol'],
+    ['venues.propose_guest_model_reset', undefined],
+  ])('refuses a late concurrent update during %s (%s)', async (tool, modelKey) => {
+    const { world, database, call } = harness()
+    await call('venues.propose_guest_model', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      modelKey: 'guest-chat-terra-fast',
+      operationId: randomUUID(),
+    })
+    const updateProposal = database.operatorProposal.updateMany
+    database.operatorProposal.updateMany = async (input: Row) => {
+      // A dashboard edit lands after the proposal's version check but before its domain write.
+      if (input.data.applyStartedAt) {
+        Object.assign(venueOverride(world)!, { primaryModelKey: 'guest-chat-sol', revision: 2 })
+      }
+      return updateProposal(input)
+    }
+    const result = await call(tool!, {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      expectedRevision: 1,
+      ...(modelKey ? { modelKey } : {}),
+      operationId: randomUUID(),
+    })
+    expect(result.status).toBe('STALE')
+    expect(venueOverride(world)).toMatchObject({ primaryModelKey: 'guest-chat-sol', revision: 2 })
+    expect(world.history).toHaveLength(1)
+  })
+
   it('returns the venue to the inherited default and is a no-op when nothing is set', async () => {
     process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-sol-fast'
     const { world, call } = harness()

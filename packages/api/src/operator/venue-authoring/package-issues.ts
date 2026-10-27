@@ -156,7 +156,9 @@ function unrecognized(issue: Extract<Issue, { code: 'unrecognized_keys' }>): Pac
     const known =
       key === 'description' && where === 'knowledge entry'
         ? MISPLACED_KEYS.body
-        : MISPLACED_KEYS[key]
+        : Object.hasOwn(MISPLACED_KEYS, key)
+          ? MISPLACED_KEYS[key]
+          : undefined
     // A place legitimately has name and a knowledge entry title; only flag the swapped one.
     const swapped =
       (key === 'name' && where !== 'knowledge entry') || (key === 'title' && where !== 'place')
