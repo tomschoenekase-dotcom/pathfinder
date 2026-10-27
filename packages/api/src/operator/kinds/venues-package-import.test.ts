@@ -401,7 +401,9 @@ describe('venues.check_package', () => {
     )
     expect(result.importable).toBe(false)
     expect(result.errorCount).toBeGreaterThan(0)
-    expect(result.errors[0].code).toBe('INVALID_PACKAGE')
+    // Each schema problem names its own code, the field and a fix (was one generic INVALID_PACKAGE).
+    expect(result.errors[0]).toMatchObject({ code: 'WRONG_TYPE', path: 'places' })
+    expect(result.errors[0].fix).toMatch(/places/u)
     expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
     expect(mocks.preview).not.toHaveBeenCalled()
   })

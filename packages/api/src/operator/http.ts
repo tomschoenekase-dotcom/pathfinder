@@ -322,6 +322,15 @@ const ERROR_GUIDANCE: Readonly<Record<string, ErrorGuidance>> = {
 }
 
 /** The structured error a caller sees: stable code, retryability, request id and a safe next step. */
+/** Where to get field-level help when a tool's arguments are refused. */
+const INVALID_ARGUMENT_HINTS: Readonly<Record<string, string>> = {
+  'venues.propose_package_import':
+    'Run venues.check_package with the same payload or file: it names each field, the fix and a valid example, and changes nothing.',
+  'venues.propose_guest_model':
+    'modelKey must be one of the listed allowed values. venues.get_guest_model lists each with its API model, Fast mode and price.',
+  'operator.get_manual': 'section is optional: "full" or "venue-authoring".',
+}
+
 export function errorBody(
   code: string,
   name: string,
@@ -478,7 +487,7 @@ export async function handleOperatorMcpRequest(
                 capabilities: { tools: { listChanged: false } },
                 serverInfo: { name: 'torchiko-operator', version: '1.2.0' },
                 instructions:
-                  'Call operator.get_context and operator.get_manual first. Routine authorized CRM writes can apply immediately. Read each result; show the approveUrl only when a proposal remains PENDING. CSV attachments use crm.stage_csv_import before crm.propose_import_commit. An attached venue package .json goes to venues.check_package as file until ready is true, then to venues.propose_package_import as file; venues.get_guest_link returns the visitor chatbot link.',
+                  'Call operator.get_context and operator.get_manual first. Routine authorized CRM writes can apply immediately. Read each result; show the approveUrl only when a proposal remains PENDING. CSV attachments use crm.stage_csv_import before crm.propose_import_commit. To build or change a venue guide, first call operator.get_manual with section "venue-authoring" (the authoring contract, examples and the package JSON Schema). A venue package (inline or an attached .json file) goes to venues.check_package until ready is true, then to venues.propose_package_import; an applied import is visible to visitors only once the venue is published. venues.get_guest_link returns the visitor chatbot link. venues.get_guest_model lists the visitor chat models for one venue.',
               },
             },
             requestId,
@@ -623,7 +632,12 @@ async function callTool(
                 code: issue.code,
                 // Only our own refinement text is echoed; built-in messages can quote input.
                 ...(issue.code === 'custom' ? { message: issue.message } : {}),
+                // The accepted values are server constants (never input), e.g. model keys.
+                ...(issue.code === 'invalid_value'
+                  ? { allowed: issue.values.slice(0, 20).map((value) => String(value)) }
+                  : {}),
               })),
+              ...(INVALID_ARGUMENT_HINTS[name] ? { hint: INVALID_ARGUMENT_HINTS[name] } : {}),
             })
           : errorBody(
               code,

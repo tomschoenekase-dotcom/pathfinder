@@ -113,7 +113,8 @@ Include at least one venue field, place, or knowledge entry.
   `dmSans`, or `playfair`), `chatLogoUrl`, and `chatBannerUrl`. Every field is nullable; URLs are
   limited to 500 characters. URLs are references only; the package does not upload or host assets.
 - `aiBehavior`: `aiGuideNotes` (up to 2,000 characters), `aiTone` (`FRIENDLY`, `PROFESSIONAL`, or
-  `PLAYFUL`), and `aiGuideName` (up to 80 characters). Every field is nullable.
+  `PLAYFUL`), `tonePreset` (`friendly`, `concise`, `enthusiastic`, or `informative`; not nullable),
+  and `aiGuideName` (up to 80 characters). The other fields are nullable.
 
 Each included nested patch object must contain at least one field.
 
@@ -264,8 +265,10 @@ review evidence.
 
 ## Agent workflow (operator MCP)
 
-Agents building venues follow the operator manual ("Writing guide records", "Structure that makes a
-venue answer well", "Check before you import"). The loop:
+Agents building venues start with `operator.get_manual` and `section` `venue-authoring`
+(`docs/operator/venue-authoring.md`): the authoring contract, tested examples and the schemaVersion 3
+JSON Schema generated from the runtime validator. It builds on the operator manual ("Writing guide
+records", "Structure that makes a venue answer well", "Check before you import"). The loop:
 
 1. Write the package to the writing guide.
 2. Run `venues.check_package` with the file or payload. It saves nothing and calls no model. Fix
