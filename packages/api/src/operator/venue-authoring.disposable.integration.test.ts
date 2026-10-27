@@ -228,6 +228,9 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
   })
 
   afterAll(async () => {
+    // Imports queue embedding work for this test tenant. The outbox is leased across tenants, so
+    // leave none behind for later suites on the shared disposable database.
+    await db.embeddingDispatch.deleteMany({ where: { tenantId } })
     process.env.OPERATOR_APPROVAL_MODE = 'review'
     delete process.env.NEXT_PUBLIC_WEB_URL
     await db.$disconnect()
