@@ -39,7 +39,8 @@ release SHA still requires exact-head checks, CI, new captures and formal blind 
   queue invariant for this release only, replacing the historical all-zero requirement.
 
 Use the separate `release269-queue-preservation.mjs` checker and its versioned proof.
-The staging CLI selects it explicitly with `--preserve-dormant-queues`; its default
+The staging web predeploy configuration selects it explicitly with
+`--preserve-dormant-queues`; the standalone CLI default
 remains the all-zero check. Production's private adapter supplies the same versioned
 proof from its pinned read-only connection. Never relabel an all-zero receipt.
 The new proof requires two snapshots at least 30 seconds apart, identical counts,

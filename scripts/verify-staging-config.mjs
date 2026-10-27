@@ -20,7 +20,7 @@ const services = [
     dockerfile: 'Dockerfile.web.staging',
     healthcheckPath: '/api/health',
     preDeployCommand: [
-      `sh -c 'node /migration/scripts/run-release269-migration.mjs; code=$?; printf "{\\"kind\\":\\"staging-predeploy-process-exit\\",\\"exitCode\\":%s}\\n" "$code"; exit "$code"'`,
+      `sh -c 'node /migration/scripts/run-release269-migration.mjs --preserve-dormant-queues; code=$?; printf "{\\"kind\\":\\"staging-predeploy-process-exit\\",\\"exitCode\\":%s}\\n" "$code"; exit "$code"'`,
     ],
   },
   {
