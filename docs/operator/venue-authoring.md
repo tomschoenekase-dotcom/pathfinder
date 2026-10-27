@@ -111,9 +111,10 @@ There are no relationship, parent or audience fields. Do not invent them.
 - **Unknown.** Leave the fact out. Never fill a required field or a labeled line with a guess or a
   placeholder (`Price: TBD`). If visitors need to know something is unconfirmed, say it once in
   visitor terms: "Ask at the grill counter about nut cross-contact before ordering."
-- **Conflicting sources.** State the best-supported fact (for a safety rule, the safer one) and keep
-  the conflict in your ledger. If the true answer varies, say how it varies ("Hours can change on
-  holiday weekends; Guest Services has the day's hours").
+- **Conflicting sources.** Verify the facts against the authoritative source before choosing one;
+  never invent a stricter or looser safety rule. Keep the conflict in your ledger. If unresolved,
+  state the uncertainty and direct visitors to staff. If the true answer varies, say how it varies
+  ("Hours can change on holiday weekends; Guest Services has the day's hours").
 - **Seasonal and recurring.** Always write the year. When a season has ended, say so and say what is
   known about the next one: "The 2026 season ended September 7. 2027 dates are not announced yet."
   Never invent next year's dates.
