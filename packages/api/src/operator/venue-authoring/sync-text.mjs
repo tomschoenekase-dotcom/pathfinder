@@ -3,7 +3,9 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-const doc = fileURLToPath(new URL('../../../../../docs/operator/venue-authoring.md', import.meta.url))
+const doc = fileURLToPath(
+  new URL('../../../../../docs/operator/venue-authoring.md', import.meta.url),
+)
 const out = fileURLToPath(new URL('./venue-authoring-text.ts', import.meta.url))
 const text = readFileSync(doc, 'utf8').replaceAll('\r\n', '\n')
 writeFileSync(

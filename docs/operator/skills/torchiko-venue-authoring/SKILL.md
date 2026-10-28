@@ -46,7 +46,7 @@ Only with authorization for that venue.
 - Test on the live guide. After gate 2 passes and the owner authorizes it, `venues.propose_publish`
   makes the guide reachable by its link; an unshared link is the test environment. Never share
   the link. There is one environment: change a guide visitors already use outside venue hours.
-- Ask at least 20 visitor-style questions on the live guide (see the gate 4 list in the manual)
+- Ask at least 25 visitor-style questions on the live guide (see the gate 4 list in the manual)
   and check each answer against the ledger. Then check the guest page at phone width and
   desktop.
 - Record a re-check date: the earliest date any record goes out of date (`EXPIRES_SOON`), so
