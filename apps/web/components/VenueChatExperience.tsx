@@ -523,6 +523,7 @@ export function VenueChatExperience({
       let completed = false
       const subscription = stream.subscribe(turn.input, {
         onData(event) {
+          if (completed) return
           if (event.type === 'delta') {
             applyStreamDelta(turn, event.delta)
             return
@@ -757,7 +758,7 @@ export function VenueChatExperience({
         activeStreamRef.current = null
       }
       if (activeOperationRef.current === turn.operationId) {
-        if (!reconciliationRequiredRef.current) setIsSending(false)
+        setIsSending(false)
         activeOperationRef.current = null
       }
     }

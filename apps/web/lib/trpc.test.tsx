@@ -1,7 +1,7 @@
 import React from 'react'
 import { render, waitFor } from '@testing-library/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TRPCProvider, useTRPCClient, type WebTRPCClient } from './trpc'
 
@@ -226,5 +226,121 @@ describe('TRPCProvider', () => {
     subscription.unsubscribe()
     fetchMock.mockRestore()
     vi.useRealTimers()
+  })
+})
+
+describe('chat stream terminal delivery', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+  function subscribe(body: ReadableStream<Uint8Array>, validPolicy = true) {
+    const captures: Array<{ client: WebTRPCClient }> = []
+    render(
+      <TRPCProvider scopeKey="venue:terminal">
+        <ClientProbe onCapture={(capture) => captures.push(capture as { client: WebTRPCClient })} />
+      </TRPCProvider>,
+    )
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(body, {
+        headers: {
+          'cache-control': validPolicy ? 'no-store' : 'public',
+          'content-type': 'application/x-ndjson',
+        },
+      }),
+    )
+    const observer = { onData: vi.fn(), onComplete: vi.fn(), onError: vi.fn() }
+    const subscription = chatStreamClient(captures.at(-1)!.client).chat.stream.subscribe(
+      {
+        venueId: 'fictional-museum',
+        anonymousToken: '123e4567-e89b-42d3-a456-426614174000',
+        message: 'Where is the gallery?',
+      },
+      observer,
+    )
+    return { ...observer, subscription }
+  }
+  it.each(['', '{"type":"error"}\n', '{broken JSON}\n'])(
+    'settles at complete without EOF and ignores trailing data %s',
+    async (tail) => {
+      const cancel = vi.fn(() => new Promise<void>(() => undefined))
+      const observer = subscribe(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                '{"type":"complete","result":{"response":"Beside the gallery."}}\n' + tail,
+              ),
+            )
+          },
+          cancel,
+        }),
+      )
+      try {
+        await waitFor(() => expect(observer.onComplete).toHaveBeenCalledOnce())
+        expect(observer.onData).toHaveBeenCalledOnce()
+        expect(observer.onError).not.toHaveBeenCalled()
+        expect(cancel).toHaveBeenCalledOnce()
+      } finally {
+        observer.subscription.unsubscribe()
+      }
+    },
+  )
+  it.each(['timeout', 'error', 'invalid-policy'])(
+    'delivers %s even if cancellation never settles',
+    async (failure) => {
+      vi.useFakeTimers()
+      const cancel = vi.fn(() => new Promise<void>(() => undefined))
+      const observer = subscribe(
+        new ReadableStream({
+          start(controller) {
+            if (failure === 'error')
+              controller.enqueue(new TextEncoder().encode('{"type":"error"}\n'))
+          },
+          cancel,
+        }),
+        failure !== 'invalid-policy',
+      )
+      try {
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(observer.onError).toHaveBeenCalledOnce()
+        expect(observer.onComplete).not.toHaveBeenCalled()
+        expect(cancel).toHaveBeenCalledOnce()
+      } finally {
+        observer.subscription.unsubscribe()
+      }
+    },
+  )
+  it('reports incomplete EOF as failure', async () => {
+    const observer = subscribe(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode('{"type":"delta","delta":"Visible answer"}\n'),
+          )
+          controller.close()
+        },
+      }),
+    )
+    await waitFor(() => expect(observer.onError).toHaveBeenCalledOnce())
+    expect(observer.onComplete).not.toHaveBeenCalled()
+    expect(observer.onData).toHaveBeenCalledOnce()
+  })
+  it('preserves split UTF-8 characters and a final event without a newline', async () => {
+    const answer = 'Caf\u00e9 \u2014 \u65e5\u672c \ud83e\udd8a'
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ type: 'complete', result: { response: answer } }),
+    )
+    const observer = subscribe(
+      new ReadableStream({
+        start(controller) {
+          for (const byte of bytes) controller.enqueue(Uint8Array.of(byte))
+          controller.close()
+        },
+      }),
+    )
+    await waitFor(() => expect(observer.onComplete).toHaveBeenCalledOnce())
+    expect(observer.onData).toHaveBeenCalledWith({ type: 'complete', result: { response: answer } })
+    expect(observer.onError).not.toHaveBeenCalled()
   })
 })

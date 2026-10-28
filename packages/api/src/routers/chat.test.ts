@@ -51,8 +51,15 @@ vi.mock('@pathfinder/ai/guest-web-search-accounting', () => ({ searchGuestWebWit
 const coverageReadControls = vi.hoisted(() => ({ fail: false, mismatch: false, projections: 0 }))
 vi.mock('../lib/guest-venue-directory', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/guest-venue-directory')>()
-  return { ...original, loadGuestVenueDirectoryCached: (...args: Parameters<typeof original.loadGuestVenueDirectoryCached>) =>
-    coverageReadControls.fail ? Promise.reject(new Error('fictional directory unavailable')) : original.loadGuestVenueDirectoryCached(...args) }
+  return {
+    ...original,
+    loadGuestVenueDirectoryCached: (
+      ...args: Parameters<typeof original.loadGuestVenueDirectoryCached>
+    ) =>
+      coverageReadControls.fail
+        ? Promise.reject(new Error('fictional directory unavailable'))
+        : original.loadGuestVenueDirectoryCached(...args),
+  }
 })
 const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
 const guestTurnActions = vi.hoisted(() => ({
@@ -75,28 +82,31 @@ vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }
 vi.mock('@pathfinder/db', async (importOriginal) => {
   const originalDb = await importOriginal<typeof import('@pathfinder/db')>()
   return {
-  ...originalDb,
-  applyNativeGuestContentRead: (input: Parameters<typeof import('@pathfinder/db').applyNativeGuestContentRead>[0]) => {
-    const original = originalDb.applyNativeGuestContentRead(input)
-    coverageReadControls.projections += 1
-    return coverageReadControls.mismatch && coverageReadControls.projections === 2
-      ? { ...original, path: 'NATIVE' as const } : original
-  },
-  searchPlacesByEmbedding: semanticSearch.places,
-  searchKnowledgeByEmbedding: semanticSearch.knowledge,
-  reserveGuestChatTurnAction: guestTurnActions.reserve,
-  claimGuestChatTurnAction: guestTurnActions.claim,
-  markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
-  skipGuestChatProviderOperationAction: guestTurnActions.skip,
-  observeGuestChatProviderOperationAction: guestTurnActions.observe,
-  failGuestChatTurnAction: guestTurnActions.fail,
-  finalizeGuestChatTurnAction: guestTurnActions.finalize,
-  readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
-  resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
-  resolveNativeGuestReadSnapshotAction,
-  readActiveUnhealthyAiProviders,
-  isGuestConversationDisposed,
-  recordConversationLearningCandidate,
+    ...originalDb,
+    applyNativeGuestContentRead: (
+      input: Parameters<typeof import('@pathfinder/db').applyNativeGuestContentRead>[0],
+    ) => {
+      const original = originalDb.applyNativeGuestContentRead(input)
+      coverageReadControls.projections += 1
+      return coverageReadControls.mismatch && coverageReadControls.projections === 2
+        ? { ...original, path: 'NATIVE' as const }
+        : original
+    },
+    searchPlacesByEmbedding: semanticSearch.places,
+    searchKnowledgeByEmbedding: semanticSearch.knowledge,
+    reserveGuestChatTurnAction: guestTurnActions.reserve,
+    claimGuestChatTurnAction: guestTurnActions.claim,
+    markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+    skipGuestChatProviderOperationAction: guestTurnActions.skip,
+    observeGuestChatProviderOperationAction: guestTurnActions.observe,
+    failGuestChatTurnAction: guestTurnActions.fail,
+    finalizeGuestChatTurnAction: guestTurnActions.finalize,
+    readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
+    resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
+    resolveNativeGuestReadSnapshotAction,
+    readActiveUnhealthyAiProviders,
+    isGuestConversationDisposed,
+    recordConversationLearningCandidate,
   }
 })
 
@@ -663,6 +673,236 @@ describe('chat router', () => {
   // --- chat.send ---
 
   describe('chat.send', () => {
+    function setupStreamingAnswer(answer = 'The gallery is beside the courtyard.') {
+      setupHappyPath(answer)
+      _setAnthropicClientForTesting({
+        messages: {
+          create: anthropicCreate,
+          stream: vi.fn(() => ({
+            async *[Symbol.asyncIterator]() {
+              yield {
+                type: 'content_block_delta',
+                delta: { type: 'text_delta', text: answer },
+              }
+            },
+            finalMessage: vi.fn().mockResolvedValue({
+              content: [{ type: 'text', text: answer }],
+              usage: { input_tokens: 20, output_tokens: 10 },
+            }),
+          })),
+        },
+      } as unknown as AnthropicMessagesClient)
+    }
+
+    async function drainDiagnosticTail() {
+      // All other fixture work resolves immediately. Drain its promise continuations
+      // before beforeEach resets the shared mocks for another turn.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
+
+    it.each(['resolve', 'reject'] as const)(
+      'does not complete a stream before durable finalization %s',
+      async (outcome) => {
+        setupStreamingAnswer()
+        const finalize = guestTurnActions.finalize.getMockImplementation()!
+        let finish!: () => void
+        guestTurnActions.finalize.mockImplementationOnce(
+          (...args) =>
+            new Promise((resolve, reject) => {
+              finish = () =>
+                outcome === 'resolve'
+                  ? resolve(finalize(...args))
+                  : reject(new Error('fictional commit unavailable'))
+            }),
+        )
+        const events: Array<{ type: string }> = []
+        let failure: unknown
+        let closed = false
+        const reading = (async () => {
+          try {
+            for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+          } catch (error) {
+            failure = error
+          } finally {
+            closed = true
+          }
+        })()
+        try {
+          await vi.waitFor(() => expect(guestTurnActions.finalize).toHaveBeenCalledOnce())
+          expect(events).toEqual([expect.objectContaining({ type: 'delta' })])
+          expect(closed).toBe(false)
+          expect(emitEvent).not.toHaveBeenCalled()
+        } finally {
+          finish()
+          await reading
+          await drainDiagnosticTail()
+        }
+        expect(events.filter((event) => event.type === 'complete')).toHaveLength(
+          outcome === 'resolve' ? 1 : 0,
+        )
+        if (outcome === 'reject') expect(failure).toBeInstanceOf(Error)
+        else expect(failure).toBeUndefined()
+      },
+    )
+
+    it.each(['resolve', 'reject'] as const)(
+      'completes a committed stream before slow conversation learning %s',
+      async (outcome) => {
+        setupStreamingAnswer('Thank you for the correction.')
+        let finish!: () => void
+        recordConversationLearningCandidate.mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              finish = () =>
+                outcome === 'resolve'
+                  ? resolve()
+                  : reject(new Error('fictional learning store unavailable'))
+            }),
+        )
+        const events: Array<{ type: string }> = []
+        let closed = false
+        const reading = (async () => {
+          for await (const event of streamChatTurn(ctx, {
+            ...sendInput,
+            message: 'The elephant exhibit is on the second floor.',
+          }))
+            events.push(event)
+          closed = true
+        })()
+        try {
+          await vi.waitFor(() => expect(recordConversationLearningCandidate).toHaveBeenCalledOnce())
+          expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+          expect(emitEvent).not.toHaveBeenCalled()
+          await vi.waitFor(() => expect(closed).toBe(true), { timeout: 200 })
+          expect(events.at(-1)).toMatchObject({
+            type: 'complete',
+            result: { response: 'Thank you for the correction.', replyKind: 'ANSWER' },
+          })
+        } finally {
+          finish()
+          await reading
+          await drainDiagnosticTail()
+        }
+        expect(events.filter((event) => event.type === 'complete')).toHaveLength(1)
+        expect(emitEvent).toHaveBeenCalledWith(
+          expect.objectContaining({ eventType: 'message.received' }),
+        )
+        if (outcome === 'reject')
+          expect(configLogger.warn).toHaveBeenCalledWith(
+            expect.objectContaining({ action: 'conversation-learning.capture-failed' }),
+          )
+      },
+    )
+
+    it.each(['resolve', 'reject'] as const)(
+      'completes a durable fallback before slow failure telemetry %s',
+      async (outcome) => {
+        setupHappyPath('Unused provider answer.')
+        _setAnthropicClientForTesting({
+          messages: {
+            create: anthropicCreate,
+            stream: vi.fn(() => ({
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  type: 'content_block_delta',
+                  delta: { type: 'text_delta', text: 'Partial answer.' },
+                }
+                throw Object.assign(new Error('fictional stream refusal'), { status: 400 })
+              },
+              finalMessage: vi.fn(),
+            })),
+          },
+        } as unknown as AnthropicMessagesClient)
+        let finish!: () => void
+        operationalEventUpsert.mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              finish = () =>
+                outcome === 'resolve'
+                  ? resolve({ id: 'event_1', state: 'OPEN', occurrenceCount: 1 })
+                  : reject(new Error('fictional telemetry store unavailable'))
+            }),
+        )
+        const events: Array<{ type: string }> = []
+        let closed = false
+        const reading = (async () => {
+          for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+          closed = true
+        })()
+        try {
+          await vi.waitFor(() => expect(operationalEventUpsert).toHaveBeenCalledOnce())
+          expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+          await vi.waitFor(() => expect(closed).toBe(true), { timeout: 200 })
+          expect(events.at(-1)).toMatchObject({
+            type: 'complete',
+            result: { replyKind: 'TEMPORARY_FALLBACK' },
+          })
+        } finally {
+          finish()
+          await reading
+          await drainDiagnosticTail()
+        }
+        expect(events.filter((event) => event.type === 'complete')).toHaveLength(1)
+        expect(emitEvent).toHaveBeenCalledWith(
+          expect.objectContaining({ eventType: 'message.received' }),
+        )
+      },
+    )
+
+    it.each(['resolve', 'reject'] as const)(
+      'completes a committed stream before slow analytics %s',
+      async (outcome) => {
+        setupHappyPath('The gallery is beside the courtyard.')
+        _setAnthropicClientForTesting({
+          messages: {
+            create: anthropicCreate,
+            stream: vi.fn(() => ({
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  type: 'content_block_delta',
+                  delta: { type: 'text_delta', text: 'The gallery is beside the courtyard.' },
+                }
+              },
+              finalMessage: vi.fn().mockResolvedValue({
+                content: [{ type: 'text', text: 'The gallery is beside the courtyard.' }],
+                usage: { input_tokens: 20, output_tokens: 10 },
+              }),
+            })),
+          },
+        } as unknown as AnthropicMessagesClient)
+        let finish!: () => void
+        emitEvent.mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              finish = () =>
+                outcome === 'resolve' ? resolve() : reject(new Error('analytics unavailable'))
+            }),
+        )
+        const events: unknown[] = []
+        let closed = false
+        const reading = (async () => {
+          for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+          closed = true
+        })()
+        try {
+          await vi.waitFor(() => expect(emitEvent).toHaveBeenCalled())
+          expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+          await vi.waitFor(() => expect(closed).toBe(true), { timeout: 200 })
+          expect(events.at(-1)).toEqual(
+            expect.objectContaining({
+              type: 'complete',
+              result: expect.objectContaining({ response: 'The gallery is beside the courtyard.' }),
+            }),
+          )
+        } finally {
+          finish()
+          await reading
+          await drainDiagnosticTail()
+        }
+        expect(events).toHaveLength(2)
+      },
+    )
+
     describe('public reply classification', () => {
       it.each([false, true])(
         'classifies a newly committed response, provider failure=%s',
@@ -1570,36 +1810,51 @@ describe('chat router', () => {
 
     it('reconciles an oversized capture as durable pre-dispatch failure without answer dispatch', async () => {
       setupHappyPath('Unused.', { ...venueRow, description: 'x'.repeat(160_001) })
-      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+      })
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(responseGenerationDispatches()).toHaveLength(0)
-      expect(guestTurnActions.fail).toHaveBeenCalledWith(expect.objectContaining({
-        claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
-      }))
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+        }),
+      )
       expect(guestTurnActions.finalize).not.toHaveBeenCalled()
       anthropicCreate.mockReset()
       setupHappyPath('Retry worked.')
-      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({ response: 'Retry worked.' })
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: 'Retry worked.',
+      })
       expect(anthropicCreate).toHaveBeenCalledOnce()
     })
 
     it('preflights oversized serialized source snapshots before answer dispatch', async () => {
       setupHappyPath('Unused.', { ...venueRow, description: '\u0001'.repeat(30_000) })
-      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+      })
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(responseGenerationDispatches()).toHaveLength(0)
-      expect(guestTurnActions.fail).toHaveBeenCalledWith(expect.objectContaining({
-        claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
-      }))
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+        }),
+      )
       expect(guestTurnActions.finalize).not.toHaveBeenCalled()
     })
 
     it('persists exact normally dispatched context after receipt preflight', async () => {
       setupHappyPath('A grounded answer.')
       const result = await caller.chat.send(sendInput)
-      const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
-      expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
-      expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+      const evidence =
+        guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+      expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
+        getConcatenatedSystemPrompt(),
+      )
+      expect(
+        verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+      ).toBe(true)
       expect(anthropicCreate).toHaveBeenCalledOnce()
     })
 
@@ -1614,29 +1869,40 @@ describe('chat router', () => {
         })
         semanticSearch.places.mockResolvedValue([])
         placeFindMany.mockReset().mockResolvedValue([])
-        venueKnowledgeEntryFindMany.mockResolvedValue([{
-          id: 'ember-hours',
-          title: 'Opening hours',
-          category: 'hours',
-          content: 'Hours: Ember House, 12 pm - 6 pm Saturday',
-          sourceType: 'FOUNDER_PROVIDED',
-          sourceName: 'Fictional visitor guide',
-          sourceUrl: null,
-          updatedAt: new Date('2026-10-16T00:00:00.000Z'),
-          lastReviewedAt: null,
-        }])
+        venueKnowledgeEntryFindMany.mockResolvedValue([
+          {
+            id: 'ember-hours',
+            title: 'Opening hours',
+            category: 'hours',
+            content: 'Hours: Ember House, 12 pm - 6 pm Saturday',
+            sourceType: 'FOUNDER_PROVIDED',
+            sourceName: 'Fictional visitor guide',
+            sourceUrl: null,
+            updatedAt: new Date('2026-10-16T00:00:00.000Z'),
+            lastReviewedAt: null,
+          },
+        ])
 
         const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
 
-        const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+        const evidence =
+          guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
         const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
         const system = callArgs.system as Array<{ type: string; text: string }>
         expect(evidence.system.dynamicPart).toContain('CURRENT POSTED HOURS CHECK:')
-        expect(evidence.system.dynamicPart).toContain("Saturday before Ember House's regular 12 pm opening time")
-        expect(evidence.system.dynamicPart).toContain('Ember House is closed now according to its posted hours')
+        expect(evidence.system.dynamicPart).toContain(
+          "Saturday before Ember House's regular 12 pm opening time",
+        )
+        expect(evidence.system.dynamicPart).toContain(
+          'Ember House is closed now according to its posted hours',
+        )
         expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
-        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
-        expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
+          getConcatenatedSystemPrompt(),
+        )
+        expect(
+          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+        ).toBe(true)
         expect(anthropicCreate).toHaveBeenCalledOnce()
       } finally {
         vi.useRealTimers()
@@ -1667,18 +1933,22 @@ describe('chat router', () => {
         }
         const currentHours = {
           ...staleHours,
-          content: 'Hours: Ember House, 8 am - 6 pm Saturday\n' + 'Current visitor guidance. '.repeat(1_000),
+          content:
+            'Hours: Ember House, 8 am - 6 pm Saturday\n' +
+            'Current visitor guidance. '.repeat(1_000),
           updatedAt: new Date('2026-10-16T00:00:00.000Z'),
         }
         // The cached directory has the old version; live lexical retrieval observes a
         // newer whole record that exceeds its 20k content budget and must be omitted.
-        venueKnowledgeEntryFindMany.mockImplementation(async (args: {
-          orderBy?: Array<Record<string, string>>
-        }) => args.orderBy?.[0]?.category === 'asc' ? [staleHours] : [currentHours])
+        venueKnowledgeEntryFindMany.mockImplementation(
+          async (args: { orderBy?: Array<Record<string, string>> }) =>
+            args.orderBy?.[0]?.category === 'asc' ? [staleHours] : [currentHours],
+        )
 
         const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
 
-        const evidence = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+        const evidence =
+          guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
         const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
         const system = callArgs.system as Array<{ type: string; text: string }>
         expect(getConcatenatedSystemPrompt()).not.toContain(staleHours.content)
@@ -1686,14 +1956,20 @@ describe('chat router', () => {
         expect(getConcatenatedSystemPrompt()).not.toContain('CURRENT POSTED HOURS CHECK:')
         expect(evidence.system.dynamicPart).not.toContain('regular 12 pm opening time')
         expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
-        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(getConcatenatedSystemPrompt())
-        expect(configLogger.info).toHaveBeenCalledWith(expect.objectContaining({
-          knowledgeInContextCount: 0,
-          retrievedCount: 0,
-          excludedCount: 1,
-          partialCoverage: true,
-        }))
-        expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
+        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
+          getConcatenatedSystemPrompt(),
+        )
+        expect(configLogger.info).toHaveBeenCalledWith(
+          expect.objectContaining({
+            knowledgeInContextCount: 0,
+            retrievedCount: 0,
+            excludedCount: 1,
+            partialCoverage: true,
+          }),
+        )
+        expect(
+          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+        ).toBe(true)
         expect(anthropicCreate).toHaveBeenCalledOnce()
       } finally {
         vi.useRealTimers()
@@ -1711,38 +1987,61 @@ describe('chat router', () => {
       const finalization = guestTurnActions.finalize.mock.calls[0]?.[0].input
       expect(finalization.replayMetadata).not.toHaveProperty('answerEvidence')
       expect(guestTurnActions.fail).not.toHaveBeenCalled()
-      expect(guestTurnActions.observe).toHaveBeenCalledWith(expect.objectContaining({
-        operation: expect.objectContaining({ kind: 'RESPONSE_GENERATION', outcomeCode: 'FAILED_FALLBACK' }),
-      }))
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RESPONSE_GENERATION',
+            outcomeCode: 'FAILED_FALLBACK',
+          }),
+        }),
+      )
       dbQueryRaw.mockResolvedValueOnce([generalWebVenue])
-      guestTurnActions.reserve.mockResolvedValueOnce({ state: 'COMPLETE',
-        turnId: '11111111-1111-4111-8111-111111111111', sessionId: SESSION_ID,
-        assistantMessageId: 'assistant-message-1', response: result.response,
-        replyKind: 'TEMPORARY_FALLBACK', places: [], citations: [], replayed: true })
+      guestTurnActions.reserve.mockResolvedValueOnce({
+        state: 'COMPLETE',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        sessionId: SESSION_ID,
+        assistantMessageId: 'assistant-message-1',
+        response: result.response,
+        replyKind: 'TEMPORARY_FALLBACK',
+        places: [],
+        citations: [],
+        replayed: true,
+      })
       await expect(caller.chat.send(generalWebInput)).resolves.toMatchObject({
-        response: result.response, replyKind: 'TEMPORARY_FALLBACK', replayed: true,
+        response: result.response,
+        replyKind: 'TEMPORARY_FALLBACK',
+        replayed: true,
       })
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(searchGuestWebWithAccounting).toHaveBeenCalledOnce()
       expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
-
     })
 
     it.each([
       { fail: false, mismatch: false, loadStatus: 'READY' },
       { fail: true, mismatch: false, loadStatus: 'LOAD_FAILED' },
       { fail: false, mismatch: true, loadStatus: 'PROJECTION_MISMATCH' },
-    ])('persists actual guide load status $loadStatus without failing generation', async ({ fail, mismatch, loadStatus }) => {
-      setupHappyPath('The fictional gallery is open.')
-      Object.assign(coverageReadControls, { fail, mismatch })
-      const result = await caller.chat.send(sendInput)
-      expect(result.response).toBe('The fictional gallery is open.')
-      const finalization = guestTurnActions.finalize.mock.calls[0]?.[0]
-      const evidence = finalization.input.replayMetadata.answerEvidence
-      const profile = evidence.sources.find((source: { kind: string }) => source.kind === 'VENUE_PROFILE')
-      expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({ mode: 'NONE', loadStatus })
-      expect(verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence })).toBe(true)
-    })
+    ])(
+      'persists actual guide load status $loadStatus without failing generation',
+      async ({ fail, mismatch, loadStatus }) => {
+        setupHappyPath('The fictional gallery is open.')
+        Object.assign(coverageReadControls, { fail, mismatch })
+        const result = await caller.chat.send(sendInput)
+        expect(result.response).toBe('The fictional gallery is open.')
+        const finalization = guestTurnActions.finalize.mock.calls[0]?.[0]
+        const evidence = finalization.input.replayMetadata.answerEvidence
+        const profile = evidence.sources.find(
+          (source: { kind: string }) => source.kind === 'VENUE_PROFILE',
+        )
+        expect(JSON.parse(profile.snapshot).guideCoverage).toMatchObject({
+          mode: 'NONE',
+          loadStatus,
+        })
+        expect(
+          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+        ).toBe(true)
+      },
+    )
 
     function getConcatenatedSystemPrompt() {
       const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
@@ -1832,16 +2131,29 @@ describe('chat router', () => {
         {
           primaryPlaceId: upper.id,
           displayName: 'First floor east gallery',
-          floor: { name: 'First floor', stableKey: 'first-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+          floor: {
+            name: 'First floor',
+            stableKey: 'first-floor',
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
         },
         {
           primaryPlaceId: lower.id,
           displayName: 'Second floor west gallery',
-          floor: { name: 'Second floor', stableKey: 'second-floor', tenantId: TENANT_ID, venueId: VENUE_ID },
+          floor: {
+            name: 'Second floor',
+            stableKey: 'second-floor',
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+          },
         },
       ])
 
-      await caller.chat.send({ ...sendInput, message: 'Tell me about Ember Cafe on the First floor' })
+      await caller.chat.send({
+        ...sendInput,
+        message: 'Tell me about Ember Cafe on the First floor',
+      })
 
       expect(venueLocationFindMany).toHaveBeenCalled()
       const prompt = getConcatenatedSystemPrompt()
@@ -1996,10 +2308,13 @@ describe('chat router', () => {
       const infoActions = configLogger.info.mock.calls.map(
         ([entry]) => (entry as { action?: string }).action,
       )
-      const readLog = configLogger.info.mock.calls[infoActions.lastIndexOf('guest-chat.native-content-read')]
+      const readLog =
+        configLogger.info.mock.calls[infoActions.lastIndexOf('guest-chat.native-content-read')]
       expect(readLog?.[0]).toMatchObject({ readPath: 'LEGACY', gateReason: 'NATIVE_READY' })
       // No other native read is logged after it, before the context-ready diagnostic.
-      expect(infoActions.slice(infoActions.lastIndexOf('guest-chat.native-content-read') + 1)).toEqual(
+      expect(
+        infoActions.slice(infoActions.lastIndexOf('guest-chat.native-content-read') + 1),
+      ).toEqual(
         infoActions.includes('guest-chat.context-ready') ? ['guest-chat.context-ready'] : [],
       )
     })

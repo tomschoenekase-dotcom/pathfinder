@@ -239,6 +239,7 @@ const CHAT_GLOBAL_INGRESS_LIMIT = 600
 const CHAT_INGRESS_VENUE_LIMIT = 120
 
 type ChatStreamSink = {
+  onCommittedResponse: (result: ChatSendResult) => void
   onTextDelta: (
     delta: string,
     timings: { providerFirstTextMs: number; requestFirstTextMs: number },
@@ -2434,6 +2435,28 @@ const chatReadRouter = router({
     }
     persistenceMs = elapsedMilliseconds(persistenceStartedAt)
 
+    const visibleCitations = selectGuestVisibleCitations({
+      visitorMessage: trimmedInput,
+      citations: finalized.citations,
+    })
+    const responseBlocks =
+      guestActionResponseBlocks(guestActionState, { ...finalized, citations: visibleCitations }) ??
+      guestCitationBlocks(visibleCitations)
+    const committedResponse = {
+      response: finalized.response,
+      replyKind: finalized.replyKind,
+      assistantMessageId: finalized.assistantMessageId,
+      sessionId: finalized.sessionId,
+      places: finalized.places,
+      citations: visibleCitations?.citations ?? [],
+      ...(responseBlocks ? { blocks: responseBlocks } : {}),
+      replayed: finalized.replayed,
+      providerFirstTextMs: streamProjection?.providerFirstTextMs() ?? null,
+      requestFirstTextMs: streamProjection?.requestFirstTextMs() ?? null,
+    }
+    // The durable turn is complete. Optional diagnostics must not hold the guest stream open.
+    activeStreamSink?.onCommittedResponse(committedResponse)
+
     if (fallbackFailureCode) {
       await recordGuestAiFailure(
         fallbackWasRouteExhaustion ? 'route-exhausted' : 'provider-failure',
@@ -2740,25 +2763,7 @@ const chatReadRouter = router({
       }
     }
 
-    const visibleCitations = selectGuestVisibleCitations({
-      visitorMessage: trimmedInput,
-      citations: finalized.citations,
-    })
-    const responseBlocks =
-      guestActionResponseBlocks(guestActionState, { ...finalized, citations: visibleCitations }) ??
-      guestCitationBlocks(visibleCitations)
-    return {
-      response: finalized.response,
-      replyKind: finalized.replyKind,
-      assistantMessageId: finalized.assistantMessageId,
-      sessionId: finalized.sessionId,
-      places: finalized.places,
-      citations: visibleCitations?.citations ?? [],
-      ...(responseBlocks ? { blocks: responseBlocks } : {}),
-      replayed: finalized.replayed,
-      providerFirstTextMs: streamProjection?.providerFirstTextMs() ?? null,
-      requestFirstTextMs: streamProjection?.requestFirstTextMs() ?? null,
-    }
+    return committedResponse
   }),
 
   /**
@@ -2994,22 +2999,27 @@ export async function* streamChatTurn(
   input: Parameters<ReturnType<typeof chatReadRouter.createCaller>['send']>[0],
 ): AsyncGenerator<ChatStreamEvent, void, void> {
   const queue = new AsyncPushQueue<ChatStreamEvent>()
+  let completed = false
+  const complete = (result: ChatSendResult) => {
+    if (completed) return
+    completed = true
+    queue.push({ type: 'complete', result })
+    queue.close()
+  }
   void chatStreamSink
     .run(
       {
+        onCommittedResponse: complete,
         onTextDelta: (delta, timings) => {
           queue.push({ type: 'delta', delta, ...timings })
         },
       },
       () => chatReadRouter.createCaller(ctx).send(input),
     )
-    .then(
-      (result) => {
-        queue.push({ type: 'complete', result })
-        queue.close()
-      },
-      (error: unknown) => queue.fail(error),
-    )
+    .then(complete, (error: unknown) => {
+      if (!completed) queue.fail(error)
+      else logger.warn({ action: 'guest_chat.post_completion_failed' })
+    })
 
   yield* queue.iterate()
 }
