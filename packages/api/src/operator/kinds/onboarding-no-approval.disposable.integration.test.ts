@@ -454,7 +454,8 @@ describe.skipIf(!enabled)(
       })
       const dependencies = {
         config,
-        database: failing as typeof db,
+        // Query-only test extension; avoid recursively comparing Prisma's generated client types.
+        database: failing as unknown as typeof db,
         grant,
         kinds,
         now: new Date(),
@@ -473,7 +474,7 @@ describe.skipIf(!enabled)(
       )
       // Exercise tRPC's returned failure result as well as the MCP's rejected apply promise.
       const caller = venuePackageRouter.createCaller({
-        db: failing as typeof db,
+        db: failing as unknown as typeof db,
         headers: new Headers(),
         session: {
           userId: adminId,
