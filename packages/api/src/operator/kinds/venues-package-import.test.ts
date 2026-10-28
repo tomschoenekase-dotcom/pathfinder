@@ -8,6 +8,12 @@ const mocks = vi.hoisted(() => ({
   revert: vi.fn(),
   preview: vi.fn(),
   assertVenueInGrant: vi.fn(),
+  embeddingReadiness: vi.fn(),
+}))
+
+// The embedding coverage read is raw SQL; the disposable end-to-end test runs the real one.
+vi.mock('../venue-authoring/embedding-readiness', () => ({
+  packageEmbeddingReadiness: mocks.embeddingReadiness,
 }))
 
 vi.mock('../../routers/venue-package', () => ({ createVenuePackageDraftService: mocks.draft }))
@@ -74,6 +80,7 @@ const context = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.embeddingReadiness.mockResolvedValue([])
   mocks.draft.mockResolvedValue({
     value: {
       id: 'pkg-1',
@@ -225,6 +232,27 @@ describe('venues.check_package', () => {
     expect(mocks.draft).not.toHaveBeenCalled()
     expect(mocks.approve).not.toHaveBeenCalled()
     expect(mocks.apply).not.toHaveBeenCalled()
+  })
+
+  it('predicts the import refusal when existing records lack embeddings', async () => {
+    mocks.preview.mockResolvedValue({ report: report() })
+    mocks.embeddingReadiness.mockResolvedValue([
+      {
+        code: 'SEMANTIC_SCAN_INCOMPLETE',
+        path: 'places',
+        message: 'Existing places have no current search embeddings.',
+        fix: 'Ask the operator to run the venue embedding refresh, then check again.',
+      },
+    ])
+    const result: any = await venuesCheckPackage.handler(
+      { tenantId: TENANT, venueId: VENUE, payload },
+      context,
+    )
+    expect(result).toMatchObject({ importable: false, ready: false, errorCount: 1 })
+    expect(result.errors[0]).toMatchObject({ code: 'SEMANTIC_SCAN_INCOMPLETE', path: 'places' })
+    expect(result.errors[0].fix).toMatch(/embedding refresh/u)
+    expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
+    expect(mocks.draft).not.toHaveBeenCalled()
   })
 
   it('reports plan, errors and guide-quality findings without saving anything', async () => {
@@ -401,7 +429,9 @@ describe('venues.check_package', () => {
     )
     expect(result.importable).toBe(false)
     expect(result.errorCount).toBeGreaterThan(0)
-    expect(result.errors[0].code).toBe('INVALID_PACKAGE')
+    // Each schema problem names its own code, the field and a fix (was one generic INVALID_PACKAGE).
+    expect(result.errors[0]).toMatchObject({ code: 'WRONG_TYPE', path: 'places' })
+    expect(result.errors[0].fix).toMatch(/places/u)
     expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
     expect(mocks.preview).not.toHaveBeenCalled()
   })

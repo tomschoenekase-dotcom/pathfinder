@@ -1,3 +1,4 @@
+import { AI_CENTRAL_MODEL_REGISTRY, getAiModelSpec } from '@pathfinder/ai'
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 import {
@@ -10,6 +11,7 @@ import {
 import type { OperatorDatabase } from '../audit'
 import { assertVenueInGrant, OperatorNotFoundError } from '../grants'
 import {
+  describeGuestModelSource,
   GUEST_CHAT_WORKLOAD,
   GUEST_MODEL_CHOICES,
   guestModelAvailable,
@@ -36,6 +38,15 @@ type VenueArgs = Readonly<{
   venueId: string
   expectedRevision?: number | null | undefined
 }>
+
+/** Recheck at the domain boundary, including no-op paths, after the proposal-level check. */
+function assertExpectedRevision(args: VenueArgs, revision: number | null | undefined) {
+  if (args.expectedRevision !== undefined && args.expectedRevision !== (revision ?? null)) {
+    throw new OperatorStaleError(
+      'The venue model settings changed; read them again before retrying.',
+    )
+  }
+}
 
 /** The deployment has no execution key for the chosen model's provider; nothing was recorded. */
 export class GuestModelUnavailableError extends Error {
@@ -97,14 +108,51 @@ const sharedTarget = {
   snapshot: (args: VenueArgs, context: OperatorKindContext) => snapshot(context.database, args),
 }
 
+type Snapshot = { effectiveModelKey: string; effectiveSource: string }
+
+/** API model id and Fast mode for a resolved key, from the same registry routing uses. */
+function modelDetail(modelKey: string): { model: string | null; fastMode: boolean } {
+  const central = (AI_CENTRAL_MODEL_REGISTRY as Record<string, { model: string } | undefined>)[
+    modelKey
+  ]
+  const spec = central
+    ? (getAiModelSpec(modelKey as never) as { serviceTier?: string } | undefined)
+    : undefined
+  return { model: central?.model ?? null, fastMode: spec?.serviceTier === 'fast' }
+}
+
+/**
+ * The receipt: what answered this venue before, what answers it now and why, and that only this
+ * venue changed.
+ */
 async function outcome(
   context: OperatorApplyContext,
   args: VenueArgs,
+  before: JsonValue,
   result: Record<string, JsonValue>,
 ) {
   const after = await snapshot(context.database, args)
-  const effectiveModelKey = (after as { effectiveModelKey: string }).effectiveModelKey
-  return { result: { venueId: args.venueId, ...result, effectiveModelKey }, after }
+  const previous = before as Snapshot
+  const now = after as Snapshot
+  return {
+    result: {
+      venueId: args.venueId,
+      scope: 'this venue only',
+      ...result,
+      effectiveModelKey: now.effectiveModelKey,
+      previous: {
+        modelKey: previous.effectiveModelKey,
+        source: describeGuestModelSource(previous.effectiveSource).source,
+        ...modelDetail(previous.effectiveModelKey),
+      },
+      effective: {
+        modelKey: now.effectiveModelKey,
+        source: describeGuestModelSource(now.effectiveSource).source,
+        ...modelDetail(now.effectiveModelKey),
+      },
+    },
+    after,
+  }
 }
 
 /**
@@ -133,10 +181,12 @@ export const venuesGuestModelKind: OperatorProposalKind<SetArgs> = {
     ],
   }),
   apply: async (args, context) => {
+    const before = await snapshot(context.database, args)
     const row = await readVenueGuestModelOverride(context.database, args.tenantId, args.venueId)
+    assertExpectedRevision(args, row?.revision)
     const values = liveOverrideValues(row)
     if (row && !row.isTombstone && row.enabled && values.primaryModelKey === args.modelKey) {
-      return outcome(context, args, {
+      return outcome(context, args, before, {
         modelKey: args.modelKey,
         changed: false,
         revision: row.revision,
@@ -158,7 +208,7 @@ export const venuesGuestModelKind: OperatorProposalKind<SetArgs> = {
         context.database,
       ),
     )
-    return outcome(context, args, {
+    return outcome(context, args, before, {
       modelKey: args.modelKey,
       changed: true,
       revision: saved.revision,
@@ -187,10 +237,12 @@ export const venuesGuestModelResetKind: OperatorProposalKind<ResetArgs> = {
     ],
   }),
   apply: async (args, context) => {
+    const before = await snapshot(context.database, args)
     const row = await readVenueGuestModelOverride(context.database, args.tenantId, args.venueId)
+    assertExpectedRevision(args, row?.revision)
     const values = liveOverrideValues(row)
     if (!row || values.primaryModelKey === undefined) {
-      return outcome(context, args, { changed: false, revision: row?.revision ?? null })
+      return outcome(context, args, before, { changed: false, revision: row?.revision ?? null })
     }
     const reason = `${operatorReason(context.proposalId)}: ${args.reason ?? 'visitor chat model reset to default'}`
     const { primaryModelKey: _cleared, ...others } = values
@@ -220,7 +272,7 @@ export const venuesGuestModelResetKind: OperatorProposalKind<ResetArgs> = {
             context.database,
           ),
     )
-    return outcome(context, args, { changed: true, revision: saved.revision })
+    return outcome(context, args, before, { changed: true, revision: saved.revision })
   },
 }
 

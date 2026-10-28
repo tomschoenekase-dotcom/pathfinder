@@ -36,7 +36,7 @@ const clip = (text: string, max: number) =>
 const RESEARCH_TEXT =
   /\b(?:approximate (?:anchor|location|pin|research)|(?:feature|approach|area|building|canopy) anchor|this pin|test (?:pin|location)|epsg|aerial imagery|community[- ]mapped|researched|research (?:location|date|note)|as checked|checked (?:on )?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d|(?:official|ride|attraction|ticket|dining) page (?:lists|says|shows)|(?:listing|page) does not establish|does not establish|not (?:been )?verified|unverified|source caveats?|sources? (?:conflict|disagree)|summary chart|landmark appearance|visitor photo|photo credit|route (?:is )?not certified)\b/iu
 const RECORD_TALK =
-  /\b(?:this guide|the guide (?:does|has|lists)|(?:is|are) listed (?:as|on|in)|listed (?:on|in) the|published (?:menu|prices?|hours|requirements))\b/iu
+  /\b(?:this guide|the guide (?:does|has|lists)|(?:is|are) listed (?:as|on|in)|listed (?:on|in) the|published (?:menu|prices?|hours|requirements)|(?:covered|listed|confirmed|described|included) here)\b/iu
 const URL = /https?:\/\/\S+/giu
 const LINK_TOPIC = /\b(?:tickets?|admission|passes|booking|book|reserv|buy|gift cards?)\b/iu
 const RIDE_KIND = /\b(?:ride|coaster|attraction|slide)\b/iu
@@ -58,7 +58,7 @@ const NON_ENTITY_TITLE =
 // A sentence that talks about a source instead of the place: an account, report, panel, photo,
 // website or catalog as its subject, or a claim that a source does or does not prove something.
 const SOURCE_NARRATION =
-  /\b(?:(?:do|does|did) not (?:establish|prove)|(?:is|are|was) not (?:proof|evidence)|not (?:proof|evidence) (?:of|that)|(?:was|were) reported\b|reported that|an? (?:\d{4} |historical |dated |undated )?(?:account|report|appeal|panel|photo(?:graph)?|plaque) (?:connects|describes|recalls|shows|showed|dates|names|suggests)|photographed|(?:the|its) (?:website|web page|blog|catalog record) (?:separately )?(?:describes|says|lists|shows|does not)|recovered (?:date )?list|(?:museum|restoration|historical) (?:account|blog) (?:describes|recalls|leaves)|dated display report|(?:the )?sources? (?:do|does) not)\b/iu
+  /\b(?:(?:do|does|did) not (?:establish|prove)|(?:is|are|was) not (?:proof|evidence)|not (?:proof|evidence) (?:of|that)|(?:was|were) reported\b|reported that|an? (?:\d{4} |historical |dated |undated )?(?:account|report|appeal|panel|photo(?:graph)?|plaque) (?:connects|describes|recalls|shows|showed|dates|names|suggests)|photographed|(?:the|its) (?:website|web page|blog|catalog record) (?:separately )?(?:describes|says|lists|shows|does not)|recovered (?:date )?list|(?:museum|restoration|historical) (?:account|blog) (?:describes|recalls|leaves)|dated display report|(?:the )?sources? (?:do|does) not|(?:its|this|the) (?:web ?)?page (?:carries|describes|lists|says|shows|notes|mentions|states|labels)|(?:remains?|still) on the (?:web ?)?page|currently published (?:list|schedule|menu|page)|linked (?:menus?|menu material|pages?|pdfs?)|(?:notice|heading|listing) without a year|(?:the|this|its|same) (?:\d{4} |current )?(?:announcement|notice|press release) (?:says|describes|lists|shows))\b/iu
 // Safety cautions keep their wording even when it sounds like a disclaimer.
 const SAFETY_SENTENCE =
   /\b(?:allerg\w*|cross-contact|gluten|peanuts?|tree nuts?|height|restraints?|medical|pregnan\w*|weight limits?)\b/iu

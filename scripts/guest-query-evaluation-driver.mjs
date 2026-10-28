@@ -648,3 +648,53 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       process.exitCode = 1
     })
 }
+
+/** Review sheet for browser-captured answers; this path never invokes the paid driver. */
+export function renderVenueAnswerReview(result) {
+  const cell = (value) =>
+    String(value ?? '')
+      .replaceAll('|', '\\|')
+      .replace(/[\r\n]+/gu, ' ')
+      .replaceAll('<', '&lt;')
+  const lines = [
+    '# Live guide answer review',
+    '',
+    `Status: ${result.status}. Automatic grades do not establish a venue gate without ledger review.`,
+    '',
+    '| Question | Grade | Answer | Expected fact | Review reason | Evidence |',
+    '|---|---|---|---|---|---|',
+  ]
+  const rows = result.questions
+    ? result.questions.map(
+        (question) =>
+          result.answers.find((row) => row.question.id === question.id) || {
+            question,
+            answer: 'Not run',
+            screenshot: null,
+            grade: {
+              status: 'needs-human',
+              reasons: [
+                'No live answer captured; offline presence checks do not prove visitor testing',
+              ],
+            },
+          },
+      )
+    : result.answers
+  if (result.precheck)
+    lines.splice(
+      4,
+      0,
+      `Offline precheck: ${result.precheck.status}. Missing facts: ${cell(
+        result.precheck.checks
+          .flatMap((check) => check.missing)
+          .map((item) => item.id + ': ' + item.fact)
+          .join('; ') || 'none',
+      )}`,
+      '',
+    )
+  for (const row of rows)
+    lines.push(
+      `| ${cell(row.question.id + ': ' + row.question.question)} | ${row.grade.status} | ${cell(row.answer)} | ${cell(row.question.expect.map((expected) => expected.fact).join('; '))} | ${cell(row.grade.reasons.join('; '))} | ${row.screenshot ? `[Screenshot](${cell(row.screenshot.replaceAll('\\', '/'))})` : 'No screenshot'} |`,
+    )
+  return lines.join('\n') + '\n'
+}
