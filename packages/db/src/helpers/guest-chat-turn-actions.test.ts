@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 
 vi.mock('./guest-conversation-disposition', () => ({
@@ -45,6 +45,25 @@ function transactionClient(tx: Record<string, unknown>) {
 
 describe('guest chat turn actions', () => {
   describe('finalization conflict recovery', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => {
+      vi.restoreAllMocks()
+      vi.useRealTimers()
+    })
+
+    async function finalizeWithTimers(args: Parameters<typeof finalizeGuestChatTurnAction>[0]) {
+      // Attach rejection handling before advancing timers; failed attempts are
+      // expected and must not become unhandled promise rejections in Vitest.
+      const observed = finalizeGuestChatTurnAction(args).then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error }),
+      )
+      await vi.runAllTimersAsync()
+      const outcome = await observed
+      if ('error' in outcome) throw outcome.error
+      return outcome.result
+    }
+
     function fixture() {
       const input = {
         ...request,
@@ -130,7 +149,7 @@ describe('guest chat turn actions', () => {
             ? value.tx.visitorSession.updateMany
             : value.tx.guestChatTurn.updateMany
         write.mockRejectedValueOnce({ code: 'P2034' })
-        const result = await finalizeGuestChatTurnAction({
+        const result = await finalizeWithTimers({
           client: value.client,
           input: value.input,
         })
@@ -155,22 +174,35 @@ describe('guest chat turn actions', () => {
       },
     )
 
-    it('bounds P2034 to three total attempts and leaves all writes rolled back', async () => {
-      const value = fixture()
-      value.tx.guestChatTurn.updateMany.mockRejectedValue({
-        code: 'P2034',
-        message: 'private database detail',
-      })
-      await expect(
-        finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
-      ).rejects.toMatchObject({ code: 'CONFLICT' })
-      expect(value.transaction).toHaveBeenCalledTimes(3)
-      expect(value.state()).toMatchObject({
-        messageCount: 0,
-        messages: [],
-        turn: { status: 'GENERATING' },
-      })
-    })
+    it.each([0, 0.999999])(
+      'bounds P2034 to eight transactions and 6300ms sleep at jitter %s',
+      async (jitter) => {
+        vi.spyOn(Math, 'random').mockReturnValue(jitter)
+        const timeout = vi.spyOn(globalThis, 'setTimeout')
+        const value = fixture()
+        value.tx.guestChatTurn.updateMany.mockRejectedValue({
+          code: 'P2034',
+          message: 'private database detail',
+        })
+        await expect(
+          finalizeWithTimers({ client: value.client, input: value.input }),
+        ).rejects.toMatchObject({ code: 'CONFLICT' })
+        expect(value.transaction).toHaveBeenCalledTimes(8)
+        const waits = timeout.mock.calls.map((call) => call[1] as number)
+        expect(waits).toEqual(
+          jitter === 0
+            ? [50, 100, 200, 400, 800, 800, 800]
+            : [100, 200, 400, 800, 1600, 1600, 1600],
+        )
+        expect(waits.reduce((sum, wait) => sum + wait, 0)).toBeLessThanOrEqual(6300)
+        expect(vi.getTimerCount()).toBe(0)
+        expect(value.state()).toMatchObject({
+          messageCount: 0,
+          messages: [],
+          turn: { status: 'GENERATING' },
+        })
+      },
+    )
 
     it.each(['claim', 'request', 'provider', 'disposition'] as const)(
       'rechecks the %s fence after P2034 before any successful commit',
@@ -187,7 +219,7 @@ describe('guest chat turn actions', () => {
         })
         try {
           await expect(
-            finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+            finalizeWithTimers({ client: value.client, input: value.input }),
           ).rejects.toMatchObject({
             code:
               fence === 'provider'
@@ -230,7 +262,7 @@ describe('guest chat turn actions', () => {
         throw Object.assign(new Error('rolled-back conflict'), { code: 'P2034' })
       })
       await expect(
-        finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+        finalizeWithTimers({ client: value.client, input: value.input }),
       ).resolves.toMatchObject({
         state: 'COMPLETE',
         response: value.input.assistantResponse,
@@ -251,31 +283,35 @@ describe('guest chat turn actions', () => {
         .mockRejectedValueOnce({ code: first })
         .mockRejectedValueOnce({ code: second })
       await expect(
-        finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+        finalizeWithTimers({ client: value.client, input: value.input }),
       ).resolves.toMatchObject({ response: value.input.assistantResponse })
       expect(value.transaction).toHaveBeenCalledTimes(3)
       expect(value.state().messages).toHaveLength(2)
     })
 
     it('allows only one P2002 recovery attempt', async () => {
+      const timeout = vi.spyOn(globalThis, 'setTimeout')
       const value = fixture()
       const error = { code: 'P2002' }
       value.transaction.mockRejectedValue(error)
-      await expect(
-        finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
-      ).rejects.toBe(error)
+      await expect(finalizeWithTimers({ client: value.client, input: value.input })).rejects.toBe(
+        error,
+      )
       expect(value.transaction).toHaveBeenCalledTimes(2)
+      expect(timeout).not.toHaveBeenCalled()
     })
 
     it.each([{ code: 'P2028' }, new Error('unclassified failure')])(
       'does not retry a finalization error without explicit rollback classification',
       async (error) => {
+        const timeout = vi.spyOn(globalThis, 'setTimeout')
         const value = fixture()
         value.transaction.mockRejectedValue(error)
-        await expect(
-          finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
-        ).rejects.toBe(error)
+        await expect(finalizeWithTimers({ client: value.client, input: value.input })).rejects.toBe(
+          error,
+        )
         expect(value.transaction).toHaveBeenCalledOnce()
+        expect(timeout).not.toHaveBeenCalled()
       },
     )
   })

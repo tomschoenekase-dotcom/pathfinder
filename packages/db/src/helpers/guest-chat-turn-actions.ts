@@ -13,6 +13,21 @@ import { lockGuestChatTurnMutation } from './venue-content-lock'
 export const GUEST_CHAT_TURN_LEASE_MS = 2 * 60 * 1_000
 export const GUEST_CHAT_REQUEST_HASH_VERSION = 'guest-chat-turn-request-v1'
 
+const GUEST_CHAT_FINALIZATION_MAX_ATTEMPTS = 8
+const GUEST_CHAT_FINALIZATION_RETRY_BASE_MS = 100
+const GUEST_CHAT_FINALIZATION_RETRY_CAP_MS = 1_600
+
+async function waitForGuestChatFinalizationRetry(attempt: number): Promise<void> {
+  const ceiling = Math.min(
+    GUEST_CHAT_FINALIZATION_RETRY_CAP_MS,
+    GUEST_CHAT_FINALIZATION_RETRY_BASE_MS * 2 ** (attempt - 1),
+  )
+  // Independent turns can share B-tree predicate-lock pages. Spread retries
+  // after rollback so a burst does not repeatedly form the same SSI conflicts.
+  const delay = Math.floor(ceiling / 2 + Math.random() * (ceiling / 2 + 1))
+  await new Promise<void>((resolve) => setTimeout(resolve, delay))
+}
+
 const scopeSchema = z
   .object({
     tenantId: z.string().trim().min(1).max(191),
@@ -1497,18 +1512,25 @@ export async function finalizeGuestChatTurnAction(args: {
   // Retry only explicitly rolled-back serialization/deadlock failures. The
   // answer is already frozen: every attempt rereads all authority and claim
   // fences without repeating provider work. Keep the existing unique-conflict
-  // replay recovery, once, within the same three-transaction total bound.
+  // replay recovery, once, within the same eight-transaction total bound.
+  // Seven P2034 waits add at most 6,300ms; wait outside the rolled-back
+  // transaction, retaining no connection or lock while other turns complete.
   let retriedUniqueConflict = false
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await run()
     } catch (error) {
       if (isP2034(error)) {
-        if (attempt >= 3)
+        if (attempt >= GUEST_CHAT_FINALIZATION_MAX_ATTEMPTS)
           throw new GuestChatTurnActionError('CONFLICT', 'Session state changed concurrently.')
+        await waitForGuestChatFinalizationRetry(attempt)
         continue
       }
-      if (isP2002(error) && !retriedUniqueConflict && attempt < 3) {
+      if (
+        isP2002(error) &&
+        !retriedUniqueConflict &&
+        attempt < GUEST_CHAT_FINALIZATION_MAX_ATTEMPTS
+      ) {
         retriedUniqueConflict = true
         continue
       }
