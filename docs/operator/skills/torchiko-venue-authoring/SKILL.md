@@ -43,10 +43,14 @@ Only with authorization for that venue.
 - `venues.propose_package_import` once with a new UUID `operationId`. On an unclear outcome, keep
   the same `operationId` and follow the manual's import recovery. To correct an imported venue,
   use `venues.list_content` ids and v3 `update` operations, never a second `create`.
-- Drafts stay hidden until an authorized `venues.propose_publish`. Never publish only to get past
-  a gate.
-- Ask at least 20 visitor-style questions (see the gate 4 list in the manual) and check each
-  answer against the ledger. Then check the guest page at phone width and desktop.
+- Test on the live guide. After gate 2 passes and the owner authorizes it, `venues.propose_publish`
+  makes the guide reachable by its link; an unshared link is the test environment. Never share
+  the link. There is one environment: change a guide visitors already use outside venue hours.
+- Ask at least 20 visitor-style questions on the live guide (see the gate 4 list in the manual)
+  and check each answer against the ledger. Then check the guest page at phone width and
+  desktop.
+- Record a re-check date: the earliest date any record goes out of date (`EXPIRES_SOON`), so
+  someone updates the guide before it says something stale.
 - Report the highest gate with evidence. Blocked or unrun checks are reported as such, never as
   passes.
 

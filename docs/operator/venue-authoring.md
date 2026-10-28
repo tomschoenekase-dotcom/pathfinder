@@ -21,8 +21,11 @@ that did not run, and never claim a later gate from an earlier one.
 | 4. Visitor tested       | Real questions get grounded answers in the venue's own guide                                                              | At least 20 questions written as a visitor would ask them (not from record titles), covering hours today, prices, a named thing, a list ("what rides are there"), a family or access need, food, a follow-up, something the venue does not have, and something unknown. Each answer checked against the ledger: correct, complete for lists, and "not sure, ask staff" when unknown |
 | 5. Ready to demonstrate | A person can open it and it works                                                                                         | `venues.get_guest_link` says `usable`; the guest page checked at phone width (390 px) and desktop, including the keyboard; the gate 4 questions re-asked there; no stale or expiring record inside the demo window                                                                                                                                                                  |
 
-Gates 3 to 5 need a real venue and authorization (import, publish). If they are blocked, report
-them as blocked with the reason. Do not publish a draft only to get past a gate.
+Gates 3 to 5 need a real venue and the owner's authorization to import and publish. Gates 4 and
+5 are tested on the live guide: a published guide whose link has not been shared is the test
+environment, and no one else sees it until the owner shares the link. There is one environment,
+so make later changes to a guide that visitors already use outside the venue's opening hours. If a
+gate is blocked, report it as blocked with the reason.
 
 ## The workflow and what each step means
 
@@ -51,8 +54,8 @@ them as blocked with the reason. Do not publish a draft only to get past a gate.
      runbook, not an MCP tool), `errors` holds `SEMANTIC_SCAN_INCOMPLETE` and the import would be
      refused with nothing changed. Ask the operator for the venue-scoped refresh, then check
      again. The existing refresh requires an active venue; it does not work on an unpublished
-     draft. Do not publish a draft merely to clear this error. Finish its source/content review
-     and obtain publication authorization first, or leave the package unapplied. Keep global
+     draft. Publish only with the owner's authorization and only after gate 2 passes; until
+     then leave the package unapplied. Keep global
      worker flags unchanged. A successful check is not proof that embeddings are current for
      every record: it checks only the existing records relevant to this package's duplicate scan.
 3. **Import (a write).** `venues.propose_package_import` with the same package and a new UUID
