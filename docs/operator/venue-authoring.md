@@ -131,6 +131,31 @@ Records are linked by names, not by ids:
 
 There are no relationship, parent or audience fields. Do not invent them.
 
+### Keep list facts on the member too
+
+An overview helps answer lists; each member's own record must also answer questions about that
+member. Write `Juniper Grill — restaurant in East Mall.` on one overview line, and put
+`Juniper Grill is a restaurant in East Mall.` on the grill's own record (or use its `areaName`).
+Do not split the overview into `Juniper Grill — restaurant.` followed by `East Mall.` on a new line.
+
+Two authoring advisories help catch these mistakes. They never block `ready` or import:
+
+- `MEMBER_FACT_ONLY_IN_OVERVIEW` identifies a clearly attributed location on a dash-separated
+  overview entry that is absent from the matching member's own text or `areaName`. Add the
+  verified location to that record. If the record expresses the same location differently,
+  justify the finding instead of duplicating text.
+- `BROKEN_LIST_LINE` identifies a detached location fragment following a dash-separated member
+  in an overview. Join the member, kind and location on one line.
+
+These are conservative checks of overview topics and exact member names, not a completeness or
+fact-checking guarantee. They do not compare hours or prices, infer unnamed places, or reliably
+recognize every paraphrase, prose list or arbitrary area name. Review unflagged lists too.
+
+Keep cautions useful and specific: explain what varies and what a visitor should do. Remove
+repeated generic instructions to confirm everything, but keep necessary allergy, access and
+safety advice. There is no automatic caution-count threshold: frequency alone did not reliably
+separate excessive disclaimers from useful instructions in the evaluated corpus.
+
 ## Unknown, conflicting, seasonal and incomplete information
 
 - **Unknown.** Leave the fact out. Never fill a required field or a labeled line with a guess or a

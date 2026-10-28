@@ -19,6 +19,7 @@ type AuthoringRecord = {
   title: string
   fields: Field[]
   hours: string | null
+  area: string | null
 }
 
 const MONTH =
@@ -119,6 +120,7 @@ function placeFields(path: string, value: Record<string, unknown>): AuthoringRec
     title: String(value.name ?? ''),
     fields,
     hours: typeof value.hours === 'string' && value.hours ? value.hours : null,
+    area: typeof value.areaName === 'string' ? value.areaName : null,
   }
 }
 
@@ -129,6 +131,7 @@ function knowledgeFields(path: string, value: Record<string, unknown>): Authorin
     title: String(value.title ?? ''),
     fields: [{ path: `${path}.content`, text: String(value.content ?? '') }],
     hours: null,
+    area: null,
   }
 }
 
@@ -473,6 +476,105 @@ function nearDuplicateTopics(records: readonly AuthoringRecord[]): AuthoringFind
     }))
 }
 
+// Conservative list grammar: no inference from prose mentioning several members. Unknown
+// proper names and paraphrases can escape this advisory; it is not a completeness proof.
+const LIST_SEPARATOR = /\s+[—–-]\s+/u
+const LOCATION_START =
+  /^(?:near|at|in|inside|outside|above|below|beside|opposite|by|behind|next to|across from)\s+\S/iu
+const LOCATION_NOUN =
+  /\b(?:entrances?|gates?|malls?|hills?|crossings?|grounds|areas?|stations?|coast|wilderness|gardens?|grove|buildings?|floors?|wings?|courts?|plazas?|sections?|shops?)\b/iu
+const FRAGMENT_VERB =
+  /\b(?:is|are|was|were|be|has|have|can|may|must|will|should|ask|confirm|check|verify|opens?|closes?|offers?|serves?|includes?|allows?|requires?|sells?|prohibited|permitted|available)\b/iu
+
+function locationFragment(text: string): boolean {
+  const clean = text.trim()
+  const words = clean.split(/\s+/u).length
+  if (!clean || words > 12 || /[:;\n]/u.test(clean) || LIST_SEPARATOR.test(clean)) return false
+  if (/^(?:[-*•#]|\d+[.)])\s*/u.test(clean) || FRAGMENT_VERB.test(clean)) return false
+  return (
+    LOCATION_START.test(clean) ||
+    (words <= 8 && (LOCATION_NOUN.test(clean) || /^Lake\s/iu.test(clean)))
+  )
+}
+
+function locationKey(text: string): string {
+  return normalizedSentence(text).replace(
+    /^(?:(?:near|at|in|inside|outside|above|below|beside|opposite|by|behind|next to|across from)\s+)?(?:the\s+)?/u,
+    '',
+  )
+}
+
+function overviewChecks(records: readonly AuthoringRecord[]): AuthoringFinding[] {
+  const findings: AuthoringFinding[] = []
+  const seen = new Set<string>()
+  for (const overview of records) {
+    if (overview.kind !== 'knowledge' || !/\boverview\b/iu.test(overview.title)) continue
+    for (const field of overview.fields) {
+      const lines = field.text.split(/\r?\n/u)
+      let brokenReported = false
+      for (const [index, raw] of lines.entries()) {
+        const line = raw.trim().replace(/^(?:[-*•]|\d+[.)])\s+/u, '')
+        if (line.startsWith('#')) continue
+        const separator = LIST_SEPARATOR.exec(line)
+        if (!separator) continue
+        const name = line.slice(0, separator.index).trim()
+        const detail = line.slice(separator.index + separator[0].length).trim()
+        const next = (lines[index + 1] ?? '').trim()
+        const detached = /[.;]$/u.test(detail) && locationFragment(next)
+        if (detached && !brokenReported) {
+          findings.push({
+            code: 'BROKEN_LIST_LINE',
+            path: field.path,
+            message: `Overview lines ${index + 1}–${index + 2} split a member from its location: "${clip(line)} / ${clip(next)}".`,
+            fix: 'Keep each member and its location together on one list line, and put the location on the member’s own record too.',
+          })
+          brokenReported = true
+        }
+        const members = records.filter(
+          (record) => record !== overview && exactKey(record.title) === exactKey(name),
+        )
+        // Duplicate names make attribution ambiguous. Let the duplicate check handle them.
+        if (members.length !== 1) continue
+        const member = members[0]!
+        if (LIST_SEPARATOR.test(detail)) continue
+        // A physical line may contain several members. Never borrow the last member's
+        // destination for the first. Restrict inline locations to named destinations;
+        // generic "at animals" and mobile locations are too prone to paraphrase warnings.
+        const inline = !LIST_SEPARATOR.test(detail)
+          ? detail.match(
+              /\b(?:near|at|in|inside|outside|above|below|beside|opposite|by|behind|next to|across from)\s+[^.;]+[.]?$/iu,
+            )?.[0]
+          : undefined
+        const location = detached ? next : inline && locationFragment(inline) ? inline : null
+        if (!location) continue
+        if (/\b(?:various|changing|booked|different|multiple)\b/iu.test(location)) continue
+        if (
+          !detached &&
+          !/^(?:near|at|in|inside|outside|above|below|beside|opposite|by|behind|next to|across from)\s+(?:the\s+)?[A-Z]/u.test(
+            location,
+          )
+        )
+          continue
+        const key = locationKey(location)
+        const own = normalizedSentence(
+          [member.title, member.area ?? '', ...member.fields.map((part) => part.text)].join(' '),
+        )
+        if (!key || ` ${own} `.includes(` ${key} `)) continue
+        const identity = `${member.path}:${key}`
+        if (seen.has(identity)) continue
+        seen.add(identity)
+        findings.push({
+          code: 'MEMBER_FACT_ONLY_IN_OVERVIEW',
+          path: member.path,
+          message: `"${member.title}" has location "${clip(location)}" in ${field.path}, but that location is missing from its own record.`,
+          fix: 'Verify the location, then add it to the member’s own description or areaName. Keep the overview list too; justify this advice if the record already expresses the same location differently.',
+        })
+      }
+    }
+  }
+  return findings
+}
+
 function venueNotesCheck(payload: VenuePackagePayload): AuthoringFinding[] {
   if (payload.schemaVersion === 1) return []
   const notes = payload.venue?.aiBehavior?.aiGuideNotes
@@ -507,6 +609,7 @@ export function venuePackageAuthoringFindings(
     ]),
     ...repeatedText(records),
     ...nearDuplicateTopics(records),
+    ...overviewChecks(records),
     ...venueNotesCheck(payload),
   ]
   // The sentence and whole-record date checks can both find one stale field; report it once.
