@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 
 vi.mock('./guest-conversation-disposition', () => ({
   isGuestConversationDisposed: vi.fn().mockResolvedValue(false),
@@ -43,12 +44,253 @@ function transactionClient(tx: Record<string, unknown>) {
 }
 
 describe('guest chat turn actions', () => {
+  describe('finalization conflict recovery', () => {
+    function fixture() {
+      const input = {
+        ...request,
+        turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        assistantResponse: 'The cafe is downstairs.',
+        replayMetadata: { places: [] },
+        fallbackCode: null,
+        nextPending: { kind: 'NONE' as const },
+      }
+      let committed = {
+        turn: {
+          id: input.turnId,
+          tenantId: request.tenantId,
+          venueId: request.venueId,
+          sessionId: 'session-1',
+          requestId: request.requestId,
+          requestHash: guestChatRequestHash(request),
+          status: 'GENERATING',
+          leaseToken: input.claimId,
+          userMessageSequence: 21,
+          assistantMessageSequence: 22,
+          pendingAskedMessageId: null,
+          providerOperations: [
+            { kind: 'QUERY_EMBEDDING', status: 'OBSERVED' },
+            { kind: 'RESPONSE_GENERATION', status: 'OBSERVED' },
+          ],
+        } as Record<string, unknown>,
+        messages: [] as Array<Record<string, unknown>>,
+        messageCount: 0,
+      }
+      let draft = structuredClone(committed)
+      const tx = {
+        $executeRaw: vi.fn(),
+        guestChatTurn: {
+          findFirst: vi.fn(async () => structuredClone(draft.turn)),
+          updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+            Object.assign(draft.turn, data)
+            return { count: 1 }
+          }),
+        },
+        message: {
+          createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => {
+            draft.messages.push(...structuredClone(data))
+            return { count: data.length }
+          }),
+          findFirst: vi.fn(async ({ where }: { where: { id: string } }) =>
+            draft.messages.find((message) => message.id === where.id),
+          ),
+        },
+        visitorSession: {
+          updateMany: vi.fn(async () => {
+            draft.messageCount += 2
+            return { count: 1 }
+          }),
+        },
+      }
+      const transaction = vi.fn(
+        async (callback: (value: typeof tx) => unknown, options?: unknown) => {
+          void options
+          draft = structuredClone(committed)
+          const result = await callback(tx)
+          // Only successful transactions publish writes; rejected attempts roll back.
+          committed = structuredClone(draft)
+          return result
+        },
+      )
+      return {
+        input,
+        tx,
+        transaction,
+        client: { $transaction: transaction } as never,
+        state: () => committed,
+      }
+    }
+
+    it.each(['session', 'turn'] as const)(
+      'retries P2034 at the %s write without duplicating committed messages',
+      async (stage) => {
+        const value = fixture()
+        const write =
+          stage === 'session'
+            ? value.tx.visitorSession.updateMany
+            : value.tx.guestChatTurn.updateMany
+        write.mockRejectedValueOnce({ code: 'P2034' })
+        const result = await finalizeGuestChatTurnAction({
+          client: value.client,
+          input: value.input,
+        })
+        expect(result).toMatchObject({ response: value.input.assistantResponse, replayed: false })
+        expect(value.transaction).toHaveBeenCalledTimes(2)
+        expect(value.tx.guestChatTurn.findFirst).toHaveBeenCalledTimes(2)
+        expect(value.tx.$executeRaw).toHaveBeenCalledTimes(2)
+        for (const call of value.transaction.mock.calls)
+          expect(call[1]).toEqual({ isolationLevel: 'Serializable' })
+        expect(value.state().messageCount).toBe(2)
+        expect(value.state().messages).toHaveLength(2)
+        expect(value.state().messages.map((message) => message.content)).toEqual([
+          request.message,
+          value.input.assistantResponse,
+        ])
+        expect(value.state().turn).toMatchObject({
+          status: 'COMPLETE',
+          userMessageId: result.userMessageId,
+          assistantMessageId: result.assistantMessageId,
+          replayMetadata: value.input.replayMetadata,
+        })
+      },
+    )
+
+    it('bounds P2034 to three total attempts and leaves all writes rolled back', async () => {
+      const value = fixture()
+      value.tx.guestChatTurn.updateMany.mockRejectedValue({
+        code: 'P2034',
+        message: 'private database detail',
+      })
+      await expect(
+        finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(value.transaction).toHaveBeenCalledTimes(3)
+      expect(value.state()).toMatchObject({
+        messageCount: 0,
+        messages: [],
+        turn: { status: 'GENERATING' },
+      })
+    })
+
+    it.each(['claim', 'request', 'provider', 'disposition'] as const)(
+      'rechecks the %s fence after P2034 before any successful commit',
+      async (fence) => {
+        const value = fixture()
+        value.tx.guestChatTurn.updateMany.mockImplementationOnce(async () => {
+          if (fence === 'claim')
+            value.state().turn.leaseToken = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+          if (fence === 'request') value.state().turn.requestHash = '0'.repeat(64)
+          if (fence === 'provider') value.state().turn.providerOperations = []
+          if (fence === 'disposition')
+            vi.mocked(isGuestConversationDisposed).mockResolvedValueOnce(true)
+          throw Object.assign(new Error('rolled-back conflict'), { code: 'P2034' })
+        })
+        try {
+          await expect(
+            finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+          ).rejects.toMatchObject({
+            code:
+              fence === 'provider'
+                ? 'UNKNOWN_PROVIDER_OUTCOME'
+                : fence === 'disposition'
+                  ? 'SESSION_DISPOSED'
+                  : 'CONFLICT',
+          })
+          expect(value.transaction).toHaveBeenCalledTimes(2)
+          expect(value.state().messageCount).toBe(0)
+          expect(value.state().messages).toHaveLength(0)
+          expect(value.tx.message.createMany).toHaveBeenCalledOnce()
+        } finally {
+          vi.mocked(isGuestConversationDisposed).mockReset().mockResolvedValue(false)
+        }
+      },
+    )
+
+    it('replays a concurrent winner after P2034 without inserting another message pair', async () => {
+      const value = fixture()
+      value.transaction.mockImplementationOnce(async () => {
+        Object.assign(value.state().turn, {
+          status: 'COMPLETE',
+          leaseToken: null,
+          userMessageId: 'user-winner',
+          assistantMessageId: 'assistant-winner',
+          replayMetadata: { places: [] },
+          fallbackCode: null,
+          responseHash: createHash('sha256')
+            .update(JSON.stringify({ response: value.input.assistantResponse, places: [] }))
+            .digest('hex'),
+        })
+        value
+          .state()
+          .messages.push(
+            { id: 'user-winner', content: request.message },
+            { id: 'assistant-winner', content: value.input.assistantResponse },
+          )
+        value.state().messageCount = 2
+        throw Object.assign(new Error('rolled-back conflict'), { code: 'P2034' })
+      })
+      await expect(
+        finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+      ).resolves.toMatchObject({
+        state: 'COMPLETE',
+        response: value.input.assistantResponse,
+        replayed: true,
+      })
+      expect(value.transaction).toHaveBeenCalledTimes(2)
+      expect(value.tx.message.createMany).not.toHaveBeenCalled()
+      expect(value.tx.visitorSession.updateMany).not.toHaveBeenCalled()
+      expect(value.state().messages).toHaveLength(2)
+    })
+
+    it.each([
+      ['P2002', 'P2034'],
+      ['P2034', 'P2002'],
+    ])('recovers mixed %s then %s within three total attempts', async (first, second) => {
+      const value = fixture()
+      value.transaction
+        .mockRejectedValueOnce({ code: first })
+        .mockRejectedValueOnce({ code: second })
+      await expect(
+        finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+      ).resolves.toMatchObject({ response: value.input.assistantResponse })
+      expect(value.transaction).toHaveBeenCalledTimes(3)
+      expect(value.state().messages).toHaveLength(2)
+    })
+
+    it('allows only one P2002 recovery attempt', async () => {
+      const value = fixture()
+      const error = { code: 'P2002' }
+      value.transaction.mockRejectedValue(error)
+      await expect(
+        finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+      ).rejects.toBe(error)
+      expect(value.transaction).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([{ code: 'P2028' }, new Error('unclassified failure')])(
+      'does not retry a finalization error without explicit rollback classification',
+      async (error) => {
+        const value = fixture()
+        value.transaction.mockRejectedValue(error)
+        await expect(
+          finalizeGuestChatTurnAction({ client: value.client, input: value.input }),
+        ).rejects.toBe(error)
+        expect(value.transaction).toHaveBeenCalledOnce()
+      },
+    )
+  })
+
   function admissionFixture() {
     const session = {
-      id: 'session-1', tenantId: request.tenantId, venueId: request.venueId,
-      nextTurnSequence: 7, nextMessageSequence: 20,
-      pendingEngagementQuestionId: null, pendingEngagementIsInvented: false,
-      pendingEngagementAskedMessageId: null, pendingEngagementAskedAt: null,
+      id: 'session-1',
+      tenantId: request.tenantId,
+      venueId: request.venueId,
+      nextTurnSequence: 7,
+      nextMessageSequence: 20,
+      pendingEngagementQuestionId: null,
+      pendingEngagementIsInvented: false,
+      pendingEngagementAskedMessageId: null,
+      pendingEngagementAskedAt: null,
     }
     const tx = {
       $executeRaw: vi.fn(),
@@ -59,7 +301,8 @@ describe('guest chat turn actions', () => {
       guestChatTurn: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockImplementation(({ data }) => ({
-          ...data, id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          ...data,
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
           providerOperations: data.providerOperations.create,
         })),
       },
@@ -81,7 +324,11 @@ describe('guest chat turn actions', () => {
     first.tx.visitorSession.findFirst
       .mockResolvedValueOnce(first.session)
       .mockResolvedValue({ ...first.session, nextTurnSequence: 9, nextMessageSequence: 24 })
-    const otherRequest = { ...request, anonymousToken: '33333333-3333-4333-8333-333333333333', requestId: '44444444-4444-4444-8444-444444444444' }
+    const otherRequest = {
+      ...request,
+      anonymousToken: '33333333-3333-4333-8333-333333333333',
+      requestId: '44444444-4444-4444-8444-444444444444',
+    }
     const results = await Promise.all([
       reserveGuestChatTurnAction({ client: first.client, request }),
       reserveGuestChatTurnAction({ client: second.client, request: otherRequest }),
@@ -92,26 +339,43 @@ describe('guest chat turn actions', () => {
     expect(second.transaction).toHaveBeenCalledTimes(1)
     expect(first.tx.guestChatTurn.create).toHaveBeenCalledOnce()
     expect(first.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data).toMatchObject({
-      requestId: request.requestId, requestHash: guestChatRequestHash(request),
-      turnSequence: 10, userMessageSequence: 25, assistantMessageSequence: 26,
+      requestId: request.requestId,
+      requestHash: guestChatRequestHash(request),
+      turnSequence: 10,
+      userMessageSequence: 25,
+      assistantMessageSequence: 26,
     })
-    expect(second.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.requestId).toBe(otherRequest.requestId)
+    expect(second.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.requestId).toBe(
+      otherRequest.requestId,
+    )
     for (const fixture of [first, second]) {
-      for (const call of fixture.transaction.mock.calls) expect(call[1]).toEqual({ isolationLevel: 'Serializable' })
+      for (const call of fixture.transaction.mock.calls)
+        expect(call[1]).toEqual({ isolationLevel: 'Serializable' })
       expect(fixture.tx.guestChatProviderOperation.updateMany).not.toHaveBeenCalled()
-      expect(fixture.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.providerOperations.create).toHaveLength(2)
+      expect(
+        fixture.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.providerOperations.create,
+      ).toHaveLength(2)
     }
   })
 
-  it.each([['P2002', 'P2034'], ['P2034', 'P2002']])('preserves winner replay after %s then %s', async (firstCode, secondCode) => {
+  it.each([
+    ['P2002', 'P2034'],
+    ['P2034', 'P2002'],
+  ])('preserves winner replay after %s then %s', async (firstCode, secondCode) => {
     const fixture = admissionFixture()
-    fixture.transaction.mockRejectedValueOnce({ code: firstCode }).mockRejectedValueOnce({ code: secondCode })
+    fixture.transaction
+      .mockRejectedValueOnce({ code: firstCode })
+      .mockRejectedValueOnce({ code: secondCode })
     fixture.tx.guestChatTurn.findFirst.mockResolvedValue({
-      id: 'winner-turn', sessionId: fixture.session.id, requestHash: guestChatRequestHash(request),
-      status: 'RESERVED', providerOperations: [],
+      id: 'winner-turn',
+      sessionId: fixture.session.id,
+      requestHash: guestChatRequestHash(request),
+      status: 'RESERVED',
+      providerOperations: [],
     })
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
-      .resolves.toMatchObject({ state: 'RESERVED', turnId: 'winner-turn', replayed: true })
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).resolves.toMatchObject({ state: 'RESERVED', turnId: 'winner-turn', replayed: true })
     expect(fixture.transaction).toHaveBeenCalledTimes(3)
     expect(fixture.tx.visitorSession.updateMany).not.toHaveBeenCalled()
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
@@ -119,24 +383,37 @@ describe('guest chat turn actions', () => {
 
   it('bounds serialization retries and returns a safe conflict when admission keeps rolling back', async () => {
     const fixture = admissionFixture()
-    fixture.tx.visitorSession.updateMany.mockRejectedValue({ code: 'P2034', message: 'private database detail' })
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
-      .rejects.toMatchObject({ code: 'CONFLICT', message: 'Session state changed concurrently.' })
+    fixture.tx.visitorSession.updateMany.mockRejectedValue({
+      code: 'P2034',
+      message: 'private database detail',
+    })
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', message: 'Session state changed concurrently.' })
     expect(fixture.transaction).toHaveBeenCalledTimes(3)
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
   })
 
-  it.each([{ code: 'P2028' }, new Error('unclassified transaction failure')])('does not retry an unclassified transaction failure', async (error) => {
-    const fixture = admissionFixture()
-    fixture.transaction.mockRejectedValue(error)
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request })).rejects.toBe(error)
-    expect(fixture.transaction).toHaveBeenCalledOnce()
-  })
+  it.each([{ code: 'P2028' }, new Error('unclassified transaction failure')])(
+    'does not retry an unclassified transaction failure',
+    async (error) => {
+      const fixture = admissionFixture()
+      fixture.transaction.mockRejectedValue(error)
+      await expect(reserveGuestChatTurnAction({ client: fixture.client, request })).rejects.toBe(
+        error,
+      )
+      expect(fixture.transaction).toHaveBeenCalledOnce()
+    },
+  )
 
   it('does not retry a business conflict after rereading concurrent session state', async () => {
     const fixture = admissionFixture()
-    fixture.tx.visitorSession.updateMany.mockRejectedValueOnce({ code: 'P2034' }).mockResolvedValue({ count: 0 })
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request })).rejects.toMatchObject({ code: 'CONFLICT' })
+    fixture.tx.visitorSession.updateMany
+      .mockRejectedValueOnce({ code: 'P2034' })
+      .mockResolvedValue({ count: 0 })
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(fixture.transaction).toHaveBeenCalledTimes(2)
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
   })
@@ -145,9 +422,12 @@ describe('guest chat turn actions', () => {
     const fixture = admissionFixture()
     fixture.tx.visitorSession.updateMany.mockRejectedValueOnce({ code: 'P2034' })
     vi.mocked(isGuestConversationDisposed)
-      .mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
-      .rejects.toMatchObject({ code: 'SESSION_DISPOSED' })
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).rejects.toMatchObject({ code: 'SESSION_DISPOSED' })
     expect(fixture.transaction).toHaveBeenCalledTimes(2)
     expect(fixture.tx.visitorSession.updateMany).toHaveBeenCalledOnce()
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
@@ -157,13 +437,16 @@ describe('guest chat turn actions', () => {
     const fixture = admissionFixture()
     fixture.transaction.mockRejectedValueOnce({ code: 'P2034' })
     fixture.tx.guestChatTurn.findFirst.mockResolvedValue({
-      id: 'dispatched-turn', sessionId: fixture.session.id,
-      requestHash: guestChatRequestHash(request), status: 'GENERATING',
+      id: 'dispatched-turn',
+      sessionId: fixture.session.id,
+      requestHash: guestChatRequestHash(request),
+      status: 'GENERATING',
       leaseExpiresAt: new Date('2999-01-01T00:00:00Z'),
       providerOperations: [{ dispatchedAt: new Date(), status: 'DISPATCHED' }],
     })
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
-      .rejects.toMatchObject({ code: 'UNKNOWN_PROVIDER_OUTCOME' })
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).rejects.toMatchObject({ code: 'UNKNOWN_PROVIDER_OUTCOME' })
     expect(fixture.transaction).toHaveBeenCalledTimes(2)
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
     expect(fixture.tx.visitorSession.updateMany).not.toHaveBeenCalled()
