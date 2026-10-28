@@ -843,7 +843,7 @@ export async function reserveGuestChatTurnAction(args: {
       { isolationLevel: 'Serializable' },
     )
 
-  // Only this admission transaction is retried: P2034 rolls it back before any
+  // Admission retries P2034 because it rolls back before any
   // provider dispatch. Each attempt rereads authority, session state and replay
   // evidence under the same Serializable isolation and exact request identity.
   for (let attempt = 1; ; attempt += 1) {
@@ -1494,10 +1494,25 @@ export async function finalizeGuestChatTurnAction(args: {
       { isolationLevel: 'Serializable' },
     )
 
-  try {
-    return await run()
-  } catch (error) {
-    if (!isP2002(error)) throw error
-    return run()
+  // Retry only explicitly rolled-back serialization/deadlock failures. The
+  // answer is already frozen: every attempt rereads all authority and claim
+  // fences without repeating provider work. Keep the existing unique-conflict
+  // replay recovery, once, within the same three-transaction total bound.
+  let retriedUniqueConflict = false
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run()
+    } catch (error) {
+      if (isP2034(error)) {
+        if (attempt >= 3)
+          throw new GuestChatTurnActionError('CONFLICT', 'Session state changed concurrently.')
+        continue
+      }
+      if (isP2002(error) && !retriedUniqueConflict && attempt < 3) {
+        retriedUniqueConflict = true
+        continue
+      }
+      throw error
+    }
   }
 }

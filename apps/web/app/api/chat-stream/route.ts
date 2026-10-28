@@ -61,13 +61,20 @@ export async function POST(request: Request): Promise<Response> {
   if (!parsed.success) return Response.json({ error: 'invalid-request' }, { status: 400 })
 
   const context = await createTRPCContext({ req: request })
+  let cancelled = false
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const iterator = streamChatTurn(context, parsed.data)
       try {
-        for await (const event of streamChatTurn(context, parsed.data)) {
+        while (!cancelled) {
+          const { done, value: event } = await iterator.next()
+          if (cancelled) return
+          if (done) throw new Error('guest-chat-missing-completion')
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+          if (event.type === 'complete') return
         }
       } catch (cause) {
+        if (cancelled) return
         const error = getTRPCErrorFromUnknown(cause)
         const publicCode = getPublicTRPCErrorCode(error)
         if (error.code === 'INTERNAL_SERVER_ERROR') {
@@ -85,8 +92,14 @@ export async function POST(request: Request): Promise<Response> {
           ),
         )
       } finally {
-        controller.close()
+        if (!cancelled) controller.close()
+        // Iterator cleanup must not delay delivery of the terminal event. The
+        // durable turn continues independently if the visitor disconnects.
+        void iterator.return().catch(() => undefined)
       }
+    },
+    cancel() {
+      cancelled = true
     },
   })
 

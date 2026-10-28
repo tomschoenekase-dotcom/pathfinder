@@ -32,7 +32,7 @@ function privatePostStreamingLink(): TRPCLink<AppRouter> {
             signal: controller.signal,
           })
           if (!response.ok || !response.body) {
-            await response.body?.cancel('invalid-chat-stream').catch(() => undefined)
+            void response.body?.cancel('invalid-chat-stream').catch(() => undefined)
             throw new Error('Chat stream could not start.')
           }
           const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
@@ -43,7 +43,7 @@ function privatePostStreamingLink(): TRPCLink<AppRouter> {
             !cacheControl.includes('no-store') ||
             (Number.isFinite(declaredLength) && declaredLength > CHAT_STREAM_MAX_BYTES)
           ) {
-            await response.body.cancel('invalid-chat-stream').catch(() => undefined)
+            void response.body.cancel('invalid-chat-stream').catch(() => undefined)
             throw new Error('Chat stream could not start.')
           }
           const reader = response.body.getReader()
@@ -51,6 +51,7 @@ function privatePostStreamingLink(): TRPCLink<AppRouter> {
           const decoder = new TextDecoder()
           let buffered = ''
           let receivedBytes = 0
+          let streamComplete = false
           const acceptLine = (line: string) => {
             if (!line) return
             const event = JSON.parse(line) as { type?: string; code?: string; publicCode?: string }
@@ -62,9 +63,9 @@ function privatePostStreamingLink(): TRPCLink<AppRouter> {
                 },
               })
             }
+            if (event.type === 'complete') streamComplete = true
             observer.next({ result: { data: event } })
           }
-          let streamComplete = false
           try {
             while (!streamComplete) {
               let timeout: ReturnType<typeof setTimeout> | undefined
@@ -85,16 +86,20 @@ function privatePostStreamingLink(): TRPCLink<AppRouter> {
               buffered += decoder.decode(value, { stream: !done })
               const lines = buffered.split('\n')
               buffered = lines.pop() ?? ''
-              for (const line of lines) acceptLine(line)
-              streamComplete = done
+              for (const line of lines) {
+                acceptLine(line)
+                if (streamComplete) break
+              }
+              if (done && !streamComplete) {
+                acceptLine(buffered)
+                if (!streamComplete) throw new Error('Chat stream ended before completion.')
+              }
             }
-            acceptLine(buffered)
             observer.complete()
-          } catch (error) {
-            await reader.cancel('chat-stream-failed').catch(() => undefined)
-            throw error
           } finally {
             activeReader = null
+            // Completion/error delivery must never wait for network cleanup.
+            void reader.cancel('chat-stream-settled').catch(() => undefined)
           }
         })().catch((error: unknown) => {
           if (!controller.signal.aborted)

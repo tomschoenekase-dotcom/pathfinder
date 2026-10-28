@@ -674,6 +674,236 @@ describe('chat router', () => {
   // --- chat.send ---
 
   describe('chat.send', () => {
+    function setupStreamingAnswer(answer = 'The gallery is beside the courtyard.') {
+      setupHappyPath(answer)
+      _setAnthropicClientForTesting({
+        messages: {
+          create: anthropicCreate,
+          stream: vi.fn(() => ({
+            async *[Symbol.asyncIterator]() {
+              yield {
+                type: 'content_block_delta',
+                delta: { type: 'text_delta', text: answer },
+              }
+            },
+            finalMessage: vi.fn().mockResolvedValue({
+              content: [{ type: 'text', text: answer }],
+              usage: { input_tokens: 20, output_tokens: 10 },
+            }),
+          })),
+        },
+      } as unknown as AnthropicMessagesClient)
+    }
+
+    async function drainDiagnosticTail() {
+      // All other fixture work resolves immediately. Drain its promise continuations
+      // before beforeEach resets the shared mocks for another turn.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
+
+    it.each(['resolve', 'reject'] as const)(
+      'does not complete a stream before durable finalization %s',
+      async (outcome) => {
+        setupStreamingAnswer()
+        const finalize = guestTurnActions.finalize.getMockImplementation()!
+        let finish!: () => void
+        guestTurnActions.finalize.mockImplementationOnce(
+          (...args) =>
+            new Promise((resolve, reject) => {
+              finish = () =>
+                outcome === 'resolve'
+                  ? resolve(finalize(...args))
+                  : reject(new Error('fictional commit unavailable'))
+            }),
+        )
+        const events: Array<{ type: string }> = []
+        let failure: unknown
+        let closed = false
+        const reading = (async () => {
+          try {
+            for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+          } catch (error) {
+            failure = error
+          } finally {
+            closed = true
+          }
+        })()
+        try {
+          await vi.waitFor(() => expect(guestTurnActions.finalize).toHaveBeenCalledOnce())
+          expect(events).toEqual([expect.objectContaining({ type: 'delta' })])
+          expect(closed).toBe(false)
+          expect(emitEvent).not.toHaveBeenCalled()
+        } finally {
+          finish()
+          await reading
+          await drainDiagnosticTail()
+        }
+        expect(events.filter((event) => event.type === 'complete')).toHaveLength(
+          outcome === 'resolve' ? 1 : 0,
+        )
+        if (outcome === 'reject') expect(failure).toBeInstanceOf(Error)
+        else expect(failure).toBeUndefined()
+      },
+    )
+
+    it.each(['resolve', 'reject'] as const)(
+      'completes a committed stream before slow conversation learning %s',
+      async (outcome) => {
+        setupStreamingAnswer('Thank you for the correction.')
+        let finish!: () => void
+        recordConversationLearningCandidate.mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              finish = () =>
+                outcome === 'resolve'
+                  ? resolve()
+                  : reject(new Error('fictional learning store unavailable'))
+            }),
+        )
+        const events: Array<{ type: string }> = []
+        let closed = false
+        const reading = (async () => {
+          for await (const event of streamChatTurn(ctx, {
+            ...sendInput,
+            message: 'The elephant exhibit is on the second floor.',
+          }))
+            events.push(event)
+          closed = true
+        })()
+        try {
+          await vi.waitFor(() => expect(recordConversationLearningCandidate).toHaveBeenCalledOnce())
+          expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+          expect(emitEvent).not.toHaveBeenCalled()
+          await vi.waitFor(() => expect(closed).toBe(true), { timeout: 200 })
+          expect(events.at(-1)).toMatchObject({
+            type: 'complete',
+            result: { response: 'Thank you for the correction.', replyKind: 'ANSWER' },
+          })
+        } finally {
+          finish()
+          await reading
+          await drainDiagnosticTail()
+        }
+        expect(events.filter((event) => event.type === 'complete')).toHaveLength(1)
+        expect(emitEvent).toHaveBeenCalledWith(
+          expect.objectContaining({ eventType: 'message.received' }),
+        )
+        if (outcome === 'reject')
+          expect(configLogger.warn).toHaveBeenCalledWith(
+            expect.objectContaining({ action: 'conversation-learning.capture-failed' }),
+          )
+      },
+    )
+
+    it.each(['resolve', 'reject'] as const)(
+      'completes a durable fallback before slow failure telemetry %s',
+      async (outcome) => {
+        setupHappyPath('Unused provider answer.')
+        _setAnthropicClientForTesting({
+          messages: {
+            create: anthropicCreate,
+            stream: vi.fn(() => ({
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  type: 'content_block_delta',
+                  delta: { type: 'text_delta', text: 'Partial answer.' },
+                }
+                throw Object.assign(new Error('fictional stream refusal'), { status: 400 })
+              },
+              finalMessage: vi.fn(),
+            })),
+          },
+        } as unknown as AnthropicMessagesClient)
+        let finish!: () => void
+        operationalEventUpsert.mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              finish = () =>
+                outcome === 'resolve'
+                  ? resolve({ id: 'event_1', state: 'OPEN', occurrenceCount: 1 })
+                  : reject(new Error('fictional telemetry store unavailable'))
+            }),
+        )
+        const events: Array<{ type: string }> = []
+        let closed = false
+        const reading = (async () => {
+          for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+          closed = true
+        })()
+        try {
+          await vi.waitFor(() => expect(operationalEventUpsert).toHaveBeenCalledOnce())
+          expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+          await vi.waitFor(() => expect(closed).toBe(true), { timeout: 200 })
+          expect(events.at(-1)).toMatchObject({
+            type: 'complete',
+            result: { replyKind: 'TEMPORARY_FALLBACK' },
+          })
+        } finally {
+          finish()
+          await reading
+          await drainDiagnosticTail()
+        }
+        expect(events.filter((event) => event.type === 'complete')).toHaveLength(1)
+        expect(emitEvent).toHaveBeenCalledWith(
+          expect.objectContaining({ eventType: 'message.received' }),
+        )
+      },
+    )
+
+    it.each(['resolve', 'reject'] as const)(
+      'completes a committed stream before slow analytics %s',
+      async (outcome) => {
+        setupHappyPath('The gallery is beside the courtyard.')
+        _setAnthropicClientForTesting({
+          messages: {
+            create: anthropicCreate,
+            stream: vi.fn(() => ({
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  type: 'content_block_delta',
+                  delta: { type: 'text_delta', text: 'The gallery is beside the courtyard.' },
+                }
+              },
+              finalMessage: vi.fn().mockResolvedValue({
+                content: [{ type: 'text', text: 'The gallery is beside the courtyard.' }],
+                usage: { input_tokens: 20, output_tokens: 10 },
+              }),
+            })),
+          },
+        } as unknown as AnthropicMessagesClient)
+        let finish!: () => void
+        emitEvent.mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              finish = () =>
+                outcome === 'resolve' ? resolve() : reject(new Error('analytics unavailable'))
+            }),
+        )
+        const events: unknown[] = []
+        let closed = false
+        const reading = (async () => {
+          for await (const event of streamChatTurn(ctx, sendInput)) events.push(event)
+          closed = true
+        })()
+        try {
+          await vi.waitFor(() => expect(emitEvent).toHaveBeenCalled())
+          expect(guestTurnActions.finalize).toHaveBeenCalledOnce()
+          await vi.waitFor(() => expect(closed).toBe(true), { timeout: 200 })
+          expect(events.at(-1)).toEqual(
+            expect.objectContaining({
+              type: 'complete',
+              result: expect.objectContaining({ response: 'The gallery is beside the courtyard.' }),
+            }),
+          )
+        } finally {
+          finish()
+          await reading
+          await drainDiagnosticTail()
+        }
+        expect(events).toHaveLength(2)
+      },
+    )
+
     describe('public reply classification', () => {
       it.each([false, true])(
         'classifies a newly committed response, provider failure=%s',

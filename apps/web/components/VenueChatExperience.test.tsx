@@ -169,6 +169,7 @@ vi.mock('./ChatWindow', () => ({
       {emptyState}
       {errorMessage ? <span>{errorMessage}</span> : null}
       <span>Messages: {messages.length}</span>
+      <span>Composer loading: {String(isLoading)}</span>
       <span>Latest: {messages.at(-1)?.content ?? 'none'}</span>
       <span>Latest reply kind: {messages.at(-1)?.replyKind ?? 'legacy'}</span>
       <span>Latest blocks: {JSON.stringify(messages.at(-1)?.blocks ?? null)}</span>
@@ -638,14 +639,46 @@ describe('VenueChatExperience presentation boundary', () => {
           providerFirstTextMs: 240,
         },
       })
-      handlers?.onComplete()
+      handlers?.onData({ type: 'delta', delta: 'Late fragment' })
+      handlers?.onError(new Error('Late stream failure'))
     })
 
     await screen.findByText('Latest: Nearby, beside the east gallery.')
+    expect(screen.queryByRole('button', { name: 'Stop response' })).toBeNull()
     expect(screen.getByText('Messages: 2')).toBeTruthy()
     expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
+
+  it.each(['error', 'incomplete EOF'])(
+    'settles the composer on %s and retains visible text',
+    async (ending) => {
+      mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+      mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+      type Handlers = Parameters<NonNullable<typeof mocks.client.chat.stream>['subscribe']>[1]
+      let handlers: Handlers | undefined
+      const unsubscribe = vi.fn()
+      const subscribe = vi.fn((_input: unknown, nextHandlers: Handlers) => {
+        handlers = nextHandlers
+        return { unsubscribe }
+      })
+      mocks.client.chat.stream = { subscribe }
+      render(<VenueChatExperience venueSlug="museum" />)
+      await screen.findByRole('heading', { name: 'Museum' })
+      fireEvent.click(screen.getByText('Send test message'))
+      await waitFor(() => expect(subscribe).toHaveBeenCalledOnce())
+      act(() => {
+        handlers?.onData({ type: 'delta', delta: 'The gallery is upstairs.' })
+        if (ending === 'error') handlers?.onError(new Error('Connection lost'))
+        else handlers?.onComplete()
+      })
+      await screen.findByRole('button', { name: 'Retry same message' })
+      expect(screen.getByText('Latest: The gallery is upstairs.')).toBeTruthy()
+      expect(screen.getByText('Composer loading: false')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Stop response' })).toBeNull()
+      expect(unsubscribe).toHaveBeenCalledOnce()
+    },
+  )
 
   it('uses server-composed action blocks from a completed turn', async () => {
     mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174097'
@@ -819,6 +852,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     await screen.findByText(/current history could not be confirmed/u)
     expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Stop response' })).toBeNull()
     expect(clearChatButton().disabled).toBe(true)
     fireEvent.click(screen.getByText('Send different message'))
     expect(mocks.client.chat.stream?.subscribe).toHaveBeenCalledOnce()
@@ -859,10 +893,12 @@ describe('VenueChatExperience presentation boundary', () => {
 
     await screen.findByText(/current history could not be confirmed/u)
     expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Stop response' })).toBeNull()
     expect(clearChatButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
     await screen.findByText(/current history could not be confirmed/u)
     expect(screen.getByRole('button', { name: 'Check conversation' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Stop response' })).toBeNull()
     expect(clearChatButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Check conversation' }))
     await screen.findByText(/Conversation refreshed/u)
@@ -1094,6 +1130,9 @@ describe('VenueChatExperience presentation boundary', () => {
     await screen.findByRole('heading', { name: 'Museum' })
     fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
     const check = await screen.findByRole('button', { name: 'Check conversation' })
+    expect(screen.getByText('Composer loading: false')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Stop response' })).toBeNull()
+    expect(clearChatButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
     expect(mocks.client.chat.send.mutate).toHaveBeenCalledOnce()
     fireEvent.click(check)
