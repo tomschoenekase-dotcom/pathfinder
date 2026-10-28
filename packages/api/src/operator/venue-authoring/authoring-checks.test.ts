@@ -282,6 +282,10 @@ describe('time-limited facts that package records keep forever', () => {
     expect(codes(topics('Stargazing Night is on November 6, 2026, from 7pm.'))).toEqual([
       'EXPIRES_SOON',
     ])
+    // "historical" describing a tour is not "this has ended".
+    expect(
+      codes(topics('Lantern History Walk is a historical walking tour on November 2, 2026.')),
+    ).toEqual(['EXPIRES_SOON'])
     expect(
       codes(
         topics(

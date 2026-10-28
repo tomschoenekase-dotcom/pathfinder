@@ -70,7 +70,7 @@ const START_CUE =
 const HAPPENED_CUE =
   /\b(?:(?!(?:scheduled|planned|expected|slated)\b)\w{3,}ed|began|held|built|born)\s+(?:on\s+)?$/iu
 const SAYS_ENDED =
-  /\b(?:ended|closed for the (?:\d{4} )?(?:season|year)|was|were|took place|ran|has passed|have passed|historical)\b/iu
+  /\b(?:ended|closed for the (?:\d{4} )?(?:season|year)|was|were|took place|ran|has passed|have passed|(?:is|are) (?:now )?historical)\b/iu
 const EXPIRY_WINDOW_DAYS = 21
 const DAY_MS = 86_400_000
 const FACT_IN_NOTES =
