@@ -1,3 +1,4 @@
+import { venuesEmbeddingRefreshKind } from './venues-embedding-refresh'
 import type { AnyOperatorProposalKind } from '../proposals'
 import { appearanceUpdateKind } from './appearance'
 import { appearanceGuestActionsKind } from './appearance-guest-actions'
@@ -42,6 +43,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   venuesKnowledgeKind,
   venuesUpdateKind,
   venuesPackageImportKind,
+  venuesEmbeddingRefreshKind,
   venuesContentChangesetKind,
   venuesSourceKind,
   sourceConnectionKind,

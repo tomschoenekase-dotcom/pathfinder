@@ -1471,13 +1471,13 @@ const approvedOperations = [
     policy: 'tenant-venue-revision-lease',
   },
   {
-    file: 'apps/workers/src/lib/embedding-freshness.ts',
+    file: 'packages/db/src/helpers/embedding-freshness.ts',
     method: '$queryRaw',
     hash: '5f63160357e15ccea6e9a0572be64daa8ede1ba29f6c061eb4e5651bc714297a',
     policy: 'tenant-optional-venue-cursor-audit',
   },
   {
-    file: 'apps/workers/src/lib/embedding-freshness.ts',
+    file: 'packages/db/src/helpers/embedding-freshness.ts',
     method: '$queryRaw',
     hash: 'ef7a4ce0b2e86b9128ffcd478352c60ffcc2e6ef4730e1b653de4f8ecf8be408',
     policy: 'tenant-optional-venue-cursor-audit',

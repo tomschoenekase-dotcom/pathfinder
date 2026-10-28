@@ -49,15 +49,30 @@ gate is blocked, report it as blocked with the reason.
      a repository checkout: `pnpm venue:check <package.json> --official-domain <venue domain>`.
      It also lists source hosts and flags sources off the official domain. It cannot see the
      venue's existing records or settings, so `venues.check_package` is still required.
-   - A second package for a venue that already has records needs those records' search
-     embeddings first. Until the venue embedding refresh runs (an operator step in the Torchiko
-     runbook, not an MCP tool), `errors` holds `SEMANTIC_SCAN_INCOMPLETE` and the import would be
-     refused with nothing changed. Ask the operator for the venue-scoped refresh, then check
-     again. The existing refresh requires an active venue; it does not work on an unpublished
-     draft. Publish only with the owner's authorization and only after gate 2 passes; until
-     then leave the package unapplied. Keep global
-     worker flags unchanged. A successful check is not proof that embeddings are current for
-     every record: it checks only the existing records relevant to this package's duplicate scan.
+   - A second package for a venue that already has records needs those records' current search
+     embeddings. `SEMANTIC_SCAN_INCOMPLETE` means the duplicate scan would refuse the import
+     without applying it. Run `venues.plan_embedding_refresh` with the exact `tenantId` and
+     `venueId`; this only reads counts, blockers and a sealed `planDigest`. If eligible, call
+     `venues.propose_embedding_refresh` with that digest, a new `operationId` and `max` at least
+     the candidate count (0 to 1000). It uses the normal operator approval policy and existing
+     AI admission/budget checks. The count limit is not a dollar cap.
+   - Refresh proposal `APPLIED` means the request was accepted, **not** that vectors are current.
+     Read `venues.get_embedding_refresh` with the returned `refreshId`. Only `COMPLETE` with
+     `freshnessProven: true` and a complete final audit proves freshness at completion. Then run
+     `venues.check_package` again. The worker processes the sealed records one at a time, saves
+     a receipt before each attempt, and stops on the first failure without automatic retries.
+     Unattempted records remain visible as `PENDING`.
+   - Keep the original `operationId` if acceptance is unclear and inspect `operator.get_operation`.
+     `operator.recover_operation` reconciles acceptance; it does not resume failed paid work.
+     An interrupted `RUNNING` or `OUTCOME_UNKNOWN` refresh remains held for operator review.
+     Never start another request to bypass that hold. Unconfirmed queue delivery may also need
+     operator review; no provider attempt is repeated to guess its outcome.
+   - Refresh requires an active venue. Do not publish an unreviewed draft just to clear this
+     error. Both API and worker require the background dispatcher already explicitly disabled;
+     keep global worker flags unchanged. Full-guide answers can use the records directly, but
+     the semantic import duplicate scan still requires vectors. This refresh changes derived
+     embeddings only; it does not prove package facts or authorize publication. A successful
+     package check covers only the existing records relevant to that package's duplicate scan.
 3. **Import (a write).** `venues.propose_package_import` with the same package and a new UUID
    `operationId`. In this deployment the write applies in the same call: status `APPLIED` means
    the venue's records changed. `FAILED` or `STALE` means nothing changed for a validation error;

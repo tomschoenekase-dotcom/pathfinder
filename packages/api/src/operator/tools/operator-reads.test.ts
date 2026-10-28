@@ -219,6 +219,8 @@ describe('OPERATOR_READ_TOOLS', () => {
         'venues.get_content',
         'venues.preview_content_changeset',
         'venues.check_package',
+        'venues.plan_embedding_refresh',
+        'venues.get_embedding_refresh',
         'venues.list_releases',
         'venues.get_release',
         'venues.get_effective_guest_version',

@@ -55,13 +55,25 @@ export type DailyRollupJobPayload = {
   date: string
 }
 
+export type VenueEmbeddingRefreshJobPayload = {
+  tenantId: string
+  venueId: string
+  refreshId: string
+}
+
 export type EmbedPlaceJobPayload = {
+  expectedVenueId?: string
+  expectedSourceHash?: string
+  expectedEmbeddingProfile?: string
   placeId: string
   tenantId: string
   contentUpdatedAt: string
 }
 
 export type EmbedKnowledgeEntryJobPayload = {
+  expectedVenueId?: string
+  expectedSourceHash?: string
+  expectedEmbeddingProfile?: string
   entryId: string
   tenantId: string
   contentUpdatedAt: string

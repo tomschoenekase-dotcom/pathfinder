@@ -186,6 +186,8 @@ describe('tenantIsolationMiddleware', () => {
       'MediaProviderOperation',
       'EmbeddingWorkClaim',
       'EmbeddingDispatch',
+      'EmbeddingVenueRefresh',
+      'EmbeddingVenueRefreshRecord',
       'IntakeSourceAgentRoutingPolicy',
       'IntakeSourceAgentDispatch',
       'AgentIdentity',

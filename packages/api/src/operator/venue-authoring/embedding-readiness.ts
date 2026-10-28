@@ -44,6 +44,6 @@ export async function packageEmbeddingReadiness(
     code: error.code,
     path: error.path,
     message: `Existing ${error.path === 'places' ? 'places' : 'topics'} have no current search embeddings, so the import's duplicate scan would refuse this package and change nothing. ${error.message}`,
-    fix: 'Ask the operator to run the venue-scoped embedding refresh in the Torchiko runbook, then check again; there is no MCP tool for it. The refresh requires an active venue. Do not publish an unreviewed draft just to clear this error, and do not enable global worker flags. This error concerns existing records; it does not establish that the package facts are correct.',
+    fix: 'Run venues.plan_embedding_refresh for this tenant and venue, then venues.propose_embedding_refresh with its planDigest and a bounded max. APPLIED means acceptance only: read venues.get_embedding_refresh until COMPLETE with freshnessProven, then check again. Requires an active venue; never publish an unreviewed draft or change global worker flags to bypass this error. Retain the operationId on uncertain outcomes. Refreshing embeddings does not establish factual correctness.',
   }))
 }

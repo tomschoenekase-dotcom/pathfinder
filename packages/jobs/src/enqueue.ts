@@ -24,6 +24,7 @@ import {
   EMBED_KNOWLEDGE_ENTRY_QUEUE,
   EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   EMBED_PLACE_PROCESS_JOB,
+  VENUE_EMBEDDING_REFRESH_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
   GENERATION_DISPATCH_KICK_JOB,
@@ -84,6 +85,7 @@ import type {
   EmbedCompanyKnowledgeJobPayload,
   EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
+  VenueEmbeddingRefreshJobPayload,
   GenerationDispatchKickJobPayload,
   SendWelcomeEmailJobPayload,
   SendClientNotificationEmailJobPayload,
@@ -1219,4 +1221,27 @@ export async function closeJobQueues(): Promise<void> {
   if (failures.length > 0) {
     throw new AggregateError(failures, 'One or more cached job queues failed to close.')
   }
+}
+
+/** Delivery can be reconciled, but an attempted refresh must never be retried. */
+export async function enqueueVenueEmbeddingRefresh(
+  payload: VenueEmbeddingRefreshJobPayload,
+): Promise<void> {
+  for (const key of ['tenantId', 'venueId', 'refreshId'] as const) {
+    const value = payload?.[key]
+    if (typeof value !== 'string' || !value.trim() || value.length > 200) {
+      throw new Error('Venue embedding refresh requires bounded opaque scope identifiers')
+    }
+  }
+  const jobId =
+    'venue-embedding-refresh-' +
+    createHash('sha256')
+      .update(JSON.stringify([payload.tenantId, payload.venueId, payload.refreshId]))
+      .digest('hex')
+  await getQueue(EMBED_PLACE_QUEUE).add(VENUE_EMBEDDING_REFRESH_PROCESS_JOB, payload, {
+    jobId,
+    attempts: 1,
+    removeOnComplete: false,
+    removeOnFail: false,
+  })
 }

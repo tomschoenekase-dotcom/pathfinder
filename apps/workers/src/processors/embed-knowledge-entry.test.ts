@@ -98,6 +98,30 @@ describe('processEmbedKnowledgeEntryJob', () => {
     })
   })
 
+  it('refuses a refresh record moved outside the sealed venue before provider work', async () => {
+    mocks.entryFindFirst.mockResolvedValueOnce(entry)
+    await expect(
+      processEmbedKnowledgeEntryJob({ ...payload, expectedVenueId: 'other-venue' }),
+    ).rejects.toThrow()
+    expect(mocks.acquireEmbeddingWork).not.toHaveBeenCalled()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.entryFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ venueId: 'other-venue' }),
+      }),
+    )
+  })
+
+  it.each([{ expectedSourceHash: 'changed' }, { expectedEmbeddingProfile: 'changed' }])(
+    'refuses changed sealed content/profile before claiming',
+    async (expected) => {
+      mocks.entryFindFirst.mockResolvedValueOnce(entry)
+      await expect(processEmbedKnowledgeEntryJob({ ...payload, ...expected })).rejects.toThrow()
+      expect(mocks.acquireEmbeddingWork).not.toHaveBeenCalled()
+      expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    },
+  )
+
   it('binds tenant and venue, records usage, and stores the validated embedding', async () => {
     mocks.entryFindFirst.mockResolvedValueOnce(entry)
     await processEmbedKnowledgeEntryJob(payload, 'bull_1')
@@ -116,6 +140,7 @@ describe('processEmbedKnowledgeEntryJob', () => {
     expect(mocks.buildKnowledgeEntryText).toHaveBeenCalledWith(entry)
     expect(mocks.generateEmbedding).toHaveBeenCalledWith(
       expect.objectContaining({
+        maxAttempts: 1,
         modelKey: 'knowledge-content-embedding',
         text: 'canonical knowledge text',
       }),

@@ -1,3 +1,4 @@
+import { venueEmbeddingRefreshReadTools } from './venue-embedding-refresh'
 import type { OperatorReadTool } from '../registry'
 import { controlTools } from './controls'
 import { crmReadTools } from './crm'
@@ -59,6 +60,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...sourceConnectionReadTools,
   ...venueContentReadTools,
   venuesCheckPackage,
+  ...venueEmbeddingRefreshReadTools,
   ...venueReleaseReadTools,
   ...supportReadTools,
   ...updateReadTools,

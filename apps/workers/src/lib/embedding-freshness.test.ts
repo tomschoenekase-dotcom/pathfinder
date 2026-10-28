@@ -18,10 +18,15 @@ vi.mock('@pathfinder/ai', () => ({
   getAiEmbeddingProfile: vi.fn((key: string) => `profile:${key}`),
 }))
 
-vi.mock('@pathfinder/db', () => ({
-  buildKnowledgeEntryText: mocks.buildKnowledgeEntryText,
-  buildPlaceText: mocks.buildPlaceText,
+vi.mock('../../../../packages/db/src/client', () => ({
   db: { $transaction: mocks.transaction },
+}))
+
+vi.mock('../../../../packages/db/src/helpers/content-text', () => ({
+  buildPlaceText: mocks.buildPlaceText,
+  buildKnowledgeEntryText: mocks.buildKnowledgeEntryText,
+}))
+vi.mock('../../../../packages/db/src/helpers/embedding-identity', () => ({
   embeddingSourceHash: mocks.embeddingSourceHash,
 }))
 

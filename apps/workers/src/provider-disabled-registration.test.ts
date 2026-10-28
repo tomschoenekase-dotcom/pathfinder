@@ -28,6 +28,22 @@ const isolatedReadiness = readFileSync(
 )
 
 describe('provider-disabled worker registration boundary', () => {
+  it('routes manual embedding refresh directly without admission delay or dispatcher scheduling', () => {
+    const handler = source.slice(
+      source.indexOf('async function handleEmbedPlaceQueueJob'),
+      source.indexOf('async function handleEmbedKnowledgeEntryQueueJob'),
+    )
+    const refreshBranch = handler.slice(
+      handler.indexOf('if (job.name === VENUE_EMBEDDING_REFRESH_PROCESS_JOB)'),
+      handler.indexOf('if (job.name === EMBED_PLACE_PROCESS_JOB)'),
+    )
+    expect(refreshBranch).toContain('await processVenueEmbeddingRefreshJob(')
+    expect(refreshBranch).toContain('return')
+    expect(refreshBranch).not.toContain('runAiJobWithIncidentControl')
+    expect(refreshBranch).not.toContain('moveToDelayed')
+    expect(refreshBranch).not.toContain('EMBEDDING_DISPATCH_ENABLED')
+  })
+
   it('keeps the provider-enabled worker graph free of a hidden provider-disabled branch', () => {
     expect(source).not.toContain('if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED)')
   })
