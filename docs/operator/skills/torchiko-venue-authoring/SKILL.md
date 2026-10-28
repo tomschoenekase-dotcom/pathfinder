@@ -29,6 +29,8 @@ accepts. This skill is the order of work and the rules agents most often break.
   October 25, 2026"). Never "next year", "this fall", "currently" without a date.
 - Records talk about the place, never about themselves or their sources ("covered here",
   "confirmed here", "its page says", "linked menus").
+- Without a venue yet, check offline from a repository checkout:
+  `pnpm venue:check <package.json> --official-domain <venue domain>` (same rules, no database).
 - `venues.check_package` until `ready`. Fix every `errors`, `guideQuality` and
   `DUPLICATE_IN_PACKAGE`; fix or justify in writing every `authoring` finding; follow
   `venueSetup`. `ready` is gate 2 only. Re-run it on the day of import, because dated records

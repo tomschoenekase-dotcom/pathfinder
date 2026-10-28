@@ -110,6 +110,7 @@
     "repository:index": "node scripts/generate-repository-index.mjs",
     "repository:index:verify": "node scripts/generate-repository-index.mjs --check",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "venue:check": "node packages/db/node_modules/tsx/dist/cli.mjs packages/api/src/operator/venue-authoring/check-offline-cli.ts",
     "prepare": "husky",
     "test:v2-journey:disposable": "node scripts/run-disposable-v2-customer-journey.mjs",
     "staging:admit": "node scripts/admit-staging-release.mjs",

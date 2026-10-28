@@ -42,6 +42,10 @@ them as blocked with the reason. Do not publish a draft only to get past a gate.
      import, but fix each one or be able to say why it is a false positive.
    - `venueSetup`: settings to fix before testing answers (time zone, guide mode).
      Fix and check again until `ready` is true.
+   - Before a venue exists, run the same schema, writing-guide and authoring checks offline from
+     a repository checkout: `pnpm venue:check <package.json> --official-domain <venue domain>`.
+     It also lists source hosts and flags sources off the official domain. It cannot see the
+     venue's existing records or settings, so `venues.check_package` is still required.
    - A second package for a venue that already has records needs those records' search
      embeddings first. Until the venue embedding refresh runs (an operator step in the Torchiko
      runbook, not an MCP tool), `errors` holds `SEMANTIC_SCAN_INCOMPLETE` and the import would be
