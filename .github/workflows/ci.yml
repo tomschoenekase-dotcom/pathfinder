@@ -238,12 +238,40 @@ jobs:
         env:
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      - name: Recheck disposable migration replay and compare Prisma schema
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
+        run: |
+          pnpm db:migrate:disposable -- --database pathfinder_disposable_ci --confirm-database pathfinder_disposable_ci
+          pnpm --dir packages/db exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script > "$RUNNER_TEMP/release-schema-diff.sql"
+        env:
+          PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
+          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      - name: Preserve disposable schema comparison
+        if: ${{ always() && needs.plan.outputs.run_database_integration != 'false' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-schema-comparison
+          path: ${{ runner.temp }}/release-schema-diff.sql
+          if-no-files-found: warn
       - name: Verify operator OAuth, grants, proposals and approvals on disposable PostgreSQL
         if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/api exec vitest run src/operator/operator-oauth.disposable.integration.test.ts src/operator/operator.adversarial.test.ts src/operator/tools/operator-reads.disposable.integration.test.ts src/operator/kinds/operator-kinds.disposable.integration.test.ts src/operator/kinds/onboarding-no-approval.disposable.integration.test.ts src/operator/operator-routine-default.disposable.integration.test.ts src/operator/tools/crm-csv-import.disposable.integration.test.ts src/operator/tools/crm-merges.disposable.integration.test.ts src/operator/operator-decisions-grants.disposable.integration.test.ts src/operator/venue-authoring.disposable.integration.test.ts src/correspondence/prisma-provider-draft-store.disposable.integration.test.ts --pool=forks --maxWorkers=1 --testTimeout=120000
         env:
           RUN_OPERATOR_DB_INTEGRATION: '1'
           RUN_CRM_CSV_IMPORT_DB_INTEGRATION: '1'
+      - name: Verify guest finalization concurrency on disposable PostgreSQL
+        if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
+        run: pnpm --dir packages/db exec vitest run src/helpers/guest-chat-finalization-concurrency.disposable.integration.test.ts --pool=forks --maxWorkers=1 --testTimeout=120000
+        env:
+          RUN_GUEST_CHAT_CONCURRENCY_DB_INTEGRATION: '1'
+          GUEST_CHAT_CONCURRENCY_REPORT_PATH: ${{ runner.temp }}/guest-chat-concurrency.json
+      - name: Preserve guest finalization concurrency evidence
+        if: ${{ always() && needs.plan.outputs.run_database_integration != 'false' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: guest-chat-concurrency
+          path: ${{ runner.temp }}/guest-chat-concurrency.json
+          if-no-files-found: warn
       - name: Verify CRM account merge plans and source preservation on disposable PostgreSQL
         if: ${{ needs.plan.outputs.run_database_integration != 'false' }}
         run: pnpm --dir packages/db exec vitest run src/helpers/prospect-crm-disposable.integration.test.ts --pool=forks --maxWorkers=1 --testTimeout=120000

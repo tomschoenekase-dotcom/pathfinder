@@ -10818,7 +10818,7 @@ model EmbeddingVenueRefreshRecord {
   outcome String?
   startedAt DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
-  refresh EmbeddingVenueRefresh @relation(fields: [tenantId, venueId, refreshId], references: [tenantId, venueId, id], onDelete: Restrict)
+  refresh EmbeddingVenueRefresh @relation(fields: [tenantId, venueId, refreshId], references: [tenantId, venueId, id], onDelete: Restrict, map: "embedding_venue_refresh_records_scope_fkey")
   @@unique([refreshId, ordinal])
   @@unique([refreshId, entityType, entityId])
   @@index([tenantId, venueId, refreshId])

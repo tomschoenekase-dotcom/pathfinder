@@ -31,6 +31,7 @@
     "test:platform-release-evidence:disposable": "node scripts/run-disposable-platform-release-evidence.mjs",
     "test:operations-readiness:disposable": "node scripts/run-disposable-operations-readiness.mjs",
     "test:guest-answer-attribution:disposable": "node scripts/run-disposable-guest-answer-attribution.mjs",
+    "test:guest-chat-concurrency:disposable": "node scripts/run-disposable-guest-chat-concurrency.mjs",
     "test:retention-disposition-preview:disposable": "node scripts/run-disposable-retention-disposition-preview.mjs",
     "test:support-triage-proposal:disposable": "node scripts/run-disposable-support-triage-proposal.mjs",
     "test:support-knowledge-proposal:disposable": "node scripts/run-disposable-support-knowledge-proposal.mjs",
