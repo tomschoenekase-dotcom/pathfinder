@@ -18,6 +18,8 @@ Custom personality profiles (the warmth, brevity, energy and formality sliders) 
 
 ## Writing guide records
 
+Before building or changing a venue guide, call `operator.get_manual` with `section` set to `venue-authoring`: it returns the authoring contract (workflow, where each kind of information belongs, unknown and seasonal facts, voice settings, complete examples) and the package JSON Schema generated from the live validator. The rules below are the writing standard it builds on.
+
 The visitor guide reads every place and topic you import and answers in a friendly staff voice. It talks the way the records are written, so write them as a knowledgeable staff member describing the place, never as research notes. Records written as notes make the guide sound like a database and lead it to misclassify things.
 
 1. Talk about the place. Use present tense for how things are; use future or past only for dated things, with real dates ("The holiday lights run Fridays to Sundays, Nov 27 to Dec 27").

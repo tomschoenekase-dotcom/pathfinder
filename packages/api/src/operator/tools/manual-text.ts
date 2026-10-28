@@ -3,7 +3,7 @@
  * filesystem at runtime (a Next standalone bundle does not ship docs/). A test keeps this equal to
  * the docs file; edit the docs file first, then update this constant to match.
  */
-export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v14'
+export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v15'
 
 export const OPERATOR_MANUAL_TEXT = [
   '# Operator manual',
@@ -25,6 +25,8 @@ export const OPERATOR_MANUAL_TEXT = [
   'Custom personality profiles (the warmth, brevity, energy and formality sliders) are not available through the MCP yet; use the tone preset, guide name, guide notes, greeting and response depth.',
   '',
   '## Writing guide records',
+  '',
+  'Before building or changing a venue guide, call `operator.get_manual` with `section` set to `venue-authoring`: it returns the authoring contract (workflow, where each kind of information belongs, unknown and seasonal facts, voice settings, complete examples) and the package JSON Schema generated from the live validator. The rules below are the writing standard it builds on.',
   '',
   'The visitor guide reads every place and topic you import and answers in a friendly staff voice. It talks the way the records are written, so write them as a knowledgeable staff member describing the place, never as research notes. Records written as notes make the guide sound like a database and lead it to misclassify things.',
   '',

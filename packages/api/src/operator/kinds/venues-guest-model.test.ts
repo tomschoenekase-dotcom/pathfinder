@@ -585,6 +585,38 @@ describe('venues.propose_guest_model', () => {
 })
 
 describe('venues.propose_guest_model_reset', () => {
+  it.each([
+    ['venues.propose_guest_model', 'guest-chat-sol-fast'],
+    ['venues.propose_guest_model', 'guest-chat-sol'],
+    ['venues.propose_guest_model_reset', undefined],
+  ])('refuses a late concurrent update during %s (%s)', async (tool, modelKey) => {
+    const { world, database, call } = harness()
+    await call('venues.propose_guest_model', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      modelKey: 'guest-chat-terra-fast',
+      operationId: randomUUID(),
+    })
+    const updateProposal = database.operatorProposal.updateMany
+    database.operatorProposal.updateMany = async (input: Row) => {
+      // A dashboard edit lands after the proposal's version check but before its domain write.
+      if (input.data.applyStartedAt) {
+        Object.assign(venueOverride(world)!, { primaryModelKey: 'guest-chat-sol', revision: 2 })
+      }
+      return updateProposal(input)
+    }
+    const result = await call(tool!, {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      expectedRevision: 1,
+      ...(modelKey ? { modelKey } : {}),
+      operationId: randomUUID(),
+    })
+    expect(result.status).toBe('STALE')
+    expect(venueOverride(world)).toMatchObject({ primaryModelKey: 'guest-chat-sol', revision: 2 })
+    expect(world.history).toHaveLength(1)
+  })
+
   it('returns the venue to the inherited default and is a no-op when nothing is set', async () => {
     process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-sol-fast'
     const { world, call } = harness()
@@ -651,5 +683,122 @@ describe('venues.propose_guest_model_reset', () => {
       primaryModelKey: 'guest-chat-sol',
       revision: 3,
     })
+  })
+})
+
+describe('owner says "for this venue, switch from Sol to 6.1 Terra"', () => {
+  /** What an agent does with the read: match the spoken name against alsoKnownAs and model. */
+  function choiceFor(view: Row, spoken: string): Row[] {
+    const wanted = spoken.trim().toLowerCase()
+    return view.choices.filter(
+      (choice: Row) =>
+        choice.model.toLowerCase() === wanted ||
+        choice.alsoKnownAs.some((name: string) => name.toLowerCase() === wanted),
+    )
+  }
+
+  it('lists registry facts for every choice and maps each common name to exactly one key', async () => {
+    const { AI_CENTRAL_MODEL_REGISTRY } = await import('@pathfinder/ai')
+    const { call } = harness()
+    const view = await call('venues.get_guest_model', { tenantId: TENANT_A, venueId: VENUE_A })
+    for (const choice of view.choices) {
+      const central =
+        AI_CENTRAL_MODEL_REGISTRY[choice.modelKey as keyof typeof AI_CENTRAL_MODEL_REGISTRY]
+      expect(choice.provider).toBe(central.provider)
+      expect(choice.model).toBe(central.model)
+      expect(choice.pricingUsdPerMillionTokens.input).toBe(central.pricingUsdPerMillionTokens.input)
+      expect(choice.pricingUsdPerMillionTokens.output).toBe(
+        central.pricingUsdPerMillionTokens.output,
+      )
+    }
+    const names = view.choices.flatMap((choice: Row) =>
+      choice.alsoKnownAs.map((n: string) => n.toLowerCase()),
+    )
+    expect(new Set(names).size).toBe(names.length)
+    expect(choiceFor(view, '6.1 Terra').map((choice) => choice.modelKey)).toEqual([
+      'guest-chat-terra-fast',
+    ])
+    expect(choiceFor(view, 'gpt-6.1-terra')).toHaveLength(1)
+    expect(view.choices.find((c: Row) => c.modelKey === 'guest-chat-terra-fast')).toMatchObject({
+      model: 'gpt-6.1-terra',
+      fastMode: true,
+      provider: 'openai',
+    })
+    // A model with no visitor chat route is not offered under any name.
+    expect(choiceFor(view, 'gpt-6.1-astra')).toHaveLength(0)
+    expect(view.guidance).toMatch(/only with Fast mode/)
+  })
+
+  it('changes one venue, returns a before/after receipt, and restores the inherited default', async () => {
+    process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-sol-fast'
+    const { call } = harness()
+    const view = await call('venues.get_guest_model', { tenantId: TENANT_A, venueId: VENUE_A })
+    const [terra] = choiceFor(view, '6.1 Terra')
+    const set = await call('venues.propose_guest_model', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      modelKey: terra!.modelKey,
+      expectedRevision: view.venueOverride?.revision ?? null,
+      reason: 'Owner asked for Terra on this venue',
+      operationId: randomUUID(),
+    })
+    expect(set.status).toBe('APPLIED')
+    expect(set.result).toMatchObject({
+      scope: 'this venue only',
+      changed: true,
+      previous: {
+        modelKey: 'guest-chat-sol-fast',
+        source: 'DEPLOYMENT_DEFAULT',
+        model: 'gpt-6.1-sol',
+        fastMode: true,
+      },
+      effective: {
+        modelKey: 'guest-chat-terra-fast',
+        source: 'VENUE_OVERRIDE',
+        model: 'gpt-6.1-terra',
+        fastMode: true,
+      },
+    })
+    const sibling = await call('venues.get_guest_model', { tenantId: TENANT_A, venueId: VENUE_A2 })
+    expect(sibling.effective).toMatchObject({
+      modelKey: 'guest-chat-sol-fast',
+      source: 'DEPLOYMENT_DEFAULT',
+    })
+
+    const reset = await call('venues.propose_guest_model_reset', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      operationId: randomUUID(),
+    })
+    expect(reset.status).toBe('APPLIED')
+    expect(reset.result).toMatchObject({
+      changed: true,
+      previous: { modelKey: 'guest-chat-terra-fast', source: 'VENUE_OVERRIDE' },
+      effective: { modelKey: 'guest-chat-sol-fast', model: 'gpt-6.1-sol' },
+    })
+    const after = await call('venues.get_guest_model', { tenantId: TENANT_A, venueId: VENUE_A })
+    expect(after.effective).toMatchObject({
+      modelKey: 'guest-chat-sol-fast',
+      source: 'DEPLOYMENT_DEFAULT',
+    })
+  })
+
+  it('refuses a spoken or API model name instead of substituting a model', async () => {
+    const { world, call } = harness()
+    for (const modelKey of ['6.1 Terra', 'gpt-6.1-terra', 'guest-chat-terra']) {
+      const error = await call('venues.propose_guest_model', {
+        tenantId: TENANT_A,
+        venueId: VENUE_A,
+        modelKey,
+        operationId: randomUUID(),
+      }).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(ZodError)
+      expect((error as ZodError).issues[0]).toMatchObject({ code: 'invalid_value' })
+      expect((error as ZodError).issues[0] as Row).toHaveProperty('values', [
+        ...OPERATOR_GUEST_MODEL_KEYS,
+      ])
+    }
+    expect(world.proposals).toHaveLength(0)
+    expect(world.overrides).toHaveLength(0)
   })
 })

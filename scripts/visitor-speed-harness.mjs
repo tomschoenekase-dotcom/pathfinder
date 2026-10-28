@@ -7,6 +7,7 @@
  * question), or an array of { venue?, questions: string[] } scenarios. A
  * scenario starts in a fresh context and subsequent questions are follow-ups.
  */
+/* global window, document */
 import { createRequire } from 'node:module'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -44,7 +45,7 @@ Options:
   --project-root PATH  Resolve Playwright from this repository (default: script parent)
 
 Question JSON may be ["Question one", "Question two"] or
-[{"venue":"Space Museum","questions":["First message", "Follow-up"]}].
+[{"venue":"Quillbrook Park","questions":["First message", "Follow-up"]}].
 Each string in the first form is a new browser session; each scenario also
 starts in a new session and uses its later questions as follow-ups.
 
@@ -52,7 +53,7 @@ The harness opens only the supplied guide URL. Point it at local development
 for provider-stub runs. It never sends a turn unless this command is run.`)
 }
 
-function getPlaywright(projectRoot) {
+export function getPlaywright(projectRoot) {
   const candidates = [
     path.join(projectRoot, 'node_modules', 'playwright'),
     path.join(projectRoot, 'node_modules', '@playwright', 'test'),
@@ -77,7 +78,9 @@ function getPlaywright(projectRoot) {
       const loaded = candidateRequire(resolved)
       if (loaded.chromium) return loaded
       if (loaded.default?.chromium) return loaded.default
-    } catch {}
+    } catch {
+      /* Try the next installed dependency location. */
+    }
   }
   throw new Error(
     `Playwright is unavailable. Install the repository's existing browser dependencies first; tried ${candidates.join(', ')}.`,
@@ -93,11 +96,12 @@ const instrumentation = String.raw`(() => {
     let event;
     try { event = JSON.parse(line); } catch { return; }
     if (event.type === 'delta' && typeof event.delta === 'string' && event.delta.length) {
+      stream.answer = (stream.answer || '') + event.delta;
       stream.deltaCount += 1;
       if (stream.firstDeltaAt === null) stream.firstDeltaAt = now;
       stream.lastDeltaAt = now;
     }
-    if (event.type === 'complete') { stream.completedAt = now; stream.completeEvent = true; }
+    if (event.type === 'complete') { stream.completedAt = now; stream.completeEvent = true; if (typeof event.result?.response === 'string') stream.finalAnswer = event.result.response; }
     if (event.type === 'error') { stream.errorAt = now; stream.errorEvent = { code: event.code, publicCode: event.publicCode }; }
   }
   window.fetch = async (...args) => {
@@ -220,35 +224,39 @@ async function loadScenarios(file) {
   })
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2))
-  if (options.help) return printHelp()
-  if (!options.url || !options.questions)
-    throw new Error('Both --url and --questions are required. Use --help for details.')
-  const guideUrl = new URL(options.url)
-  if (!['http:', 'https:'].includes(guideUrl.protocol))
-    throw new Error('--url must use http or https.')
-  const timeoutMs = Number(options['timeout-ms'] || 60000)
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 1000)
-    throw new Error('--timeout-ms must be at least 1000.')
-  const scenarios = await loadScenarios(path.resolve(options.questions))
-  const projectRoot = path.resolve(options['project-root'] || repoRoot)
-  const { chromium } = getPlaywright(projectRoot)
-  const browser = await chromium.launch({ headless: !options.headed })
+export async function runVisitorScenarios({
+  guideUrl,
+  scenarios,
+  outDir,
+  viewport = 'desktop',
+  projectRoot = repoRoot,
+  timeoutMs = 60000,
+  headed = false,
+  onTurn,
+  chromium = getPlaywright(projectRoot).chromium,
+}) {
+  if (!['desktop', 'mobile'].includes(viewport))
+    throw new Error('viewport must be mobile or desktop')
+  if (outDir) await mkdir(outDir, { recursive: true })
+  const browser = await chromium.launch({ headless: !headed })
   const results = []
-  const startedAt = new Date().toISOString()
 
   try {
     for (const scenario of scenarios) {
-      const context = await browser.newContext()
+      const context = await browser.newContext({
+        viewport:
+          viewport === 'mobile' ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+      })
       await context.addInitScript(instrumentation)
       const page = await context.newPage()
-      await page.goto(guideUrl.href, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+      await page.goto(String(guideUrl), { waitUntil: 'domcontentloaded', timeout: timeoutMs })
       const composer = page.locator('textarea').first()
       await composer.waitFor({ state: 'visible', timeout: timeoutMs })
       for (let questionIndex = 0; questionIndex < scenario.questions.length; questionIndex += 1) {
-        const question = scenario.questions[questionIndex]
-        const log = page.locator('[role="log"]')
+        const entry = scenario.questions[questionIndex]
+        const question = typeof entry === 'string' ? entry : entry.question
+        const questionId = typeof entry === 'string' ? String(results.length + 1) : entry.id
+        const actualAskedAt = new Date().toISOString()
         await composer.fill(question)
         await page.evaluate(() => window.__visitorSpeedBegin())
         await page.getByRole('button', { name: 'Send message' }).click()
@@ -266,7 +274,27 @@ async function main() {
           status = await page.evaluate(() =>
             window.__visitorSpeed.streams.at(-1)?.errorEvent ? 'error' : 'complete',
           )
-        } catch {}
+        } catch {
+          /* Preserve timeout as a failed observation. */
+        }
+        if (status === 'complete') {
+          await page
+            .waitForFunction(
+              () => {
+                const state = window.__visitorSpeed
+                const articles = document.querySelectorAll(
+                  '[role="log"] article[data-role="assistant"]',
+                )
+                return (
+                  articles.length > state.assistantMessagesBefore &&
+                  Boolean(articles[articles.length - 1]?.innerText?.trim())
+                )
+              },
+              null,
+              { timeout: Math.min(timeoutMs, 5000) },
+            )
+            .catch(() => {})
+        }
         await page.waitForTimeout(50)
         const sample = await page.evaluate(
           ({ clickEpoch }) => {
@@ -307,7 +335,39 @@ async function main() {
           },
           { clickEpoch },
         )
+        const renderedAnswer = await page
+          .locator('[role="log"] article[data-role="assistant"]')
+          .last()
+          .innerText()
+          .catch(() => '')
+        const answerVisible = await page
+          .locator('[role="log"] article[data-role="assistant"]')
+          .last()
+          .isVisible()
+          .catch(() => false)
+        const streamedAnswer = await page.evaluate(
+          () =>
+            window.__visitorSpeed.streams.at(-1)?.finalAnswer ??
+            window.__visitorSpeed.streams.at(-1)?.answer ??
+            '',
+        )
+        const answer =
+          streamedAnswer ||
+          (sample.assistantMessagesAfter > sample.assistantMessagesBefore ? renderedAnswer : '')
+        const screenshot = outDir ? path.join(outDir, `answer-${results.length + 1}.png`) : null
+        let screenshotError = null
+        if (screenshot)
+          await page.screenshot({ path: screenshot, fullPage: true }).catch((error) => {
+            screenshotError = error.message
+          })
         results.push({
+          questionId,
+          answer,
+          renderedAnswer,
+          answerVisible,
+          screenshot,
+          screenshotError,
+          actualAskedAt,
           index: results.length + 1,
           venue: scenario.venue,
           kind: questionIndex === 0 ? 'first' : 'follow-up',
@@ -315,12 +375,38 @@ async function main() {
           status,
           ...sample,
         })
+        if (onTurn) await onTurn(results.at(-1))
       }
       await context.close()
     }
   } finally {
     await browser.close()
   }
+
+  return results
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2))
+  if (options.help) return printHelp()
+  if (!options.url || !options.questions)
+    throw new Error('Both --url and --questions are required. Use --help for details.')
+  const guideUrl = new URL(options.url)
+  if (!['http:', 'https:'].includes(guideUrl.protocol))
+    throw new Error('--url must use http or https.')
+  const timeoutMs = Number(options['timeout-ms'] || 60000)
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1000)
+    throw new Error('--timeout-ms must be at least 1000.')
+  const scenarios = await loadScenarios(path.resolve(options.questions))
+  const projectRoot = path.resolve(options['project-root'] || repoRoot)
+  const startedAt = new Date().toISOString()
+  const results = await runVisitorScenarios({
+    guideUrl: guideUrl.href,
+    scenarios,
+    projectRoot,
+    timeoutMs,
+    headed: options.headed,
+  })
 
   const output = {
     schemaVersion: 1,
@@ -347,7 +433,8 @@ async function main() {
   )
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exitCode = 1
-})
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  })

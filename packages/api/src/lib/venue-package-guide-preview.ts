@@ -105,6 +105,7 @@ export function previewVenuePackageGuide(input: unknown, asOf: string) {
       fullGuideRenderedChars: full.prompt.length,
       maxFullChars: MAX_FULL_CHARS,
       rendererTruncated: rendered.rendererTruncated,
+      renderedText: rendered.prompt,
     }
   }
   return {
