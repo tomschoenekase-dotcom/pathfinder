@@ -88,6 +88,7 @@ describe('private-body chat streaming route', () => {
   it.each(['slow', 'failed'] as const)(
     'closes on complete before %s generator cleanup',
     async (tail) => {
+      const failedCleanup = vi.fn().mockRejectedValue(new Error('private late failure'))
       let release!: () => void
       const pending = new Promise<void>((resolve) => {
         release = resolve
@@ -97,7 +98,7 @@ describe('private-body chat streaming route', () => {
           yield { type: 'complete', result: { response: 'The gallery is open.' } }
         } finally {
           if (tail === 'slow') await pending
-          else throw new Error('private late failure')
+          else await failedCleanup()
         }
       })
       const response = await POST(
