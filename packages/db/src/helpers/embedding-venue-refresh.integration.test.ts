@@ -56,7 +56,8 @@ integrationDescribe('venue refresh PostgreSQL concurrency and isolation', () => 
       await db.embeddingVenueRefresh.deleteMany({ where: s })
       await db.place.deleteMany({ where: s })
       await db.venue.deleteMany({ where: { id: s.venueId, tenantId: s.tenantId } })
-      await db.tenant.deleteMany({ where: { id: s.tenantId } })
+      // ContentVersion is append-only and restricts tenant deletion. Retain the
+      // UUID-scoped fixture tenant until the disposable database is removed.
     }
     await second.$disconnect()
     vi.unstubAllEnvs()
