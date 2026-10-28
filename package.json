@@ -115,7 +115,8 @@
     "test:v2-journey:disposable": "node scripts/run-disposable-v2-customer-journey.mjs",
     "staging:admit": "node scripts/admit-staging-release.mjs",
     "test:character-factory:disposable": "node scripts/run-disposable-character-factory.mjs",
-    "test:character-artifact-storage:disposable": "node scripts/run-disposable-character-artifact-storage.mjs"
+    "test:character-artifact-storage:disposable": "node scripts/run-disposable-character-artifact-storage.mjs",
+    "venue:answer-test": "node scripts/venue-answer-test.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,json,md}": [

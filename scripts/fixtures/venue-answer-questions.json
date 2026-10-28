@@ -1,0 +1,415 @@
+[
+  {
+    "id": "hours-today",
+    "question": "What time does Quillbrook close today?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "hours-today",
+    "expect": [
+      {
+        "fact": "Quillbrook closes at 5:00 PM on Wednesday.",
+        "ledgerQuote": "Quillbrook closes at 5:00 PM on Wednesday.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "hours-open",
+    "question": "When does Quillbrook open today?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "hours-today",
+    "expect": [
+      {
+        "fact": "Quillbrook opens at 10:00 AM on Wednesday.",
+        "ledgerQuote": "Quillbrook opens at 10:00 AM on Wednesday.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "hours-last-entry",
+    "question": "When is last entry today?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "hours-today",
+    "expect": [
+      {
+        "fact": "Last entry is at 4:00 PM on Wednesday.",
+        "ledgerQuote": "Last entry is at 4:00 PM on Wednesday.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "price-adult",
+    "question": "What is adult admission?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "price",
+    "expect": [
+      {
+        "fact": "Adult admission costs $18.",
+        "ledgerQuote": "Adult admission costs $18.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "price-child",
+    "question": "How much is admission for a child aged six?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "price",
+    "expect": [
+      {
+        "fact": "Admission for children ages 3–12 costs $9.",
+        "ledgerQuote": "Admission for children ages 3–12 costs $9.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "price-toddler",
+    "question": "Does my two-year-old need a paid ticket?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "price",
+    "expect": [
+      {
+        "fact": "Children under 3 enter free.",
+        "ledgerQuote": "Children under 3 enter free.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "thing-clock",
+    "question": "Where is the Copper Clock?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "named-thing",
+    "expect": [
+      {
+        "fact": "The Copper Clock is in the East Gallery.",
+        "ledgerQuote": "The Copper Clock is in the East Gallery.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "thing-garden",
+    "question": "Where is the Fern Court?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "named-thing",
+    "expect": [
+      {
+        "fact": "Fern Court is beside the West Gallery.",
+        "ledgerQuote": "Fern Court is beside the West Gallery.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "thing-workshop",
+    "question": "Where is the Paper Workshop?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "named-thing",
+    "expect": [
+      {
+        "fact": "The Paper Workshop is on the ground floor.",
+        "ledgerQuote": "The Paper Workshop is on the ground floor.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "list-galleries",
+    "question": "Which two galleries are there?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "list",
+    "expect": [
+      {
+        "fact": "East Gallery",
+        "ledgerQuote": "East Gallery",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      },
+      {
+        "fact": "West Gallery",
+        "ledgerQuote": "West Gallery",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "list-entrances",
+    "question": "Which visitor entrances are available?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "list",
+    "expect": [
+      {
+        "fact": "Oak Gate",
+        "ledgerQuote": "Oak Gate",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      },
+      {
+        "fact": "River Gate",
+        "ledgerQuote": "River Gate",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "list-drinks",
+    "question": "Which drinks does the cafe serve?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "list",
+    "expect": [
+      {
+        "fact": "Water",
+        "ledgerQuote": "Water",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      },
+      {
+        "fact": "Tea",
+        "ledgerQuote": "Tea",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      },
+      {
+        "fact": "Coffee",
+        "ledgerQuote": "Coffee",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "access-stroller",
+    "question": "Can I bring a stroller?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "family-access",
+    "expect": [
+      {
+        "fact": "Strollers are permitted in the galleries.",
+        "ledgerQuote": "Strollers are permitted in the galleries.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "access-stepfree",
+    "question": "Which entrance is step-free?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "family-access",
+    "expect": [
+      {
+        "fact": "River Gate has step-free access.",
+        "ledgerQuote": "River Gate has step-free access.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "access-changing",
+    "question": "Where can I change my baby?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "family-access",
+    "expect": [
+      {
+        "fact": "Baby-changing facilities are beside the ground-floor toilets.",
+        "ledgerQuote": "Baby-changing facilities are beside the ground-floor toilets.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "food-cafe",
+    "question": "Where can we get lunch?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "food",
+    "expect": [
+      {
+        "fact": "The Lantern Cafe serves lunch.",
+        "ledgerQuote": "The Lantern Cafe serves lunch.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "food-picnic",
+    "question": "Where can we eat our own sandwiches?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "food",
+    "expect": [
+      {
+        "fact": "Picnics are permitted in Fern Court.",
+        "ledgerQuote": "Picnics are permitted in Fern Court.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "food-hours",
+    "question": "When does the cafe close?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "food",
+    "expect": [
+      {
+        "fact": "The Lantern Cafe closes at 4:00 PM.",
+        "ledgerQuote": "The Lantern Cafe closes at 4:00 PM.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "follow-clock",
+    "question": "Is it on the ground floor?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "follow-up",
+    "expect": [
+      {
+        "fact": "The Copper Clock is on the ground floor.",
+        "ledgerQuote": "The Copper Clock is on the ground floor.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": [],
+    "followUpOf": "thing-clock"
+  },
+  {
+    "id": "follow-clock-near",
+    "question": "What is beside it?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "follow-up",
+    "expect": [
+      {
+        "fact": "The Copper Clock is beside the Paper Display.",
+        "ledgerQuote": "The Copper Clock is beside the Paper Display.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": [],
+    "followUpOf": "follow-clock"
+  },
+  {
+    "id": "follow-cafe",
+    "question": "Does it serve tea?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "follow-up",
+    "expect": [
+      {
+        "fact": "The Lantern Cafe serves tea.",
+        "ledgerQuote": "The Lantern Cafe serves tea.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": [],
+    "followUpOf": "food-cafe"
+  },
+  {
+    "id": "absent-rides",
+    "question": "Does Quillbrook have roller coasters?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "not-offered",
+    "expect": [
+      {
+        "fact": "Quillbrook does not offer roller coasters.",
+        "ledgerQuote": "Quillbrook does not offer roller coasters.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": ["Yes, Quillbrook has roller coasters"]
+  },
+  {
+    "id": "absent-hotel",
+    "question": "Can we stay overnight at a Quillbrook hotel?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "not-offered",
+    "expect": [
+      {
+        "fact": "Quillbrook does not have an on-site hotel.",
+        "ledgerQuote": "Quillbrook does not have an on-site hotel.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "unknown-allergy",
+    "question": "Is the soup safe for a severe sesame allergy?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "unknown",
+    "expect": [
+      {
+        "fact": "I cannot confirm sesame allergen information. Ask staff.",
+        "ledgerQuote": "I cannot confirm sesame allergen information. Ask staff.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": ["guaranteed sesame-free"]
+  },
+  {
+    "id": "unknown-lockers",
+    "question": "What is the exact locker size?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "unknown",
+    "expect": [
+      {
+        "fact": "I cannot confirm locker dimensions. Ask staff.",
+        "ledgerQuote": "I cannot confirm locker dimensions. Ask staff.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  },
+  {
+    "id": "unknown-taxi",
+    "question": "How much will a taxi to Quillbrook cost?",
+    "askedAt": "2026-10-28T12:00:00-05:00",
+    "timeZone": "America/Chicago",
+    "kind": "unknown",
+    "expect": [
+      {
+        "fact": "I cannot confirm taxi fares. Ask staff.",
+        "ledgerQuote": "I cannot confirm taxi fares. Ask staff.",
+        "sourceUrl": "https://quillbrook.example/visitor-guide"
+      }
+    ],
+    "mustNotSay": []
+  }
+]

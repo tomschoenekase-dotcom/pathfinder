@@ -54,6 +54,30 @@ Only with authorization for that venue.
 - Report the highest gate with evidence. Blocked or unrun checks are reported as such, never as
   passes.
 
+## Answer test
+
+Use `pnpm venue:answer-test --url <guest link> --questions <file> --out <new directory>`
+with `--viewport mobile|desktop` and optional `--offline <package.json>` after live-turn
+authorization. Prepare at least 25 ledger-backed cases covering hours-today, price,
+named-thing, list, family-access, food, follow-up, not-offered, and unknown. Start from
+the fictional `scripts/fixtures/venue-answer-questions.json`; see
+`scripts/visitor-speed-harness.md` for the full JSON contract and commands.
+
+Without `--url`, `--offline` runs only the package precheck using the actual preview
+renderer's default text. Missing expected facts block a live run before browser launch.
+Expected facts never go to chat. Each root question has a fresh browser context;
+follow-ups share their root's conversation. Keep `followUpOf` chains linear; duplicate
+the root to test a separate branch. `askedAt` is expectation context, not a
+server-clock override; the real `actualAskedAt` is recorded and date mismatches need
+human review. Review `results.json`, `REVIEW.md`, and each answer's screenshot against
+the ledger. Conservative normalized literal checks fail known omissions and banned
+claims; extra claims, unprovable semantics, or DOM/stream answer mismatches are
+`needs-human`. Exit 0 can mean only an offline precheck passed; failed, precheck-failed,
+error, and needs-human results exit 1. Human review is required before claiming the
+gate is proven. Automated matching
+never substitutes for human source-ledger review. Keep output in a machine workspace
+and report blocked or unrun checks plainly.
+
 ## Voice and model
 
 Voice: `venues.propose_update` (`tonePreset`, `responseDepth`, `aiGuideName`, `greeting`,

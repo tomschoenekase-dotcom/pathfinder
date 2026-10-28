@@ -306,3 +306,196 @@ export function createOfflineSolJournal(plan, output) {
     },
   }
 }
+
+/** Live-guide checks share this provider-dark contract, never the paid execution path. */
+export const ANSWER_KINDS = Object.freeze([
+  'hours-today',
+  'price',
+  'named-thing',
+  'list',
+  'family-access',
+  'food',
+  'follow-up',
+  'not-offered',
+  'unknown',
+  'other',
+])
+export function validateAnswerQuestions(rows) {
+  assert.ok(Array.isArray(rows) && rows.length >= 25, 'At least 25 questions required')
+  const seen = new Map()
+  const parentsWithChildren = new Set()
+  for (const row of rows) {
+    assert.ok(row && typeof row === 'object' && !Array.isArray(row), 'Question object required')
+    const allowed = [
+      'id',
+      'question',
+      'askedAt',
+      'timeZone',
+      'kind',
+      'followUpOf',
+      'expect',
+      'mustNotSay',
+    ]
+    assert.ok(
+      Object.keys(row).every((key) => allowed.includes(key)),
+      'Unexpected question field',
+    )
+    assert.ok(
+      typeof row.id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/u.test(row.id) && !seen.has(row.id),
+      'Unique safe id required',
+    )
+    assert.ok(typeof row.question === 'string' && row.question.trim(), 'Nonempty question required')
+    assert.ok(
+      typeof row.askedAt === 'string' &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(row.askedAt) &&
+        Number.isFinite(Date.parse(row.askedAt)),
+      'askedAt requires ISO timestamp with offset',
+    )
+    const date = row.askedAt.slice(0, 10)
+    assert.equal(new Date(date).toISOString().slice(0, 10), date, 'Invalid calendar date')
+    assert.ok(typeof row.timeZone === 'string' && row.timeZone.trim(), 'timeZone required')
+    new Intl.DateTimeFormat('en-US', { timeZone: row.timeZone }).format(new Date(row.askedAt))
+    assert.ok(ANSWER_KINDS.includes(row.kind), 'Unknown kind')
+    assert.ok(Array.isArray(row.expect), 'expect array required')
+    for (const expected of row.expect) {
+      exact(expected, ['fact', 'ledgerQuote', 'sourceUrl'])
+      for (const key of ['fact', 'ledgerQuote', 'sourceUrl'])
+        assert.ok(
+          typeof expected[key] === 'string' && expected[key].trim(),
+          `Nonempty ${key} required`,
+        )
+      const url = new URL(expected.sourceUrl)
+      assert.ok(
+        ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password,
+        'Public source URL required',
+      )
+    }
+    assert.ok(
+      Array.isArray(row.mustNotSay) &&
+        row.mustNotSay.every((value) => typeof value === 'string' && value.trim()),
+      'mustNotSay must contain nonempty strings',
+    )
+    if (row.kind === 'follow-up') assert.ok(row.followUpOf, 'follow-up requires followUpOf')
+    if (row.followUpOf !== undefined) {
+      const parent = seen.get(row.followUpOf)
+      assert.ok(parent, 'followUpOf must reference an earlier question')
+      assert.ok(
+        !parentsWithChildren.has(row.followUpOf),
+        'Follow-up chains must be linear; create another root for a separate branch',
+      )
+      parentsWithChildren.add(row.followUpOf)
+      assert.ok(Date.parse(row.askedAt) >= Date.parse(parent.askedAt), 'Follow-up precedes parent')
+      assert.equal(row.timeZone, parent.timeZone, 'Follow-up timeZone differs')
+    }
+    seen.set(row.id, row)
+  }
+  for (const kind of ANSWER_KINDS.filter((kind) => kind !== 'other'))
+    assert.ok(
+      rows.some((row) => row.kind === kind),
+      `Missing kind: ${kind}`,
+    )
+  return rows
+}
+export function buildAnswerScenarios(rows) {
+  validateAnswerQuestions(rows)
+  const roots = new Map(),
+    groups = new Map()
+  for (const row of rows) {
+    const root = row.followUpOf ? roots.get(row.followUpOf) : row.id
+    roots.set(row.id, root)
+    if (!groups.has(root)) groups.set(root, { venue: null, questions: [] })
+    groups.get(root).questions.push(row)
+  }
+  return [...groups.values()]
+}
+export function normalizeAnswerFact(value) {
+  return String(value)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[‘’]/gu, "'")
+    .replace(/[“”]/gu, '"')
+    .replace(/[–—]/gu, '-')
+    .replace(/\s+/gu, ' ')
+    .trim()
+}
+function containsAnswerFact(answer, fact) {
+  const haystack = normalizeAnswerFact(answer),
+    needle = normalizeAnswerFact(fact)
+  let index = haystack.indexOf(needle)
+  while (index >= 0) {
+    const before = haystack[index - 1] || '',
+      after = haystack[index + needle.length] || ''
+    if (
+      !/[\p{L}\p{N}$.:+-]/u.test(before) &&
+      !/[\p{L}\p{N}]/u.test(after) &&
+      !/^[.:]\d/u.test(haystack.slice(index + needle.length))
+    )
+      return true
+    index = haystack.indexOf(needle, index + 1)
+  }
+  return false
+}
+export function precheckAnswerFacts(questions, renderedText) {
+  // Decode only the five escapes emitted by escapeUntrustedPromptData.
+  const comparableText = renderedText.replace(/\\u(003c|003e|0026|2028|2029)/giu, (_, hex) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  )
+  const missing = questions.flatMap((row) =>
+    row.expect
+      .filter((expected) => !containsAnswerFact(comparableText, expected.fact))
+      .map((expected) => ({ id: row.id, fact: expected.fact })),
+  )
+  return { status: missing.length ? 'fail' : 'pass', missing }
+}
+export function gradeVenueAnswer(question, turn) {
+  const reasons = []
+  if (turn.status !== 'complete' || !turn.answer?.trim()) reasons.push('Answer incomplete or empty')
+  for (const expected of question.expect)
+    if (!containsAnswerFact(turn.answer || '', expected.fact))
+      reasons.push(`Missing expected fact: ${expected.fact}`)
+  for (const banned of question.mustNotSay)
+    if (containsAnswerFact(turn.answer || '', banned)) reasons.push(`Forbidden phrase: ${banned}`)
+  const answer = normalizeAnswerFact(turn.answer || '')
+  const uncertain =
+    /\b(?:not sure|don't know|do not know|cannot confirm|can't confirm|unconfirmed|unknown|ask (?:the )?staff|check with (?:the )?staff|not offered|no .{0,40}(?:available|offered)|does not (?:have|offer)|doesn't (?:have|offer))\b/u.test(
+      answer,
+    )
+  if (['unknown', 'not-offered'].includes(question.kind) && !uncertain)
+    reasons.push('No explicit uncertainty or supported absence')
+  if (reasons.length) return { status: 'fail', reasons }
+  // Only literal full coverage can prove absence of invented extra claims. No token-bag grading.
+  const facts = question.expect
+    .map((expected) => normalizeAnswerFact(expected.fact))
+    .sort((a, b) => b.length - a.length)
+  let remaining = answer
+  for (const fact of facts) remaining = remaining.split(fact).join(' ')
+  remaining = remaining.replace(/[\s.,;!*•]/gu, '')
+  if (!facts.length || remaining)
+    reasons.push('Answer contains wording not established by expected facts; verify against ledger')
+  if (['unknown', 'not-offered', 'list', 'other'].includes(question.kind))
+    reasons.push('Human review required for uncertainty, list completeness or open-ended semantics')
+  if (
+    turn.renderedAnswer !== undefined &&
+    (!turn.renderedAnswer.trim() ||
+      normalizeAnswerFact(turn.renderedAnswer) !== answer ||
+      turn.assistantMessagesAfter <= turn.assistantMessagesBefore)
+  )
+    reasons.push(
+      'Rendered answer differs from stream or no new visible assistant answer; review screenshot',
+    )
+  if (turn.answerVisible === false) reasons.push('Final assistant answer is not visible')
+  if (turn.actualAskedAt) {
+    const day = (value) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: question.timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date(value))
+    if (day(turn.actualAskedAt) !== day(question.askedAt))
+      reasons.push(
+        'Actual venue-local date differs from expected askedAt; server clock was not overridden',
+      )
+  }
+  return { status: reasons.length ? 'needs-human' : 'pass', reasons }
+}
