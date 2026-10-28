@@ -257,6 +257,7 @@ export const OPERATOR_ALWAYS_ASK_TOOLS = [
   'venues.propose_source_connection',
   // Edits what guests may be told, so a person reads the exact diff each time.
   'venues.propose_content_changeset',
+  'venues.propose_embedding_refresh',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -283,6 +284,8 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'venues.get_content',
   'venues.preview_content_changeset',
   'venues.check_package',
+  'venues.plan_embedding_refresh',
+  'venues.get_embedding_refresh',
   'venues.list_releases',
   'venues.get_release',
   'venues.get_effective_guest_version',
@@ -405,6 +408,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'venues.propose_knowledge',
   'venues.propose_update',
   'venues.propose_package_import',
+  'venues.propose_embedding_refresh',
   'venues.propose_content_changeset',
   'venues.propose_publish',
   'venues.propose_guest_model',
@@ -939,6 +943,8 @@ export const OPERATOR_MCP_INPUTS = {
   'venues.list_content': VenueContentListInput,
   'venues.get_content': VenueContentGetInput,
   'venues.preview_content_changeset': readInput({ ...VenueContentChangesetShape }),
+  'venues.plan_embedding_refresh': readInput({ ...venueScope }),
+  'venues.get_embedding_refresh': readInput({ ...venueScope, refreshId: Identifier }),
   'venues.check_package': readInput({ ...venueScope, ...VenuePackageSourceShape }).refine(
     (value) => Boolean(value.payload) !== Boolean(value.file),
     { message: 'Provide exactly one of payload (inline JSON) or file (an attached .json file)' },
@@ -1154,6 +1160,11 @@ export const OPERATOR_MCP_INPUTS = {
       ),
     { message: 'Provide at least one venue field to change' },
   ),
+  'venues.propose_embedding_refresh': writeInput({
+    ...venueScope,
+    max: z.number().int().min(0).max(1000),
+    planDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  }),
   'venues.propose_package_import': writeInput({
     ...venueScope,
     ...VenuePackageSourceShape,
@@ -3413,6 +3424,55 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.list_content': VenueContentListOutput,
   'venues.get_content': VenueContentGetOutput,
   'venues.preview_content_changeset': ContentChangesetPreviewOutput,
+  'venues.plan_embedding_refresh': z
+    .object({
+      venueId: Identifier,
+      planDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+      candidateCount: z.number().int().nonnegative(),
+      scanned: z.number().int().nonnegative(),
+      blockedCount: z.number().int().nonnegative(),
+      truncated: z.boolean(),
+      eligible: z.boolean(),
+      maxRecords: z.literal(1000),
+      dispatcherDisabled: z.boolean(),
+      next: z.string().max(1000),
+    })
+    .strict(),
+  'venues.get_embedding_refresh': z
+    .object({
+      refreshId: Identifier,
+      venueId: Identifier,
+      status: z.enum(['QUEUED', 'RUNNING', 'COMPLETE', 'STOPPED', 'OUTCOME_UNKNOWN']),
+      freshnessProven: z.boolean(),
+      maxRecords: z.number().int().min(0).max(1000),
+      stopCode: z.string().max(100).nullable(),
+      records: z
+        .array(
+          z
+            .object({
+              recordId: Identifier,
+              ordinal: z.number().int().nonnegative(),
+              entityType: z.enum(['PLACE', 'KNOWLEDGE_ENTRY']),
+              entityId: Identifier,
+              contentUpdatedAt: z.string().datetime(),
+              status: z.enum(['PENDING', 'RUNNING', 'COMPLETE', 'FAILED', 'OUTCOME_UNKNOWN']),
+              outcome: z.string().max(100).nullable(),
+            })
+            .strict(),
+        )
+        .max(1000),
+      afterAudit: z
+        .object({
+          scanned: z.number().int().nonnegative(),
+          candidateCount: z.number().int().nonnegative(),
+          blockedCount: z.number().int().nonnegative(),
+          truncated: z.boolean(),
+        })
+        .strict()
+        .nullable(),
+      next: z.string().max(1000),
+    })
+    .strict(),
   'venues.check_package': z
     .object({
       venueId: Identifier,
@@ -4386,6 +4446,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.propose_knowledge': OperatorWriteResult,
   'venues.propose_update': OperatorWriteResult,
   'venues.propose_package_import': OperatorWriteResult,
+  'venues.propose_embedding_refresh': OperatorWriteResult,
   'venues.propose_content_changeset': OperatorWriteResult,
   'venues.propose_publish': OperatorWriteResult,
   'venues.propose_guest_model': OperatorWriteResult,
@@ -4465,6 +4526,28 @@ const PROPOSE =
   ' Applies immediately: read status (APPLIED, FAILED or STALE) and result in the response.'
 
 const seeds: readonly Seed[] = [
+  [
+    'venues.plan_embedding_refresh',
+    'Plan venue embedding refresh',
+    'Count stale embeddings for exactly one venue without writes, Redis or provider calls. Returns a sealed planDigest, blockers and the 1000-record maximum. A record cap is not a dollar cap. Keep global worker flags unchanged. Read-only.',
+    'venues:read',
+    'venue',
+  ],
+  [
+    'venues.get_embedding_refresh',
+    'Get venue embedding refresh',
+    'Read the durable refresh status and per-record receipts for exactly one venue. Only COMPLETE with freshnessProven and a complete final audit proves freshness. RUNNING or OUTCOME_UNKNOWN after interruption must not be retried or replaced automatically. Read-only.',
+    'venues:read',
+    'venue',
+  ],
+  [
+    'venues.propose_embedding_refresh',
+    'Request venue embedding refresh',
+    'After plan_embedding_refresh, request its exact planDigest with max (0..1000) and a new operationId. Uses normal operator approval policy. APPLIED means the bounded request was accepted, not that embeddings are current. Read get_embedding_refresh with result.refreshId until terminal. The worker processes records serially, stops on first failure, never retries attempted work, and audits freshness afterward. Requires an active venue and dispatcher disabled; never publish a draft just to refresh. Keep the same operationId on ambiguous results and inspect operator.get_operation. No global flags change.',
+    'venues:propose',
+    'venue',
+    'venues.embedding-refresh',
+  ],
   [
     'crm.search_organizations',
     'Search organizations',

@@ -34,6 +34,7 @@ export const DAILY_ROLLUP_RETRY_BACKOFF = 'daily-rollup-retry'
 
 export const EMBED_PLACE_QUEUE = queueName('embed-place')
 export const EMBED_PLACE_PROCESS_JOB = 'embed-place-process'
+export const VENUE_EMBEDDING_REFRESH_PROCESS_JOB = 'venue-embedding-refresh-process'
 export const EMBED_PLACE_RETRY_BACKOFF = 'embed-place-retry'
 
 export const EMBED_KNOWLEDGE_ENTRY_QUEUE = queueName('embed-knowledge-entry')

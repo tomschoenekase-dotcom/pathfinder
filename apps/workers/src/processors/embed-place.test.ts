@@ -103,6 +103,30 @@ describe('processEmbedPlaceJob', () => {
     })
   })
 
+  it('refuses a refresh record moved outside the sealed venue before provider work', async () => {
+    mocks.placeFindFirst.mockResolvedValueOnce(place)
+    await expect(
+      processEmbedPlaceJob({ ...payload, expectedVenueId: 'other-venue' }),
+    ).rejects.toThrow()
+    expect(mocks.acquireEmbeddingWork).not.toHaveBeenCalled()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.placeFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ venueId: 'other-venue' }),
+      }),
+    )
+  })
+
+  it.each([{ expectedSourceHash: 'changed' }, { expectedEmbeddingProfile: 'changed' }])(
+    'refuses changed sealed content/profile before claiming',
+    async (expected) => {
+      mocks.placeFindFirst.mockResolvedValueOnce(place)
+      await expect(processEmbedPlaceJob({ ...payload, ...expected })).rejects.toThrow()
+      expect(mocks.acquireEmbeddingWork).not.toHaveBeenCalled()
+      expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    },
+  )
+
   it('binds tenant and venue, records usage, and stores the validated embedding', async () => {
     mocks.placeFindFirst.mockResolvedValueOnce(place)
 
@@ -119,6 +143,7 @@ describe('processEmbedPlaceJob', () => {
     expect(mocks.buildPlaceText).toHaveBeenCalledWith(place)
     expect(mocks.generateEmbedding).toHaveBeenCalledWith(
       expect.objectContaining({
+        maxAttempts: 1,
         modelKey: 'place-content-embedding',
         text: 'canonical place text',
       }),

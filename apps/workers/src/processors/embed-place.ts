@@ -57,6 +57,7 @@ export async function processEmbedPlaceJob(
         where: {
           id: payload.placeId,
           tenantId: payload.tenantId,
+          ...(payload.expectedVenueId ? { venueId: payload.expectedVenueId } : {}),
           venue: { tenantId: payload.tenantId },
         },
         select: {
@@ -76,7 +77,7 @@ export async function processEmbedPlaceJob(
       }),
     )
 
-    if (!place) {
+    if (!place || (payload.expectedVenueId && place.venueId !== payload.expectedVenueId)) {
       throw new UnrecoverableError(`Place ${payload.placeId} not found`)
     }
 
@@ -103,6 +104,15 @@ export async function processEmbedPlaceJob(
     }
 
     const text = buildPlaceText(place)
+    if (
+      (payload.expectedSourceHash &&
+        payload.expectedSourceHash !== embeddingSourceHash('place', text)) ||
+      (payload.expectedEmbeddingProfile &&
+        payload.expectedEmbeddingProfile !==
+          getAiEmbeddingProfile(AI_EMBEDDING_MODEL_KEYS.PLACE_CONTENT))
+    ) {
+      throw new UnrecoverableError('EMBEDDING_REFRESH_SOURCE_CHANGED')
+    }
     const leaseToken = randomUUID()
     const acquisition = await acquireEmbeddingWork({
       tenantId: payload.tenantId,
@@ -129,6 +139,7 @@ export async function processEmbedPlaceJob(
     claim = { claimId: acquisition.claimId, leaseToken, venueId: place.venueId }
 
     const result = await generateEmbedding({
+      maxAttempts: 1,
       admissionGuard: () =>
         assertVenueAiAvailable(db, {
           tenantId: payload.tenantId,

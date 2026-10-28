@@ -41,6 +41,7 @@ import {
   EMBED_KNOWLEDGE_ENTRY_QUEUE,
   EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   EMBED_PLACE_PROCESS_JOB,
+  VENUE_EMBEDDING_REFRESH_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
   EMBEDDING_DISPATCH_QUEUE,
@@ -88,6 +89,7 @@ import {
   type EmbedKnowledgeEntryJobPayload,
   type EmbedCompanyKnowledgeJobPayload,
   type EmbedPlaceJobPayload,
+  type VenueEmbeddingRefreshJobPayload,
   type EvaluationRunJobPayload,
   type GuestAnswerAttributionEvaluationJobPayload,
   type GenerationDispatchKickJobPayload,
@@ -128,6 +130,7 @@ import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
 import { processEmbedCompanyKnowledgeJob } from './processors/embed-company-knowledge'
 import { processEmbedPlaceJob } from './processors/embed-place'
+import { processVenueEmbeddingRefreshJob } from './processors/refresh-venue-embeddings'
 import { processEvaluationRunJob } from './processors/evaluation-run'
 import { processEvaluationDispatchJob } from './processors/evaluation-dispatch'
 import {
@@ -395,10 +398,18 @@ async function handleDailyRollupQueueJob(job: Job<DailyRollupJobPayload | Record
   throw new Error(`Unsupported daily rollup job: ${job.name}`)
 }
 
-async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>, token?: string) {
+async function handleEmbedPlaceQueueJob(
+  job: Job<EmbedPlaceJobPayload | VenueEmbeddingRefreshJobPayload>,
+  token?: string,
+) {
+  if (job.name === VENUE_EMBEDDING_REFRESH_PROCESS_JOB) {
+    // The serial coordinator stops on admission refusal; never delay/retry it.
+    await processVenueEmbeddingRefreshJob(job.data as VenueEmbeddingRefreshJobPayload)
+    return
+  }
   if (job.name === EMBED_PLACE_PROCESS_JOB) {
     await runAiJobWithIncidentControl(job, token, () =>
-      processEmbedPlaceJob(job.data, getJobExecutionMetadata(job)),
+      processEmbedPlaceJob(job.data as EmbedPlaceJobPayload, getJobExecutionMetadata(job)),
     )
     return
   }

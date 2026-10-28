@@ -57,6 +57,7 @@ export async function processEmbedKnowledgeEntryJob(
         where: {
           id: payload.entryId,
           tenantId: payload.tenantId,
+          ...(payload.expectedVenueId ? { venueId: payload.expectedVenueId } : {}),
           venue: { tenantId: payload.tenantId },
         },
         select: {
@@ -71,7 +72,7 @@ export async function processEmbedKnowledgeEntryJob(
       }),
     )
 
-    if (!entry) {
+    if (!entry || (payload.expectedVenueId && entry.venueId !== payload.expectedVenueId)) {
       throw new UnrecoverableError(`VenueKnowledgeEntry ${payload.entryId} not found`)
     }
 
@@ -98,6 +99,15 @@ export async function processEmbedKnowledgeEntryJob(
     }
 
     const text = buildKnowledgeEntryText(entry)
+    if (
+      (payload.expectedSourceHash &&
+        payload.expectedSourceHash !== embeddingSourceHash('knowledge-entry', text)) ||
+      (payload.expectedEmbeddingProfile &&
+        payload.expectedEmbeddingProfile !==
+          getAiEmbeddingProfile(AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT))
+    ) {
+      throw new UnrecoverableError('EMBEDDING_REFRESH_SOURCE_CHANGED')
+    }
     const leaseToken = randomUUID()
     const acquisition = await acquireEmbeddingWork({
       tenantId: payload.tenantId,
@@ -124,6 +134,7 @@ export async function processEmbedKnowledgeEntryJob(
     claim = { claimId: acquisition.claimId, leaseToken, venueId: entry.venueId }
 
     const result = await generateEmbedding({
+      maxAttempts: 1,
       admissionGuard: () =>
         assertVenueAiAvailable(db, {
           tenantId: payload.tenantId,

@@ -58,6 +58,7 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   'venues.source',
   'venues.source-connection',
   'venues.content-changeset',
+  'venues.embedding-refresh',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */

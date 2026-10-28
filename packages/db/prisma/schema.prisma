@@ -217,6 +217,7 @@ model Tenant {
   venueLocationConnections                  VenueLocationConnection[]
   embeddingWorkClaims                       EmbeddingWorkClaim[]
   embeddingDispatches                       EmbeddingDispatch[]
+  embeddingVenueRefreshes                   EmbeddingVenueRefresh[]
   venueContentImportReceipts                VenueContentImportReceipt[]
   venuePackages                             VenuePackage[]
   venuePackageManifestArtifacts             VenuePackageManifestArtifact[]
@@ -1566,6 +1567,7 @@ model Venue {
   locationConnections                       VenueLocationConnection[]
   embeddingWorkClaims                       EmbeddingWorkClaim[]
   embeddingDispatches                       EmbeddingDispatch[]
+  embeddingVenueRefreshes                   EmbeddingVenueRefresh[]
   contentImportReceipts                     VenueContentImportReceipt[]
   venuePackageManifestArtifacts             VenuePackageManifestArtifact[]
   nativeDeploymentReleases                  NativeVenueDeploymentRelease[]
@@ -10758,4 +10760,67 @@ model VenueRecommendationPolicy {
 
   @@unique([tenantId, venueId])
   @@map("venue_recommendation_policies")
+}
+
+
+enum EmbeddingVenueRefreshStatus {
+  QUEUED
+  RUNNING
+  COMPLETE
+  STOPPED
+  OUTCOME_UNKNOWN
+}
+
+enum EmbeddingVenueRefreshRecordStatus {
+  PENDING
+  RUNNING
+  COMPLETE
+  FAILED
+  OUTCOME_UNKNOWN
+}
+
+model EmbeddingVenueRefresh {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  venueId String @map("venue_id")
+  operationKey String @unique @map("operation_key")
+  planDigest String @map("plan_digest")
+  maxRecords Int @map("max_records")
+  requestedBy String @map("requested_by")
+  status EmbeddingVenueRefreshStatus @default(QUEUED)
+  beforeAudit Json @map("before_audit")
+  afterAudit Json? @map("after_audit")
+  stopCode String? @map("stop_code")
+  createdAt DateTime @default(now()) @map("created_at")
+  startedAt DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  records EmbeddingVenueRefreshRecord[]
+  @@unique([tenantId, venueId, id])
+  @@index([tenantId, venueId, createdAt])
+  @@map("embedding_venue_refreshes")
+}
+
+model EmbeddingVenueRefreshRecord {
+  id String @id @default(cuid())
+  refreshId String @map("refresh_id")
+  tenantId String @map("tenant_id")
+  venueId String @map("venue_id")
+  ordinal Int
+  entityType EmbeddingWorkEntityType @map("entity_type")
+  entityId String @map("entity_id")
+  contentUpdatedAt DateTime @map("content_updated_at")
+  sourceHash String @map("source_hash")
+  embeddingProfile String @map("embedding_profile")
+  primaryReason String @map("primary_reason")
+  status EmbeddingVenueRefreshRecordStatus @default(PENDING)
+  outcome String?
+  startedAt DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  refresh EmbeddingVenueRefresh @relation(fields: [tenantId, venueId, refreshId], references: [tenantId, venueId, id], onDelete: Restrict)
+  @@unique([refreshId, ordinal])
+  @@unique([refreshId, entityType, entityId])
+  @@index([tenantId, venueId, refreshId])
+  @@map("embedding_venue_refresh_records")
 }
