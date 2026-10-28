@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { EXPECTED, assertFrozenManifest } from '../run-staging-migration-predeploy.mjs'
-import { assertRelease269Manifest } from '../lib/release269-migration-contract.mjs'
+import { RELEASE269, assertRelease269Manifest } from '../lib/release269-migration-contract.mjs'
 
 // This is a test fixture for the previously approved staging endpoint, not a
 // deployment admission. Production must still reject the pending local suffix.
@@ -33,4 +33,21 @@ export function historicalStagingFixture(current) {
     assert.ok([normalized, crlf].includes(historical.ledgerChecksums.get(name)))
   }
   return historical
+}
+
+// Explicit test-only projection of the historical 269 inventory. The complete
+// current manifest is never admitted by the old production contract.
+export function historicalRelease269Fixture(current) {
+  const names = current.names.slice(0, RELEASE269.migrationCount)
+  const subset = (map) => new Map(names.map((name) => [name, map.get(name)]))
+  const historical = {
+    names,
+    checksums: subset(current.checksums),
+    ledgerChecksums: subset(current.ledgerChecksums),
+    crlfLedgerChecksums: subset(current.crlfLedgerChecksums),
+    hash: createHash('sha256')
+      .update(`${names.map((name) => `${name} ${current.checksums.get(name)}`).join('\n')}\n`)
+      .digest('hex'),
+  }
+  return assertRelease269Manifest(historical)
 }

@@ -1,5 +1,6 @@
 import {
   historicalStagingFixture,
+  historicalRelease269Fixture,
   PENDING_LOCAL_EVENT,
 } from './test-support/historical-staging-manifest.mjs'
 import assert from 'node:assert/strict'
@@ -430,11 +431,15 @@ const REVIEWED_236_TO_267 = [...REVIEWED_236_TO_255, ...REVIEWED_255_TO_267]
 const REVIEWED_234_TO_267 = [...REVIEWED_234_TO_255, ...REVIEWED_255_TO_267]
 
 async function readMigrationManifest(directory) {
-  return historicalStagingFixture(await readCurrentMigrationManifest(directory))
+  return historicalStagingFixture(
+    historicalRelease269Fixture(await readCurrentMigrationManifest(directory)),
+  )
 }
 
 test('pending local EVENT SQL does not reopen the approved 267 staging endpoint', async () => {
-  const current = await readCurrentMigrationManifest('packages/db/prisma')
+  const current = historicalRelease269Fixture(
+    await readCurrentMigrationManifest('packages/db/prisma'),
+  )
   const historical = historicalStagingFixture(current)
   assert.equal(historical.names.length, 267)
   assert.throws(() => assertFrozenManifest(current), /migration count changed/u)

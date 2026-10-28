@@ -1,5 +1,15 @@
 # Torchiko State of System
 
+Local candidate addendum, 2026-10-28: this repository now contains 270 migrations.
+The new `20261029120000_venue_embedding_refresh` migration adds scoped operator
+refresh receipts and locks. The earlier event-projection and fact-applicability
+migrations remain in the pending release suffix. Existing 267 and 269 admission
+contracts retain their exact boundaries and do not admit this candidate. A newly
+reviewed 267-to-270 rehearsal and release approval are required before hosted writes.
+This source inventory does not claim a deployment or a current hosted ledger.
+
+## Historical local candidate addenda and release readbacks
+
 Local candidate addendum, 2026-10-23: this repository now contains 269 migrations.
 The pending local suffix contains `20261022001000_deterministic_event_search_projection`
 and `20261023001000_add_fact_applicability`. The hosted migration runner remains frozen
@@ -7,8 +17,6 @@ to its reviewed 267-file manifest and approval. The separate 269 contract valida
 inventory and read-only ledger evidence; it does not authorize hosted migration writes.
 Current target ledgers must be inspected before a separately approved release. Retained
 release readbacks below describe their recorded revisions, not current hosted state.
-
-## Historical local candidate addenda and release readbacks
 
 Local candidate addendum, 2026-10-21: this repository now contains 268 migrations.
 The additional `20261022001000_deterministic_event_search_projection` migration is pending

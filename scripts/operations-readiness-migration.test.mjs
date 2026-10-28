@@ -1,4 +1,7 @@
-import { historicalStagingFixture } from './test-support/historical-staging-manifest.mjs'
+import {
+  historicalStagingFixture,
+  historicalRelease269Fixture,
+} from './test-support/historical-staging-manifest.mjs'
 import { readMigrationManifest } from './run-staging-migration-predeploy.mjs'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -19,7 +22,7 @@ const operationalHealthPath = path.join(
 
 test('operations readiness pins the reviewed 267 migration endpoint', async () => {
   const current = await readMigrationManifest(path.dirname(migrationsPath))
-  const migrations = historicalStagingFixture(current).names
+  const migrations = historicalStagingFixture(historicalRelease269Fixture(current)).names
   assert.ok(migrations.length > 0)
 
   const source = await readFile(operationalHealthPath, 'utf8')

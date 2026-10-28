@@ -10820,7 +10820,7 @@ model EmbeddingVenueRefreshRecord {
   completedAt DateTime? @map("completed_at")
   refresh EmbeddingVenueRefresh @relation(fields: [tenantId, venueId, refreshId], references: [tenantId, venueId, id], onDelete: Restrict, map: "embedding_venue_refresh_records_scope_fkey")
   @@unique([refreshId, ordinal])
-  @@unique([refreshId, entityType, entityId])
-  @@index([tenantId, venueId, refreshId])
+  @@unique([refreshId, entityType, entityId], map: "embedding_venue_refresh_records_refresh_id_entity_type_entity_i")
+  @@index([tenantId, venueId, refreshId], map: "embedding_venue_refresh_records_tenant_id_venue_id_refresh_id_i")
   @@map("embedding_venue_refresh_records")
 }

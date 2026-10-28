@@ -8,11 +8,15 @@ import {
   release267Prefix,
   RELEASE269_SUFFIX,
 } from './lib/release269-migration-contract.mjs'
-import { historicalStagingFixture } from './test-support/historical-staging-manifest.mjs'
+import {
+  historicalStagingFixture,
+  historicalRelease269Fixture,
+} from './test-support/historical-staging-manifest.mjs'
 
-const manifest = await readMigrationManifest(
+const currentManifest = await readMigrationManifest(
   fileURLToPath(new URL('../packages/db/prisma', import.meta.url)),
 )
+const manifest = historicalRelease269Fixture(currentManifest)
 const copy = () => ({
   ...manifest,
   names: [...manifest.names],
@@ -108,4 +112,12 @@ test('caller-controlled checksum maps cannot authorize divergent prefix or suffi
     checksum: manifest.crlfLedgerChecksums.get(row.migration_name),
   }))
   assert.equal(assertRelease269Ledger(crlfRows, manifest).state, 'complete269')
+})
+
+test('current full inventory stays refused by historical 267 and 269 admission', () => {
+  assert.equal(currentManifest.names.length, 270)
+  assert.throws(() => assertRelease269Manifest(currentManifest), /release269-count-refused/u)
+  assert.throws(() => assertFrozenManifest(currentManifest), /migration count changed/u)
+  assert.throws(() => historicalStagingFixture(currentManifest), /release269-count-refused/u)
+  assert.equal(historicalRelease269Fixture(currentManifest).names.length, 269)
 })

@@ -48,7 +48,7 @@ test('every disposable shakedown entrypoint uses the code-only reporter', async 
   const entrypoints = (await readdir(directory))
     .filter((name) => /^run-disposable-.*\.mjs$/u.test(name))
     .sort()
-  assert.equal(entrypoints.length, 45)
+  assert.equal(entrypoints.length, 46)
   assert.ok(entrypoints.includes('run-disposable-mcp-venue-appearance.mjs'))
   assert.equal(
     disposableRunnerFailureRecord(

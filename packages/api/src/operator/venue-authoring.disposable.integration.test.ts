@@ -356,7 +356,9 @@ describe.skipIf(!enabled)('venue authoring through the operator MCP', { timeout:
       code: 'SEMANTIC_SCAN_INCOMPLETE',
       path: 'places',
     })
-    expect(checked.structuredContent.errors[0].fix).toContain('embedding refresh')
+    expect(checked.structuredContent.errors[0].fix).toContain('venues.plan_embedding_refresh')
+    expect(checked.structuredContent.errors[0].fix).toContain('venues.get_embedding_refresh')
+    expect(checked.structuredContent.errors[0].fix).toContain('freshnessProven')
     const refused = await call('venues.propose_package_import', {
       operationId: randomUUID(),
       tenantId,

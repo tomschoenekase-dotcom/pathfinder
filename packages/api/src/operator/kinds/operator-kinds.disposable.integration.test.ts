@@ -293,6 +293,7 @@ describe.skipIf(!enabled)(
           'crm.propose_outreach_draft',
           'crm.propose_stage_change',
           'venues.propose_create',
+          'venues.propose_embedding_refresh',
           'venues.propose_knowledge',
           'venues.propose_guest_model',
           'venues.propose_guest_model_reset',

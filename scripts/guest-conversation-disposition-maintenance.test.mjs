@@ -1,4 +1,7 @@
-import { historicalStagingFixture } from './test-support/historical-staging-manifest.mjs'
+import {
+  historicalStagingFixture,
+  historicalRelease269Fixture,
+} from './test-support/historical-staging-manifest.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFile, mkdtemp, writeFile } from 'node:fs/promises'
@@ -22,7 +25,9 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const operationId = 'd4888a2e-dc80-4a52-b204-676421454a52'
 
 async function readMigrationManifest(directory) {
-  return historicalStagingFixture(await readCurrentMigrationManifest(directory))
+  return historicalStagingFixture(
+    historicalRelease269Fixture(await readCurrentMigrationManifest(directory)),
+  )
 }
 
 test('267 maintenance source verification accepts the reviewed ledger and refuses drift before body reads', async () => {
@@ -346,9 +351,9 @@ test('already-journaled APPLY still refuses before connecting while the database
   assert.equal(closed, true)
 })
 
-test('maintenance refuses the actual pending 268-row ledger before function reads', async () => {
+test('maintenance refuses the actual pending repository ledger before function reads', async () => {
   const current = await readCurrentMigrationManifest(join(root, 'packages/db/prisma'))
-  historicalStagingFixture(current)
+  historicalStagingFixture(historicalRelease269Fixture(current))
   const rows = current.names.map((migration_name) => ({
     migration_name,
     checksum: current.ledgerChecksums.get(migration_name),

@@ -1,3 +1,4 @@
+import { historicalRelease269Fixture } from './test-support/historical-staging-manifest.mjs'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
@@ -39,8 +40,8 @@ import {
 } from './run-release269-migration.mjs'
 import path from 'node:path'
 
-const manifest = await readMigrationManifest(
-  fileURLToPath(new URL('../packages/db/prisma', import.meta.url)),
+const manifest = historicalRelease269Fixture(
+  await readMigrationManifest(fileURLToPath(new URL('../packages/db/prisma', import.meta.url))),
 )
 const sha = 'a'.repeat(40)
 const time = Date.parse('2026-10-26T04:00:00.000Z')
