@@ -13,7 +13,7 @@ writeFileSync(
  * filesystem at runtime. A test keeps it equal to the doc. Edit the doc, then run
  * node packages/api/src/operator/venue-authoring/sync-text.mjs
  */
-export const VENUE_AUTHORING_VERSION = 'torchiko-venue-authoring-v1'
+export const VENUE_AUTHORING_VERSION = 'torchiko-venue-authoring-v2'
 
 export const VENUE_AUTHORING_TEXT = ${JSON.stringify(text)}
 `,

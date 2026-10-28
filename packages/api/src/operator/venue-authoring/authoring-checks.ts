@@ -29,7 +29,8 @@ const DATE_RANGE = new RegExp(
   'iu',
 )
 const RANGE_END_WITH_YEAR = new RegExp(
-  `(?:-|–|—|to|through|thru|until)\\s*(${MONTH})?\\s*(\\d{1,2})(?:st|nd|rd|th)?,?\\s+((?:19|20)\\d{2})\\b`,
+  // (?<!\d): the "26" of "2026, 1912 Grill is closed" is not a day.
+  `(?:-|–|—|to|through|thru|until)\\s*(${MONTH})?\\s*(?<!\\d)(\\d{1,2})(?:st|nd|rd|th)?,?\\s+((?:19|20)\\d{2})\\b`,
   'giu',
 )
 const YEAR = /\b(?:1[0-9]|20)\d{2}\b/gu
@@ -47,6 +48,31 @@ const PLACEHOLDER_LINE =
 const LABEL_LINE = /^\s*(Hours|Height|Age|Admission)\s*:\s*(.+?)\s*$/iu
 const CLAIM =
   /\b(?:world'?s (?:largest|biggest|best|first|only|tallest|fastest)|#1|number one|guaranteed?|never (?:crowded|busy)|no (?:lines|waits?) ever|always open)\b/iu
+// "is not an allergy-safety guarantee" or "no sighting is guaranteed" is a caution, not a claim.
+const NEGATION =
+  /\b(?:not|no|never|nor|neither|without|cannot|can't|isn't|aren't|don't|doesn't|rather than|distinct from)\b/iu
+// A status that is true only for a while. Without the date it became true, the guide keeps
+// saying it long after it changed ("closed for the season" in May).
+const STATUS =
+  /\b(?:closed for the (?:season|winter|year)|(?:is|are) (?:temporarily|currently|now) (?:closed|unavailable)|temporarily (?:closed|unavailable)|currently (?:closed|undergoing|under (?:renovation|construction|repair))|(?:undergoing|under) (?:renovation|construction|repairs?)|(?:season|run) has ended|has (?:closed|ended) for the season|reopening (?:date|is) (?:unconfirmed|not (?:yet )?announced))\b/iu
+// Dates that mean something only on the day they were written.
+const RELATIVE_DATE =
+  /\b(?:(?:this|next|last) (?:year|season|summer|fall|autumn|winter|spring|weekend|week|month)|tomorrow|yesterday|tonight|later this (?:week|month|year))\b/iu
+const FULL_DATE = new RegExp(
+  `\\b(${MONTH})\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+((?:19|20)\\d{2})\\b`,
+  'giu',
+)
+// A date that starts something open-ended ("From November 1, 2026, hours change") ends nothing.
+const START_CUE =
+  /\b(?:from|starting|beginning|begins|as of|after|effective|opens?|reopens?|returns?|resumes?)\s*(?:on\s+)?(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s*)?$/iu
+// A date something happened on ("hatched June 10, 2026", "opened August 20, 2026") is history,
+// not the end of a run. "Scheduled for" and "planned for" still describe a run.
+const HAPPENED_CUE =
+  /\b(?:(?!(?:scheduled|planned|expected|slated)\b)\w{3,}ed|began|held|built|born)\s+(?:on\s+)?$/iu
+const SAYS_ENDED =
+  /\b(?:ended|closed for the (?:\d{4} )?(?:season|year)|was|were|took place|ran|has passed|have passed|historical)\b/iu
+const EXPIRY_WINDOW_DAYS = 21
+const DAY_MS = 86_400_000
 const FACT_IN_NOTES =
   /(?:\$\s?\d|\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\bheight\b|\b\d{2}\s?(?:in(?:ch(?:es)?)?|")\s|\bclosed on\b|\bopen (?:daily|until)\b)/iu
 const GENERIC_TITLE_WORDS =
@@ -213,6 +239,75 @@ function dateChecks(field: Field, now: Date): AuthoringFinding[] {
   return findings
 }
 
+type DatedMention = { time: number; starts: boolean }
+
+/** Every full date (month, day, year) in the text, including "May 1 to 24, 2026" range ends. */
+function datedMentions(text: string): DatedMention[] {
+  const mentions: DatedMention[] = []
+  for (const match of text.matchAll(FULL_DATE)) {
+    const month = MONTHS[match[1]!.slice(0, 3).toLowerCase()]
+    if (month === undefined) continue
+    const before = text.slice(Math.max(0, (match.index ?? 0) - 40), match.index)
+    if (HAPPENED_CUE.test(before)) continue
+    mentions.push({
+      time: Date.UTC(Number(match[3]), month, Number(match[2])),
+      starts: START_CUE.test(before),
+    })
+  }
+  for (const match of text.matchAll(RANGE_END_WITH_YEAR)) {
+    if (match[1]) continue // Has its own month: already read as a full date.
+    const preceding = [
+      ...text
+        .slice(0, match.index)
+        .matchAll(new RegExp(`\\b(${MONTH})\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`, 'giu')),
+    ].at(-1)
+    const month = MONTHS[(preceding?.[1] ?? '').slice(0, 3).toLowerCase()]
+    if (month === undefined) continue
+    mentions.push({ time: Date.UTC(Number(match[3]), month, Number(match[2])), starts: false })
+  }
+  return mentions
+}
+
+const isoDay = (time: number) => new Date(time).toISOString().slice(0, 10)
+
+/**
+ * Package rows have no expiry: a dated run stays in the guide until someone edits it. So report a
+ * record whose last date has passed (and does not say so) or passes within three weeks, so the
+ * author dates it as ended, plans the update, or imports something that is still true.
+ */
+function expiryCheck(field: Field, now: Date): AuthoringFinding[] {
+  const mentions = datedMentions(field.text)
+  if (mentions.length === 0) return []
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  const last = Math.max(...mentions.map((mention) => mention.time))
+  // Something that starts on or after the last date keeps going: it has no end to expire.
+  if (mentions.some((mention) => mention.starts && mention.time >= last)) return []
+  // History ("opened May 1, 1934") is not a run that can expire.
+  if (new Date(last).getUTCFullYear() < now.getUTCFullYear() - 1) return []
+  const saysEnded = SAYS_ENDED.test(field.text)
+  if (last < today && !saysEnded) {
+    return [
+      {
+        code: 'STALE_DATE',
+        path: field.path,
+        message: `Every date in this record has passed (the last is ${isoDay(last)}), but it does not say the run ended, so the guide may describe it as current.`,
+        fix: 'Say it ended and, only if announced, when it returns ("The 2026 run ended October 31, 2026; 2027 dates are not announced yet"), or remove the record.',
+      },
+    ]
+  }
+  if (last >= today && last <= today + EXPIRY_WINDOW_DAYS * DAY_MS && !saysEnded) {
+    return [
+      {
+        code: 'EXPIRES_SOON',
+        path: field.path,
+        message: `The last date in this record is ${isoDay(last)}. After that day its dated part is in the past but still reads as current, and package records never expire on their own.`,
+        fix: `Import it only if it will be updated on ${isoDay(last + DAY_MS)}, or write what stays true ("The 2026 run ends ${new Date(last).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}; it returns each fall"). Record the date in your re-check list.`,
+      },
+    ]
+  }
+  return []
+}
+
 function lineChecks(record: AuthoringRecord, field: Field): AuthoringFinding[] {
   const findings: AuthoringFinding[] = []
   const labels = new Map<string, string>()
@@ -254,20 +349,44 @@ function lineChecks(record: AuthoringRecord, field: Field): AuthoringFinding[] {
       break
     }
   }
-  const claim = field.text.match(CLAIM)
-  // "does not guarantee a place" is a caution, not a claim.
-  const negated =
-    claim?.index !== undefined &&
-    /\b(?:not|no|never|cannot|can't|isn't|without)\s+(?:\w+\s+)?$/iu.test(
-      field.text.slice(Math.max(0, claim.index - 30), claim.index),
-    )
-  if (claim && !negated) {
+  // A claim inside a negated sentence ("a menu label is not an allergy-safety guarantee") is a
+  // caution. Reported once per field.
+  const claim = sentences(field.text)
+    .map((sentence) => sentence.match(CLAIM))
+    .find((match) => match && !NEGATION.test(match.input ?? ''))
+  if (claim) {
     findings.push({
       code: 'UNSUPPORTED_CLAIM',
       path: field.path,
       message: `"${claim[0]}" is a claim the guide will repeat as fact.`,
       fix: 'Keep it only if the venue itself states it (and keep its source in provenance); otherwise describe what the thing is.',
     })
+  }
+  const all = sentences(field.text)
+  for (const [index, sentence] of all.entries()) {
+    // "The 2026 season ended October 25. That season has ended, so ..." is dated by its neighbor.
+    const nearby = `${all[index - 1] ?? ''} ${sentence}`
+    if ([...nearby.matchAll(YEAR)].length > 0) continue
+    const status = sentence.match(STATUS)
+    if (status) {
+      findings.push({
+        code: 'UNDATED_STATUS',
+        path: field.path,
+        message: `"${clip(sentence)}" says "${status[0]}" without the date it became true, so the guide will keep saying it after it changes.`,
+        fix: 'Date the status ("Closed for the 2026 season after October 25, 2026; 2027 opening not announced yet"). For a short closure, use venues.propose_operational_update with a start and end instead of record text.',
+      })
+      break
+    }
+    const relative = sentence.match(RELATIVE_DATE)
+    if (relative) {
+      findings.push({
+        code: 'RELATIVE_DATE',
+        path: field.path,
+        message: `"${clip(sentence)}" says "${relative[0]}", which is only right on the day it was written.`,
+        fix: 'Write the actual dates with the year ("returns in May 2027" rather than "returns next year").',
+      })
+      break
+    }
   }
   return findings
 }
@@ -374,10 +493,11 @@ export function venuePackageAuthoringFindings(
   now: Date,
 ): AuthoringFinding[] {
   const records = authoringRecords(payload)
-  return [
+  const findings = [
     ...records.flatMap((record) => [
       ...record.fields.flatMap((field) => [
         ...dateChecks(field, now),
+        ...expiryCheck(field, now),
         ...lineChecks(record, field),
       ]),
       ...(record.hours
@@ -389,4 +509,13 @@ export function venuePackageAuthoringFindings(
     ...nearDuplicateTopics(records),
     ...venueNotesCheck(payload),
   ]
+  // The sentence and whole-record date checks can both find one stale field; report it once.
+  const seen = new Set<string>()
+  return findings.filter((finding) => {
+    if (finding.code !== 'STALE_DATE') return true
+    const key = `${finding.code} ${finding.path}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }

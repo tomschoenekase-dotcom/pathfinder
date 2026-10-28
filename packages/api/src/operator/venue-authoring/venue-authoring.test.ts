@@ -101,7 +101,9 @@ describe('venue authoring contract', () => {
     expect(mistakes.length).toBeGreaterThanOrEqual(2)
     for (const mistake of mistakes) {
       const result = check(mistake.json)
-      const codes = new Set([...result.errors, ...result.authoring].map((finding) => finding.code))
+      const codes = new Set(
+        [...result.errors, ...result.quality, ...result.authoring].map((finding) => finding.code),
+      )
       for (const code of mistake.expect) expect([...codes], mistake.name).toContain(code)
       for (const finding of [...result.errors, ...result.authoring]) {
         expect(finding.fix.length, `${mistake.name} ${finding.code}`).toBeGreaterThan(20)

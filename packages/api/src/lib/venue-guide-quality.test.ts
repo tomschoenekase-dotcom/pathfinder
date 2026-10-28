@@ -157,6 +157,53 @@ describe('contract v3 guide-quality warnings', () => {
     expect(warnings[0]!.message).toContain('The photographed panel dates the gift to 2011.')
   })
 
+  it('flags records that talk about their own coverage or their source page', () => {
+    // Patterns seen in real packages; the venue here is fictional.
+    const warnings = guideQualityWarnings([
+      exhibit(
+        'Rides overview',
+        'The rides covered here are Comet Chaser, a family coaster, and Lily Pad Leap, a drop ride.',
+        'Rides',
+      ),
+      exhibit(
+        'Heron House',
+        'Heron House is a bird building. Its page carries a June 6–23 closure notice.',
+      ),
+      exhibit(
+        'Marsh Train',
+        'Marsh Train is a narrated train ride. An old closure notice remains on the page.',
+      ),
+      exhibit(
+        'Lakeside Grill',
+        'Lakeside Grill is a counter-service grill. Some linked menus are summer menus.',
+        'Dining',
+      ),
+      exhibit(
+        'Keeper Talks',
+        'Keeper Talks are short animal-care talks. The currently published list is for the fall festival.',
+        'Programs',
+      ),
+      exhibit('Gift Shop', 'Gift Shop is a souvenir store. No reopening date is confirmed here.'),
+    ])
+    expect(codes(warnings)).toEqual([
+      'GUIDE_QUALITY_RECORD_VOICE',
+      'GUIDE_QUALITY_RECORD_VOICE',
+      'GUIDE_QUALITY_SOURCE_NARRATION',
+      'GUIDE_QUALITY_SOURCE_NARRATION',
+      'GUIDE_QUALITY_SOURCE_NARRATION',
+      'GUIDE_QUALITY_SOURCE_NARRATION',
+    ])
+    expect(
+      guideQualityWarnings([
+        exhibit(
+          'Events',
+          'Events change through the year; an event listing says when tickets are required. The page-turning puzzle hunt is included with admission.',
+          'Programs',
+        ),
+      ]),
+    ).toEqual([])
+  })
+
   it('keeps visitor cautions and safety wording without a warning', () => {
     expect(
       guideQualityWarnings([

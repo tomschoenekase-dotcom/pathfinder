@@ -177,7 +177,7 @@ export const venuesCheckPackage: OperatorReadTool = {
             ? 'No advisory patterns detected. This is not a fact check; verify source facts and unresolved uncertainty before importing.'
             : 'Advice only: fix each finding or confirm it is a false positive. These never block import or ready.',
       },
-      note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block importable. Writing-guide warnings and exact in-package duplicates block ready.',
+      note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block importable. Writing-guide warnings and exact in-package duplicates block ready. ready means only that the package is valid for import today (gate 2 of the venue-authoring quality gates); it does not show the facts are right, the import happened, or that visitors get good answers. Re-check on the day of import: dated records expire.',
     }
   },
 }

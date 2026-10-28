@@ -7,6 +7,23 @@ from that validator, so the field list can never drift from what the server acce
 
 Available today: everything in this guide unless it is marked **Planned**.
 
+## Quality gates
+
+A package that passes the schema can still make a weak guide. A venue moves through five gates in
+order, and a report names the highest gate it has evidence for. Never claim a gate from a check
+that did not run, and never claim a later gate from an earlier one.
+
+| Gate                    | Means                                                                                                                     | Evidence required                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Researched           | Every fact traces to a current source about this exact venue                                                              | A source ledger outside the package: for each record, its source URL, the date you read it, and the exact sentence or table it came from. Identity proof (official domain, city and state) so a same-name venue elsewhere cannot leak in. Every conflict written down with the decision taken                                                                                       |
+| 2. Package validated    | `venues.check_package` with the target venue says `ready`, and every `authoring` finding is fixed or justified in writing | The check output saved on the day of import. A check from an earlier day does not count: dates expire (`EXPIRES_SOON`, `STALE_DATE`)                                                                                                                                                                                                                                                |
+| 3. Imported             | The import is `APPLIED` to the right venue                                                                                | The receipt (`proposalId`, `status`, `operationId`), then `venues.list_content` showing the records. A re-import of the same package with the same `operationId` returns the same receipt; a corrected package uses a new `operationId` and v3 `update` operations with ids, never a second `create` of the same records                                                            |
+| 4. Visitor tested       | Real questions get grounded answers in the venue's own guide                                                              | At least 20 questions written as a visitor would ask them (not from record titles), covering hours today, prices, a named thing, a list ("what rides are there"), a family or access need, food, a follow-up, something the venue does not have, and something unknown. Each answer checked against the ledger: correct, complete for lists, and "not sure, ask staff" when unknown |
+| 5. Ready to demonstrate | A person can open it and it works                                                                                         | `venues.get_guest_link` says `usable`; the guest page checked at phone width (390 px) and desktop, including the keyboard; the gate 4 questions re-asked there; no stale or expiring record inside the demo window                                                                                                                                                                  |
+
+Gates 3 to 5 need a real venue and authorization (import, publish). If they are blocked, report
+them as blocked with the reason. Do not publish a draft only to get past a gate.
+
 ## The workflow and what each step means
 
 1. **Read.** `venues.list_content` with `representation` `LEGACY_PLACE` (places) or
@@ -19,9 +36,10 @@ Available today: everything in this guide unless it is marked **Planned**.
      `errorCount` is 0.
    - `guideQuality`: writing problems that make the guide sound wrong. These block `ready`.
    - `otherWarnings`: preview warnings such as `DUPLICATE_IN_PACKAGE` (also blocks `ready`).
-   - `authoring`: meaning checks (dates without a year, ended runs, placeholder facts, conflicting
-     lines, repeated cautions, near-duplicate topics, facts in voice notes). Advice: they never
-     block an import, but fix each one or be able to say why it is a false positive.
+   - `authoring`: meaning checks (dates without a year, ended runs, runs that end within three
+     weeks, statuses and relative dates without a date, placeholder facts, conflicting lines,
+     repeated cautions, near-duplicate topics, facts in voice notes). Advice: they never block an
+     import, but fix each one or be able to say why it is a false positive.
    - `venueSetup`: settings to fix before testing answers (time zone, guide mode).
      Fix and check again until `ready` is true.
    - A second package for a venue that already has records needs those records' search
@@ -120,6 +138,19 @@ There are no relationship, parent or audience fields. Do not invent them.
   Never invent next year's dates.
 - **Incomplete.** Import what is verified. A smaller correct guide answers better than a complete
   guessed one. Missing whole categories can be added later with another version 3 package.
+- **Statuses.** "Closed for the season", "temporarily closed" and "under renovation" are true only
+  for a while, and package records never expire. Date them ("Closed for the 2026 season after
+  October 25, 2026") or use `venues.propose_operational_update` (`UNDATED_STATUS`). Never write
+  "next year", "this fall" or "tomorrow" (`RELATIVE_DATE`).
+- **Runs about to end.** A record whose last date passes within three weeks (`EXPIRES_SOON`) will
+  read as current after that day. Import it only with a planned update, or write what stays true.
+- **Talk about the place, not the record or the source.** The guide repeats record text to
+  visitors. "The rides covered here are", "no date is confirmed here", "its page carries a notice"
+  and "some linked menus are summer menus" are rejected by the writing guide. Say the fact, or say
+  plainly what a visitor should ask staff.
+- **The right venue.** Two venues can share a name in different cities. Every source must be the
+  target venue's own site or a source that names its city. A package records facts only for the
+  venue it will be imported into.
 
 ## Changing information
 
@@ -477,3 +508,71 @@ Placeholder facts, a date without a year and a numeric date. Accepted, with `aut
 
 Facts in voice notes and the same caution copied into several records (`FACT_IN_VOICE_NOTES`,
 `REPEATED_TEXT`): see the `authoring` findings and move each fact to its one topic.
+
+A status with no date and a relative date. Accepted, with `authoring` advice (`UNDATED_STATUS`,
+`RELATIVE_DATE`):
+
+<!-- venue-authoring-mistake:undated-status expect=UNDATED_STATUS,RELATIVE_DATE -->
+
+```json
+{
+  "schemaVersion": 3,
+  "places": {},
+  "knowledgeEntries": {
+    "create": [
+      {
+        "itemKey": "5b0f9d1e-2c3a-4d4b-8e5f-6a7b8c9d0e61",
+        "provenance": { "sourceType": "official_website", "contentOrigin": "AI_GENERATED" },
+        "value": {
+          "title": "Splash Pad",
+          "category": "Attractions",
+          "content": "Splash Pad is a shallow water-play area in the Marsh area, closed for the season."
+        }
+      },
+      {
+        "itemKey": "5b0f9d1e-2c3a-4d4b-8e5f-6a7b8c9d0e62",
+        "provenance": { "sourceType": "official_website", "contentOrigin": "AI_GENERATED" },
+        "value": {
+          "title": "Pumpkin Days",
+          "category": "Events",
+          "content": "Pumpkin Days is a fall festival with a corn maze. It returns next year."
+        }
+      }
+    ]
+  }
+}
+```
+
+A record that talks about itself and its source page. Rejected by the writing guide
+(`GUIDE_QUALITY_RECORD_VOICE`, `GUIDE_QUALITY_SOURCE_NARRATION`):
+
+<!-- venue-authoring-mistake:record-talk expect=GUIDE_QUALITY_RECORD_VOICE,GUIDE_QUALITY_SOURCE_NARRATION -->
+
+```json
+{
+  "schemaVersion": 3,
+  "places": {},
+  "knowledgeEntries": {
+    "create": [
+      {
+        "itemKey": "5b0f9d1e-2c3a-4d4b-8e5f-6a7b8c9d0e71",
+        "provenance": { "sourceType": "official_website", "contentOrigin": "AI_GENERATED" },
+        "value": {
+          "title": "Rides overview",
+          "category": "Rides",
+          "content": "The rides covered here are Comet Chaser, a family roller coaster, and Lily Pad Leap, a drop ride."
+        }
+      },
+      {
+        "itemKey": "5b0f9d1e-2c3a-4d4b-8e5f-6a7b8c9d0e72",
+        "provenance": { "sourceType": "official_website", "contentOrigin": "AI_GENERATED" },
+        "value": {
+          "title": "Marsh Train",
+          "category": "Rides",
+          "content": "Marsh Train is a narrated train ride around the lake. Its page carries an old closure notice."
+        }
+      }
+    ]
+  }
+}
+```

@@ -200,7 +200,10 @@ describe('false-positive guards found on real packages', () => {
       'The festival may run October 1 to 24, 2026.',
       'Tickets go on sale May 1, 2026; the festival runs October 1 to 24, 2026.',
     ]) {
-      expect(venuePackageAuthoringFindings(topics(content), duringRun)).toEqual([])
+      // During the run it is not stale, but it ends within three weeks.
+      expect(
+        venuePackageAuthoringFindings(topics(content), duringRun).map((finding) => finding.code),
+      ).toEqual(['EXPIRES_SOON'])
       expect(codes(topics(content))).toEqual(['STALE_DATE'])
     }
   })
@@ -224,5 +227,96 @@ describe('false-positive guards found on real packages', () => {
     expect(codes(topics('Maintenance closure: October 6-10; the zoo reopens October 11.'))).toEqual(
       ['UNDATED_SEASON'],
     )
+  })
+
+  it('treats every negated guarantee as a caution, however it is worded', () => {
+    expect(
+      codes(
+        topics(
+          'Ask staff about ingredients; a menu label is not an allergy-safety guarantee.',
+          'Animals choose where to rest, so no particular sighting is guaranteed.',
+          'Keeper talks are part of animal care rather than guaranteed performances.',
+          'Neither a parking space nor a reserved seat is guaranteed.',
+        ),
+      ),
+    ).toEqual([])
+    expect(codes(topics('Every guest is guaranteed a front-row seat.'))).toEqual([
+      'UNSUPPORTED_CLAIM',
+    ])
+  })
+})
+
+describe('time-limited facts that package records keep forever', () => {
+  it('asks for the date on a status that is only true for a while', () => {
+    expect(
+      codes(
+        topics(
+          'Lantern Carousel is a wooden carousel, closed for the season.',
+          'Otter Bend Gift Stop is a souvenir shop, temporarily closed.',
+          'Heron House is a bird building currently undergoing renovation.',
+        ),
+      ),
+    ).toEqual(['UNDATED_STATUS', 'UNDATED_STATUS', 'UNDATED_STATUS'])
+    expect(
+      codes(
+        topics(
+          'Lantern Carousel is a wooden carousel. It closed for the 2026 season on October 25, 2026.',
+          'The 2026 splash season ended September 7, 2026. That season has ended, so the pad is dry.',
+        ),
+      ),
+    ).toEqual([])
+  })
+
+  it('flags dates that are right only on the day they were written', () => {
+    expect(codes(topics('Pumpkin Days returns next year with a larger corn maze.'))).toEqual([
+      'RELATIVE_DATE',
+    ])
+    expect(codes(topics('Pumpkin Days returns in September 2027.'))).toEqual([])
+  })
+
+  it('reports a record whose last date passes within three weeks, but not an open-ended start', () => {
+    // NOW is October 27, 2026.
+    expect(
+      codes(topics('Harvest Market runs weekends, October 3 to November 1, 2026, 10am-4pm.')),
+    ).toEqual(['EXPIRES_SOON'])
+    expect(codes(topics('Stargazing Night is on November 6, 2026, from 7pm.'))).toEqual([
+      'EXPIRES_SOON',
+    ])
+    expect(
+      codes(
+        topics(
+          'From November 1, 2026, the cafe opens 11am-3pm daily.',
+          'Winter Lights runs November 20, 2026 to January 3, 2027.',
+          'Ice skating resumes Saturday, November 14, 2026.',
+        ),
+      ),
+    ).toEqual([])
+  })
+
+  it('reports a single past date that does not say it passed, but not history', () => {
+    expect(codes(topics('The members preview is on October 20, 2026, 5-8pm.'))).toEqual([
+      'STALE_DATE',
+    ])
+    expect(
+      codes(
+        topics(
+          'Two otter pups were born June 10, 2026, and now explore the pool.',
+          'The aviary opened August 20, 2026.',
+          'The members preview on October 20, 2026 has passed.',
+          'The boathouse was dedicated on May 1, 1934.',
+        ),
+      ),
+    ).toEqual([])
+  })
+
+  it('does not read the end of a year as a day before a number', () => {
+    // "26" in "2026, 1912 Grill" is not a day; this record runs to November 1, 2026.
+    const during = new Date('2026-10-28T15:00:00Z')
+    expect(
+      venuePackageAuthoringFindings(
+        topics('Through November 1, 2026, 1912 Grill is closed Tuesdays.'),
+        during,
+      ).map((finding) => finding.code),
+    ).toEqual(['EXPIRES_SOON'])
   })
 })
