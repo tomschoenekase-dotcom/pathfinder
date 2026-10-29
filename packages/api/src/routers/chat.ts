@@ -126,6 +126,10 @@ import {
   isGuestAnswerShapeEnabled,
 } from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
+import {
+  appendGuestEconomyShapeInstruction,
+  guestEconomyShapeEnabled,
+} from '../lib/guest-economy-shape'
 import { guestDirectoryVersion } from '../lib/guest-directory-index-loader'
 import { parseFacetCollectionQuery } from '../lib/guest-facet-query'
 import {
@@ -3025,6 +3029,11 @@ const chatReadRouter = router({
             turnId: reservation.turnId,
             version: GUEST_ANSWER_SHAPE_VERSION,
           })
+        }
+        // An independent lab treatment: explicit on applies to the configured route and its
+        // fallbacks. Keep the existing decision-first/model and answer-check gates untouched.
+        if (guestEconomyShapeEnabled()) {
+          dynamicPart = appendGuestEconomyShapeInstruction(dynamicPart)
         }
         const pushVisibleDelta = streamProjection
           ? (delta: string) =>

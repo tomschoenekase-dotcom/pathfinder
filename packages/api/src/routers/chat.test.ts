@@ -6,6 +6,8 @@ import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-repl
 import { GuestChatTurnActionError } from '@pathfinder/db'
 import { verifyGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import { GUEST_ANSWER_SHAPE_INSTRUCTION } from '../lib/guest-answer-shape'
+import { GUEST_ECONOMY_SHAPE_INSTRUCTION } from '../lib/guest-economy-shape'
+import { GUEST_LEAN_CORE } from '../lib/guest-lean-core'
 
 import {
   setOpenAiEmbeddingsClientForTesting,
@@ -4599,6 +4601,40 @@ describe('chat router', () => {
           result: { response: checkedAnswer },
         })
       })
+
+      it.each(['guest-chat-luna', 'guest-chat-sol'] as const)(
+        'captures independent lean and economy treatments on configured %s',
+        async (modelKey) => {
+          for (const lean of ['off', 'on']) {
+            for (const economy of ['off', 'on']) {
+              vi.stubEnv('GUEST_CHAT_LEAN_CORE', lean)
+              vi.stubEnv('GUEST_CHAT_ECONOMY_SHAPE', economy)
+              setupHappyPath('unused anthropic text')
+              routeTo(modelKey)
+              const create = vi.fn().mockResolvedValueOnce({
+                status: 'completed',
+                output_text: 'The garden has a pond, beside the gate.',
+                usage: openAiUsage,
+              })
+              setOpenAiResponsesClientForTesting({ responses: { create } })
+              await caller.chat.send(sendInput)
+              const request = create.mock.calls[0]?.[0]
+              expect(
+                JSON.stringify(request).includes(JSON.stringify(GUEST_LEAN_CORE).slice(1, -1)),
+              ).toBe(lean === 'on')
+              expect(lastDeveloperText(request).endsWith(GUEST_ECONOMY_SHAPE_INSTRUCTION)).toBe(
+                economy === 'on',
+              )
+              const evidence =
+                guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.answerEvidence
+              expect(evidence.system.staticPart.includes(GUEST_LEAN_CORE)).toBe(lean === 'on')
+              expect(evidence.system.dynamicPart.endsWith(GUEST_ECONOMY_SHAPE_INSTRUCTION)).toBe(
+                economy === 'on',
+              )
+            }
+          }
+        },
+      )
 
       it('adds decision-first guidance on Luna only and streams it before completion', async () => {
         vi.stubEnv('GUEST_CHAT_ANSWER_SHAPE', 'decision-first')
