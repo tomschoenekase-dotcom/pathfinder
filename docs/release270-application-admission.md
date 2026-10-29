@@ -62,14 +62,21 @@ the image's own seal at startup. Bind the seal/clean-checkout build to the actua
 deployed image digest with external provenance/topology verification. Runtime
 checks verify source-file/schema/lock bytes and exact270 migration manifest, but
 cannot prove a Git ancestry or all unlisted app/dependency bytes in a standalone
-image. The archive hash names external proof; it is not locally reconstructed.
+image. trackedSourceArchiveSha256 is only a pinned assertion inside the trusted
+seal: no code here reconstructs or verifies that archive against the runtime.
+It does not bind the full `/app` executable or installed/generated Prisma closure.
+That packaging/provenance remains outside this gate until an actual independently
+verified image build and deployed-digest proof exist. The listed source hashes bind
+only the admission import closure/schema/lock/migrations this gate checks.
 
 ## Read-only behavior and rollout limits
 
 The collector uses one RepeatableRead transaction, READ ONLY first, server statement
 timeout10s, lock timeout2s, idle transaction timeout15s, Prisma total timeout20s and
 max-wait5s. CLI connection/pool timeouts are5s with one connection. It reads complete
-physical ledger, full existing270 catalog and security/ACL/RLS/defaults/type grants;
+physical ledger, full existing270 catalog and security/ACL/RLS/defaults/type grants,
+including column ACLs keyed by table/column/object-kind/owner with exact raw NULL
+versus explicit ACL retained in both existing/new security hashes;
 the exact receipt/reference and fresh readback must match. It never filters failed,
 extra, rolled-back or unreconciled zero-step rows to obtain acceptance. DB roles and
 extension behavior beyond current catalog/security collection remain external proof.

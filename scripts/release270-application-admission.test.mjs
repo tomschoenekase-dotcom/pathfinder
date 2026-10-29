@@ -343,9 +343,25 @@ test('controls changed during a readback fail the final startup boundary', async
     /hold-must-be-zero/,
   )
 })
-test('collector executes only finite SELECTs and transaction-local controls; no row mutation', async () => {
+test('collector is read-only and column-only grants on old/new relations fail admission', async () => {
   const f = fixture(),
     statements = []
+  const columnSecurity = [
+    {
+      table_name: 'fictional_0',
+      column_name: 'title',
+      kind: 'r',
+      owner: 'fictional-owner',
+      acl: null,
+    },
+    {
+      table_name: 'embedding_venue_refreshes',
+      column_name: 'requested_by',
+      kind: 'r',
+      owner: 'fictional-owner',
+      acl: null,
+    },
+  ]
   const controls = new Set([
     'SET TRANSACTION READ ONLY',
     "SET LOCAL statement_timeout = '10000ms'",
@@ -381,6 +397,11 @@ test('collector executes only finite SELECTs and transaction-local controls; no 
           if (sql.includes('FROM pg_index i')) return f.snapshot.catalog.indexes
           if (sql.includes("p.prokind='f'")) return f.snapshot.catalog.functions
           if (sql.includes('FROM pg_trigger')) return f.snapshot.catalog.triggers
+          if (sql.includes('FROM pg_attribute a JOIN pg_class')) {
+            assert.ok(sql.includes('a.attacl::text AS acl'))
+            assert.ok(!sql.includes('coalesce(a.attacl'))
+            return structuredClone(columnSecurity)
+          }
           return []
         },
       })
@@ -396,11 +417,40 @@ test('collector executes only finite SELECTs and transaction-local controls; no 
       /pg_stat_activity|pg_sequences|FROM public\.(?!_prisma_migrations)/u.test(s),
     ),
   )
-  // Match existing migration collector's empty-security hash composition.
+  // Match the migration collector's exact column-inclusive hash composition.
   assert.equal(
     snapshot.newSecurityHash,
-    applicationHash({ security: [], typeSecurity: [], policies: [], rowSecurity: [] }),
+    applicationHash({
+      security: [],
+      columnSecurity: [columnSecurity[1]],
+      typeSecurity: [],
+      policies: [],
+      rowSecurity: [],
+    }),
   )
+  assert.equal(
+    snapshot.existingSecurityHash,
+    applicationHash({
+      security: [],
+      columnSecurity: [columnSecurity[0]],
+      otherSecurity: [],
+      typeSecurity: [],
+    }),
+  )
+  for (const key of ['newSecurityHash', 'existingSecurityHash', 'policyHash'])
+    f.artifacts.receipt[key] = snapshot[key]
+  assert.equal(assertRelease270ApplicationSnapshot(snapshot, f.artifacts, now).state, 'complete270')
+  for (const index of [0, 1]) {
+    for (const acl of ['{fictional_reader=r/fictional-owner}', '{}']) {
+      columnSecurity[index].acl = acl
+      const changed = await readRelease270ApplicationSnapshot(database, { now: () => now })
+      await assert.rejects(
+        admitRelease270Application({ ...f, now: () => now, readSnapshot: async () => changed }),
+        index ? /newSecurityHash-drift/ : /existingSecurityHash-drift/,
+      )
+    }
+    columnSecurity[index].acl = null
+  }
 })
 test('CLI has no path/operation options and refuses unavailable host or closed controls', async () => {
   await assert.rejects(main(['--migrate'], {}), /no-options/)

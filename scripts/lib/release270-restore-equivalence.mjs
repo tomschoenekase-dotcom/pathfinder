@@ -35,6 +35,76 @@ const logicalCatalog = (catalog) => ({
   })),
 })
 
+// Reviewed from both PG16/PG17 fictional source/restore diagnostics at96d48b0:
+// pg_dump omits this one function's explicit built-in-default EXECUTE ACL.
+// This is deliberately not an all-functions/all-objects effective-ACL rule.
+const restoredFunction =
+  'function:pathfinder_guest_disposition_row_blocked(table_name text, row_value jsonb)'
+const executor = 'pathfinder_guest_disposition_executor'
+const explicitDefaultAcl = `{${executor}=X/${executor},=X/${executor}}`
+const defaultGrants = [
+  { grantee: 'PUBLIC', grantor: executor, grantable: false, privilege: 'EXECUTE' },
+  { grantee: executor, grantor: executor, grantable: false, privilege: 'EXECUTE' },
+]
+function reviewedFunctionAcl(row) {
+  if (row.identity !== restoredFunction) return null
+  if (row.owner !== executor || row.kind !== 'function' || row.defaultKind !== 'f') return null
+  // Never accept a changed grantor, grant option, grantee, privilege or ordering.
+  if (
+    !row.diagnosticEffectiveGrants ||
+    JSON.stringify(row.diagnosticEffectiveGrants) !== JSON.stringify(defaultGrants)
+  )
+    return null
+  if (row.rawAcl === null && row.aclIsNull === true && row.explicitGrants === '[]')
+    return 'null-default'
+  if (row.rawAcl !== explicitDefaultAcl || row.aclIsNull !== false) return null
+  try {
+    assert.deepEqual(JSON.parse(row.explicitGrants), defaultGrants)
+    return 'explicit-default'
+  } catch {
+    return null
+  }
+}
+
+function assertRestoreSecurity(source, restored, rawHashChanged) {
+  assert.ok(
+    Array.isArray(source) && source.length > 0 && Array.isArray(restored),
+    'restore security receipt required',
+  )
+  for (const rows of [source, restored])
+    assert.equal(
+      new Set(rows.map((row) => row.identity)).size,
+      rows.length,
+      'restore duplicate security identity',
+    )
+  assert.equal(source.length, restored.length, 'restore security coverage changed')
+  let normalizedDifferences = 0
+  const normalizedSource = source.map((row, index) => {
+    const other = restored[index]
+    if (JSON.stringify(row) === JSON.stringify(other)) return row
+    const left = reviewedFunctionAcl(row),
+      right = reviewedFunctionAcl(other)
+    if (!left || !right || left === right) return row
+    // Normalize only these three representation fields. Every other object row
+    // and field must still match byte-for-byte via the full comparison below.
+    normalizedDifferences++
+    return {
+      ...row,
+      rawAcl: other.rawAcl,
+      aclIsNull: other.aclIsNull,
+      explicitGrants: other.explicitGrants,
+    }
+  })
+  assert.deepEqual(restored, normalizedSource, 'restore effective security changed')
+  assert.ok(normalizedDifferences <= 1, 'restore security normalization exceeded')
+  assert.equal(
+    rawHashChanged,
+    normalizedDifferences === 1,
+    'restore raw security difference requires independent review',
+  )
+  return normalizedDifferences
+}
+
 export function assertRelease270RestoreEquivalent(
   before,
   restored,
@@ -52,21 +122,16 @@ export function assertRelease270RestoreEquivalent(
     logicalCatalog(before.catalog),
     'restore logical catalog changed',
   )
-  // Fail closed until actual raw differences have independent review. Identical
-  // supplied effective ACLs cannot excuse an unexplained raw security hash.
-  assert.equal(
-    restored.existingSecurityHash,
-    before.existingSecurityHash,
-    'restore raw security difference requires independent review',
+  const rawSecurityChanged = before.existingSecurityHash !== restored.existingSecurityHash
+  const normalizedSecurityDifferences = assertRestoreSecurity(
+    sourceSecurity,
+    restoredSecurity,
+    rawSecurityChanged,
   )
-  assert.ok(
-    Array.isArray(sourceSecurity) && sourceSecurity.length > 0,
-    'restore security receipt required',
-  )
-  assert.deepEqual(restoredSecurity, sourceSecurity, 'restore effective security changed')
   return {
     scope: 'logical-disposable-restore-only',
     rawCatalogChanged: JSON.stringify(before.catalog) !== JSON.stringify(restored.catalog),
-    rawSecurityChanged: before.existingSecurityHash !== restored.existingSecurityHash,
+    rawSecurityChanged,
+    normalizedSecurityDifferences,
   }
 }

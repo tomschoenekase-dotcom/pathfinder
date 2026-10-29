@@ -438,6 +438,34 @@ export async function main(env = process.env, outputArg = process.argv[2]) {
       "SELECT count(*)::int AS count FROM embedding_venue_refreshes WHERE id='fictional-runner-unknown' AND status='OUTCOME_UNKNOWN'",
     )
     assert.equal(retained.count, 1, 'complete rerun lost unknown-outcome receipt')
+    // Last action on this disposable target: prove real column grants cannot be
+    // hidden by an unchanged table ACL. Never undo grants to manufacture success.
+    await lock.$disconnect()
+    const beforeColumnGrant = await snapshot(reader)
+    const beforeColumnSecurity = await reader.$queryRawUnsafe(RESTORE_SECURITY_SQL)
+    sql(
+      target.source,
+      'CREATE ROLE fictional_release270_column_reader; GRANT SELECT (name) ON tenants TO fictional_release270_column_reader;',
+    )
+    const afterColumnGrant = await snapshot(reader)
+    const afterColumnSecurity = await reader.$queryRawUnsafe(RESTORE_SECURITY_SQL)
+    await save('before-column-grant', beforeColumnGrant)
+    await save('after-column-grant', afterColumnGrant)
+    await save('before-column-grant-security', beforeColumnSecurity)
+    await save('after-column-grant-security', afterColumnSecurity)
+    assert.notEqual(
+      afterColumnGrant.existingSecurityHash,
+      beforeColumnGrant.existingSecurityHash,
+      'column grant was omitted from existing security hash',
+    )
+    assert.throws(() =>
+      assertRelease270RestoreEquivalent(
+        beforeColumnGrant,
+        afterColumnGrant,
+        beforeColumnSecurity,
+        afterColumnSecurity,
+      ),
+    )
     assert.ok(phases.includes('verified') && phases.includes('verified-no-pending'))
     const [version] = await reader.$queryRawUnsafe(
       "SELECT version() AS version, current_setting('server_version_num')::int AS major",
@@ -454,6 +482,7 @@ export async function main(env = process.env, outputArg = process.argv[2]) {
       realLockContention: true,
       realGuardianLoss: true,
       retainedUnknownReceipt: true,
+      realColumnGrantRefused: true,
       passed: true,
     })
   } finally {

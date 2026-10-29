@@ -319,6 +319,9 @@ export async function readRelease270ApplicationSnapshot(database, { now = Date.n
       const security = await query(
         `SELECT 'relation:'||c.relname AS identity,pg_get_userbyid(c.relowner) AS owner,coalesce(c.relacl::text,'') AS acl,coalesce(t.relname,c.relname) AS table_name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_index i ON i.indexrelid=c.oid LEFT JOIN pg_class t ON t.oid=i.indrelid WHERE n.nspname='public' ORDER BY c.relname`,
       )
+      const columnSecurity = await query(
+        "SELECT c.relname AS table_name,a.attname AS column_name,c.relkind::text AS kind,pg_get_userbyid(c.relowner) AS owner,a.attacl::text AS acl FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f') AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum",
+      )
       const otherSecurity = await query(
         `SELECT 'function:'||p.proname||'('||pg_get_function_identity_arguments(p.oid)||')' AS identity,pg_get_userbyid(p.proowner) AS owner,coalesce(p.proacl::text,'') AS acl FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' UNION ALL SELECT 'schema:public',pg_get_userbyid(nspowner),coalesce(nspacl::text,'') FROM pg_namespace WHERE nspname='public' UNION ALL SELECT 'defaults:'||pg_get_userbyid(d.defaclrole)||':'||coalesce(n.nspname,'global')||':'||d.defaclobjtype::text,pg_get_userbyid(d.defaclrole),d.defaclacl::text FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace WHERE n.nspname='public' OR d.defaclnamespace=0 ORDER BY identity`,
       )
@@ -333,6 +336,7 @@ export async function readRelease270ApplicationSnapshot(database, { now = Date.n
         catalog,
         newSecurityHash: applicationHash({
           security: security.filter((r) => refreshTables.includes(r.table_name)),
+          columnSecurity: columnSecurity.filter((r) => refreshTables.includes(r.table_name)),
           typeSecurity: typeSecurity.filter((r) => r.is_new),
           policies: policies.filter((r) => refreshTables.includes(r.tablename)),
           rowSecurity: rowSecurity.filter((r) => refreshTables.includes(r.relname)),
@@ -343,6 +347,7 @@ export async function readRelease270ApplicationSnapshot(database, { now = Date.n
         }),
         existingSecurityHash: applicationHash({
           security: security.filter((r) => !refreshTables.includes(r.table_name)),
+          columnSecurity: columnSecurity.filter((r) => !refreshTables.includes(r.table_name)),
           otherSecurity,
           typeSecurity: typeSecurity.filter((r) => !r.is_new),
         }),

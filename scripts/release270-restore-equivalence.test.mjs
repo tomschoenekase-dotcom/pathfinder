@@ -29,6 +29,118 @@ const security = [
     grants: '[{"grantee":"PUBLIC","privilege":"USAGE","grantable":false}]',
   },
 ]
+
+function reviewedPair() {
+  const executor = 'pathfinder_guest_disposition_executor'
+  const grants = [
+    { grantee: 'PUBLIC', grantor: executor, grantable: false, privilege: 'EXECUTE' },
+    { grantee: executor, grantor: executor, grantable: false, privilege: 'EXECUTE' },
+  ]
+  const source = [
+    {
+      identity:
+        'function:pathfinder_guest_disposition_row_blocked(table_name text, row_value jsonb)',
+      owner: executor,
+      kind: 'function',
+      defaultKind: 'f',
+      rawAcl: `{${executor}=X/${executor},=X/${executor}}`,
+      aclIsNull: false,
+      explicitGrants: JSON.stringify(grants),
+      diagnosticEffectiveGrants: grants,
+    },
+    {
+      identity: 'column:fictional.value',
+      owner: 'fictional-owner',
+      kind: 'column',
+      defaultKind: null,
+      rawAcl: null,
+      aclIsNull: true,
+      explicitGrants: '[]',
+      diagnosticEffectiveGrants: null,
+    },
+  ]
+  const restored = structuredClone(source)
+  Object.assign(restored[0], { rawAcl: null, aclIsNull: true, explicitGrants: '[]' })
+  const before = original(),
+    after = structuredClone(before)
+  after.existingSecurityHash = 'reviewed-raw-representation-change'
+  return { before, after, source, restored }
+}
+
+test('only observed named function default-ACL representation can explain raw hash drift', () => {
+  const f = reviewedPair()
+  const result = assertRelease270RestoreEquivalent(f.before, f.after, f.source, f.restored)
+  assert.equal(result.rawSecurityChanged, true)
+  assert.equal(result.normalizedSecurityDifferences, 1)
+  assert.equal(
+    assertRelease270RestoreEquivalent(f.after, f.before, f.restored, f.source)
+      .normalizedSecurityDifferences,
+    1,
+  )
+})
+
+test('allowlisted representation never excuses real grant/revoke, grant option, grantor, owner or column drift', () => {
+  for (const mutate of [
+    (f) => {
+      f.restored[0].diagnosticEffectiveGrants.pop()
+    },
+    (f) => {
+      f.restored[0].diagnosticEffectiveGrants.push({
+        grantee: 'fictional-reader',
+        grantor: 'fictional-owner',
+        grantable: false,
+        privilege: 'EXECUTE',
+      })
+    },
+    (f) => {
+      f.restored[0].diagnosticEffectiveGrants[0].grantable = true
+    },
+    (f) => {
+      f.restored[0].diagnosticEffectiveGrants[0].grantor = 'fictional-other-grantor'
+    },
+    (f) => {
+      f.restored[0].owner = 'fictional-other-owner'
+    },
+    (f) => {
+      f.restored[0].defaultKind = 'r'
+    },
+    (f) => {
+      f.restored[0].kind = 'type'
+    },
+    (f) => {
+      f.source[0].identity = f.restored[0].identity = 'function:unrelated_function()'
+    },
+    (f) => {
+      f.restored[0].rawAcl = '{}'
+    },
+    (f) => {
+      f.restored[0].explicitGrants = '[{"grantee":"fictional-reader"}]'
+    },
+    (f) => {
+      f.source[0].rawAcl = f.source[0].rawAcl.replace('=X/', '=X*/')
+    },
+    (f) => {
+      f.restored[1].rawAcl = '{fictional-reader=r/fictional-owner}'
+      f.restored[1].aclIsNull = false
+    },
+    (f) => {
+      f.restored.pop()
+    },
+    (f) => {
+      f.restored.push(structuredClone(f.restored[0]))
+    },
+    (f) => {
+      f.after.existingSecurityHash = f.before.existingSecurityHash
+    },
+    (f) => {
+      f.restored = structuredClone(f.source)
+    },
+  ]) {
+    const f = reviewedPair()
+    mutate(f)
+    assert.throws(() => assertRelease270RestoreEquivalent(f.before, f.after, f.source, f.restored))
+  }
+})
 test('logical restore admits only reviewed enum rank and literal array cast normalization with equivalent security', () => {
   const before = original(),
     restored = structuredClone(before)

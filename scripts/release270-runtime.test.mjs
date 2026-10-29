@@ -424,6 +424,22 @@ test('consumer evidence seals inventory/flags and requires freshness, coverage, 
 test('readback uses read-only snapshots, hashes applicability columns, preserves microsecond ledger text and excludes only own lock PID', async () => {
   const evidence = consumerEvidence(),
     statements = []
+  const columnSecurity = [
+    {
+      table_name: 'operational_fact_content',
+      column_name: 'value',
+      kind: 'r',
+      owner: 'fictional-owner',
+      acl: null,
+    },
+    {
+      table_name: 'embedding_venue_refreshes',
+      column_name: 'before_audit',
+      kind: 'r',
+      owner: 'fictional-owner',
+      acl: null,
+    },
+  ]
   const ledger = {
     id: 'fictional-ledger',
     migration_name: 'fictional-migration',
@@ -447,6 +463,11 @@ test('readback uses read-only snapshots, hashes applicability columns, preserves
         { table_name: 'operational_fact_content', column_name: 'id' },
         { table_name: 'operational_fact_content', column_name: 'applicability_scope' },
       ]
+    if (sql.includes('FROM pg_attribute a JOIN pg_class c')) {
+      assert.match(sql, /a\.attacl::text AS acl/u)
+      assert.ok(!sql.includes('coalesce'))
+      return structuredClone(columnSecurity)
+    }
     if (sql.startsWith('SELECT count(*)::text')) {
       assert.match(sql, /"applicability_scope"/u)
       return [{ count: '0', hash: digest }]
@@ -487,7 +508,7 @@ test('readback uses read-only snapshots, hashes applicability columns, preserves
     firstObservedAt: iso(-31000),
     observedAt: iso(-1000),
   }
-  const snapshot = await readRelease270Snapshot({
+  const options = {
     database: db,
     releaseSha: sha,
     databaseResource: EXPECTED.databaseResourceId,
@@ -511,12 +532,35 @@ test('readback uses read-only snapshots, hashes applicability columns, preserves
     trustedConsumerInventoryHash: consumerSeal(evidence),
     trustedConsumerCollectorHash: digest,
     now: () => now,
-  })
+  }
+  const snapshot = await readRelease270Snapshot(options)
   assert.equal(snapshot.ledger[0].started_at, ledger.started_at)
   assert.equal(snapshot.postgresMajor, 17)
   assert.equal(snapshot.ledger[0].finished_at, ledger.finished_at)
   assert.deepEqual(snapshot.tables[0].columns, ['id', 'applicability_scope'])
   assert.equal(snapshot.observedAt, iso(-31000))
+  // A column-only GRANT changes no table content or relation ACL. It must still
+  // change the correct security bucket; NULL and an empty explicit ACL differ.
+  for (const [index, field] of [
+    [0, 'existingSecurityHash'],
+    [1, 'newSecurityHash'],
+  ]) {
+    const other = field === 'existingSecurityHash' ? 'newSecurityHash' : 'existingSecurityHash'
+    for (const [key, value] of [
+      ['acl', '{fictional-reader=r/fictional-owner}'],
+      ['acl', '{}'],
+      ['owner', 'fictional-other-owner'],
+      ['column_name', 'fictional-other-column'],
+      ['kind', 'p'],
+    ]) {
+      const saved = columnSecurity[index][key]
+      columnSecurity[index][key] = value
+      const changed = await readRelease270Snapshot(options)
+      assert.notEqual(changed[field], snapshot[field])
+      assert.equal(changed[other], snapshot[other])
+      columnSecurity[index][key] = saved
+    }
+  }
   for (const sql of statements) assert.match(sql, /^(SELECT|SET TRANSACTION READ ONLY|SET LOCAL)/u)
 })
 test('cutoff digest ignores only observedAt and retains all authorization and preservation fields', () => {
