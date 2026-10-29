@@ -20,7 +20,9 @@ applies to, when, and the conditions and exceptions that limit it.
   nothing.
 - Notes sit right after their record inside the same `<untrusted_venue_data>` block, escaped like
   all venue data, and the guide header gains one sentence (`GUEST_SOURCE_NOTES_RULE`). Notes are
-  limited to 24,000 characters per guide and attach in guide order; the full-guide versus
+  limited to 24,000 characters per guide and attach in guide order. The complete guide including
+  notes and their rule stays within the existing 120,000-character guide allowance, preserving
+  40,000 characters for static instructions/profile/alerts in the evidence packet. The full-guide versus
   directory decision is made on the guide alone, so notes never change a venue's mode.
 - FULL guides only. Directory and evidence-strategy guides, and dynamic retrieved records, get no
   notes.

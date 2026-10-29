@@ -21,8 +21,9 @@ export const GUEST_SOURCE_NOTES_RULE =
 
 /** Total characters of notes one guide may carry; also bounded by the static prompt limit. */
 export const MAX_GUEST_SOURCE_NOTES_CHARS = 24_000
-// The evidence packet retains at most 160k static characters; keep room for rules and profile.
-const GUIDE_WITH_NOTES_BOUND = 136_000
+// Preserve the evidence packet's 40k allowance for instructions/profile/alerts. The added
+// guide rule also consumes this 120k guide allowance, even though it is outside the note blocks.
+const GUIDE_WITH_NOTES_BOUND = 120_000 - GUEST_SOURCE_NOTES_RULE.length - 1
 const MAX_ROWS = 16
 const MAX_LABEL_CHARS = 80
 const MAX_SPAN_CHARS = 600
