@@ -132,7 +132,8 @@ describe('venues.propose_package_import apply', () => {
       expect(failure.summary).toContain(
         `The approve step failed (${code}). Retain the original operationId and exact content; inspect operator.get_operation and the package receipt. Do not use a new operationId without no-effect proof.`,
       )
-      expect(failure.summary).toContain('Reason: Venue package changed')
+      expect(failure.summary).toContain('Raw error text is withheld.')
+      expect(failure.summary).not.toContain(reason)
       expect(failure.summary.length).toBeLessThanOrEqual(500)
       expect(failure.summary).not.toContain('Retry with a new operationId')
       expect(failure.summary).not.toContain('Nothing was applied.')
@@ -200,7 +201,7 @@ describe('venues.propose_package_import revert', () => {
       revertContext({ id: 'pkg-1', updatedAt: packageUpdatedAt }),
     ).catch((error) => error)
     expect(failure.summary).toContain('The revert step failed (CONFLICT).')
-    expect(failure.summary).toContain('Reason: A newer venue package was applied')
+    expect(failure.summary).toContain('Raw error text is withheld.')
 
     await expect(
       venuesPackageImportKind.revert!(original(null), revertContext(null)),
@@ -557,4 +558,34 @@ describe('package-check polish regressions', () => {
     expect(result.note).toContain('warnings never block importable')
     expect(result.note).toContain('exact in-package duplicates block ready')
   })
+})
+
+
+it('preserves safe provider credit diagnosis across a service-unavailable wrapper', async () => {
+  const providerError = Object.assign(new Error('private provider message'), { status: 429, code: 'insufficient_quota' })
+  mocks.draft.mockRejectedValueOnce(new TRPCError({ code: 'SERVICE_UNAVAILABLE', cause: providerError }))
+  const args = venuesPackageImportKind.parse({ tenantId: TENANT, venueId: VENUE, payload, operationId: context.operationId })
+  let failure: unknown
+  try { await venuesPackageImportKind.apply(args, context) } catch (error) { failure = error }
+  expect(failure).toMatchObject({ code: 'PROVIDER_CREDITS_EXHAUSTED', summary: expect.stringContaining('Check the provider credit balance') })
+  expect((failure as { summary: string }).summary).not.toContain('private provider message')
+  expect(mocks.approve).not.toHaveBeenCalled()
+})
+
+
+it('redacts unknown service-unavailable provider messages', async () => {
+  mocks.draft.mockRejectedValueOnce(new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'private unknown provider message' }))
+  const args = venuesPackageImportKind.parse({ tenantId: TENANT, venueId: VENUE, payload, operationId: context.operationId })
+  const error = await venuesPackageImportKind.apply(args, context).catch(error => error)
+  expect(error.summary).toContain('PROVIDER_UNKNOWN')
+  expect(error.summary).not.toContain('private unknown provider message')
+})
+
+
+it('withholds arbitrary unknown exception text and machine codes', async () => {
+  mocks.draft.mockRejectedValueOnce(Object.assign(new Error('private unrecognized provider message'), { code: 'private-secret-code' }))
+  const args = venuesPackageImportKind.parse({ tenantId: TENANT, venueId: VENUE, payload, operationId: context.operationId })
+  const error = await venuesPackageImportKind.apply(args, context).catch(error => error)
+  expect(error.summary).toContain('draft step failed (ERROR)')
+  expect(error.summary).not.toContain('private')
 })

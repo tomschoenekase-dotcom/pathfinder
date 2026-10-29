@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const dependencyMocks = vi.hoisted(() => ({
   checkDatabase: vi.fn(),
   checkQueue: vi.fn(),
+  readGeneration: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -11,6 +12,7 @@ vi.mock('@pathfinder/db', () => ({
 
 vi.mock('@pathfinder/jobs', () => ({
   checkBullMQConnection: dependencyMocks.checkQueue,
+  readGenerationHealth: dependencyMocks.readGeneration,
 }))
 
 import { GET } from './route'
@@ -18,6 +20,7 @@ import { GET } from './route'
 beforeEach(() => {
   dependencyMocks.checkDatabase.mockReset().mockResolvedValue(1)
   dependencyMocks.checkQueue.mockReset().mockResolvedValue('PONG')
+  dependencyMocks.readGeneration.mockReset().mockResolvedValue({ status: 'unknown', lastFailureCode: null, since: null })
 })
 
 afterEach(() => {
@@ -25,6 +28,31 @@ afterEach(() => {
 })
 
 describe('health route', () => {
+  it('reports passive billing degradation without changing infrastructure readiness', async () => {
+    dependencyMocks.readGeneration.mockResolvedValue({ status: 'degraded', lastFailureCode: 'PROVIDER_CREDITS_EXHAUSTED', since: '2026-10-29T05:30:00.000Z' })
+    const response = await GET()
+    expect(response.status).toBe(200)
+    expect((await response.json()).generation).toEqual({ status: 'degraded', lastFailureCode: 'PROVIDER_CREDITS_EXHAUSTED', since: '2026-10-29T05:30:00.000Z' })
+  })
+
+  it('bounds unavailable passive observation independently of infrastructure checks', async () => {
+    vi.useFakeTimers()
+    dependencyMocks.readGeneration.mockImplementation(() => new Promise(() => undefined))
+    const pending = GET()
+    await vi.advanceTimersByTimeAsync(250)
+    const response = await pending
+    expect(response.status).toBe(200)
+    expect((await response.json()).generation).toEqual({ status: 'unknown', lastFailureCode: null, since: null })
+  })
+
+  it('contains observation read failure without leaking its error', async () => {
+    dependencyMocks.readGeneration.mockRejectedValue(new Error('private upstream response'))
+    const response = await GET()
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.generation).toEqual({ status: 'unknown', lastFailureCode: null, since: null })
+    expect(JSON.stringify(body)).not.toContain('private upstream response')
+  })
   it('returns 200 only when every required dependency is up', async () => {
     const response = await GET()
     const body = await response.json()

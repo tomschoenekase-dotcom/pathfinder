@@ -352,6 +352,8 @@ export const OPERATOR_MANUAL_TEXT = [
   '',
   'Use these tools when the owner says "for venue X, use model Y", or when a measured test shows one venue needs a different model. `venues.propose_guest_model` sets the model for that one venue only, never client-wide. `venues.propose_guest_model_reset` removes the venue choice so it follows the client, workload or deployment default again. Both keep any other stored override settings, accept `expectedRevision` (the `venueOverride.revision` you read, or null when there is none) and return the same receipt when the same `operationId` is sent again. A key outside the list is refused, and a model whose provider has no key on this deployment is refused with `MODEL_UNAVAILABLE`.',
   '',
+  'Short aliases `sol`, `terra` and `luna` select `guest-chat-sol-fast`, `guest-chat-terra-fast` and `guest-chat-luna`; receipts and stored values always use canonical keys. Setting a model on a disabled override re-enables its stored timeout, fallback, attempts, output and budget settings too. Read `venues.get_guest_model` first and explain that effect before applying. Choices show input/output prices per million tokens; these are estimates, not invoices.',
+  '',
   'Choosing: `guest-chat-sol-fast` (Sol + Fast) is the default best choice. `guest-chat-terra-fast` (Terra + Fast) is faster but omitted more needed details in testing, so pick it only when the owner accepts that trade. Never pick a slower or bigger model just because it is bigger. After a change, ask the live guide a first-visit question and a question with conditions (hours, height, price) and confirm the answers still carry those details.',
   '',
 ].join('\n')

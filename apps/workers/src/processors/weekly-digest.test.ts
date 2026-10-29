@@ -402,7 +402,7 @@ describe('processWeeklyDigestJob', () => {
         attemptNumber: 3,
         maxAttempts: 3,
       }),
-    ).rejects.toThrow('provider unavailable')
+    ).rejects.toThrow('AI provider request failed')
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', {
       status: 'FAILED',

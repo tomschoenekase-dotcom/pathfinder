@@ -112,3 +112,12 @@ describe('logger error monitor', () => {
     stdout.mockRestore()
   })
 })
+
+
+it('preserves bounded provider diagnostics and request provenance through the real sanitizer', () => {
+  const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  try {
+    logger.error({ action: 'chat.send.ai_failed', error: 'private provider message', requestId: 'request-fixture', turnId: 'turn-fixture', routeModel: 'guest-chat-sol-fast', failureCode: 'PROVIDER_CREDITS_EXHAUSTED', providerHttpStatus: 429, providerErrorCode: 'insufficient_quota' })
+    expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toMatchObject({ requestId: 'request-fixture', turnId: 'turn-fixture', routeModel: 'guest-chat-sol-fast', failureCode: 'PROVIDER_CREDITS_EXHAUSTED', providerHttpStatus: 429, providerErrorCode: 'insufficient_quota', error: '[redacted]' })
+  } finally { stdout.mockRestore() }
+})

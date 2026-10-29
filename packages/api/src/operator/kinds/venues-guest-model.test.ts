@@ -6,6 +6,7 @@ import { ZodError } from 'zod'
 import { AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS } from '@pathfinder/ai'
 import {
   OPERATOR_GUEST_MODEL_KEYS,
+  OPERATOR_GUEST_MODEL_INPUT_KEYS,
   type OperatorCapability,
 } from '@pathfinder/contracts/operator-mcp'
 
@@ -24,6 +25,7 @@ import { resolveOperatorConfig } from '../config'
 import { OperatorNotFoundError } from '../grants'
 import { approveAndApplyProposal, OperatorProposalError } from '../proposals'
 import { createOperatorRegistry } from '../registry'
+import { compareGuestModelRates, venuesGuestModelKind } from './venues-guest-model'
 
 type Row = Record<string, any>
 
@@ -314,6 +316,84 @@ describe('venues.get_guest_model', () => {
 })
 
 describe('venues.propose_guest_model', () => {
+  it.each([
+    ['sol', 'guest-chat-sol-fast'],
+    ['Sol', 'guest-chat-sol-fast'],
+    ['terra', 'guest-chat-terra-fast'],
+    ['Terra', 'guest-chat-terra-fast'],
+    ['luna', 'guest-chat-luna'],
+    ['Luna', 'guest-chat-luna'],
+  ])('stores the %s alias as the canonical %s key and resets cleanly', async (alias, canonical) => {
+    const { world, call } = harness()
+    const result = await call('venues.propose_guest_model', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      modelKey: alias,
+      operationId: randomUUID(),
+    })
+    expect(result.status).toBe('APPLIED')
+    expect(result.result.effective.modelKey).toBe(canonical)
+    expect(venueOverride(world)!.primaryModelKey).toBe(canonical)
+    const view = await call('venues.get_guest_model', { tenantId: TENANT_A, venueId: VENUE_A })
+    expect(view.effective.modelKey).toBe(canonical)
+    const reset = await call('venues.propose_guest_model_reset', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      operationId: randomUUID(),
+    })
+    expect(reset.result.effective.modelKey).toBe('guest-chat')
+  })
+
+  it('warns that setting a model re-enables a disabled override and preserves its settings', async () => {
+    const { world, call } = harness()
+    await call('venues.propose_guest_model', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      modelKey: 'sol',
+      operationId: randomUUID(),
+    })
+    Object.assign(venueOverride(world)!, {
+      enabled: false,
+      timeoutMs: 9000,
+      timeoutMsSet: true,
+      fallbackEnabled: true,
+      fallbackEnabledSet: true,
+      fallbackModelKeys: ['guest-chat-luna'],
+      fallbackModelKeysSet: true,
+      maxAttempts: 1,
+      maxAttemptsSet: true,
+      maxOutputTokens: 768,
+      maxOutputTokensSet: true,
+      requestBudgetCeilingE8Usd: '1000000',
+      requestBudgetCeilingE8UsdSet: true,
+    })
+    const before = await call('venues.get_guest_model', { tenantId: TENANT_A, venueId: VENUE_A })
+    expect(before.venueOverride.active).toBe(false)
+    expect(before.effective.modelKey).toBe('guest-chat')
+    expect(before.guidance).toContain('re-enables this disabled override')
+    const set = await call('venues.propose_guest_model', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      modelKey: 'terra',
+      operationId: randomUUID(),
+    })
+    expect(set.result.warnings).toEqual([expect.stringContaining('stored timeout, fallback')])
+    expect(venueOverride(world)).toMatchObject({
+      enabled: true,
+      primaryModelKey: 'guest-chat-terra-fast',
+      timeoutMs: 9000,
+      fallbackEnabled: true,
+      fallbackModelKeys: ['guest-chat-luna'],
+      maxAttempts: 1,
+      maxOutputTokens: 768,
+      requestBudgetCeilingE8Usd: '1000000',
+    })
+    const after = await call('venues.get_guest_model', { tenantId: TENANT_A, venueId: VENUE_A })
+    expect(after.venueOverride.active).toBe(true)
+    expect(after.effective.modelKey).toBe('guest-chat-terra-fast')
+    expect(after.guidance).not.toContain('re-enables this disabled override')
+  })
+
   it('sets the venue model through the canonical save action and reads back as the venue override', async () => {
     process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-luna'
     const { world, call } = harness()
@@ -795,10 +875,69 @@ describe('owner says "for this venue, switch from Sol to 6.1 Terra"', () => {
       expect(error).toBeInstanceOf(ZodError)
       expect((error as ZodError).issues[0]).toMatchObject({ code: 'invalid_value' })
       expect((error as ZodError).issues[0] as Row).toHaveProperty('values', [
-        ...OPERATOR_GUEST_MODEL_KEYS,
+        ...OPERATOR_GUEST_MODEL_INPUT_KEYS,
       ])
     }
     expect(world.proposals).toHaveLength(0)
     expect(world.overrides).toHaveLength(0)
+  })
+})
+
+describe('visitor model cost preview', () => {
+  it.each([
+    ['guest-chat-luna', 'guest-chat-sol-fast', 'higher'],
+    ['guest-chat-sol-fast', 'guest-chat-luna', 'lower'],
+    ['guest-chat-luna', 'guest-chat-luna-reasoning', 'equal'],
+    ['guest-chat-deepseek-pro', 'guest-chat', 'mixed'],
+    ['unregistered-old-key', 'guest-chat-sol-fast', 'unavailable'],
+  ])('compares %s to %s as %s without claiming an actual bill', (previous, proposed, direction) => {
+    const comparison = compareGuestModelRates(previous, proposed)
+    expect(comparison.direction).toBe(direction)
+    expect(comparison.limitation).toContain('no total cost is guaranteed')
+    expect(comparison.unit).toBe('USD per 1M tokens')
+  })
+
+  it('shows live current/new models and cost direction without writing', async () => {
+    process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-sol-fast'
+    const { world, database } = harness()
+    const args = venuesGuestModelKind.parse({
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      modelKey: 'luna',
+      operationId: randomUUID(),
+    })
+    const preview = await venuesGuestModelKind.pendingChanges!(args, database as never)
+    expect(preview).toContainEqual({
+      field: 'Visitor chat model',
+      before: 'guest-chat-sol-fast (gpt-6.1-sol)',
+      after: 'guest-chat-luna (gpt-6-luna)',
+    })
+    expect(preview).toContainEqual({
+      field: 'Input/output list rates',
+      before: '$4 input / $20 output per 1M tokens',
+      after: '$0.1 input / $0.5 output per 1M tokens',
+    })
+    expect(preview.find((change) => change.field === 'Cost direction')?.after).toContain(
+      'Lower input/output list rates',
+    )
+    expect(world.overrides).toHaveLength(0)
+    expect(world.proposals).toHaveLength(0)
+  })
+
+  it('includes the applied comparison while preserving approval behavior', async () => {
+    process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-sol-fast'
+    const { call } = harness()
+    const result = await call('venues.propose_guest_model', {
+      tenantId: TENANT_A,
+      venueId: VENUE_A,
+      modelKey: 'luna',
+      operationId: randomUUID(),
+    })
+    expect(result.status).toBe('APPLIED')
+    expect(result.result.costComparison).toMatchObject({
+      direction: 'lower',
+      previous: { input: 4, output: 20 },
+      proposed: { input: 0.1, output: 0.5 },
+    })
   })
 })

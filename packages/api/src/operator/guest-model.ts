@@ -6,6 +6,7 @@ import {
 } from '@pathfinder/ai'
 import {
   OPERATOR_GUEST_MODEL_KEYS,
+  OPERATOR_GUEST_MODEL_SELECTIONS,
   type OperatorGuestModelKey,
 } from '@pathfinder/contracts/operator-mcp'
 import {
@@ -30,55 +31,28 @@ const _allowlistIsGoverned: readonly (typeof AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS)[
   OPERATOR_GUEST_MODEL_KEYS
 void _allowlistIsGoverned
 
-export const GUEST_MODEL_CHOICES: Readonly<
-  Record<
-    OperatorGuestModelKey,
-    { title: string; description: string; recommended: boolean; alsoKnownAs: readonly string[] }
-  >
-> = {
-  'guest-chat-sol-fast': {
-    title: 'Sol + Fast',
-    alsoKnownAs: ['Sol', 'Sol Fast', '6.1 Sol', 'GPT-6.1 Sol'],
-    description:
-      'Recommended default. Best graded accuracy in testing, with low and steady time to first text. Billed at twice the standard Sol rate.',
-    recommended: true,
-  },
-  'guest-chat-terra-fast': {
-    title: 'Terra + Fast',
-    // The only Terra route: gpt-6.1-terra has no standard-speed visitor chat route.
-    alsoKnownAs: ['Terra', 'Terra Fast', '6.1 Terra', 'GPT-6.1 Terra'],
-    description:
-      'About twice as fast and cheaper than Sol + Fast, but it omitted more needed details (conditions, hours) in testing. Only when speed matters more than completeness.',
-    recommended: false,
-  },
-  'guest-chat-sol': {
-    title: 'Sol (standard speed)',
-    alsoKnownAs: ['Sol standard', 'Sol without Fast'],
-    description:
-      'Same model and accuracy as Sol + Fast at half the price, with slower and less steady first text.',
-    recommended: false,
-  },
-  'guest-chat-luna': {
-    title: 'Luna',
-    alsoKnownAs: ['Luna', 'GPT-6 Luna'],
-    description:
-      'Smaller, cheaper OpenAI model. Weaker on long or conditional answers; use only for a measured cost reason.',
-    recommended: false,
-  },
-  'guest-chat-luna-reasoning': {
-    title: 'Luna + brief reasoning',
-    alsoKnownAs: ['Luna reasoning'],
-    description:
-      'Luna that reasons briefly before answering. Cheaper than Sol, with slower first text.',
-    recommended: false,
-  },
-  'guest-chat': {
-    title: 'Platform built-in (Haiku)',
-    alsoKnownAs: ['Haiku', 'built-in'],
-    description:
-      'The registry fallback route on Anthropic Haiku. Economy tier and not the measured choice for current guides.',
-    recommended: false,
-  },
+export const GUEST_MODEL_CHOICES = OPERATOR_GUEST_MODEL_SELECTIONS
+
+/** Resolve accepted short aliases from the same choice metadata used for readback. */
+export function resolveGuestModelSelection(value: string): OperatorGuestModelKey {
+  if ((OPERATOR_GUEST_MODEL_KEYS as readonly string[]).includes(value)) {
+    return value as OperatorGuestModelKey
+  }
+  const normalized = value.toLowerCase()
+  const match = OPERATOR_GUEST_MODEL_KEYS.find((key) =>
+    (GUEST_MODEL_CHOICES[key].inputAliases as readonly string[]).some(
+      (alias) => alias.toLowerCase() === normalized,
+    ),
+  )
+  if (!match) throw new Error('Visitor chat model is not registered')
+  return match
+}
+
+export const DISABLED_GUEST_MODEL_WARNING =
+  'Setting a model re-enables this disabled override, including its stored timeout, fallback, attempts, output and budget settings.'
+
+export function guestModelSetWarnings(row: GuestModelOverrideRow | null): string[] {
+  return row && !row.enabled && !row.isTombstone ? [DISABLED_GUEST_MODEL_WARNING] : []
 }
 
 export const GUEST_MODEL_GUIDANCE =
@@ -242,7 +216,8 @@ export async function guestModelView(
         }
       : null,
     choices: OPERATOR_GUEST_MODEL_KEYS.map((modelKey) => {
-      const { alsoKnownAs, ...choice } = GUEST_MODEL_CHOICES[modelKey]
+      const { alsoKnownAs, inputAliases: _inputAliases, ...choice } = GUEST_MODEL_CHOICES[modelKey]
+      void _inputAliases
       return {
         modelKey,
         ...choice,
@@ -252,6 +227,6 @@ export async function guestModelView(
         alsoKnownAs: [...alsoKnownAs],
       }
     }),
-    guidance: GUEST_MODEL_GUIDANCE,
+    guidance: [...guestModelSetWarnings(row), GUEST_MODEL_GUIDANCE].join(' '),
   }
 }

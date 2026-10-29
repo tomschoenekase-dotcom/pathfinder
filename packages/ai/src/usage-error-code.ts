@@ -1,4 +1,12 @@
 const exactAiUsageErrorCodes = new Set([
+  'PROVIDER_CREDITS_EXHAUSTED',
+  'PROVIDER_RATE_LIMITED',
+  'PROVIDER_UNAVAILABLE',
+  'PROVIDER_NOT_CONFIGURED',
+  'PROVIDER_AUTHENTICATION_FAILED',
+  'PROVIDER_CONNECTION_FAILED',
+  'PROVIDER_TIMEOUT',
+  'PROVIDER_UNKNOWN',
   'AbortError',
   'TimeoutError',
   'invalid-provider-response',

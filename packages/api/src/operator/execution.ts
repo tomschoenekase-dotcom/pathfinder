@@ -1,3 +1,4 @@
+import { customerProviderDiagnostics } from './customer-provider-diagnostics'
 import { db } from '@pathfinder/db'
 
 import { writeOperatorAudit, type OperatorDatabase } from './audit'
@@ -253,7 +254,19 @@ export async function resolveUnknownProposal(
       data: {
         failureCode: OPERATOR_FAILED_NO_EFFECT,
         applyStartedAt: null,
-        result: { summary: verdict.summary, reconciled: true } as object,
+        result: {
+          summary: verdict.summary,
+          reconciled: true,
+          ...(row.kind === 'customers.create' &&
+          row.result &&
+          typeof row.result === 'object' &&
+          !Array.isArray(row.result)
+            ? (() => {
+                const diagnostic = customerProviderDiagnostics(row.result.providerDiagnostics)
+                return diagnostic ? { providerDiagnostics: diagnostic } : {}
+              })()
+            : {}),
+        } as object,
       },
     })
     await audit(database, row, input.requestId, 'RESOLVED_NO_EFFECT')

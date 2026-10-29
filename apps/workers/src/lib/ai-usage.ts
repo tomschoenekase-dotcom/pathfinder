@@ -23,6 +23,9 @@ function createScopedWorkerAiUsageSink(params: WorkerAiAccountingScope): AiUsage
   return async (usage) => {
     try {
       const errorCode = normalizeAiUsageErrorCode(usage.errorCode)
+      if (!usage.success && usage.providerFailureCode) {
+        logger.error({ error: 'Provider request failed', action: 'workers.ai_provider.failed', provider: usage.provider, failureCode: usage.providerFailureCode, providerHttpStatus: usage.providerHttpStatus ?? null, providerErrorCode: usage.providerErrorCode ?? null })
+      }
       await db.aiUsageEvent.create({
         data: {
           tenantId: params.tenantId,

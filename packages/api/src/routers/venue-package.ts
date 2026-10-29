@@ -1,3 +1,4 @@
+import { classifyProviderFailure } from '@pathfinder/ai'
 import { randomUUID } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { AiGatewayError } from '@pathfinder/ai'
@@ -496,8 +497,12 @@ export async function createVenuePackageDraftService(request: {
       : error instanceof AiGatewayError
         ? providerFailureCode(error)
         : 'unexpected-error'
+    const providerDiagnostic = classifyProviderFailure(error)
     logger.warn({
       action: 'venue_package.duplicate_analysis.failed',
+      providerFailureCode: providerDiagnostic.code,
+      providerHttpStatus: providerDiagnostic.httpStatus,
+      providerErrorCode: providerDiagnostic.providerCode,
       tenantId,
       venueId: input.venueId,
       analysisId: prepared.analysisId,
@@ -508,6 +513,8 @@ export async function createVenuePackageDraftService(request: {
     await settleFailure(errorCode)
     throw new TRPCError({
       code: 'SERVICE_UNAVAILABLE',
+      // Forward only bounded diagnostics: raw provider messages never enter receipts.
+      cause: Object.assign(new Error('Provider duplicate analysis failed'), { code: providerDiagnostic.code, status: providerDiagnostic.httpStatus, error: { code: providerDiagnostic.providerCode } }),
       message:
         errorCode === 'provider-configuration-required'
           ? 'The embedding provider is not configured; no draft was saved.'

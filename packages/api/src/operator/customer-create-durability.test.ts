@@ -322,7 +322,17 @@ function installProvider() {
   })
   const create = vi.fn(async (input: any) => {
     world.calls.createOrganization += 1
-    if (world.faults.provider === 'fail_no_effect') throw new Error('provider refused')
+    if (world.faults.provider === 'fail_no_effect')
+      throw Object.assign(new Error('PRIVATE provider refused'), {
+        providerDiagnostics: {
+          provider: 'clerk',
+          operation: 'organization_create',
+          httpStatus: 403,
+          providerCode: 'organization_limit_exceeded',
+          message: 'PRIVATE',
+          metadata: 'PRIVATE',
+        },
+      })
     const org = {
       id: `org_${world.orgs.length + 1}`,
       name: input.name,
@@ -533,6 +543,13 @@ describe('customers.propose_create durable operation contract', () => {
     })
     expect(held.nextAction).toMatch(/recover_operation/u)
     expect(held.summary).toMatch(/unconfirmed/iu)
+    expect(held.result.providerDiagnostics).toEqual({
+      provider: 'clerk',
+      operation: 'organization_create',
+      httpStatus: 403,
+      providerCode: 'organization_limit_exceeded',
+    })
+    expect(JSON.stringify(held)).not.toContain('PRIVATE')
 
     // The provider is searched read-only and holds nothing for this operation.
     const settled = await recover(database, operationId)
@@ -542,6 +559,8 @@ describe('customers.propose_create durable operation contract', () => {
       failureCode: 'FAILED_NO_EFFECT',
     })
     expect(settled.summary).toMatch(/holds no organization/iu)
+    expect(settled.result.providerDiagnostics).toEqual(held.result.providerDiagnostics)
+    expect(JSON.stringify(settled)).not.toContain('PRIVATE')
     expect(world.calls.createOrganization).toBe(1)
 
     // Now, and only now, a fresh operation for the same customer is allowed.

@@ -5,6 +5,7 @@ import Anthropic, {
   APIUserAbortError,
 } from '@anthropic-ai/sdk'
 import { z } from 'zod'
+import { classifyProviderFailure, type ProviderDiagnostics } from './provider-diagnostics'
 
 import type { AiAdmissionGuard } from './admission'
 import {
@@ -91,6 +92,9 @@ export type AiUsageRecord = {
   attempts: number
   success: boolean
   errorCode?: string
+  providerFailureCode?: ProviderDiagnostics['code']
+  providerHttpStatus?: number | null
+  providerErrorCode?: ProviderDiagnostics['providerCode']
   capability?: string
   requestType?: string
   routeModelKey?: string
@@ -102,6 +106,7 @@ export type AiUsageRecord = {
 export type AiUsageSink = (record: AiUsageRecord) => Promise<void>
 
 export class AiGatewayError extends Error {
+  readonly diagnostics: ProviderDiagnostics
   readonly attempts: number
   readonly code: string
   readonly usageRecorded: boolean
@@ -119,8 +124,11 @@ export class AiGatewayError extends Error {
   ) {
     super(message, options.cause !== undefined ? { cause: options.cause } : undefined)
     this.name = 'AiGatewayError'
+    this.diagnostics = classifyProviderFailure({ code: options.code, cause: options.cause })
     this.attempts = options.attempts
-    this.code = options.code
+    this.code = ['PROVIDER_CREDITS_EXHAUSTED', 'PROVIDER_RATE_LIMITED'].includes(this.diagnostics.code)
+      ? this.diagnostics.code
+      : options.code
     this.usageRecorded = options.usageRecorded ?? false
     this.textEmitted = options.textEmitted ?? false
   }
@@ -299,6 +307,9 @@ function estimateCostUsd(modelKey: AiModelKey, usage: AiTokenUsage, pricing = ge
 }
 
 function isRetryable(error: unknown): boolean {
+  const diagnostics = classifyProviderFailure(error)
+  if (diagnostics.code === 'PROVIDER_CREDITS_EXHAUSTED') return false
+  if (diagnostics.retryable) return true
   if (!error || typeof error !== 'object') return false
   const status = 'status' in error ? (error as { status?: unknown }).status : undefined
   const name = 'name' in error ? (error as { name?: unknown }).name : undefined
@@ -314,6 +325,8 @@ function isRetryable(error: unknown): boolean {
 }
 
 function errorCode(error: unknown): string {
+  const diagnostics = classifyProviderFailure(error)
+  if (diagnostics.code === 'PROVIDER_CREDITS_EXHAUSTED' || diagnostics.code === 'PROVIDER_RATE_LIMITED') return diagnostics.code
   if (error instanceof z.ZodError) return 'invalid-provider-response'
   if (error instanceof OpenAiIncompleteResponseError) return 'provider-incomplete-response'
   if (error instanceof APIConnectionTimeoutError) return 'provider-connection-timeout'
@@ -322,10 +335,15 @@ function errorCode(error: unknown): string {
   if (error && typeof error === 'object') {
     const status = 'status' in error ? (error as { status?: unknown }).status : undefined
     const name = 'name' in error ? (error as { name?: unknown }).name : undefined
-    if (typeof status === 'number') return `provider-http-${status}`
+    if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) return `provider-http-${status}`
     if (name === 'AbortError' || name === 'TimeoutError') return name
   }
   return 'provider-error'
+}
+
+function failureMetadata(error: unknown) {
+  const diagnostics = classifyProviderFailure(error)
+  return { providerFailureCode: diagnostics.code, providerHttpStatus: diagnostics.httpStatus, providerErrorCode: diagnostics.providerCode }
 }
 
 function wait(ms: number): Promise<void> {
@@ -419,6 +437,7 @@ export async function generateText<TParsed = string>(params: {
           attempts: attempt - 1,
           success: false,
           errorCode: errorCode(lastError),
+          ...failureMetadata(lastError),
         })
       }
       throw admissionError
@@ -473,6 +492,7 @@ export async function generateText<TParsed = string>(params: {
           attempts: 0,
           success: false,
           errorCode: providerError.code,
+          ...failureMetadata(providerError),
         })
         throw new AiGatewayError(providerError.message, {
           attempts: 0,
@@ -599,6 +619,9 @@ export async function generateText<TParsed = string>(params: {
           attempts: attempt,
           success: false,
           errorCode: gatewayError.code,
+            providerFailureCode: gatewayError.diagnostics.code,
+            providerHttpStatus: gatewayError.diagnostics.httpStatus,
+            providerErrorCode: gatewayError.diagnostics.providerCode,
         })
         throw gatewayError
       }
@@ -628,6 +651,9 @@ export async function generateText<TParsed = string>(params: {
           attempts: attempt,
           success: false,
           errorCode: gatewayError.code,
+            providerFailureCode: gatewayError.diagnostics.code,
+            providerHttpStatus: gatewayError.diagnostics.httpStatus,
+            providerErrorCode: gatewayError.diagnostics.providerCode,
         })
         throw gatewayError
       }
@@ -678,7 +704,7 @@ export async function generateText<TParsed = string>(params: {
       if (params.signal?.aborted) throw abortReason(params.signal)
       if (attempt >= maxAttempts || !isRetryable(error)) {
         const gatewayError = new AiGatewayError(
-          error instanceof Error ? error.message : 'AI provider failed',
+          'AI provider request failed',
           {
             attempts: attempt,
             code: error instanceof AiGatewayError ? error.code : errorCode(error),
@@ -703,13 +729,16 @@ export async function generateText<TParsed = string>(params: {
             attempts: attempt,
             success: false,
             errorCode: gatewayError.code,
+            providerFailureCode: gatewayError.diagnostics.code,
+            providerHttpStatus: gatewayError.diagnostics.httpStatus,
+            providerErrorCode: gatewayError.diagnostics.providerCode,
           })
         }
         throw gatewayError
       }
       if (textEmitted) {
         const gatewayError = new AiGatewayError(
-          error instanceof Error ? error.message : 'AI provider stream failed',
+          'AI provider stream failed',
           {
             attempts: attempt,
             code: error instanceof AiGatewayError ? error.code : errorCode(error),
@@ -734,6 +763,9 @@ export async function generateText<TParsed = string>(params: {
             attempts: attempt,
             success: false,
             errorCode: gatewayError.code,
+            providerFailureCode: gatewayError.diagnostics.code,
+            providerHttpStatus: gatewayError.diagnostics.httpStatus,
+            providerErrorCode: gatewayError.diagnostics.providerCode,
           })
         }
         throw gatewayError
@@ -755,6 +787,7 @@ export async function generateText<TParsed = string>(params: {
           attempts: attempt,
           success: false,
           errorCode: error instanceof AiGatewayError ? error.code : errorCode(error),
+          ...failureMetadata(error),
         })
       }
       await wait((params.retryDelayMs ?? 100) * 2 ** (attempt - 1))

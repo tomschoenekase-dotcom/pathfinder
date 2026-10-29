@@ -1,6 +1,6 @@
 import { AI_CENTRAL_MODEL_REGISTRY, getAiModelSpec } from '@pathfinder/ai'
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
-import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { OPERATOR_MCP_INPUTS, type OperatorGuestModelKey } from '@pathfinder/contracts/operator-mcp'
 import {
   AiConfigurationActionError,
   resetAiWorkloadConfigurationOverrideAction,
@@ -15,6 +15,9 @@ import {
   GUEST_CHAT_WORKLOAD,
   GUEST_MODEL_CHOICES,
   guestModelAvailable,
+  guestModelFacts,
+  guestModelSetWarnings,
+  resolveGuestModelSelection,
   guestModelVersion,
   liveOverrideValues,
   otherOverrideSettings,
@@ -31,7 +34,9 @@ import { operatorReason } from './shared'
 
 const setInput = OPERATOR_MCP_INPUTS['venues.propose_guest_model']
 const resetInput = OPERATOR_MCP_INPUTS['venues.propose_guest_model_reset']
-type SetArgs = ReturnType<typeof setInput.parse>
+type SetArgs = Omit<ReturnType<typeof setInput.parse>, 'modelKey'> & {
+  modelKey: OperatorGuestModelKey
+}
 type ResetArgs = ReturnType<typeof resetInput.parse>
 type VenueArgs = Readonly<{
   tenantId: string
@@ -121,6 +126,52 @@ function modelDetail(modelKey: string): { model: string | null; fastMode: boolea
   return { model: central?.model ?? null, fastMode: spec?.serviceTier === 'fast' }
 }
 
+/** Compare registry list rates only; token mix, caching and retries determine actual spend. */
+export function compareGuestModelRates(previousKey: string, proposedKey: string) {
+  const rates = (key: string) => {
+    const model = (
+      AI_CENTRAL_MODEL_REGISTRY as Record<
+        string,
+        { pricingUsdPerMillionTokens: { input: number; output?: number } } | undefined
+      >
+    )[key]
+    if (!model || model.pricingUsdPerMillionTokens.output === undefined) return null
+    return {
+      input: model.pricingUsdPerMillionTokens.input,
+      output: model.pricingUsdPerMillionTokens.output,
+    }
+  }
+  const previous = rates(previousKey)
+  const proposed = rates(proposedKey)
+  let direction: 'higher' | 'lower' | 'mixed' | 'equal' | 'unavailable' = 'unavailable'
+  if (previous && proposed) {
+    const inputDelta = proposed.input - previous.input
+    const outputDelta = proposed.output - previous.output
+    direction =
+      inputDelta === 0 && outputDelta === 0
+        ? 'equal'
+        : inputDelta >= 0 && outputDelta >= 0
+          ? 'higher'
+          : inputDelta <= 0 && outputDelta <= 0
+            ? 'lower'
+            : 'mixed'
+  }
+  return {
+    previous,
+    proposed,
+    direction,
+    unit: 'USD per 1M tokens',
+    statement:
+      direction === 'unavailable'
+        ? 'Comparison unavailable: one model has no registered input/output list rates.'
+        : direction === 'mixed'
+          ? 'Mixed input/output list rates: one rate rises and the other falls.'
+          : `${direction[0]!.toUpperCase()}${direction.slice(1)} input/output list rates (including any unchanged rate).`,
+    limitation:
+      'List-rate comparison only. Actual spend depends on token usage, caching, reasoning, retries and fallback; no total cost is guaranteed.',
+  }
+}
+
 /**
  * The receipt: what answered this venue before, what answers it now and why, and that only this
  * venue changed.
@@ -140,6 +191,7 @@ async function outcome(
       scope: 'this venue only',
       ...result,
       effectiveModelKey: now.effectiveModelKey,
+      costComparison: compareGuestModelRates(previous.effectiveModelKey, now.effectiveModelKey),
       previous: {
         modelKey: previous.effectiveModelKey,
         source: describeGuestModelSource(previous.effectiveSource).source,
@@ -163,7 +215,10 @@ export const venuesGuestModelKind: OperatorProposalKind<SetArgs> = {
   kind: 'venues.guest-model',
   tool: 'venues.propose_guest_model',
   capability: 'venues:propose',
-  parse: (raw) => setInput.parse(raw),
+  parse: (raw) => {
+    const args = setInput.parse(raw)
+    return { ...args, modelKey: resolveGuestModelSelection(args.modelKey) }
+  },
   ...sharedTarget,
   authorize: async (args, context) => {
     await assertVenueInGrant(context.grant, args.tenantId, args.venueId, context.database)
@@ -176,10 +231,44 @@ export const venuesGuestModelKind: OperatorProposalKind<SetArgs> = {
   describe: (args) => ({
     title: 'Set visitor chat model',
     lines: [
-      `model → ${args.modelKey} (${GUEST_MODEL_CHOICES[args.modelKey].title})`,
-      ...(args.reason ? [`reason → ${JSON.stringify(args.reason)}`] : []),
+      `model -> ${args.modelKey} (${GUEST_MODEL_CHOICES[args.modelKey].title})`,
+      `price estimate -> $${guestModelFacts(args.modelKey).pricingUsdPerMillionTokens.input} input / $${guestModelFacts(args.modelKey).pricingUsdPerMillionTokens.output} output per 1M tokens; actual usage varies`,
+      'If the venue override is disabled, this re-enables all its stored settings (timeout, fallback, attempts, output and budget).',
+      ...(args.reason ? [`reason -> ${JSON.stringify(args.reason)}`] : []),
     ],
   }),
+  pendingChanges: async (args, database) => {
+    const { effective, row } = await readGuestModelState(database, args.tenantId, args.venueId)
+    const comparison = compareGuestModelRates(effective.primaryModelKey, args.modelKey)
+    const format = (rates: { input: number; output: number } | null) =>
+      rates ? `$${rates.input} input / $${rates.output} output per 1M tokens` : 'Unavailable'
+    return [
+      {
+        field: 'Visitor chat model',
+        before: `${effective.primaryModelKey} (${effective.model.model})`,
+        after: `${args.modelKey} (${guestModelFacts(args.modelKey).model})`,
+      },
+      {
+        field: 'Input/output list rates',
+        before: format(comparison.previous),
+        after: format(comparison.proposed),
+      },
+      {
+        field: 'Cost direction',
+        before: 'Current list rates',
+        after: `${comparison.statement} ${comparison.limitation}`,
+      },
+      ...(guestModelSetWarnings(row).length
+        ? [
+            {
+              field: 'Venue override',
+              before: 'Disabled',
+              after: guestModelSetWarnings(row).join(' '),
+            },
+          ]
+        : []),
+    ]
+  },
   apply: async (args, context) => {
     const before = await snapshot(context.database, args)
     const row = await readVenueGuestModelOverride(context.database, args.tenantId, args.venueId)
@@ -212,6 +301,7 @@ export const venuesGuestModelKind: OperatorProposalKind<SetArgs> = {
       modelKey: args.modelKey,
       changed: true,
       revision: saved.revision,
+      warnings: guestModelSetWarnings(row),
     })
   },
 }
@@ -232,8 +322,8 @@ export const venuesGuestModelResetKind: OperatorProposalKind<ResetArgs> = {
   describe: (args) => ({
     title: 'Reset visitor chat model to the default',
     lines: [
-      'model → inherited default',
-      ...(args.reason ? [`reason → ${JSON.stringify(args.reason)}`] : []),
+      'model -> inherited default',
+      ...(args.reason ? [`reason -> ${JSON.stringify(args.reason)}`] : []),
     ],
   }),
   apply: async (args, context) => {

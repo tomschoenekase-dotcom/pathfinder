@@ -17,6 +17,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@pathfinder/contracts": "workspace:*",
     "@anthropic-ai/sdk": "0.91.1",
     "@google/genai": "2.21.0",
     "openai": "^4.0.0",

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import { classifyProviderFailure } from './provider-diagnostics'
 import { assertLocalLunaPlannerProfile, type LocalLunaPlannerProfile } from './local-luna-planner-profile'
 import {
   AiGatewayError,
@@ -58,6 +60,8 @@ export async function generateTextForCapability<TParsed = string>(params: {
   onBeforeFirstDispatch?: () => Promise<void>
   onTextDelta?: (delta: string) => void | Promise<void>
   signal?: AbortSignal
+  /** Passive terminal observations; never awaited or allowed to affect generation. */
+  onProviderOutcome?: (outcome: { provider: string; model: string; invocationId: string; success: boolean; failureCode?: string }) => void | Promise<void>
 }): Promise<RoutedAiTextResult<TParsed>> {
   const profile = params.invocationProfile
   const candidates = profile !== undefined ? structuredClone(params.route.candidates) : params.route.candidates
@@ -70,6 +74,12 @@ export async function generateTextForCapability<TParsed = string>(params: {
     params.requestBudgetCeilingE8Usd === undefined || params.requestBudgetCeilingE8Usd === null
       ? params.budgetGate
       : withAiRequestBudgetCeiling(params.budgetGate, BigInt(params.requestBudgetCeilingE8Usd))
+  const observationId = params.invocationId ?? randomUUID()
+  const observe = (candidate: AiRouteCandidate, success: boolean, failureCode?: string) => {
+    try {
+      void Promise.resolve(params.onProviderOutcome?.({ provider: candidate.provider, model: candidate.model, invocationId: `${observationId}:${candidate.modelKey}`, success, ...(failureCode ? { failureCode } : {}) })).catch(() => undefined)
+    } catch { /* Telemetry must never affect generation. */ }
+  }
   let lastError: unknown
   let dispatchFencePassed = false
   let budgetAttemptNumberOffset = 0
@@ -112,6 +122,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
             }
           : {}),
       })
+      observe(candidate, true)
       return {
         ...result,
         route: {
@@ -124,6 +135,10 @@ export async function generateTextForCapability<TParsed = string>(params: {
     } catch (error) {
       lastError = error
       if (params.signal?.aborted) throw error
+      if (error instanceof AiGatewayError && error.attempts > 0 && !['provider-user-abort', 'provider-request-aborted', 'invalid-structured-output', 'invalid-provider-response', 'provider-incomplete-response', 'missing-text-block'].includes(error.code)) {
+        const diagnostic = classifyProviderFailure(error)
+        if (diagnostic.code !== 'PROVIDER_NOT_CONFIGURED' && (diagnostic.code !== 'PROVIDER_UNKNOWN' || diagnostic.httpStatus !== null)) observe(candidate, false, diagnostic.code)
+      }
       // Route fallbacks are for provider/model failures. Admission, budget,
       // policy, accounting, and dispatch-fence failures must fail closed so a
       // second candidate cannot bypass the rejected control.

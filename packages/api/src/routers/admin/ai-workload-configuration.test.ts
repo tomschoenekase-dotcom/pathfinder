@@ -196,6 +196,23 @@ describe('admin AI workload configuration', () => {
     }
   })
 
+  it('keeps non-guest workloads on their own models when the guest deployment selects Sol Fast', async () => {
+    const previousRoute = process.env.GUEST_CHAT_DEFAULT_MODEL_KEY
+    process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = 'guest-chat-sol-fast'
+    try {
+      const caller = app.createCaller(context(true))
+      const global = await caller.admin.getAdminAiSystems()
+      expect(global.customerChat.effective.primaryModelKey).toBe('guest-chat-sol-fast')
+      const venue = await caller.admin.getVenueAiWorkloadConfiguration({ tenantId: 'tenant_1', venueId: 'venue_1' })
+      expect(venue.workloads.find((workload) => workload.workloadId === 'answer-analysis')?.effective.primaryModelKey).toBe('answer-analysis')
+      expect(venue.workloads.find((workload) => workload.workloadId === 'client-tochi')?.effective.primaryModelKey).toBe('client-tochi')
+      expect(venue.workloads.find((workload) => workload.workloadId === 'guest-query-embedding')?.effective.primaryModelKey).toBe('guest-query-embedding')
+    } finally {
+      if (previousRoute === undefined) delete process.env.GUEST_CHAT_DEFAULT_MODEL_KEY
+      else process.env.GUEST_CHAT_DEFAULT_MODEL_KEY = previousRoute
+    }
+  })
+
   it('does not query configuration rows when venue ownership is absent', async () => {
     const ctx = context(true, { missingVenue: true })
     await expect(

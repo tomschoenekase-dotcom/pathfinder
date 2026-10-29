@@ -1,3 +1,4 @@
+import { customerProviderDiagnosticsFromError } from './customer-provider-diagnostics'
 import { createHash, randomUUID } from 'node:crypto'
 
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
@@ -618,7 +619,7 @@ async function expireIfDue(
 
 /**
  * Human (or auto-policy) approval of one standalone proposal, then apply. Replays are no-ops:
- * only the first PENDING→APPROVED compare-and-set wins, and only one apply claim can succeed.
+ * only the first PENDING->APPROVED compare-and-set wins, and only one apply claim can succeed.
  */
 export async function approveAndApplyProposal(
   input: DecisionInput,
@@ -924,6 +925,8 @@ export async function applyApprovedProposal(
       )
     }
     const summary = failureSummaryOf(error)
+    const providerDiagnostics =
+      row.kind === 'customers.create' ? customerProviderDiagnosticsFromError(error) : undefined
     // A kind that can reconcile records an interrupted apply as a first-class OUTCOME_UNKNOWN
     // (with the cause kept in the result) so it is found, held and resolved, never retried blind.
     if (applyBegan && resolvableLater && !isProvedNoEffect(error) && !isRecordedPartial(error)) {
@@ -933,7 +936,11 @@ export async function applyApprovedProposal(
         'FAILED',
         {
           failureCode: OPERATOR_OUTCOME_UNKNOWN,
-          result: { cause: failureCode(error), ...(summary ? { summary } : {}) },
+          result: {
+            cause: failureCode(error),
+            ...(summary ? { summary } : {}),
+            ...(providerDiagnostics ? { providerDiagnostics } : {}),
+          },
         },
         input.requestId,
         input.actorUserId,
@@ -945,7 +952,14 @@ export async function applyApprovedProposal(
       'FAILED',
       {
         failureCode: failureCode(error),
-        ...(summary ? { result: { summary } } : {}),
+        ...(summary || providerDiagnostics
+          ? {
+              result: {
+                ...(summary ? { summary } : {}),
+                ...(providerDiagnostics ? { providerDiagnostics } : {}),
+              },
+            }
+          : {}),
         ...(isProvedNoEffect(error) ? { clearStarted: true } : {}),
       },
       input.requestId,

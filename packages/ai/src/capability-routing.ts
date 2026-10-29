@@ -1,3 +1,7 @@
+import {
+  GUEST_CHAT_PUBLIC_ROUTE_KEYS,
+  type GuestChatModelKey,
+} from '@pathfinder/contracts/guest-chat-model-registry'
 import { z } from 'zod'
 
 import {
@@ -33,15 +37,9 @@ export const AI_WORKLOAD_CAPABILITIES = Object.freeze({
   'client-tochi': ['FAST'],
   'company-brain-retrieval-evaluation': ['BACKGROUND_ANALYSIS'],
   'guest-answer-attribution-evaluation': ['BACKGROUND_ANALYSIS'],
-  'guest-chat': ['STANDARD', 'PREMIUM_CONVERSATION'],
-  'guest-chat-deepseek-flash': ['STANDARD', 'PREMIUM_CONVERSATION'],
-  'guest-chat-deepseek-pro': ['STANDARD', 'PREMIUM_CONVERSATION'],
-  'guest-chat-luna': ['STANDARD', 'PREMIUM_CONVERSATION'],
-  'guest-chat-luna-reasoning': ['STANDARD', 'PREMIUM_CONVERSATION'],
-  'guest-chat-sol': ['STANDARD', 'PREMIUM_CONVERSATION'],
-  'guest-chat-sol-fast': ['STANDARD', 'PREMIUM_CONVERSATION'],
-  'guest-chat-terra-fast': ['STANDARD', 'PREMIUM_CONVERSATION'],
-  'guest-chat-openai': ['STANDARD', 'PREMIUM_CONVERSATION'],
+  ...(Object.fromEntries(
+    GUEST_CHAT_PUBLIC_ROUTE_KEYS.map((key) => [key, ['STANDARD', 'PREMIUM_CONVERSATION'] as const]),
+  ) as Record<GuestChatModelKey, readonly ['STANDARD', 'PREMIUM_CONVERSATION']>),
   'weekly-digest': ['BACKGROUND_ANALYSIS'],
   'weekly-report': ['BACKGROUND_ANALYSIS'],
   'guest-query-embedding': ['EMBEDDING'],
@@ -50,17 +48,7 @@ export const AI_WORKLOAD_CAPABILITIES = Object.freeze({
   'analytics-clustering-embedding': ['EMBEDDING'],
 } as const satisfies Readonly<Record<AiWorkloadId, readonly AiCapability[]>>)
 
-export const AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS = [
-  'guest-chat',
-  'guest-chat-openai',
-  'guest-chat-luna',
-  'guest-chat-luna-reasoning',
-  'guest-chat-sol',
-  'guest-chat-sol-fast',
-  'guest-chat-terra-fast',
-  'guest-chat-deepseek-flash',
-  'guest-chat-deepseek-pro',
-] as const satisfies readonly AiWorkloadId[]
+export const AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS = GUEST_CHAT_PUBLIC_ROUTE_KEYS
 const publicVisitorChatRouteKeys = new Set<AiWorkloadId>(AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS)
 
 export type AiRouteCandidate = {

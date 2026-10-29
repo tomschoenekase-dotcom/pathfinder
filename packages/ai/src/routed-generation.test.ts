@@ -797,3 +797,55 @@ describe('routed text generation', () => {
     expect(create).not.toHaveBeenCalled()
   })
 })
+
+
+describe('passive terminal generation observations', () => {
+  afterEach(() => setOpenAiResponsesClientForTesting(null))
+  const route = () => routeAiCapability({ capability: 'STANDARD', workloadId: 'guest-chat', configuration: resolveAiWorkloadConfiguration({ workloadId: 'guest-chat', overrides: [{ activation: 'ENABLED', scope: { level: 'WORKLOAD', workloadId: 'guest-chat' }, values: { primaryModelKey: 'guest-chat-sol', fallback: { enabled: false, modelKeys: [] }, maxAttempts: 2 }, unsafeChangesEnabled: true, reason: 'Fictional observation fixture' }] }) })
+  const response = { output_text: 'Welcome to Pine Museum.', output: [], usage: { input_tokens: 10, output_tokens: 4, input_tokens_details: { cached_tokens: 0 } } }
+  const args = () => ({ route: route(), system: [{ type: 'text' as const, text: 'Be concise.' }], messages: [{ role: 'user' as const, content: 'Hello' }], usageSink: vi.fn().mockResolvedValue(undefined), admissionGuard: vi.fn().mockResolvedValue(undefined), budgetGate: NOOP_AI_BUDGET_GATE, retryDelayMs: 0, invocationId: 'fixture-observation' })
+  it('records one terminal success after a provider retry, never one failure per retry', async () => {
+    const create = vi.fn().mockRejectedValueOnce(Object.assign(new Error('redacted'), { status: 503 })).mockResolvedValue(response)
+    setOpenAiResponsesClientForTesting({ responses: { create } })
+    const observe = vi.fn()
+    await generateTextForCapability({ ...args(), onProviderOutcome: observe })
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(observe).toHaveBeenCalledTimes(1)
+    expect(observe).toHaveBeenCalledWith({ provider: 'openai', model: 'gpt-6.1-sol', invocationId: 'fixture-observation:guest-chat-sol', success: true })
+  })
+  it('records quota failure once with a safe semantic code', async () => {
+    setOpenAiResponsesClientForTesting({ responses: { create: vi.fn().mockRejectedValue(Object.assign(new Error('private'), { status: 429, code: 'insufficient_quota' })) } })
+    const observe = vi.fn()
+    await expect(generateTextForCapability({ ...args(), onProviderOutcome: observe })).rejects.toBeDefined()
+    expect(observe).toHaveBeenCalledTimes(1)
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({ success: false, failureCode: 'PROVIDER_CREDITS_EXHAUSTED' }))
+  })
+  it('observes dispatched unknown HTTP rejections for sustained-outage detection', async () => {
+    setOpenAiResponsesClientForTesting({ responses: { create: vi.fn().mockRejectedValue(Object.assign(new Error('private'), { status: 404 })) } })
+    const observe = vi.fn()
+    await expect(generateTextForCapability({ ...args(), onProviderOutcome: observe })).rejects.toBeDefined()
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({ success: false, failureCode: 'PROVIDER_UNKNOWN' }))
+  })
+  it('keeps same-provider same-model fallback candidate observations distinct', async () => {
+    const create = vi.fn().mockRejectedValueOnce(Object.assign(new Error('unavailable'), { status: 503 })).mockResolvedValue(response)
+    setOpenAiResponsesClientForTesting({ responses: { create } })
+    const observe = vi.fn()
+    const selectedRoute = route()
+    selectedRoute.candidates.push({ ...selectedRoute.candidates[0]!, modelKey: 'guest-chat-sol-fast', fallback: true })
+    const result = await generateTextForCapability({ ...args(), route: selectedRoute, maxAttempts: 1, onProviderOutcome: observe })
+    expect(result.route.modelKey).toBe('guest-chat-sol-fast')
+    expect(observe).toHaveBeenCalledTimes(2)
+    expect(observe.mock.calls[0]?.[0]).toMatchObject({ invocationId: 'fixture-observation:guest-chat-sol', success: false })
+    expect(observe.mock.calls[1]?.[0]).toMatchObject({ invocationId: 'fixture-observation:guest-chat-sol-fast', success: true })
+  })
+  it.each(['throw', 'reject', 'hang'])('does not let a %s observer alter a successful answer', async (mode) => {
+    setOpenAiResponsesClientForTesting({ responses: { create: vi.fn().mockResolvedValue(response) } })
+    const onProviderOutcome = () => { if (mode === 'throw') throw new Error('telemetry'); return mode === 'reject' ? Promise.reject(new Error('telemetry')) : new Promise<void>(() => undefined) }
+    await expect(generateTextForCapability({ ...args(), onProviderOutcome })).resolves.toMatchObject({ text: response.output_text })
+  })
+  it('does not count admission rejection as a provider failure', async () => {
+    const observe = vi.fn()
+    await expect(generateTextForCapability({ ...args(), admissionGuard: async () => { throw new Error('policy') }, onProviderOutcome: observe })).rejects.toBeDefined()
+    expect(observe).not.toHaveBeenCalled()
+  })
+})

@@ -1,3 +1,4 @@
+import { AiGatewayError, classifyProviderFailure } from '@pathfinder/ai'
 import { createHash } from 'node:crypto'
 
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
@@ -133,12 +134,18 @@ async function step<T>(
   try {
     return await run()
   } catch (error) {
+    const diagnostic = classifyProviderFailure(error)
+    if (error && typeof error === 'object' && (diagnostic.code !== 'PROVIDER_UNKNOWN' || error instanceof AiGatewayError || ('code' in error && error.code === 'SERVICE_UNAVAILABLE'))) {
+      const action = diagnostic.code === 'PROVIDER_CREDITS_EXHAUSTED' ? 'Check the provider credit balance before retrying.' : diagnostic.code === 'PROVIDER_RATE_LIMITED' ? 'Wait for the provider rate limit before retrying.' : 'Check provider availability before retrying.'
+      Object.assign(error, { code: diagnostic.code, summary: `The ${name} step failed (${diagnostic.code}; HTTP ${diagnostic.httpStatus ?? 'unknown'}; provider code ${diagnostic.providerCode ?? 'unknown'}). ${action} Retain the original operationId and inspect its receipt before retrying.` })
+    }
     if (error && typeof error === 'object' && !('summary' in error)) {
-      const message = error instanceof Error ? error.message : String(error)
-      const code = 'code' in error ? String((error as { code: unknown }).code) : 'ERROR'
+      const rawCode = 'code' in error ? error.code : undefined
+      const code = typeof rawCode === 'string' && ['CONFLICT', 'P2028', 'BAD_REQUEST', 'NOT_FOUND', 'FORBIDDEN', 'PRECONDITION_FAILED', 'UNAUTHORIZED', 'TOO_MANY_REQUESTS', 'PACKAGE_REJECTED'].includes(rawCode) ? rawCode : 'ERROR'
       Object.assign(error, {
+        code,
         summary:
-          `The ${name} step failed (${code}). Retain the original operationId and exact content; inspect operator.get_operation and the package receipt. Do not use a new operationId without no-effect proof. Reason: ${message}`.slice(
+          `The ${name} step failed (${code}). Retain the original operationId and exact content; inspect operator.get_operation and the package receipt. Do not use a new operationId without no-effect proof. Raw error text is withheld.`.slice(
             0,
             500,
           ),

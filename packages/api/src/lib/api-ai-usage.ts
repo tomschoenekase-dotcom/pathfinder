@@ -29,6 +29,9 @@ export function createApiAiUsageRecorder(params: {
   const sink: AiUsageSink = async (usage) => {
     try {
       const errorCode = normalizeAiUsageErrorCode(usage.errorCode)
+      if (!usage.success && usage.providerFailureCode) {
+        logger.error({ error: 'Provider request failed', action: 'api.ai_provider.failed', provider: usage.provider, failureCode: usage.providerFailureCode, providerHttpStatus: usage.providerHttpStatus ?? null, providerErrorCode: usage.providerErrorCode ?? null })
+      }
       const event = await params.db.aiUsageEvent.create({
         data: {
           tenantId: params.tenantId,

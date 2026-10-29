@@ -224,11 +224,41 @@ export async function findOrganizationsForCreateOperation(input: {
  * client this way can later switch into it (via the org picker) to use
  * Clerk-native flows like inviting the real client by email.
  *
- * `input.slug` is NOT sent to Clerk — this Clerk instance has organization
+ * `input.slug` is NOT sent to Clerk - this Clerk instance has organization
  * slugs disabled, and the self-serve onboarding flow already creates orgs
  * without one. It's only used as the fallback value for our own Tenant.slug
  * column below, which is independent of Clerk's org slug.
  */
+/** Copies only known machine codes/statuses; never provider messages, metadata or raw causes. */
+export function organizationCreateProviderDiagnostics(error: unknown) {
+  const value = error && typeof error === 'object' ? (error as Record<string, unknown>) : {}
+  const statuses = [400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504]
+  const codes = [
+    'organization_limit_exceeded',
+    'organization_membership_limit_exceeded',
+    'resource_not_found',
+    'form_param_format_invalid',
+    'form_param_value_invalid',
+    'form_param_missing',
+    'form_identifier_exists',
+    'authorization_invalid',
+    'rate_limit_exceeded',
+    'not_allowed_access',
+    'internal_server_error',
+  ]
+  const rawCode =
+    Array.isArray(value.errors) && value.errors[0] && typeof value.errors[0] === 'object'
+      ? (value.errors[0] as Record<string, unknown>).code
+      : undefined
+  return {
+    provider: 'clerk' as const,
+    operation: 'organization_create' as const,
+    httpStatus:
+      typeof value.status === 'number' && statuses.includes(value.status) ? value.status : null,
+    providerCode: typeof rawCode === 'string' && codes.includes(rawCode) ? rawCode : null,
+  }
+}
+
 export async function createOrganization(input: {
   name: string
   slug: string
@@ -254,11 +284,14 @@ export async function createOrganization(input: {
       name: organization.name,
       slug: organization.slug ?? input.slug,
     }
-  } catch {
-    throw new TRPCError({
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Organization creation is temporarily unavailable',
-    })
+  } catch (error) {
+    throw Object.assign(
+      new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Organization creation is temporarily unavailable',
+      }),
+      { providerDiagnostics: organizationCreateProviderDiagnostics(error) },
+    )
   }
 }
 

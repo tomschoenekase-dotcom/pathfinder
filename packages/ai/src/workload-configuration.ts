@@ -1,3 +1,7 @@
+import {
+  GUEST_CHAT_DEFAULT_FALLBACKS,
+  type GuestChatModelKey,
+} from '@pathfinder/contracts/guest-chat-model-registry'
 import { z } from 'zod'
 
 import { AI_EMBEDDING_MODEL_REGISTRY, type AiEmbeddingModelKey } from './embedding-model-registry'
@@ -212,7 +216,15 @@ export function resolveAiWorkloadConfiguration(params: {
     workloadId: params.workloadId,
     kind: base.kind,
     primaryModelKey: defaultPrimaryModelKey,
-    fallback: { enabled: false, modelKeys: [] },
+    fallback: Object.hasOwn(GUEST_CHAT_DEFAULT_FALLBACKS, defaultPrimaryModelKey)
+      ? {
+          enabled:
+            GUEST_CHAT_DEFAULT_FALLBACKS[defaultPrimaryModelKey as GuestChatModelKey].enabled,
+          modelKeys: [
+            ...GUEST_CHAT_DEFAULT_FALLBACKS[defaultPrimaryModelKey as GuestChatModelKey].modelKeys,
+          ],
+        }
+      : { enabled: false, modelKeys: [] },
     timeoutMs: defaultModel.limits.timeoutMs,
     maxAttempts: defaultModel.limits.maxAttempts,
     maxOutputTokens: defaultModel.limits.maxOutputTokens ?? null,

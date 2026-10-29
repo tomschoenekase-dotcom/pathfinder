@@ -194,6 +194,47 @@ describe('createOrganization', () => {
   })
 })
 
+describe('createOrganization safe provider diagnostics', () => {
+  it('retains allowlisted status and code while discarding messages, metadata and raw cause', async () => {
+    const secret = 'PRIVATE-CREDENTIAL-AND-BODY'
+    clerkClientMock.mockResolvedValue({ organizations: { createOrganization } })
+    createOrganization.mockRejectedValueOnce({
+      status: 403,
+      errors: [{ code: 'organization_limit_exceeded', message: secret, longMessage: secret }],
+      request: { authorization: secret },
+      data: secret,
+    })
+    const error = await createOrganizationAction({
+      name: 'Example',
+      slug: 'example',
+      createdByUserId: 'user_1',
+    }).catch((failure: unknown) => failure)
+    expect(error).toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      providerDiagnostics: {
+        provider: 'clerk',
+        operation: 'organization_create',
+        httpStatus: 403,
+        providerCode: 'organization_limit_exceeded',
+      },
+    })
+    expect(JSON.stringify(error)).not.toContain(secret)
+    expect((error as TRPCError).cause).toBeUndefined()
+  })
+
+  it('redacts arbitrary provider codes and invalid statuses', async () => {
+    clerkClientMock.mockResolvedValue({ organizations: { createOrganization } })
+    createOrganization.mockRejectedValueOnce({ status: 200, errors: [{ code: 'PRIVATE-CODE' }] })
+    const error = await createOrganizationAction({
+      name: 'Example',
+      slug: 'example',
+      createdByUserId: 'user_1',
+    }).catch((failure: unknown) => failure)
+    expect(error).toMatchObject({ providerDiagnostics: { httpStatus: null, providerCode: null } })
+    expect(JSON.stringify(error)).not.toContain('PRIVATE-CODE')
+  })
+})
+
 describe('createOrganization operation identity', () => {
   beforeEach(() => {
     vi.resetAllMocks()

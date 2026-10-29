@@ -769,3 +769,37 @@ describe.each(['OPERATOR_CUSTOMER_CREATE_ENABLED', 'OPERATOR_CUSTOMER_INVITE_ENA
     })
   },
 )
+
+describe('guest model deployment registry parity', () => {
+  it.each([
+    'guest-chat',
+    'guest-chat-luna',
+    'guest-chat-luna-reasoning',
+    'guest-chat-sol',
+    'guest-chat-sol-fast',
+    'guest-chat-terra-fast',
+  ])('keeps the existing accepted deployment key %s', (modelKey) => {
+    expect(
+      envSchema.safeParse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        GUEST_CHAT_DEFAULT_MODEL_KEY: modelKey,
+      }).success,
+    ).toBe(true)
+  })
+  it.each([
+    'guest-chat-openai',
+    'guest-chat-deepseek-flash',
+    'guest-chat-deepseek-pro',
+    'luna',
+    'unregistered-model',
+  ])('keeps the existing rejected deployment key %s', (modelKey) => {
+    expect(
+      envSchema.safeParse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        GUEST_CHAT_DEFAULT_MODEL_KEY: modelKey,
+      }).success,
+    ).toBe(false)
+  })
+})

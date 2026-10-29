@@ -157,3 +157,10 @@ export {
 } from './workload-configuration'
 
 export { LocalLunaPlannerExecutionError, type LocalLunaPlannerProfile, type LocalLunaTierReceipt } from './local-luna-planner-profile'
+
+export {
+  classifyProviderFailure,
+  type ProviderDiagnostics,
+  type ProviderFailureCode,
+  type SafeProviderCode,
+} from './provider-diagnostics'

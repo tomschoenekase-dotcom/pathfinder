@@ -1,5 +1,6 @@
 import OpenAI, { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from 'openai'
 import { z } from 'zod'
+import { classifyProviderFailure } from './provider-diagnostics'
 
 import type { AiAdmissionGuard } from './admission'
 
@@ -74,6 +75,9 @@ export function setOpenAiEmbeddingsClientForTesting(client: OpenAiEmbeddingsClie
 }
 
 function isRetryable(error: unknown): boolean {
+  const diagnostics = classifyProviderFailure(error)
+  if (diagnostics.code === 'PROVIDER_CREDITS_EXHAUSTED') return false
+  if (diagnostics.retryable) return true
   if (!error || typeof error !== 'object') return false
   const status = 'status' in error ? (error as { status?: unknown }).status : undefined
   const name = 'name' in error ? (error as { name?: unknown }).name : undefined
@@ -89,14 +93,16 @@ function isRetryable(error: unknown): boolean {
 }
 
 function providerErrorCode(error: unknown): string {
+  const diagnostics = classifyProviderFailure(error)
+  if (diagnostics.code === 'PROVIDER_CREDITS_EXHAUSTED' || diagnostics.code === 'PROVIDER_RATE_LIMITED') return diagnostics.code
   if (error instanceof APIConnectionTimeoutError) return 'provider-connection-timeout'
   if (error instanceof APIUserAbortError) return 'provider-user-abort'
   if (error instanceof APIConnectionError) return 'provider-connection-error'
   if (error && typeof error === 'object') {
     const status = 'status' in error ? (error as { status?: unknown }).status : undefined
     const name = 'name' in error ? (error as { name?: unknown }).name : undefined
-    if (typeof status === 'number') return `provider-http-${status}`
-    if (typeof name === 'string' && name.length > 0) return `provider-${name}`
+    if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) return `provider-http-${status}`
+    if (name === 'AbortError' || name === 'TimeoutError') return `provider-${name}`
   }
   return 'provider-error'
 }
@@ -325,6 +331,9 @@ export async function generateEmbeddings(params: {
         attempts: attempt,
         success: false,
         errorCode: code,
+        providerFailureCode: classifyProviderFailure(error).code,
+        providerHttpStatus: classifyProviderFailure(error).httpStatus,
+        providerErrorCode: classifyProviderFailure(error).providerCode,
       })
       throw new AiGatewayError('OpenAI embedding request failed', {
         attempts: attempt,

@@ -2,6 +2,7 @@
   "name": "@pathfinder/contracts",
   "private": true,
   "exports": {
+    "./guest-chat-model-registry": "./src/guest-chat-model-registry.ts",
     ".": "./src/index.ts",
     "./venue-package": "./src/venue-package.ts",
     "./evaluation": "./src/evaluation.ts",

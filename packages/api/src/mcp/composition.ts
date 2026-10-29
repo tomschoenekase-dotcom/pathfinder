@@ -1,3 +1,4 @@
+import { readGenerationHealth } from '@pathfinder/jobs'
 import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config/logger'
 import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
@@ -4912,7 +4913,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
       return {
         kind: 'torchiko.integration-health',
         summary: `${data.integrations.length} integration health record(s).`,
-        data: jsonData(data),
+        data: jsonData({ ...data, generation: await readGenerationHealth() }),
       }
     },
     async reportLifecycle(input, context) {

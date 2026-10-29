@@ -1,3 +1,4 @@
+import { GUEST_CHAT_RUNTIME_DEFAULT_KEYS } from '@pathfinder/contracts/guest-chat-model-registry'
 import {
   AiConfigurationOverrideSchema,
   resolveAiWorkloadConfiguration,
@@ -346,13 +347,7 @@ function conflict(): never {
   )
 }
 
-const GUEST_CHAT_DEPLOYMENT_DEFAULT_KEYS = [
-  'guest-chat-luna',
-  'guest-chat-luna-reasoning',
-  'guest-chat-sol',
-  'guest-chat-sol-fast',
-  'guest-chat-terra-fast',
-] as const satisfies readonly AiWorkloadId[]
+const GUEST_CHAT_DEPLOYMENT_DEFAULT_KEYS = GUEST_CHAT_RUNTIME_DEFAULT_KEYS
 
 /**
  * The deployment's guest-chat default (GUEST_CHAT_DEFAULT_MODEL_KEY) when it names an accepted

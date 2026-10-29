@@ -25,6 +25,7 @@
     "test:watch": "vitest --passWithNoTests"
   },
   "dependencies": {
+    "@pathfinder/contracts": "workspace:*",
     "zod": "4.6.6"
   }
 }

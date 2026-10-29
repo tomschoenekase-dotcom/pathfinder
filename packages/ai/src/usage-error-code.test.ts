@@ -4,6 +4,8 @@ import { normalizeAiUsageErrorCode } from './usage-error-code'
 
 describe('normalizeAiUsageErrorCode', () => {
   it('preserves product-owned provider codes and bounded HTTP status codes', () => {
+    expect(normalizeAiUsageErrorCode('PROVIDER_CREDITS_EXHAUSTED')).toBe('PROVIDER_CREDITS_EXHAUSTED')
+    expect(normalizeAiUsageErrorCode('PROVIDER_RATE_LIMITED')).toBe('PROVIDER_RATE_LIMITED')
     expect(normalizeAiUsageErrorCode('provider-connection-timeout')).toBe(
       'provider-connection-timeout',
     )

@@ -891,7 +891,7 @@ describe('processWeeklyReportJob', () => {
       Object.assign(new Error('provider unavailable'), { status: 503 }),
     )
 
-    await expect(processWeeklyReportJob(payload)).rejects.toThrow('provider unavailable')
+    await expect(processWeeklyReportJob(payload)).rejects.toThrow('AI provider request failed')
 
     expect(anthropicCreate).toHaveBeenCalledTimes(1)
     expect(mocks.aiUsageEventCreate).toHaveBeenCalledWith({
@@ -930,7 +930,7 @@ describe('processWeeklyReportJob', () => {
 
     await expect(processWeeklyReportJob(payload)).rejects.toMatchObject({
       name: 'AiGatewayError',
-      message: 'provider unavailable',
+      message: 'AI provider request failed',
       code: 'provider-http-503',
     })
 
@@ -1000,7 +1000,7 @@ describe('processWeeklyReportJob', () => {
 
     await expect(processWeeklyReportJob(payload)).rejects.toMatchObject({
       name: 'AiGatewayError',
-      message: 'provider unavailable',
+      message: 'AI provider request failed',
       code: 'provider-http-503',
     })
   })

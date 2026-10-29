@@ -14,6 +14,7 @@ import {
   AiConfigurationActionError,
   configurationOverrideFromRow,
   configurationValuesFromRow,
+  guestChatDeploymentDefaultModelKey,
   resetAiWorkloadConfigurationOverrideAction,
   saveAiWorkloadConfigurationOverrideAction,
   withTenantIsolationBypass,
@@ -103,15 +104,11 @@ export const adminAiWorkloadConfigurationRouter = router({
     const overrides = workloadRow
       ? [configurationOverrideFromRow(workloadRow, { level: 'WORKLOAD', workloadId })]
       : []
+    const deploymentDefaultModelKey = guestChatDeploymentDefaultModelKey()
     const effective = resolveAiWorkloadConfiguration({
       workloadId,
-      ...(workloadId === 'guest-chat' &&
-      (process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna' ||
-        process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna-reasoning' ||
-        process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol' ||
-        process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol-fast' ||
-        process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-terra-fast')
-        ? { defaultPrimaryModelKey: process.env.GUEST_CHAT_DEFAULT_MODEL_KEY }
+      ...(workloadId === 'guest-chat' && deploymentDefaultModelKey
+        ? { defaultPrimaryModelKey: deploymentDefaultModelKey }
         : {}),
       overrides,
     })

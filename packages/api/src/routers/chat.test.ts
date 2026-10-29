@@ -1346,6 +1346,10 @@ describe('chat router', () => {
       })
 
       expect(result).toEqual({
+        requestId: '99999999-9999-4999-8999-999999999999',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        modelRoute: null,
+        providerFailureCode: null,
         response: 'Previously committed response.',
         assistantMessageId: 'assistant-message-1',
         sessionId: SESSION_ID,
@@ -4715,6 +4719,22 @@ describe('chat router', () => {
       })
     })
 
+    it('returns request, turn and effective model provenance on a new answer', async () => {
+      setupHappyPath()
+      const result = await caller.chat.send({ ...sendInput, operationId: '99999999-9999-4999-8999-999999999999' })
+      expect(result).toMatchObject({ requestId: '99999999-9999-4999-8999-999999999999', turnId: expect.any(String), modelRoute: 'guest-chat', providerFailureCode: null })
+    })
+
+    it('classifies exhausted credit without exposing raw provider errors', async () => {
+      setupHappyPath()
+      anthropicCreate.mockReset()
+      anthropicCreate.mockRejectedValue(Object.assign(new Error('private-provider-message'), { status: 429, error: { code: 'insufficient_quota' } }))
+      const result = await caller.chat.send(sendInput)
+      expect(result).toMatchObject({ modelRoute: null, providerFailureCode: 'PROVIDER_CREDITS_EXHAUSTED' })
+      expect(configLogger.error).toHaveBeenCalledWith(expect.objectContaining({ action: 'chat.send.ai_failed', requestId: expect.any(String), turnId: expect.any(String), routeModel: 'guest-chat', failureCode: 'PROVIDER_CREDITS_EXHAUSTED', providerHttpStatus: 429, providerErrorCode: 'insufficient_quota' }))
+      expect(JSON.stringify(configLogger.error.mock.calls)).not.toContain('private-provider-message')
+    })
+
     it('never logs provider error messages that may contain guest text or bearer tokens', async () => {
       setupHappyPath()
       anthropicCreate.mockReset()
@@ -4733,7 +4753,8 @@ describe('chat router', () => {
       expect(configLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'chat.send.ai_failed',
-          failureCode: 'PROVIDER_REQUEST_FAILED',
+          failureCode: 'PROVIDER_UNKNOWN',
+          fallbackCode: 'PROVIDER_REQUEST_FAILED',
           errorName: 'AiGatewayError',
         }),
       )

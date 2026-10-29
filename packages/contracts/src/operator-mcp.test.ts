@@ -675,3 +675,33 @@ describe('CRM account, address, prospect and import tools', () => {
     }
   })
 })
+
+describe('visitor model selection aliases', () => {
+  const base = {
+    tenantId: 'tenant_test',
+    venueId: 'venue_test',
+    operationId: '00000000-0000-4000-8000-000000000001',
+  }
+  it.each([
+    'sol',
+    'terra',
+    'luna',
+    'Sol',
+    'Terra',
+    'Luna',
+    'guest-chat-sol-fast',
+    'guest-chat-luna-reasoning',
+  ])('accepts the bounded selection %s', (modelKey) => {
+    expect(
+      OPERATOR_MCP_INPUTS['venues.propose_guest_model'].parse({ ...base, modelKey }).modelKey,
+    ).toBe(modelKey)
+  })
+  it.each(['gpt-unknown', 'guest-chat-terra', '', 'sol-fastest'])(
+    'refuses unsupported selection %s',
+    (modelKey) => {
+      expect(
+        OPERATOR_MCP_INPUTS['venues.propose_guest_model'].safeParse({ ...base, modelKey }).success,
+      ).toBe(false)
+    },
+  )
+})

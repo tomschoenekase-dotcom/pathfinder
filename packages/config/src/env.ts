@@ -1,3 +1,4 @@
+import { GUEST_CHAT_ENVIRONMENT_DEFAULT_KEYS } from '@pathfinder/contracts/guest-chat-model-registry'
 import { z } from 'zod'
 
 const railwayEnvironmentSchema = z.preprocess(
@@ -177,16 +178,7 @@ const rawEnvSchema = z
 
     // Required for RAG / semantic place search
     OPENAI_API_KEY: z.string().min(1).optional(),
-    GUEST_CHAT_DEFAULT_MODEL_KEY: z
-      .enum([
-        'guest-chat',
-        'guest-chat-luna',
-        'guest-chat-luna-reasoning',
-        'guest-chat-sol',
-        'guest-chat-sol-fast',
-        'guest-chat-terra-fast',
-      ])
-      .optional(),
+    GUEST_CHAT_DEFAULT_MODEL_KEY: z.enum(GUEST_CHAT_ENVIRONMENT_DEFAULT_KEYS).optional(),
     // Direct, fixed-endpoint DeepSeek visitor-chat routes. This remains
     // server-only; model and endpoint selection stay in @pathfinder/ai.
     DEEPSEEK_API_KEY: z.string().min(1).optional(),

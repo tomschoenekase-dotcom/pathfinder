@@ -1,3 +1,4 @@
+import { recordGenerationOutcome } from '@pathfinder/jobs'
 import { guestQueryTiming, guestQueryTimingAsync } from '../lib/guest-query-timing'
 import type { LocalLunaTierReceipt } from '@pathfinder/ai'
 import { localGuestLunaPlannerProfile } from '../lib/guest-query-local-planner-profile'
@@ -32,6 +33,7 @@ import type { GuestResponseBlock, GuestResponsePlace } from '@pathfinder/contrac
 
 import {
   AiGatewayError,
+  classifyProviderFailure,
   AiRoutingError,
   AI_MODEL_REGISTRY,
   withAiRequestBudgetCeiling,
@@ -936,6 +938,10 @@ const chatReadRouter = router({
         places: reservation.places,
         citations: visibleCitations?.citations ?? [],
         ...(replayBlocks ? { blocks: replayBlocks } : {}),
+        requestId: operationId,
+        turnId: reservation.turnId,
+        modelRoute: null,
+        providerFailureCode: null,
         replayed: true,
       }
     }
@@ -991,6 +997,10 @@ const chatReadRouter = router({
         places: claimed.places,
         citations: visibleCitations?.citations ?? [],
         ...(replayBlocks ? { blocks: replayBlocks } : {}),
+        requestId: operationId,
+        turnId: reservation.turnId,
+        modelRoute: null,
+        providerFailureCode: null,
         replayed: true,
       }
     }
@@ -2488,6 +2498,9 @@ const chatReadRouter = router({
     let recommendationShownInResponse = false
     let recommendationDisclosureAppended = false
     let guestActionPlacements: GuestActionPlacement[] = []
+    let attemptedModelRoute: string | null = null
+    let effectiveModelRoute: string | null = null
+    let providerFailureCode: string | null = null
     let fallbackFailureCode: GuestChatFallbackCode | null = null
     let fallbackWasRouteExhaustion = false
     let generationRouteConfigurationVersion: string | undefined
@@ -2664,6 +2677,7 @@ const chatReadRouter = router({
         configuration,
         unhealthyProviders,
       })
+      attemptedModelRoute = route.candidates[0]?.modelKey ?? null
       generationRouteConfigurationVersion = route.configurationVersion
       const configurationSnapshot = JSON.stringify(configuration)
       const readLocalPlannerProfile = () =>
@@ -3072,6 +3086,7 @@ const chatReadRouter = router({
           ],
           usageSink: chatAccounting.sink,
           invocationId: generationInvocationId,
+          onProviderOutcome: recordGenerationOutcome,
           // Missing checks, invalid decision JSON or unsupported answer grammar fail closed.
           ...(answerCheckEnabled ? { parseResponse: splitGuestAnswerCheck } : {}),
           ...(pushVisibleDelta ? { onTextDelta: answerCheckGate ?? pushVisibleDelta } : {}),
@@ -3093,6 +3108,7 @@ const chatReadRouter = router({
           },
         })
 
+        effectiveModelRoute = result.route.modelKey
         let providerAnswer = result.text
         if (answerCheckEnabled) {
           // The gateway already accepted this exact text through the same pure split.
@@ -3189,12 +3205,20 @@ const chatReadRouter = router({
         throw aiUnavailable()
       }
       fallbackFailureCode = boundedGuestChatFallbackCode(err)
+      const diagnostics = classifyProviderFailure(err)
+      providerFailureCode = diagnostics.code
       fallbackWasRouteExhaustion = err instanceof AiGatewayError
       logger.error({
         action: 'chat.send.ai_failed',
+        requestId: operationId,
+        turnId: reservation.turnId,
+        routeModel: attemptedModelRoute,
         venueId: input.venueId,
         error: 'Guest chat provider generation failed',
-        failureCode: fallbackFailureCode,
+        failureCode: diagnostics.code,
+        fallbackCode: fallbackFailureCode,
+        providerHttpStatus: diagnostics.httpStatus,
+        providerErrorCode: diagnostics.providerCode,
         errorName: err instanceof AiGatewayError ? 'AiGatewayError' : 'UnexpectedError',
       })
       assistantResponse = "I'm having trouble right now. Please try again in a moment."
@@ -3340,6 +3364,10 @@ const chatReadRouter = router({
       guestActionResponseBlocks(guestActionState, { ...finalized, citations: visibleCitations }) ??
       guestCitationBlocks(visibleCitations)
     const committedResponse = {
+      requestId: operationId,
+      turnId: reservation.turnId,
+      modelRoute: effectiveModelRoute,
+      providerFailureCode,
       response: finalized.response,
       replyKind: finalized.replyKind,
       assistantMessageId: finalized.assistantMessageId,

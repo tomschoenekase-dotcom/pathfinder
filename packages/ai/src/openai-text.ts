@@ -7,6 +7,7 @@ import {
 } from './local-luna-planner-profile'
 import OpenAI from 'openai'
 import { z } from 'zod'
+import { classifyProviderFailure } from './provider-diagnostics'
 import { getAiModelSpec } from './model-registry'
 import { textAttemptCostCeilingUnits } from './budget'
 
@@ -16,6 +17,7 @@ import type { AiModelSpec, AiTextProviderId } from './model-registry'
 const safeTokenCount = z.number().int().nonnegative().refine(Number.isSafeInteger)
 
 const openAiResponseSchema = z.object({
+  error: z.unknown().optional(),
   id: z.unknown().optional(),
   service_tier: z.unknown().optional(),
   status: z.string().optional(),
@@ -233,6 +235,7 @@ function assertLocalSol(condition: unknown): asserts condition {
 }
 
 const openAiStreamEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('error'), code: z.unknown().optional(), error: z.unknown().optional() }).passthrough(),
   z.object({ type: z.literal('response.output_text.delta'), delta: z.string() }).passthrough(),
   z.object({ type: z.literal('response.completed'), response: openAiResponseSchema }).passthrough(),
   z
@@ -369,6 +372,18 @@ export class OpenAiResponsesProviderConfigurationError extends Error {
   constructor(readonly code: 'provider-not-configured' | 'provider-client-initialization') {
     super('AI provider configuration is unavailable')
     this.name = 'OpenAiResponsesProviderConfigurationError'
+  }
+}
+
+class OpenAiResponseFailureError extends Error {
+  readonly code: string
+  readonly status: number | null
+  constructor(cause: unknown) {
+    super('AI provider response failed', { cause })
+    this.name = 'OpenAiResponseFailureError'
+    const diagnostics = classifyProviderFailure(cause)
+    this.code = diagnostics.code
+    this.status = diagnostics.httpStatus
   }
 }
 
@@ -605,6 +620,7 @@ export async function createOpenAiTextResponse(params: {
     if (profile) throw new LocalLunaPlannerExecutionError('INVALID_PLANNER_USAGE')
     throw error
   }
+  if (response.status === 'failed' && response.error) throw new OpenAiResponseFailureError(response.error)
   const incomplete =
     (response.status !== undefined && response.status !== 'completed') ||
     Boolean(response.incomplete_details)
@@ -709,6 +725,7 @@ export async function createOpenAiTextStream(params: {
   for await (const rawEvent of raw as OpenAiResponseStream) {
     const event = openAiStreamEventSchema.safeParse(rawEvent)
     if (!event.success) continue
+    if (event.data.type === 'error') throw new OpenAiResponseFailureError(event.data)
     if (event.data.type === 'response.output_text.delta') {
       if (!event.data.delta) continue
       streamedText += event.data.delta
@@ -720,6 +737,9 @@ export async function createOpenAiTextStream(params: {
   }
 
   if (!completedResponse) throw new Error('OpenAI stream ended without a terminal response')
+  if ((terminalType === 'response.failed' || completedResponse.status === 'failed') && completedResponse.error) {
+    throw new OpenAiResponseFailureError(completedResponse.error)
+  }
   const incomplete =
     terminalType === 'response.incomplete' ||
     terminalType === 'response.failed' ||

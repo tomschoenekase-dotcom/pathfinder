@@ -7,7 +7,8 @@ vi.mock('@pathfinder/config', () => ({
   logger: { error: vi.fn(), warn: vi.fn() },
 }))
 
-vi.mock('@pathfinder/ai', () => ({
+vi.mock('@pathfinder/ai', async (importOriginal) => ({
+  classifyProviderFailure: (await importOriginal<typeof import('@pathfinder/ai')>()).classifyProviderFailure,
   AI_EMBEDDING_MODEL_KEYS: {
     PLACE_CONTENT: 'place-content',
     KNOWLEDGE_CONTENT: 'knowledge-content',

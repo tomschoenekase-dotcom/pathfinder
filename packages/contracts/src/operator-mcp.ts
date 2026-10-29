@@ -1,3 +1,5 @@
+import { OPERATOR_GUEST_MODEL_KEYS, OPERATOR_GUEST_MODEL_INPUT_KEYS } from './guest-chat-model-registry'
+export { OPERATOR_GUEST_MODEL_SELECTIONS, OPERATOR_GUEST_MODEL_KEYS, OPERATOR_GUEST_MODEL_INPUT_KEYS } from './guest-chat-model-registry'
 import { z } from 'zod'
 import { GuestGuideCoverageSchema } from './guest-answer-attribution'
 
@@ -496,14 +498,6 @@ const venueScope = { tenantId: Identifier, venueId: Identifier } as const
  * visitor route (packages/ai AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS; a test keeps them in that set).
  * Direct DeepSeek canaries and the legacy mini route stay dashboard-only.
  */
-export const OPERATOR_GUEST_MODEL_KEYS = [
-  'guest-chat-sol-fast',
-  'guest-chat-terra-fast',
-  'guest-chat-sol',
-  'guest-chat-luna',
-  'guest-chat-luna-reasoning',
-  'guest-chat',
-] as const
 export const OperatorGuestModelKey = z.enum(OPERATOR_GUEST_MODEL_KEYS)
 export type OperatorGuestModelKey = z.infer<typeof OperatorGuestModelKey>
 
@@ -1503,8 +1497,8 @@ export const OPERATOR_MCP_INPUTS = {
   }),
   'venues.propose_guest_model': writeInput({
     ...venueScope,
-    /** One of OPERATOR_GUEST_MODEL_KEYS; anything else is refused. */
-    modelKey: OperatorGuestModelKey,
+    /** A canonical model key or a short owner-facing alias; aliases are stored canonically. */
+    modelKey: z.enum(OPERATOR_GUEST_MODEL_INPUT_KEYS),
     /** Why, in a few words; kept in the configuration history. */
     reason: z.string().trim().min(1).max(300).optional(),
     /** venueOverride.revision from venues.get_guest_model. Omitted means the current state. */
