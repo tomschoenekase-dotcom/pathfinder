@@ -23,6 +23,11 @@ advisory lock, Prisma child, readback and Redis preservation. Fixture consumer
 transport proves protocol mechanics only. Synthetic resource labels never route
 network connections. Operational main continues refusing those local endpoints.
 Artifacts record actual PostgreSQL/source/manifest and restore/reference evidence.
+Reference270 uses a third fresh database replayed from unchanged migrations.
+Logical restore can renumber enum ranks and redistribute literal-array casts in
+CHECK deparsing; those reviewed semantic equivalences belong only to restore
+verification. Operational catalog/cutoff checks remain exact. Unknown security
+hash differences stop qualification and retain diagnostic receipts for review.
 
 Hosted qualification must pass at the exact final source. Docker is required for
 that CI proof. Local unit tests alone do not establish real SQL/Redis/OS behavior.

@@ -46,9 +46,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @pathfinder/db exec prisma generate
       - name: Unit and operational target refusals
-        run: node --test scripts/release270-hosted-runtime.test.mjs scripts/release270-runner-disposable.test.mjs scripts/release270-runtime.test.mjs scripts/release270-staging-admission.test.mjs scripts/release270-consumer-evidence.test.mjs
-      - name: Create distinct empty restore database
-        run: docker exec $(docker ps --filter ancestor=pgvector/pgvector:pg${{ matrix.postgres }} --format '{{.ID}}') createdb -U postgres pathfinder_disposable_release270_restore
+        run: node --test scripts/release270-hosted-runtime.test.mjs scripts/release270-runner-disposable.test.mjs scripts/release270-runtime.test.mjs scripts/release270-staging-admission.test.mjs scripts/release270-consumer-evidence.test.mjs scripts/release270-restore-equivalence.test.mjs
+      - name: Create distinct empty restore and reference databases
+        run: |
+          container=$(docker ps --filter ancestor=pgvector/pgvector:pg${{ matrix.postgres }} --format '{{.ID}}')
+          docker exec "$container" createdb -U postgres pathfinder_disposable_release270_restore
+          docker exec "$container" createdb -U postgres pathfinder_disposable_release270_reference
       - name: Matching-version PostgreSQL client tools
         run: |
           container=$(docker ps --filter ancestor=pgvector/pgvector:pg${{ matrix.postgres }} --format '{{.ID}}')
@@ -65,6 +68,7 @@ jobs:
           RELEASE270_RUNNER_CONFIRM: pathfinder_disposable_release270_runner
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:fictional_ci_password@127.0.0.1:5432/pathfinder_disposable_release270_runner
           RELEASE270_RESTORE_DATABASE_URL: postgresql://postgres:fictional_ci_password@127.0.0.1:5432/pathfinder_disposable_release270_restore
+          RELEASE270_REFERENCE_DATABASE_URL: postgresql://postgres:fictional_ci_password@127.0.0.1:5432/pathfinder_disposable_release270_reference
           RELEASE270_DISPOSABLE_REDIS_URL: redis://127.0.0.1:6379
       - name: Preserve fictional evidence
         if: always()

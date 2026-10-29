@@ -21,6 +21,10 @@ import { assertRelease269Manifest } from './lib/release269-migration-contract.mj
 import { release270CatalogHash } from './lib/release270-catalog-contract.mjs'
 import { hashRelease270, readRelease270Snapshot } from './lib/release270-readback.mjs'
 import {
+  RESTORE_SECURITY_SQL,
+  assertRelease270RestoreEquivalent,
+} from './lib/release270-restore-equivalence.mjs'
+import {
   RELEASE269_STAGING_REDIS,
   readRelease269StagingQueues,
 } from './lib/release269-queue-readback.mjs'
@@ -32,6 +36,7 @@ import {
 
 export const SOURCE_DATABASE = 'pathfinder_disposable_release270_runner'
 export const RESTORE_DATABASE = 'pathfinder_disposable_release270_restore'
+export const REFERENCE_DATABASE = 'pathfinder_disposable_release270_reference'
 export function guardRelease270Disposable(env) {
   assert.equal(env.GITHUB_ACTIONS, 'true', 'hosted disposable CI only')
   assert.equal(env.RUNNER_ENVIRONMENT, 'github-hosted', 'github-hosted runner required')
@@ -51,8 +56,14 @@ export function guardRelease270Disposable(env) {
     env.RELEASE270_RESTORE_DATABASE_URL,
     RESTORE_DATABASE,
   )
+  const reference = validateDisposableDatabaseUrl(
+    env.RELEASE270_REFERENCE_DATABASE_URL,
+    REFERENCE_DATABASE,
+  )
   assert.equal(source.host, restore.host)
   assert.equal(source.port, restore.port)
+  assert.equal(source.host, reference.host)
+  assert.equal(source.port, reference.port)
   const redis = new URL(env.RELEASE270_DISPOSABLE_REDIS_URL)
   assert.equal(redis.protocol, 'redis:')
   assert.equal(redis.hostname, '127.0.0.1')
@@ -64,7 +75,12 @@ export function guardRelease270Disposable(env) {
       !redis.password &&
       ['', '/', '/0'].includes(redis.pathname),
   )
-  return { source: source.canonicalUrl, restore: restore.canonicalUrl, redis: redis.toString() }
+  return {
+    source: source.canonicalUrl,
+    restore: restore.canonicalUrl,
+    reference: reference.canonicalUrl,
+    redis: redis.toString(),
+  }
 }
 
 export async function main(env = process.env, outputArg = process.argv[2]) {
@@ -135,7 +151,7 @@ export async function main(env = process.env, outputArg = process.argv[2]) {
       await client.$disconnect()
     }
   }
-  for (const url of [target.source, target.restore])
+  for (const url of [target.source, target.restore, target.reference])
     await execute(url, async (client) => {
       const [row] = await client.$queryRawUnsafe(
         "SELECT count(*)::int AS count FROM pg_tables WHERE schemaname='public'",
@@ -162,11 +178,13 @@ export async function main(env = process.env, outputArg = process.argv[2]) {
       [cli, 'migrate', 'deploy', '--schema', path.join(directory, 'schema.prisma')],
       { DATABASE_URL: url, DIRECT_DATABASE_URL: url },
     )
-  migrate(target.source, await projected(267))
+  const predecessor267 = await projected(267)
+  const predecessor269 = await projected(269)
+  migrate(target.source, predecessor267)
   // psql supports multi-statement fixture transactions; Prisma raw SQL does not.
   const sql = (url, text) => command('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1'], pg(url), text)
   sql(target.source, fixtureSql)
-  migrate(target.source, await projected(269))
+  migrate(target.source, predecessor269)
   sql(target.source, fixtureSql269)
   const setupRedis = new Redis(target.redis, { lazyConnect: true })
   try {
@@ -264,6 +282,10 @@ export async function main(env = process.env, outputArg = process.argv[2]) {
   const before = await execute(target.source, (client) => snapshot(client))
   assert.equal(before.ledger.length, 269)
   await save('before269', before)
+  const sourceSecurity = await execute(target.source, (client) =>
+    client.$queryRawUnsafe(RESTORE_SECURITY_SQL),
+  )
+  await save('before269-security', sourceSecurity)
   const archive = path.join(output, 'fictional269.dump')
   const backupCreatedAt = new Date().toISOString()
   await writeFile(archive, command('pg_dump', ['-Fc'], pg(target.source)))
@@ -278,10 +300,15 @@ export async function main(env = process.env, outputArg = process.argv[2]) {
   )
   const restored = await execute(target.restore, (client) => snapshot(client))
   await save('restored269', restored)
-  assert.equal(
-    release270CutoffHash(restored),
-    release270CutoffHash(before),
-    'actual restored cutoff mismatch',
+  const restoredSecurity = await execute(target.restore, (client) =>
+    client.$queryRawUnsafe(RESTORE_SECURITY_SQL),
+  )
+  await save('restored269-security', restoredSecurity)
+  const restoreEquivalence = assertRelease270RestoreEquivalent(
+    before,
+    restored,
+    sourceSecurity,
+    restoredSecurity,
   )
   const restoreProofSha256 = hashRelease270({
     backupSha256,
@@ -296,9 +323,15 @@ export async function main(env = process.env, outputArg = process.argv[2]) {
     postgresMajor: restored.postgresMajor,
     backupCreatedAt,
     restoreVerifiedAt,
+    restoreEquivalence,
   })
-  migrate(target.restore, prismaDirectory)
-  const rehearsed = await execute(target.restore, (client) => snapshot(client))
+  // Reference catalog comes from unchanged source replay, not logical restore.
+  migrate(target.reference, predecessor267)
+  sql(target.reference, fixtureSql)
+  migrate(target.reference, predecessor269)
+  sql(target.reference, fixtureSql269)
+  migrate(target.reference, prismaDirectory)
+  const rehearsed = await execute(target.reference, (client) => snapshot(client))
   await save('rehearsed270', rehearsed)
   // Real PostgreSQL lock contention and guardian loss, isolated from mutation.
   const guardian = db(target.restore),
