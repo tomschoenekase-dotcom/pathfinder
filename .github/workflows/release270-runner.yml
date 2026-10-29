@@ -1,0 +1,76 @@
+name: Release270 Linux runner qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  populated269-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [17, 16]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: fictional_ci_password
+          POSTGRES_DB: pathfinder_disposable_release270_runner
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @pathfinder/db exec prisma generate
+      - name: Unit and operational target refusals
+        run: node --test scripts/release270-hosted-runtime.test.mjs scripts/release270-runner-disposable.test.mjs scripts/release270-runtime.test.mjs scripts/release270-staging-admission.test.mjs scripts/release270-consumer-evidence.test.mjs
+      - name: Create distinct empty restore database
+        run: docker exec $(docker ps --filter ancestor=pgvector/pgvector:pg${{ matrix.postgres }} --format '{{.ID}}') createdb -U postgres pathfinder_disposable_release270_restore
+      - name: Matching-version PostgreSQL client tools
+        run: |
+          container=$(docker ps --filter ancestor=pgvector/pgvector:pg${{ matrix.postgres }} --format '{{.ID}}')
+          mkdir -p "$RUNNER_TEMP/pg-client"
+          for tool in psql pg_dump pg_restore; do
+            printf '#!/bin/sh\nexec docker exec -i' > "$RUNNER_TEMP/pg-client/$tool"
+            printf ' -e PGHOST -e PGPORT -e PGDATABASE -e PGUSER -e PGPASSWORD %s %s "$@"\n' "$container" "$tool" >> "$RUNNER_TEMP/pg-client/$tool"
+            chmod +x "$RUNNER_TEMP/pg-client/$tool"
+          done
+          echo "$RUNNER_TEMP/pg-client" >> "$GITHUB_PATH"
+      - name: Rehearse real populated269 runner and restore
+        run: node scripts/release270-runner-disposable.mjs "$RUNNER_TEMP/release270-runner"
+        env:
+          RELEASE270_RUNNER_CONFIRM: pathfinder_disposable_release270_runner
+          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:fictional_ci_password@127.0.0.1:5432/pathfinder_disposable_release270_runner
+          RELEASE270_RESTORE_DATABASE_URL: postgresql://postgres:fictional_ci_password@127.0.0.1:5432/pathfinder_disposable_release270_restore
+          RELEASE270_DISPOSABLE_REDIS_URL: redis://127.0.0.1:6379
+      - name: Preserve fictional evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release270-runner-pg${{ matrix.postgres }}-${{ github.sha }}
+          path: ${{ runner.temp }}/release270-runner
+          if-no-files-found: warn
+          retention-days: 14

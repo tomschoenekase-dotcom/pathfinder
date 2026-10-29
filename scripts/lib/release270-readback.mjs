@@ -6,6 +6,7 @@ import { tableHashSql, summarizeRelease269Clients } from './release269-readback.
 import { readRelease270Catalog } from './release270-catalog-contract.mjs'
 import { assertPreservedQueueProof } from './release269-queue-preservation.mjs'
 import { RELEASE270_STAGING_QUEUE_RESOURCE } from './release270-staging-admission.mjs'
+import { collectRelease270ConsumerObservation } from './release270-consumer-evidence.mjs'
 
 export const hashRelease270 = (value) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -63,9 +64,16 @@ export async function readRelease270Snapshot({
   readQueues,
   readConsumers,
   trustedConsumerInventoryHash,
+  trustedConsumerCollectorHash,
+  recordConsumerObservation,
   now = Date.now,
 }) {
   const started = now()
+  assert.match(
+    trustedConsumerCollectorHash ?? '',
+    /^[a-f0-9]{64}$/u,
+    'release270-trusted-collector-required',
+  )
   assert.ok(lockPid === undefined || (Number.isSafeInteger(lockPid) && lockPid > 0))
   const snapshot = await database.$transaction(
     async (tx) => {
@@ -73,6 +81,14 @@ export async function readRelease270Snapshot({
       await tx.$executeRawUnsafe("SET LOCAL TIME ZONE 'UTC'")
       await tx.$executeRawUnsafe("SET LOCAL DateStyle = 'ISO, YMD'")
       const query = (sql) => tx.$queryRawUnsafe(sql)
+      const [server] = await query(
+        `SELECT current_setting('server_version_num')::int AS "serverVersionNum"`,
+      )
+      assert.ok(
+        Number.isInteger(server?.serverVersionNum) && server.serverVersionNum >= 100000,
+        'release270-postgres-version-required',
+      )
+      const postgresMajor = Math.floor(server.serverVersionNum / 10000)
       const clients = async () => {
         await query('SELECT pg_stat_clear_snapshot() IS NULL AS ignored')
         return summarizeRelease269Clients(
@@ -121,6 +137,7 @@ export async function readRelease270Snapshot({
       const final = await clients()
       return {
         releaseSha,
+        postgresMajor,
         databaseResource,
         ledger,
         publicTableCount: catalog.tables.length,
@@ -160,12 +177,21 @@ export async function readRelease270Snapshot({
   assert.equal(queues.releaseSha, releaseSha)
   assert.equal(queues.resourceIdentity, RELEASE270_STAGING_QUEUE_RESOURCE)
   assert.equal(queues.active, 0)
-  const consumers = await readConsumers()
+  const { evidence: consumers, receipt } = await collectRelease270ConsumerObservation({
+    readConsumers,
+    releaseSha,
+    resource: RELEASE270_STAGING_QUEUE_RESOURCE,
+    trustedCollectorHash: trustedConsumerCollectorHash,
+    now,
+  })
   const inventory = assertRelease270ConsumerEvidence(consumers, {
     releaseSha,
     expectedHash: trustedConsumerInventoryHash,
     now: now(),
   })
+  // Fresh challenge/provider metadata must not drift the stable policy cutoff.
+  // A durable caller can journal it separately; driver/provider payloads are absent.
+  if (recordConsumerObservation) await recordConsumerObservation(receipt)
   // Queue proof and independently recollected deployment inventory follow the
   // final database scan. Merely restamping an old inventory is not valid evidence.
   const observedAt = new Date(

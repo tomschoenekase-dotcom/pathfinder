@@ -143,6 +143,7 @@ function harness() {
   }))
   const before = {
     releaseSha: sha,
+    postgresMajor: 17,
     databaseResource: EXPECTED.databaseResourceId,
     observedAt: iso(-1000),
     blockingClientSessions: 0,
@@ -168,6 +169,7 @@ function harness() {
     schema: RELEASE270_STAGING_PROOF_SCHEMA,
     releaseSha: sha,
     referenceReleaseSha: sha,
+    referencePostgresMajor: 17,
     databaseResource: EXPECTED.databaseResourceId,
     manifestHash: RELEASE270.manifestHash,
     independentRestoreVerified: true,
@@ -432,6 +434,7 @@ test('readback uses read-only snapshots, hashes applicability columns, preserves
   }
   const query = async (sql) => {
     statements.push(sql)
+    if (sql.includes("current_setting('server_version_num')")) return [{ serverVersionNum: 170006 }]
     if (sql.includes('pg_stat_activity')) {
       assert.match(sql, /AND pid<>123 /u)
       return []
@@ -493,11 +496,24 @@ test('readback uses read-only snapshots, hashes applicability columns, preserves
       assert.ok(statements.some((sql) => sql.includes('pg_stat_activity')))
       return q
     },
-    readConsumers: async () => evidence,
+    readConsumers: async (request) => ({
+      schema: 'torchiko-release270-consumer-observation/v1',
+      challenge: request.challenge,
+      requestStartedAt: request.requestStartedAt,
+      releaseSha: sha,
+      resource: RELEASE270_STAGING_QUEUE_RESOURCE,
+      collectorHash: digest,
+      providerRevision: 'fictional-provider-revision',
+      observedAt: iso(0),
+      completedAt: iso(0),
+      evidence: { ...evidence, observedAt: iso(0) },
+    }),
     trustedConsumerInventoryHash: consumerSeal(evidence),
+    trustedConsumerCollectorHash: digest,
     now: () => now,
   })
   assert.equal(snapshot.ledger[0].started_at, ledger.started_at)
+  assert.equal(snapshot.postgresMajor, 17)
   assert.equal(snapshot.ledger[0].finished_at, ledger.finished_at)
   assert.deepEqual(snapshot.tables[0].columns, ['id', 'applicability_scope'])
   assert.equal(snapshot.observedAt, iso(-31000))

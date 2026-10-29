@@ -96,6 +96,15 @@ export function assertRelease270StagingAdmission({
   fresh(proof.createdAt, now, 86_400_000)
   assert.equal(before.releaseSha, releaseSha)
   assert.equal(before.databaseResource, EXPECTED.databaseResourceId)
+  assert.ok(
+    [16, 17].includes(proof.referencePostgresMajor),
+    'release270-reviewed-postgres-major-required',
+  )
+  assert.equal(
+    before.postgresMajor,
+    proof.referencePostgresMajor,
+    'release270-reference-postgres-major-mismatch',
+  )
   fresh(before.observedAt, now, 60_000)
   assert.equal(before.blockingClientSessions, 0, 'release270-active-clients')
   assert.equal(before.activeOrTransactionalClientSessions, 0, 'release270-active-transactions')
@@ -151,6 +160,16 @@ export function assertRelease270StagingPreserved(
   assertConsumerInventory(after, proof)
   assert.equal(after.releaseSha, before.releaseSha)
   assert.equal(after.databaseResource, before.databaseResource)
+  assert.ok(
+    [16, 17].includes(proof.referencePostgresMajor),
+    'release270-reviewed-postgres-major-required',
+  )
+  assert.equal(
+    before.postgresMajor,
+    proof.referencePostgresMajor,
+    'release270-reference-postgres-major-mismatch',
+  )
+  assert.equal(after.postgresMajor, before.postgresMajor, 'release270-postgres-major-changed')
   assert.equal(assertRelease270Ledger(before.ledger, manifest, proof).state, 'predecessor269')
   assert.equal(assertRelease270Ledger(after.ledger, manifest, proof).state, 'complete270')
   assert.deepEqual(after.ledger.slice(0, 269), before.ledger, 'release270-physical-ledger-mutated')

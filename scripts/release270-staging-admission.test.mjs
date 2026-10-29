@@ -141,6 +141,7 @@ function harness() {
     applied_steps_count: 1,
   }))
   const before = {
+    postgresMajor: 17,
     releaseSha: sha,
     databaseResource: EXPECTED.databaseResourceId,
     observedAt: iso(-1000),
@@ -164,6 +165,7 @@ function harness() {
     existingSecurityHash: digest,
   }
   const proof = {
+    referencePostgresMajor: 17,
     schema: RELEASE270_STAGING_PROOF_SCHEMA,
     releaseSha: sha,
     referenceReleaseSha: sha,
@@ -281,6 +283,20 @@ test('wrong source, reference, backup, cutoff, freshness and unreviewed boundary
     assert.throws(() => assertRelease270StagingAdmission(h))
   }
 })
+test('reference and target PostgreSQL major must match before and after migration', () => {
+  for (const major of [undefined, 16, 18, '17']) {
+    const h = harness()
+    h.proof.referencePostgresMajor = major
+    assert.throws(() => assertRelease270StagingAdmission(h), /postgres-major/)
+  }
+  const h = harness()
+  h.after.postgresMajor = 16
+  assert.throws(
+    () => assertRelease270StagingPreserved(h.before, h.after, manifest, h.proof, { now }),
+    /postgres-major-changed/,
+  )
+})
+
 test('physical history, old data, queues, flags and security must survive unchanged', () => {
   for (const mutate of [
     (a) => (a.ledger[0].id = 'changed'),

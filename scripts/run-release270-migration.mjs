@@ -33,6 +33,42 @@ export function assertRelease270RuntimeTarget(environment, releaseSha) {
   assertRelease269StagingRedis(environment)
 }
 
+// Checkout packaging only: this does not connect, approve a migration or release a hold.
+export async function preflightRelease270(root, releaseSha, environment = process.env) {
+  assert.equal(process.platform, 'linux', 'release270-hosted-linux-runner-required')
+  assert.ok(
+    !environment.NODE_OPTIONS && !environment.NODE_PATH,
+    'release270-node-overrides-refused',
+  )
+  for (const key of Object.keys(environment))
+    assert.ok(
+      !/^prisma_.*(?:engine|binary|library)/iu.test(key),
+      'release270-engine-overrides-refused',
+    )
+  const git = (...args) =>
+    execFileSync('git', args, {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 10_000,
+      windowsHide: true,
+    }).trim()
+  assert.equal(git('rev-parse', 'HEAD'), releaseSha, 'release270-source-head-mismatch')
+  assert.equal(git('status', '--porcelain', '--untracked-files=all'), '', 'release270-dirty-source')
+  const prismaDirectory = path.join(root, 'packages/db/prisma')
+  assert.ok(
+    !environment.PATHFINDER_PRISMA_DIR ||
+      path.resolve(environment.PATHFINDER_PRISMA_DIR) === prismaDirectory,
+  )
+  const manifest = await readMigrationManifest(prismaDirectory)
+  assertRelease270Manifest(manifest)
+  const databaseRequire = createRequire(path.join(root, 'packages/db/package.json'))
+  const jobsRequire = createRequire(path.join(root, 'packages/jobs/package.json'))
+  const { PrismaClient } = databaseRequire('@prisma/client')
+  const Redis = jobsRequire('ioredis')
+  const cli = databaseRequire.resolve('prisma/build/index.js')
+  return { PrismaClient, Redis, cli, manifest, prismaDirectory }
+}
+
 export async function runRelease270({
   environment,
   releaseSha,
@@ -273,11 +309,24 @@ export async function main(args = process.argv.slice(2), environment = process.e
       'consumer-evidence': { type: 'string' },
       receipt: { type: 'string' },
       readback: { type: 'boolean', default: false },
+      preflight: { type: 'boolean', default: false },
     },
   })
   const releaseSha = values['release-sha']
   assertRelease270RuntimeTarget(environment, releaseSha)
   const root = fileURLToPath(new URL('..', import.meta.url))
+  const runtime = await preflightRelease270(root, releaseSha, environment)
+  if (values.preflight) {
+    console.log(
+      JSON.stringify({
+        kind: 'release270-checkout-preflight',
+        releaseSha,
+        node: process.version,
+        connected: false,
+      }),
+    )
+    return
+  }
   const prismaDirectory = path.join(root, 'packages/db/prisma')
   assert.ok(
     !environment.PATHFINDER_PRISMA_DIR ||
@@ -319,10 +368,7 @@ export async function main(args = process.argv.slice(2), environment = process.e
   }
   let database, lockDatabase
   try {
-    const require = createRequire(path.join(root, 'packages/db/package.json'))
-    const { PrismaClient } = require('@prisma/client')
-    const jobsRequire = createRequire('/migration-jobs/package.json')
-    const Redis = jobsRequire('ioredis')
+    const { PrismaClient, Redis } = runtime
     const clean = release269MigrationChildEnvironment(
       environment,
       releaseSha,
@@ -337,6 +383,8 @@ export async function main(args = process.argv.slice(2), environment = process.e
         databaseResource: EXPECTED.databaseResourceId,
         lockPid,
         trustedConsumerInventoryHash: proof.trustedConsumerInventoryHash,
+        trustedConsumerCollectorHash: proof.trustedConsumerCollectorHash,
+        recordConsumerObservation: (evidence) => record('consumer-observation', evidence),
         readConsumers: () => boundedJson(values['consumer-evidence']),
         readQueues: () =>
           readRelease269StagingQueues({
@@ -366,7 +414,7 @@ export async function main(args = process.argv.slice(2), environment = process.e
           assertRelease270Manifest(current.manifest)
         })
         await spawnRelease270Migration({
-          cli: require.resolve('prisma/build/index.js'),
+          cli: runtime.cli,
           prismaDirectory,
           environment: clean,
           signal,
