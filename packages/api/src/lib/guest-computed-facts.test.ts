@@ -103,6 +103,20 @@ describe('conservative complete-expression guards', () => {
     expect(resolve('Hours 2026-11-03 and 2026-11-10?')).toEqual(['2026-11-03', '2026-11-10'])
   })
   it.each([
+    'Can I reach the deck in my wheelchair today?',
+    "We're in the garden today. Are you open?",
+  ])(
+    'keeps a supported explicit day when location wording merely precedes today: %s',
+    (question) => {
+      expect(resolveRequestedDays({ question, now, timeZone: input.timeZone }).dates).toEqual([
+        '2026-10-29',
+      ])
+      expect(
+        buildGuestComputedFacts({ ...input, mode: 'schedule', question }).facts[0],
+      ).toMatchObject({ date: '2026-10-29', status: 'open_by_schedule' })
+    },
+  )
+  it.each([
     'Description: Eight years old to board.',
     'Description: Boots compulsory.',
     'Maker: Eight years old to board.',

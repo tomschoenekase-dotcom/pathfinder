@@ -105,7 +105,7 @@ export function resolveRequestedDays(input: { question: string; now: Date; timeZ
     /\b(?:next|last|yesterday|holiday|christmas|easter|thanksgiving|weekends?|weeks?|months?|years?|until|through|between|noon|midnight|midday|morning|afternoon|evening|tonight|later|soon)\b|\d\s*(?:am|pm)\b|\d:\d/u.test(
       q,
     ) ||
-    /\b(?:in|after|within|before)\s+(?:\d+(?:\.\d+)?|[a-z]+(?:[ -][a-z]+){0,3})\s*(?:days?|weeks?|months?|years?|hours?|minutes?)\b|\b(?:days?|hours?|minutes?)\s+(?:from now|later|ago)\b|\bday after tomorrow\b|\b(?:at|around|about|by)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/u.test(
+    /\b(?:in|after|within|before)\s+(?:\d+(?:\.\d+)?|[a-z]+(?:[ -][a-z]+){0,3})\s*\b(?:days?|weeks?|months?|years?|hours?|minutes?)\b|\b(?:days?|hours?|minutes?)\s+(?:from now|later|ago)\b|\bday after tomorrow\b|\b(?:at|around|about|by)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/u.test(
       q,
     )
   )
