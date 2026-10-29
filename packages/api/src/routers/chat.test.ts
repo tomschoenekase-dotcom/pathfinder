@@ -13,6 +13,8 @@ import {
   guestSourceNoteUnits,
   packGuestSourceNote,
 } from '../lib/guest-source-notes'
+import { GUEST_ECONOMY_SHAPE_INSTRUCTION } from '../lib/guest-economy-shape'
+import { GUEST_LEAN_CORE } from '../lib/guest-lean-core'
 
 import {
   setOpenAiEmbeddingsClientForTesting,
@@ -4685,6 +4687,109 @@ describe('chat router', () => {
           const evidence =
             guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.answerEvidence
           expect(evidence.system.staticPart).toContain(note)
+        } finally {
+          rmSync(dir, { recursive: true, force: true })
+        }
+      })
+
+      it.each(['guest-chat-luna', 'guest-chat-sol'] as const)(
+        'captures independent lean and economy treatments on configured %s',
+        async (modelKey) => {
+          for (const lean of ['off', 'on']) {
+            for (const economy of ['off', 'on']) {
+              vi.stubEnv('GUEST_CHAT_LEAN_CORE', lean)
+              vi.stubEnv('GUEST_CHAT_ECONOMY_SHAPE', economy)
+              setupHappyPath('unused anthropic text')
+              routeTo(modelKey)
+              const create = vi.fn().mockResolvedValueOnce({
+                status: 'completed',
+                output_text: 'The garden has a pond, beside the gate.',
+                usage: openAiUsage,
+              })
+              setOpenAiResponsesClientForTesting({ responses: { create } })
+              await caller.chat.send(sendInput)
+              const request = create.mock.calls[0]?.[0]
+              expect(
+                JSON.stringify(request).includes(JSON.stringify(GUEST_LEAN_CORE).slice(1, -1)),
+              ).toBe(lean === 'on')
+              expect(lastDeveloperText(request).endsWith(GUEST_ECONOMY_SHAPE_INSTRUCTION)).toBe(
+                economy === 'on',
+              )
+              const evidence =
+                guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.answerEvidence
+              expect(evidence.system.staticPart.includes(GUEST_LEAN_CORE)).toBe(lean === 'on')
+              expect(evidence.system.dynamicPart.endsWith(GUEST_ECONOMY_SHAPE_INSTRUCTION)).toBe(
+                economy === 'on',
+              )
+            }
+          }
+        },
+      )
+
+      it('selects source notes and the economy shape independently', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'chat-notes-economy-'))
+        try {
+          const send = async () => {
+            setupHappyPath('unused anthropic text')
+            placeFindMany.mockResolvedValue(
+              placeRows.map((row) => ({
+                ...row,
+                longDescription: 'Shaded elephant yard. Keeper talks start at 11 am on weekends.',
+              })),
+            )
+            routeTo('guest-chat-luna')
+            const create = vi.fn().mockResolvedValueOnce({
+              status: 'completed',
+              output_text: 'The garden has a pond, beside the gate.',
+              usage: openAiUsage,
+            })
+            setOpenAiResponsesClientForTesting({ responses: { create } })
+            await caller.chat.send(sendInput)
+            return create.mock.calls[0]?.[0] as CapturedWire
+          }
+          const guideOf = (request: CapturedWire) =>
+            request.input
+              .filter((item) => item.role === 'developer')
+              .flatMap((item) => item.content.map((block) => block.text))
+              .find((text) => /^\s*VENUE GUIDE:/u.test(text))!
+          const unit = guestSourceNoteUnits(guideOf(await send()))[0]!
+          const packed = packGuestSourceNote(
+            unit.unitText,
+            JSON.stringify({
+              rows: [
+                {
+                  subject: '',
+                  attribute: 'talk start',
+                  value: '11 am',
+                  valueKind: 'single',
+                  appliesTo: '',
+                  when: 'on weekends',
+                  onlyIf: [],
+                  except: [],
+                  notSameAs: [],
+                  evidence: ['Keeper talks start at 11 am on weekends.'],
+                },
+              ],
+              unclear: [],
+            }),
+          )
+          if ('error' in packed) throw new Error(packed.error)
+          const file = join(dir, 'notes.jsonl')
+          writeFileSync(file, `${JSON.stringify(packed.note)}\n`)
+          vi.stubEnv('TORCHIKO_LOCAL_SOURCE_NOTES_FILE', file)
+          for (const notes of ['off', 'on']) {
+            for (const economy of ['off', 'on']) {
+              vi.stubEnv('GUEST_CHAT_SOURCE_NOTES', notes)
+              vi.stubEnv('GUEST_CHAT_ECONOMY_SHAPE', economy)
+              const request = await send()
+              expect(guideOf(request).includes('talk start: 11 am | when: on weekends')).toBe(
+                notes === 'on',
+              )
+              expect(lastDeveloperText(request).endsWith(GUEST_ECONOMY_SHAPE_INSTRUCTION)).toBe(
+                economy === 'on',
+              )
+            }
+          }
         } finally {
           rmSync(dir, { recursive: true, force: true })
         }
