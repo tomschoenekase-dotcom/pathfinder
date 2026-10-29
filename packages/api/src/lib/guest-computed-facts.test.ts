@@ -33,6 +33,91 @@ const input = {
   mode: 'all' as const,
 }
 
+describe('conservative complete-expression guards', () => {
+  it.each([
+    'My child is 40-50 in tall. Can they ride?',
+    'My child is 40 to 50 in tall. Can they ride?',
+    'My child is 40–50 in tall. Can they ride?',
+    'My child is between 40 and 50 in tall. Can they ride?',
+    'My child is -50 in tall. Can they ride?',
+    'My child is +50 in tall. Can they ride?',
+    'My child is about 50 in tall. Can they ride?',
+    'My child is 40/50 in tall. Can they ride?',
+    'My child is .50 in tall. Can they ride?',
+    'My child is maybe 50 in tall. Can they ride?',
+    'My child is minus 50 in tall. Can they ride?',
+    'My child is 4 ft 2 and 3 in tall. Can they ride?',
+    'My child is 4 and 5 ft 2 in tall. Can they ride?',
+    'My child is 40 50 in tall. Can they ride?',
+    "My child is 4'2 in tall. Can they ride?",
+  ])('does not reduce an uncertain or signed height expression to one endpoint: %s', (question) => {
+    const packet = buildGuestComputedFactsForPrompt({
+      mode: 'height',
+      question,
+      venue: { id: 'v', name: 'Briar Park' },
+      places: [],
+      identityPlaces: [],
+      knowledge: [
+        {
+          id: 'slide',
+          title: 'Silver Slide',
+          category: 'attraction',
+          content: 'Height: 48 in minimum.',
+        },
+      ],
+      now,
+      timeZone: input.timeZone,
+      freshComplete: true,
+      identityAmbiguous: false,
+      activeUpdates: [],
+    })
+    expect(packet.facts).toEqual([])
+  })
+  it.each([
+    'Open in 2 days?',
+    'Open in two days?',
+    'Open 2 days from now?',
+    'Open the day after tomorrow?',
+    'Open at noon?',
+    'Open at midnight?',
+    'Open at five?',
+    'Hours Monday to Friday?',
+    'Hours 2026-10-29 to 2026-10-31?',
+    'Open in a fortnight?',
+    'Open at twilight today?',
+    'Hours today to 2026-11-10?',
+  ])('does not replace unresolved temporal text with today: %s', (question) => {
+    expect(resolveRequestedDays({ question, now, timeZone: input.timeZone }).dates).toEqual([])
+    expect(buildGuestComputedFacts({ ...input, mode: 'schedule', question }).facts).toEqual([])
+  })
+  it('binds adjacent weekday qualifiers to their dates and validates contradictions', () => {
+    const resolve = (question: string) =>
+      resolveRequestedDays({ question, now, timeZone: input.timeZone }).dates
+    expect(resolve('Hours Monday, November 3, 2026?')).toEqual([])
+    expect(resolve('Hours Tuesday, November 10, 2026?')).toEqual(['2026-11-10'])
+    expect(resolve('Hours Tuesday, 2026-11-10?')).toEqual(['2026-11-10'])
+    expect(resolve('Hours Tuesday, November 3, 2026 and Friday, November 6, 2026?')).toEqual([
+      '2026-11-03',
+      '2026-11-06',
+    ])
+    expect(resolve('Hours 2026-11-03 and 2026-11-10?')).toEqual(['2026-11-03', '2026-11-10'])
+  })
+  it.each([
+    'Description: Eight years old to board.',
+    'Description: Boots compulsory.',
+    'Maker: Eight years old to board.',
+    'History: Boots compulsory.',
+    'Type: Independent boarding only.',
+  ])(
+    'does not treat a descriptive label as proof that the full clause is harmless: %s',
+    (extra) => {
+      expect(
+        compareRiderHeight(parseHeightRule(`Height: 48 in minimum.\n${extra}`), '50 in').status,
+      ).toBe('unknown')
+    },
+  )
+})
+
 describe('computed facts, fictional admitted records', () => {
   it('defaults off, rejects unknown flag values', () => {
     expect(guestComputedFactsMode({})).toBe('off')
@@ -272,8 +357,8 @@ describe('prompt admission adapter', () => {
       }),
     )
   })
-  it('compares separately stated measurements against each admitted attraction topic', () => {
-    const packet = buildGuestComputedFactsForPrompt({
+  it('compares separately stated measurements only when the whole attraction rule is recognised', () => {
+    const fixture = {
       ...admitted,
       question: 'Our children are 100 cm and 128 cm. Which slides meet each height condition?',
       knowledge: [
@@ -284,6 +369,11 @@ describe('prompt admission adapter', () => {
           content: 'Silver Slide is a curving slide. Riders must be at least 120 cm tall.',
         },
       ],
+    }
+    expect(buildGuestComputedFactsForPrompt(fixture).facts).toEqual([])
+    const packet = buildGuestComputedFactsForPrompt({
+      ...fixture,
+      knowledge: [{ ...fixture.knowledge[0]!, content: 'Riders must be at least 120 cm tall.' }],
     })
     expect(packet.facts.filter((fact) => fact.kind === 'height')).toEqual([
       expect.objectContaining({
@@ -353,12 +443,16 @@ describe('prompt admission adapter', () => {
       }),
     ])
   })
-  it('keeps a labelled height condition with its whole raw source, preserving unresolved conditions', () => {
+  it('preserves the whole raw source and abstains on unparsed descriptive material', () => {
     const content =
       'Silver Finch is a family coaster.\nHeight: 48 in minimum.\nMaker: Fictional Works.'
-    expect(compareRiderHeight(parseHeightRule(content), '50 in').status).toBe(
-      'height_condition_met',
-    )
+    expect(compareRiderHeight(parseHeightRule(content), '50 in').status).toBe('unknown')
+    expect(
+      compareRiderHeight(
+        parseHeightRule('Height: 48 in minimum.\nRiders go one at a time.'),
+        '50 in',
+      ).status,
+    ).toBe('height_condition_met')
     expect(parseHeightRule(content).raw).toBe(content)
     for (const extra of [
       'Age: 8 minimum.',

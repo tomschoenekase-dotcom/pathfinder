@@ -96,44 +96,106 @@ export function resolveRequestedDays(input: { question: string; now: Date; timeZ
   const unknown = (reason: string) => ({ dates: [], omittedDays: 0, reason })
   const local = venueLocalNow(input.now, input.timeZone)
   if (!local) return unknown('invalid-clock-or-zone')
-  const q = input.question.toLowerCase()
+  const q = input.question
+    .normalize('NFKC')
+    .replace(/[‐-―−]/gu, '-')
+    .toLowerCase()
   if (
     q.length > 500 ||
-    /\b(?:next|last|yesterday|holiday|christmas|easter|thanksgiving|weekend|week|month|year|until|through|between)\b|\d\s*(?:am|pm)\b|\d:\d/u.test(
+    /\b(?:next|last|yesterday|holiday|christmas|easter|thanksgiving|weekends?|weeks?|months?|years?|until|through|between|noon|midnight|midday|morning|afternoon|evening|tonight|later|soon)\b|\d\s*(?:am|pm)\b|\d:\d/u.test(
+      q,
+    ) ||
+    /\b(?:in|after|within|before)\s+(?:\d+(?:\.\d+)?|[a-z]+(?:[ -][a-z]+){0,3})\s*(?:days?|weeks?|months?|years?|hours?|minutes?)\b|\b(?:days?|hours?|minutes?)\s+(?:from now|later|ago)\b|\bday after tomorrow\b|\b(?:at|around|about|by)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/u.test(
       q,
     )
   )
     return unknown('ambiguous-date-or-time')
   const dates: string[] = []
-  let remainder = q.replace(/\b\d{4}-\d{2}-\d{2}\b/gu, (match) => {
-    dates.push(fromIso(match) ? match : 'invalid')
-    return ''
-  })
-  const namedDate = new RegExp(
-    `\\b(${months.join('|')})\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s+(\\d{4})\\b`,
-    'gu',
-  )
-  remainder = remainder.replace(namedDate, (_match, month: string, day: string, year: string) => {
-    const value = iso({ y: Number(year), m: months.indexOf(month) + 1, d: Number(day) })
-    dates.push(fromIso(value) ? value : 'invalid')
-    return ''
-  })
+  const namedDate = `(?:${months.join('|')})\\s+\\d{1,2}(?:st|nd|rd|th)?[,]?\\s+\\d{4}`
+  const dateTokens = [
+    ...q.matchAll(
+      new RegExp(
+        `\\b(?:(?<weekday>${weekdays.join('|')})(?:\\s*,\\s*|\\s+))?(?<date>\\d{4}-\\d{2}-\\d{2}|${namedDate})\\b`,
+        'gu',
+      ),
+    ),
+  ]
+  let remainder = q
+  for (let index = dateTokens.length - 1; index >= 0; index--) {
+    const token = dateTokens[index]!
+    const start = token.index!
+    const next = dateTokens[index + 1]
+    if (
+      next &&
+      /-|\b(?:to|through|thru|until)\b/u.test(q.slice(start + token[0].length, next.index))
+    )
+      return unknown('unsupported-date-range')
+    const rawDate = token.groups!.date!
+    const named = new RegExp(
+      `^(${months.join('|')})\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s+(\\d{4})$`,
+      'u',
+    ).exec(rawDate)
+    const value = named
+      ? iso({ y: Number(named[3]), m: months.indexOf(named[1]!) + 1, d: Number(named[2]) })
+      : rawDate
+    const date = fromIso(value)
+    if (!date) return unknown('invalid-date')
+    const weekday = (new Date(Date.UTC(date.y, date.m - 1, date.d)).getUTCDay() + 6) % 7
+    if (token.groups!.weekday && weekdays[weekday] !== token.groups!.weekday)
+      return unknown('contradictory-weekday-date')
+    dates.unshift(value)
+    remainder =
+      remainder.slice(0, start) +
+      ' '.repeat(token[0].length) +
+      remainder.slice(start + token[0].length)
+  }
   if (
     new RegExp(`\\b(?:${months.join('|')})\\b`, 'u').test(remainder) ||
+    /\d/u.test(remainder) ||
     /\b(?:jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b|\b\d{1,2}[/-]\d{1,2}\b|\b(?:19|20|21)\d{2}\b/u.test(
       remainder,
     )
   )
     return unknown('unresolved-date')
+  if (/\b(?:at|around|about|by|after|before|within)\b/u.test(remainder))
+    return unknown('unresolved-temporal-modifier')
   const today = iso(local.date)
   const todayWeekday = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7
   const namedDays = weekdays.filter((day) => new RegExp(`\\b${day}\\b`, 'u').test(remainder))
+  const temporalSpans = [
+    ...dateTokens.map((token) => ({ start: token.index!, end: token.index! + token[0].length })),
+    ...[
+      ...remainder.matchAll(new RegExp(`\\b(?:today|tomorrow|${weekdays.join('|')})\\b`, 'gu')),
+    ].map((token) => ({ start: token.index!, end: token.index! + token[0].length })),
+  ].sort((a, b) => a.start - b.start)
+  if (
+    temporalSpans.some(
+      (span, index) =>
+        index > 0 &&
+        /^\s*(?:-|to|through|thru|until)\s*$/u.test(
+          q.slice(temporalSpans[index - 1]!.end, span.start),
+        ),
+    )
+  )
+    return unknown('unsupported-date-range')
+  // An unconsumed weekday beside an explicit date may be an unsupported qualifier. Never
+  // silently add another visit day. Fully qualified multi-date lists were consumed above.
+  if (dates.length && namedDays.length) return unknown('unbound-weekday-date')
+  if (
+    new RegExp(
+      `\\b(?:${weekdays.join('|')})\\s*(?:-|to)\\s*(?:${weekdays.join('|')})\\b`,
+      'u',
+    ).test(remainder)
+  )
+    return unknown('unsupported-date-range')
   for (const day of namedDays)
     dates.push(offsetDay(today, (weekdays.indexOf(day) - todayWeekday + 7) % 7))
   if (/\btomorrow\b/u.test(remainder)) dates.push(offsetDay(today, 1))
-  if (/\b(?:today|tonight|now|currently)\b/u.test(remainder)) dates.push(today)
-  if (!dates.length && /\b(?:hours|open|opening|closed|closing)\b/u.test(q)) dates.push(today)
-  if (dates.includes('invalid')) return unknown('invalid-date')
+  if (/\b(?:today|now|currently)\b/u.test(remainder)) dates.push(today)
+  // Only a bare neutral hours/status request has a safe implicit-today default. Merely finding
+  // "open" anywhere in a longer unresolved request must never supply a missing date.
+  if (!dates.length && /^(?:open|closed|hours|opening hours)[?!. ]*$/u.test(q.trim()))
+    dates.push(today)
   const unique = [...new Set(dates)]
   return { dates: unique.slice(0, 8), omittedDays: Math.max(0, unique.length - 8) }
 }
@@ -261,26 +323,9 @@ export function parseHeightRule(raw: string): HeightRule {
   )
   if (candidates.length !== 1) return { raw, state: 'unknown' }
   const remainingClauses = clauses.filter((clause) => clause !== candidates[0])
-  const remainder = remainingClauses
-    .filter((clause) => !/^riders go one at a time[.]?$/iu.test(clause.trim()))
-    .join('\n')
-  // Interpret all eligibility clauses, never silently discard an age/companion/health exception.
-  if (
-    /\b(?:age|aged|under|over|shorter|taller|minimum|maximum|least|must|cannot|can.t|pregnan\w*|health|companion|adult|parent|guardian|supervis\w*|accompan\w*|exception|unconfirm\w*|unsettled|eligible|eligibility|restriction\w*|require\w*|waiv\w*|approval|attendant|medical|injur\w*|height|inches|cm|for|if|when|unless|except|but|where|any|all|everyone|regardless|unrestricted|limit\w*|admission|permission|child|children|person|people|guest|guests|rider|riders|infant|baby|babies)\b/iu.test(
-      remainder,
-    )
-  )
-    return { raw, state: 'unknown' }
-  // Every other sentence must have a recognised descriptive role. Arbitrary prose is not
-  // silently classified as irrelevant merely because it lacks one known restriction word.
-  if (
-    remainingClauses.some(
-      (clause) =>
-        !/^(?:(?:description|maker|manufacturer|opened|history|type|size and speed|speed|length|track):|[\p{L}\p{N}' -]{1,80} is (?:a|an|the) |riders go one at a time[.]?$)/iu.test(
-          clause.trim(),
-        ),
-    )
-  )
+  // Labels and descriptive-looking prefixes do not establish that a clause is irrelevant to
+  // eligibility. Apart from this fully recognised one-at-a-time clause, additional prose abstains.
+  if (remainingClauses.some((clause) => !/^riders go one at a time[.]?$/iu.test(clause.trim())))
     return { raw, state: 'unknown' }
   let value = candidates[0]!
     .trim()
@@ -319,21 +364,30 @@ export function compareRiderHeight(rule: HeightRule, height: string): { status: 
 
 function riderMeasurements(question: string): string[] {
   // Values are compared separately; no binding to age, identity, or first-number selection.
-  if (question.length > 500 || /\b(?:tower|track|drop|tallest|speed|length)\b/iu.test(question))
+  const q = question.normalize('NFKC').replace(/[‐-―−]/gu, '-')
+  if (q.length > 500 || /\b(?:tower|track|drop|tallest|speed|length)\b/iu.test(q)) return []
+  // Consume no endpoint from a range, signed value, fraction or uncertain estimate. These
+  // describe a set/bound rather than the exact scalar required by the comparison contract.
+  if (
+    /[+~±<>≤≥]|[-/⁄]\s*\d|(?<!\d)\.\d|\d,\d|\b(?:between|about|around|approximately|approximate|approx|roughly|nearly|almost|under|over|below|above|maybe|perhaps|possibly|estimated|estimate|minus|plus|negative|positive)\b|\b(?:at least|at most|up to|less than|more than)\b|\d(?:\.\d+)?\s*(?:(?:inches|inch|in|cm)\s*)?(?:to|through|thru|until|or)\s*\d|\d\s+and\s+\d\s*(?:ft|feet|foot)\b/iu.test(
+      q,
+    )
+  )
     return []
+  if (/\d\s*['′]\s*\d|\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s*(?:inches|inch|in|cm)\b/iu.test(q)) return []
   const shared =
-    /\b(\d{1,3}(?:\.\d{1,6})?)\s+and\s+(\d{1,3}(?:\.\d{1,6})?)\s*(inches|inch|in|cm)\b/giu
+    /(?<![\p{L}\p{N}.,])(\d{1,3}(?:\.\d{1,6})?)\s+and\s+(\d{1,3}(?:\.\d{1,6})?)\s*(inches|inch|in|cm)\b/giu
   const heights: string[] = []
-  const rest = question.replace(shared, (_match, first, second, unit) => {
+  const rest = q.replace(shared, (_match, first, second, unit) => {
     heights.push(`${first} ${unit}`, `${second} ${unit}`)
     return ''
   })
-  const matches = [
-    ...rest.matchAll(
-      /\b\d{1,3}(?:\.\d{1,6})?\s*(?:(?:ft|feet|foot)\s*\d{1,2}(?:\.\d{1,6})?\s*(?:inches|inch|in)|(?:inches|inch|in|cm))\b/giu,
-    ),
-  ]
+  const scalarExpression =
+    /(?<![\p{L}\p{N}.,])\d{1,3}(?:\.\d{1,6})?\s*(?:(?:ft|feet|foot)\s*\d{1,2}(?:\.\d{1,6})?\s*(?:inches|inch|in)|(?:inches|inch|in|cm))\b/giu
+  const matches = [...rest.matchAll(scalarExpression)]
   heights.push(...matches.map((match) => match[0]))
+  const unparsed = rest.replace(scalarExpression, '')
+  if (/\b(?:ft|feet|foot|inches|inch|cm)\b/iu.test(unparsed)) return []
   return heights.length <= 8 ? [...new Set(heights)] : []
 }
 
