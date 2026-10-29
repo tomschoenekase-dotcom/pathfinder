@@ -83,6 +83,7 @@ import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
 import { guestTodayStatusCue, guestTodayStatusEnabled } from '../lib/guest-today-status'
 import {
+  admitGuestComputedSources,
   buildGuestComputedFactsForPrompt,
   guestComputedFactsMode,
 } from '../lib/guest-computed-facts'
@@ -2288,23 +2289,32 @@ const chatReadRouter = router({
       })
       updatedGuideRecordCount = updatedGuideRecordIds.size
       const computedMode = guestComputedFactsMode()
+      const computedSourcesTrusted =
+        guideLoadStatus === 'READY' &&
+        !guestDirectory.incomplete &&
+        !entryPlaceFromOtherSource &&
+        updatedGuideRecordIds.size === 0
       const computedFacts =
         computedMode !== 'off'
           ? buildGuestComputedFactsForPrompt({
               mode: computedMode,
               question: trimmedInput,
               venue,
-              places: promptPlaces,
-              knowledge: promptKnowledge,
+              ...admitGuestComputedSources({
+                guideMode: venueGuide.mode,
+                guideRecordIds: venueGuide.recordIds,
+                rendererTruncated: venueGuide.rendererTruncated,
+                freshComplete: computedSourcesTrusted,
+                dynamicPlaces: promptPlaces,
+                dynamicKnowledge: promptKnowledge,
+                guidePlaces: guestDirectory.places,
+                guideKnowledge: guestDirectory.knowledge,
+              }),
               identityPlaces: guestDirectory.places,
               identityKnowledge: guestDirectory.knowledge,
               now: operationalNow,
               timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
-              freshComplete:
-                guideLoadStatus === 'READY' &&
-                !guestDirectory.incomplete &&
-                !entryPlaceFromOtherSource &&
-                updatedGuideRecordIds.size === 0,
+              freshComplete: computedSourcesTrusted,
               identityAmbiguous:
                 Boolean(placeIdentity.ambiguity) || placeIdentityDiscoveryIncomplete,
               activeUpdates,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  admitGuestComputedSources,
   buildGuestComputedFacts,
   buildGuestComputedFactsForPrompt,
   compareRiderHeight,
@@ -122,6 +123,9 @@ describe('computed facts, fictional admitted records', () => {
       'Hours February 30, 2027?',
       'Hours Christmas?',
       'Open Friday at 1 pm?',
+      'Hours 10/29/2027?',
+      'Hours Sat Nov 29?',
+      'Hours 2027?',
     ])
       expect(resolveRequestedDays({ question, now, timeZone: input.timeZone }).dates).toEqual([])
   })
@@ -192,6 +196,182 @@ describe('prompt admission adapter', () => {
     identityAmbiguous: false,
     activeUpdates: [],
   }
+  it('uses FULL guide body admission while refusing directory, names-only, stale and mixed snapshots', () => {
+    const guide = {
+      guideMode: 'FULL' as const,
+      guideRecordIds: new Set(['knowledge:hours']),
+      rendererTruncated: false,
+      freshComplete: true,
+      dynamicPlaces: [],
+      dynamicKnowledge: [],
+      guidePlaces: [],
+      guideKnowledge: admitted.knowledge,
+    }
+    const run = (override: Partial<typeof guide> = {}) =>
+      buildGuestComputedFactsForPrompt({
+        ...admitted,
+        ...admitGuestComputedSources({ ...guide, ...override }),
+        freshComplete: override.freshComplete ?? true,
+        identityKnowledge: admitted.knowledge,
+      })
+    expect(run().facts[0]).toMatchObject({ subjectName: 'Briar Park', status: 'open_by_schedule' })
+    for (const override of [
+      { guideMode: 'DIRECTORY' },
+      { guideMode: 'NONE' },
+      { rendererTruncated: true },
+      { guideRecordIds: new Set() },
+      { freshComplete: false },
+    ]) {
+      const selected = admitGuestComputedSources({ ...guide, ...override } as Parameters<
+        typeof admitGuestComputedSources
+      >[0])
+      expect(selected.knowledge).toEqual([])
+      expect(
+        buildGuestComputedFactsForPrompt({
+          ...admitted,
+          ...selected,
+          identityKnowledge: admitted.knowledge,
+          freshComplete: override.freshComplete ?? true,
+        }).facts,
+      ).toEqual([])
+    }
+    // Both stale rows and a native entry mixed with a legacy guide fail the router's same trust boolean.
+    expect(run({ freshComplete: false }).facts).toEqual([])
+  })
+  it('prefers an admitted exact FULL body to an unchanged retrieved excerpt and keeps omitted bodies out', () => {
+    const sources = admitGuestComputedSources({
+      guideMode: 'FULL',
+      guideRecordIds: new Set(['knowledge:hours']),
+      rendererTruncated: false,
+      freshComplete: true,
+      dynamicPlaces: [],
+      guidePlaces: [],
+      dynamicKnowledge: [{ ...admitted.knowledge[0]!, content: 'truncated excerpt' }],
+      guideKnowledge: [
+        ...admitted.knowledge,
+        {
+          id: 'not-admitted',
+          title: 'Extra',
+          category: 'hours',
+          content: 'Hours: daily noon to 6 pm.',
+        },
+      ],
+    })
+    expect(sources.knowledge).toEqual(admitted.knowledge)
+  })
+  it('computes named source facts for compound natural questions without classifying every word', () => {
+    const packet = buildGuestComputedFactsForPrompt({
+      ...admitted,
+      question: 'Hi! Are you open today? We were thinking of coming with our children.',
+    })
+    expect(packet.facts).toContainEqual(
+      expect.objectContaining({
+        kind: 'schedule',
+        subjectName: 'Briar Park',
+        status: 'open_by_schedule',
+      }),
+    )
+  })
+  it('compares separately stated measurements against each admitted attraction topic', () => {
+    const packet = buildGuestComputedFactsForPrompt({
+      ...admitted,
+      question: 'Our children are 100 cm and 128 cm. Which slides meet each height condition?',
+      knowledge: [
+        {
+          id: 'slide',
+          title: 'Silver Slide',
+          category: 'attraction',
+          content: 'Silver Slide is a curving slide. Riders must be at least 120 cm tall.',
+        },
+      ],
+    })
+    expect(packet.facts.filter((fact) => fact.kind === 'height')).toEqual([
+      expect.objectContaining({
+        subjectName: 'Silver Slide',
+        riderHeight: '100 cm',
+        status: 'below_minimum',
+      }),
+      expect.objectContaining({
+        subjectName: 'Silver Slide',
+        riderHeight: '128 cm',
+        status: 'height_condition_met',
+      }),
+    ])
+  })
+  it('uses unique source identities for multiple requested rides rather than merge their conditions', () => {
+    const rides = [
+      {
+        id: 'a',
+        name: 'Silver Finch',
+        hours: null,
+        shortDescription: 'Height: 48 in minimum.',
+        longDescription: null,
+      },
+      {
+        id: 'b',
+        name: 'Blue Finch',
+        hours: null,
+        shortDescription: 'Height: 54 in minimum.',
+        longDescription: null,
+      },
+    ]
+    const packet = buildGuestComputedFactsForPrompt({
+      ...admitted,
+      mode: 'height',
+      question: 'Can my 50 inch child ride Silver Finch and Blue Finch?',
+      places: rides,
+      identityPlaces: rides,
+    })
+    expect(packet.facts).toEqual([
+      expect.objectContaining({ subjectId: 'a', status: 'height_condition_met' }),
+      expect.objectContaining({ subjectId: 'b', status: 'below_minimum' }),
+    ])
+  })
+  it('keeps subject namespaces separate when venue and place IDs happen to match', () => {
+    const cafe = {
+      id: 'park',
+      name: 'Lantern Cafe',
+      hours: 'Hours: Thursday 11 am to 3 pm.',
+      shortDescription: null,
+      longDescription: null,
+    }
+    const packet = buildGuestComputedFactsForPrompt({
+      ...admitted,
+      places: [cafe],
+      identityPlaces: [cafe],
+    })
+    expect(packet.facts).toEqual([
+      expect.objectContaining({
+        subjectKind: 'venue',
+        subjectName: 'Briar Park',
+        status: 'open_by_schedule',
+      }),
+      expect.objectContaining({
+        subjectKind: 'place',
+        subjectName: 'Lantern Cafe',
+        status: 'before_opening',
+      }),
+    ])
+  })
+  it('keeps a labelled height condition with its whole raw source, preserving unresolved conditions', () => {
+    const content =
+      'Silver Finch is a family coaster.\nHeight: 48 in minimum.\nMaker: Fictional Works.'
+    expect(compareRiderHeight(parseHeightRule(content), '50 in').status).toBe(
+      'height_condition_met',
+    )
+    expect(parseHeightRule(content).raw).toBe(content)
+    for (const extra of [
+      'Age: 8 minimum.',
+      'Under 50 inches needs an adult.',
+      'A lower exception is unconfirmed.',
+      'Manager approval can waive this limit.',
+      'Ask before boarding.',
+    ]) {
+      expect(compareRiderHeight(parseHeightRule(`${content}\n${extra}`), '50 in').status).toBe(
+        'unknown',
+      )
+    }
+  })
   it('computes from an admitted whole topic, retaining its content hash', () => {
     const packet = buildGuestComputedFactsForPrompt(admitted)
     expect(packet.facts[0]).toMatchObject({ status: 'open_by_schedule', subjectId: 'park' })
@@ -226,7 +406,11 @@ describe('prompt admission adapter', () => {
       'Is the cafe open now?',
       'Is it open now?',
     ])
-      expect(buildGuestComputedFactsForPrompt({ ...admitted, question }).facts).toEqual([])
+      expect(
+        buildGuestComputedFactsForPrompt({ ...admitted, question }).facts.every(
+          (fact) => fact.subjectId === 'park',
+        ),
+      ).toBe(true)
     const cafe = {
       id: 'cafe',
       name: 'Lantern Cafe',
@@ -241,7 +425,7 @@ describe('prompt admission adapter', () => {
         places: [cafe],
         identityPlaces: [cafe],
       }).facts,
-    ).toEqual([])
+    ).toEqual([expect.objectContaining({ subjectId: 'park', subjectName: 'Briar Park' })])
   })
   it('keeps exact facility IDs and refuses substring/duplicate ambiguity', () => {
     const east = {
@@ -263,18 +447,26 @@ describe('prompt admission adapter', () => {
       places: [east, annex],
       identityPlaces: [east, annex],
     }
-    // Both exact name phrases occur. Conservatively abstain instead of substring binding.
-    expect(buildGuestComputedFactsForPrompt(test).facts).toEqual([])
+    // Source-driven facts retain each exact subject rather than pick a substring match.
+    expect(buildGuestComputedFactsForPrompt(test).facts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ subjectId: 'east', status: 'open_by_schedule' }),
+        expect.objectContaining({ subjectId: 'annex', status: 'before_opening' }),
+      ]),
+    )
     expect(
-      buildGuestComputedFactsForPrompt({ ...test, places: [annex], identityPlaces: [annex] })
-        .facts[0],
+      buildGuestComputedFactsForPrompt({
+        ...test,
+        places: [annex],
+        identityPlaces: [annex],
+      }).facts.find((fact) => fact.subjectId === 'annex'),
     ).toMatchObject({ subjectId: 'annex', status: 'before_opening' })
     expect(
       buildGuestComputedFactsForPrompt({
         ...test,
         identityPlaces: [annex, { ...annex, id: 'other' }],
       }).facts,
-    ).toEqual([])
+    ).toEqual([expect.objectContaining({ subjectId: 'park' })])
   })
   it('does not accept generic park hours as explicitly scoped cafe hours', () => {
     const cafe = {
@@ -291,7 +483,7 @@ describe('prompt admission adapter', () => {
         places: [cafe],
         identityPlaces: [cafe],
       }).facts,
-    ).toEqual([])
+    ).toEqual([expect.objectContaining({ subjectId: 'park' })])
   })
   it('computes named rider condition only from its finally admitted body', () => {
     const ride = {
@@ -350,7 +542,7 @@ describe('exact height conditions', () => {
     expect(parseHeightRule(raw).raw).toBe(raw)
     expect(compareRiderHeight(parseHeightRule(raw), '50 in').status).toBe('unknown')
   })
-  it('abstains for multi-rider questions and ride dimensions; accepts unambiguous rider height', () => {
+  it('compares multiple measurements separately and abstains for ride dimensions or age alone', () => {
     const heightInput = {
       ...input,
       resolvedSubject: { id: 'ride', name: 'Silver Finch', kind: 'place' as const },
@@ -370,8 +562,16 @@ describe('exact height conditions', () => {
         question: 'Can my 50 inch child ride Silver Finch?',
       }).facts[0],
     ).toMatchObject({ status: 'height_condition_met' })
+    expect(
+      buildGuestComputedFacts({
+        ...heightInput,
+        question: 'My children are 40 and 50 inches; which rides?',
+      }).facts,
+    ).toEqual([
+      expect.objectContaining({ riderHeight: '40 inches', status: 'below_minimum' }),
+      expect.objectContaining({ riderHeight: '50 inches', status: 'height_condition_met' }),
+    ])
     for (const question of [
-      'My children are 40 and 50 inches; which rides?',
       'The tower is 120 ft. Can my 4 ft 2 in child ride?',
       'Can my 6 year old ride?',
     ])
