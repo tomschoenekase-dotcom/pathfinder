@@ -90,7 +90,7 @@ const fixture = () => {
       'embedding_venue_refreshes_active_venue_key',
       'embedding_venue_refresh_records_refresh_id_ordinal_key',
       'embedding_venue_refresh_records_refresh_id_entity_type_entity_i',
-      'embedding_venue_refresh_records_tenant_id_venue_id_refresh_id_idx',
+      'embedding_venue_refresh_records_tenant_id_venue_id_refresh_id_i',
     ].map((relname) => ({
       relname,
       indisvalid: true,
@@ -213,4 +213,19 @@ test('disabled trigger and narrowed column cannot match the reviewed catalog', (
   narrowed.columns[0].formatted_type = 'character varying(4)'
   narrowed.columns[0].atttypmod = 8
   assert.throws(() => assertRelease270Catalog(narrowed, seal), /catalog-drift/u)
+})
+
+test('all migration270 index identifiers are checked using PostgreSQL63-byte names', async () => {
+  const sql = await readFile(
+    new URL(
+      '../packages/db/prisma/migrations/20261029120000_venue_embedding_refresh/migration.sql',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+  const names = [...sql.matchAll(/CREATE (?:UNIQUE )?INDEX "([^"]+)"/gu)].map((match) =>
+    match[1].slice(0, 63),
+  )
+  const observed = fixture().indexes.map((row) => row.relname)
+  assert.deepEqual(observed.sort(), names.sort())
 })

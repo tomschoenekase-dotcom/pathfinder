@@ -22,6 +22,9 @@ export const RELEASE270_STAGING_QUEUE_RESOURCE = 'd53ab235-d403-4d7d-b525-3ace0e
 export const RELEASE270_STAGING_APPROVAL = 'torchiko-staging-269-to-270-reviewed-v1'
 export const RELEASE270_STAGING_PROOF_SCHEMA = 'torchiko-release270-staging-evidence/v1'
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+// Ignore only the explicitly fresh observation timestamp. All source, resource,
+// catalog, ledger, data, queue, consumer and security fields remain sealed.
+export const release270CutoffHash = ({ observedAt, ...evidence }) => hash(evidence)
 const exactHash = (value) =>
   assert.match(value ?? '', /^[a-f0-9]{64}$/u, 'release270-proof-hash-required')
 const fresh = (value, now, age) => {
@@ -118,7 +121,11 @@ export function assertRelease270StagingAdmission({
     assert.equal(admitted.backupEvidence.archiveSha256, proof.backupSha256)
     assert.equal(admitted.backupEvidence.restoreProofSha256, proof.restoreProofSha256)
     assertStagingApplicationPolicy(policy, { state: 'pending', dataPolicy: 'preserve-existing' })
-    assert.equal(proof.beforeSnapshotHash, hash(before), 'release270-backup-cutoff-mismatch')
+    assert.equal(
+      proof.beforeSnapshotHash,
+      release270CutoffHash(before),
+      'release270-backup-cutoff-mismatch',
+    )
     assert.deepEqual(state.pending, [RELEASE270_SUFFIX[2].name])
   } else {
     assertStagingApplicationPolicy(policy, { state: 'complete', dataPolicy: 'preserve-existing' })

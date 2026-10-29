@@ -91,7 +91,7 @@ const fixture = () => {
       'embedding_venue_refreshes_active_venue_key',
       'embedding_venue_refresh_records_refresh_id_ordinal_key',
       'embedding_venue_refresh_records_refresh_id_entity_type_entity_i',
-      'embedding_venue_refresh_records_tenant_id_venue_id_refresh_id_idx',
+      'embedding_venue_refresh_records_tenant_id_venue_id_refresh_id_i',
     ].map((relname) => ({
       relname,
       indisvalid: true,
@@ -114,6 +114,7 @@ import { readMigrationManifest, EXPECTED } from './run-staging-migration-predepl
 import { RELEASE270 } from './lib/release270-migration-contract.mjs'
 import {
   assertRelease270StagingAdmission,
+  release270CutoffHash,
   assertRelease270StagingPreserved,
   RELEASE270_STAGING_APPROVAL,
   RELEASE270_STAGING_QUEUE_RESOURCE,
@@ -177,7 +178,7 @@ function harness() {
     queueResource: before.queueResource,
     trustedConsumerInventoryHash: digest,
     workerFlagsHash: digest,
-    beforeSnapshotHash: hash(before),
+    beforeSnapshotHash: release270CutoffHash(before),
   }
   const environment = {
     RAILWAY_ENVIRONMENT: 'staging',

@@ -184,12 +184,12 @@ assertUpgradePreservation(before, upgraded)
 migrate(candidate)
 assert.deepEqual(snapshot(), upgraded, 'repeat migration mutated retained rows')
 const catalog = await readRelease270Catalog(async (text) => query(text))
-assertRelease270CatalogShape(catalog)
 save('catalog270', {
   catalog,
   sha256: release270CatalogHash(catalog),
   reviewStatus: 'unreviewed-reference-not-admission',
 })
+assertRelease270CatalogShape(catalog)
 // Persist new-schema unknown-outcome receipts and ensure the old app retains them.
 sql(`INSERT INTO embedding_venue_refreshes(id,tenant_id,venue_id,operation_key,plan_digest,max_records,requested_by,status,before_audit)
  VALUES ('compat-refresh','fictional-release270-compatibility','compat-venue','fictional-operation','fictional-digest',1,'fictional-fixture','OUTCOME_UNKNOWN','{}');

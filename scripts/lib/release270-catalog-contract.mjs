@@ -69,7 +69,7 @@ const requiredIndexes = [
   'embedding_venue_refresh_records_refresh_id_ordinal_key',
   // PostgreSQL truncates identifiers to NAMEDATALEN-1 (63 bytes).
   'embedding_venue_refresh_records_refresh_id_entity_type_entity_i',
-  'embedding_venue_refresh_records_tenant_id_venue_id_refresh_id_idx',
+  'embedding_venue_refresh_records_tenant_id_venue_id_refresh_id_i',
 ]
 
 export function assertRelease270CatalogShape(catalog) {
