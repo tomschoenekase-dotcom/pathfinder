@@ -85,8 +85,10 @@ function offsetDay(value: string, offset: number): string {
   return date.toISOString().slice(0, 10)
 }
 
-/** Explicit dates keep their year. Bare weekdays mean the next occurrence including today.
- * "next Friday", holidays, yearless month dates, requested clock times and ranges abstain.
+/** Complete calendar question grammar; no supported token is extracted from unclassified prose.
+ * Accept a day list alone or a neutral hours/status prefix plus that list. A day is today,
+ * tomorrow, now/currently, a full weekday, or a fully qualified date (optional matching weekday).
+ * Lists join complete atoms with comma/and. Any unconsumed modifier, clause or alternative abstains.
  */
 export function resolveRequestedDays(input: { question: string; now: Date; timeZone: string }): {
   dates: string[]
@@ -98,104 +100,60 @@ export function resolveRequestedDays(input: { question: string; now: Date; timeZ
   if (!local) return unknown('invalid-clock-or-zone')
   const q = input.question
     .normalize('NFKC')
-    .replace(/[‐-―−]/gu, '-')
     .toLowerCase()
-  if (
-    q.length > 500 ||
-    /\b(?:next|last|yesterday|holiday|christmas|easter|thanksgiving|weekends?|weeks?|months?|years?|until|through|between|noon|midnight|midday|morning|afternoon|evening|tonight|later|soon)\b|\d\s*(?:am|pm)\b|\d:\d/u.test(
-      q,
-    ) ||
-    /\b(?:in|after|within|before)\s+(?:\d+(?:\.\d+)?|[a-z]+(?:[ -][a-z]+){0,3})\s*\b(?:days?|weeks?|months?|years?|hours?|minutes?)\b|\b(?:days?|hours?|minutes?)\s+(?:from now|later|ago)\b|\bday after tomorrow\b|\b(?:at|around|about|by)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/u.test(
-      q,
-    )
-  )
-    return unknown('ambiguous-date-or-time')
-  const dates: string[] = []
-  const namedDate = `(?:${months.join('|')})\\s+\\d{1,2}(?:st|nd|rd|th)?[,]?\\s+\\d{4}`
-  const dateTokens = [
-    ...q.matchAll(
-      new RegExp(
-        `\\b(?:(?<weekday>${weekdays.join('|')})(?:\\s*,\\s*|\\s+))?(?<date>\\d{4}-\\d{2}-\\d{2}|${namedDate})\\b`,
-        'gu',
-      ),
-    ),
-  ]
-  let remainder = q
-  for (let index = dateTokens.length - 1; index >= 0; index--) {
-    const token = dateTokens[index]!
-    const start = token.index!
-    const next = dateTokens[index + 1]
-    if (
-      next &&
-      /-|\b(?:to|through|thru|until)\b/u.test(q.slice(start + token[0].length, next.index))
-    )
-      return unknown('unsupported-date-range')
-    const rawDate = token.groups!.date!
-    const named = new RegExp(
-      `^(${months.join('|')})\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s+(\\d{4})$`,
-      'u',
-    ).exec(rawDate)
-    const value = named
-      ? iso({ y: Number(named[3]), m: months.indexOf(named[1]!) + 1, d: Number(named[2]) })
-      : rawDate
-    const date = fromIso(value)
-    if (!date) return unknown('invalid-date')
-    const weekday = (new Date(Date.UTC(date.y, date.m - 1, date.d)).getUTCDay() + 6) % 7
-    if (token.groups!.weekday && weekdays[weekday] !== token.groups!.weekday)
-      return unknown('contradictory-weekday-date')
-    dates.unshift(value)
-    remainder =
-      remainder.slice(0, start) +
-      ' '.repeat(token[0].length) +
-      remainder.slice(start + token[0].length)
-  }
-  if (
-    new RegExp(`\\b(?:${months.join('|')})\\b`, 'u').test(remainder) ||
-    /\d/u.test(remainder) ||
-    /\b(?:jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b|\b\d{1,2}[/-]\d{1,2}\b|\b(?:19|20|21)\d{2}\b/u.test(
-      remainder,
-    )
-  )
-    return unknown('unresolved-date')
-  if (/\b(?:at|around|about|by|after|before|within)\b/u.test(remainder))
-    return unknown('unresolved-temporal-modifier')
+    .trim()
+    .replace(/[?!.]$/u, '')
+    .trim()
+  if (!q || q.length > 500) return unknown('unsupported-calendar-question')
   const today = iso(local.date)
+  if (/^(?:open|closed|hours|opening hours)$/u.test(q)) return { dates: [today], omittedDays: 0 }
+  // These prefixes have no free-text slots. In particular arbitrary subjects cannot hide a
+  // modifier/negation. Questions about named subjects outside this grammar simply abstain.
+  const prefix =
+    /^(?:(?:hours|opening hours|open|closed)|(?:are you|is it) (?:open|closed)|what are your (?:hours|opening hours))(?: on)?\s+/u
+  let remainder = q.replace(prefix, '')
+  const namedDate = `(?:${months.join('|')})\\s+\\d{1,2}(?:st|nd|rd|th)?[,]?\\s+\\d{4}`
+  const atom = new RegExp(
+    `^(?:(?:(?<weekday>${weekdays.join('|')})(?:\\s*,\\s*|\\s+))?(?<date>\\d{4}-\\d{2}-\\d{2}|${namedDate})|(?<relative>today|tomorrow|now|currently|${weekdays.join('|')}))(?=$|\\s|,)`,
+    'u',
+  )
+  const dates: string[] = []
   const todayWeekday = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7
-  const namedDays = weekdays.filter((day) => new RegExp(`\\b${day}\\b`, 'u').test(remainder))
-  const temporalSpans = [
-    ...dateTokens.map((token) => ({ start: token.index!, end: token.index! + token[0].length })),
-    ...[
-      ...remainder.matchAll(new RegExp(`\\b(?:today|tomorrow|${weekdays.join('|')})\\b`, 'gu')),
-    ].map((token) => ({ start: token.index!, end: token.index! + token[0].length })),
-  ].sort((a, b) => a.start - b.start)
-  if (
-    temporalSpans.some(
-      (span, index) =>
-        index > 0 &&
-        /^\s*(?:-|to|through|thru|until)\s*$/u.test(
-          q.slice(temporalSpans[index - 1]!.end, span.start),
-        ),
-    )
-  )
-    return unknown('unsupported-date-range')
-  // An unconsumed weekday beside an explicit date may be an unsupported qualifier. Never
-  // silently add another visit day. Fully qualified multi-date lists were consumed above.
-  if (dates.length && namedDays.length) return unknown('unbound-weekday-date')
-  if (
-    new RegExp(
-      `\\b(?:${weekdays.join('|')})\\s*(?:-|to)\\s*(?:${weekdays.join('|')})\\b`,
-      'u',
-    ).test(remainder)
-  )
-    return unknown('unsupported-date-range')
-  for (const day of namedDays)
-    dates.push(offsetDay(today, (weekdays.indexOf(day) - todayWeekday + 7) % 7))
-  if (/\btomorrow\b/u.test(remainder)) dates.push(offsetDay(today, 1))
-  if (/\b(?:today|now|currently)\b/u.test(remainder)) dates.push(today)
-  // Only a bare neutral hours/status request has a safe implicit-today default. Merely finding
-  // "open" anywhere in a longer unresolved request must never supply a missing date.
-  if (!dates.length && /^(?:open|closed|hours|opening hours)[?!. ]*$/u.test(q.trim()))
-    dates.push(today)
+  while (remainder) {
+    const token = atom.exec(remainder)
+    if (!token) return unknown('unsupported-calendar-question')
+    if (token.groups!.date) {
+      const raw = token.groups!.date
+      const named = new RegExp(
+        `^(${months.join('|')})\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s+(\\d{4})$`,
+        'u',
+      ).exec(raw)
+      const value = named
+        ? iso({ y: Number(named[3]), m: months.indexOf(named[1]!) + 1, d: Number(named[2]) })
+        : raw
+      const date = fromIso(value)
+      if (!date) return unknown('invalid-date')
+      const weekday = (new Date(Date.UTC(date.y, date.m - 1, date.d)).getUTCDay() + 6) % 7
+      if (token.groups!.weekday && weekdays[weekday] !== token.groups!.weekday)
+        return unknown('contradictory-weekday-date')
+      dates.push(value)
+    } else {
+      const relative = token.groups!.relative!
+      dates.push(
+        relative === 'tomorrow'
+          ? offsetDay(today, 1)
+          : weekdays.includes(relative)
+            ? offsetDay(today, (weekdays.indexOf(relative) - todayWeekday + 7) % 7)
+            : today,
+      )
+    }
+    remainder = remainder.slice(token[0].length)
+    if (!remainder) break
+    const separator = /^(?:\s*,\s*(?:and\s+)?|\s+and\s+)/u.exec(remainder)
+    if (!separator) return unknown('unsupported-calendar-question')
+    remainder = remainder.slice(separator[0].length)
+    if (!remainder) return unknown('unsupported-calendar-question')
+  }
   const unique = [...new Set(dates)]
   return { dates: unique.slice(0, 8), omittedDays: Math.max(0, unique.length - 8) }
 }
@@ -362,33 +320,39 @@ export function compareRiderHeight(rule: HeightRule, height: string): { status: 
   return { status: 'height_condition_met' }
 }
 
+/** Complete assertion grammar, never token extraction. No free-text slots or discarded clauses.
+ * A scalar alone / Height: scalar; My child is scalar [tall] [. Can they ride?];
+ * I am scalar [tall] [. Can I ride?]; or Our children are scalar and scalar ...
+ * [. Which slides meet each height condition?]. Each list member repeats its unit.
+ * Exact conversion/feet validation remains owned by measurement(). All other text abstains.
+ */
 function riderMeasurements(question: string): string[] {
-  // Values are compared separately; no binding to age, identity, or first-number selection.
-  const q = question.normalize('NFKC').replace(/[‐-―−]/gu, '-')
-  if (q.length > 500 || /\b(?:tower|track|drop|tallest|speed|length)\b/iu.test(q)) return []
-  // Consume no endpoint from a range, signed value, fraction or uncertain estimate. These
-  // describe a set/bound rather than the exact scalar required by the comparison contract.
-  if (
-    /[+~±<>≤≥]|[-/⁄]\s*\d|(?<!\d)\.\d|\d,\d|\b(?:between|about|around|approximately|approximate|approx|roughly|nearly|almost|under|over|below|above|maybe|perhaps|possibly|estimated|estimate|minus|plus|negative|positive)\b|\b(?:at least|at most|up to|less than|more than)\b|\d(?:\.\d+)?\s*(?:(?:inches|inch|in|cm)\s*)?(?:to|through|thru|until|or)\s*\d|\d\s+and\s+\d\s*(?:ft|feet|foot)\b/iu.test(
-      q,
-    )
-  )
-    return []
-  if (/\d\s*['′]\s*\d|\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s*(?:inches|inch|in|cm)\b/iu.test(q)) return []
-  const shared =
-    /(?<![\p{L}\p{N}.,])(\d{1,3}(?:\.\d{1,6})?)\s+and\s+(\d{1,3}(?:\.\d{1,6})?)\s*(inches|inch|in|cm)\b/giu
-  const heights: string[] = []
-  const rest = q.replace(shared, (_match, first, second, unit) => {
-    heights.push(`${first} ${unit}`, `${second} ${unit}`)
-    return ''
-  })
-  const scalarExpression =
-    /(?<![\p{L}\p{N}.,])\d{1,3}(?:\.\d{1,6})?\s*(?:(?:ft|feet|foot)\s*\d{1,2}(?:\.\d{1,6})?\s*(?:inches|inch|in)|(?:inches|inch|in|cm))\b/giu
-  const matches = [...rest.matchAll(scalarExpression)]
-  heights.push(...matches.map((match) => match[0]))
-  const unparsed = rest.replace(scalarExpression, '')
-  if (/\b(?:ft|feet|foot|inches|inch|cm)\b/iu.test(unparsed)) return []
-  return heights.length <= 8 ? [...new Set(heights)] : []
+  const q = question.normalize('NFKC').toLowerCase().trim()
+  if (!q || q.length > 500) return []
+  const number = String.raw`\d{1,3}(?:\.\d{1,6})?`
+  const scalar = `${number}\\s*(?:cm|in|inch|inches)`
+  const feet = String.raw`\d\s*(?:ft|feet|foot)\s*\d{1,2}(?:\.\d{1,6})?\s*(?:in|inch|inches)`
+  const value = `(?:${feet}|${scalar})`
+  const single = new RegExp(`^(?:height:\\s*)?(${value})[.]?$`, 'u').exec(q)
+  // Every wrapper is anchored, including the optional complete follow-up question.
+  const assertion = new RegExp(
+    `^(?:my child is (${value})(?: tall)?(?:[.]|[.] can they ride[?])?|i am (${value})(?: tall)?(?:[.]|[.] can i ride[?])?)$`,
+    'u',
+  ).exec(q)
+  const list = new RegExp(
+    `^our children are (${value}(?: and ${value}){1,7})(?:[.]|[.] which slides meet each height condition[?])?$`,
+    'u',
+  ).exec(q)
+  const heights = single
+    ? [single[1]!]
+    : assertion
+      ? [assertion[1] ?? assertion[2]!]
+      : list
+        ? list[1]!.split(' and ')
+        : []
+  return heights.length && heights.every((height) => measurement(height))
+    ? [...new Set(heights)]
+    : []
 }
 
 export function buildGuestComputedFacts(input: {

@@ -105,17 +105,10 @@ describe('conservative complete-expression guards', () => {
   it.each([
     'Can I reach the deck in my wheelchair today?',
     "We're in the garden today. Are you open?",
-  ])(
-    'keeps a supported explicit day when location wording merely precedes today: %s',
-    (question) => {
-      expect(resolveRequestedDays({ question, now, timeZone: input.timeZone }).dates).toEqual([
-        '2026-10-29',
-      ])
-      expect(
-        buildGuestComputedFacts({ ...input, mode: 'schedule', question }).facts[0],
-      ).toMatchObject({ date: '2026-10-29', status: 'open_by_schedule' })
-    },
-  )
+  ])('abstains on entire unclassified compound calendar questions: %s', (question) => {
+    expect(resolveRequestedDays({ question, now, timeZone: input.timeZone }).dates).toEqual([])
+    expect(buildGuestComputedFacts({ ...input, mode: 'schedule', question }).facts).toEqual([])
+  })
   it.each([
     'Description: Eight years old to board.',
     'Description: Boots compulsory.',
@@ -277,7 +270,7 @@ describe('computed facts, fictional admitted records', () => {
 describe('prompt admission adapter', () => {
   const admitted = {
     mode: 'all' as const,
-    question: 'Is Briar Park open now?',
+    question: 'Open now?',
     venue: { id: 'park', name: 'Briar Park' },
     places: [],
     identityPlaces: [],
@@ -358,18 +351,13 @@ describe('prompt admission adapter', () => {
     })
     expect(sources.knowledge).toEqual(admitted.knowledge)
   })
-  it('computes named source facts for compound natural questions without classifying every word', () => {
-    const packet = buildGuestComputedFactsForPrompt({
-      ...admitted,
-      question: 'Hi! Are you open today? We were thinking of coming with our children.',
-    })
-    expect(packet.facts).toContainEqual(
-      expect.objectContaining({
-        kind: 'schedule',
-        subjectName: 'Briar Park',
-        status: 'open_by_schedule',
-      }),
-    )
+  it('abstains when compound natural prose is outside the whole calendar grammar', () => {
+    expect(
+      buildGuestComputedFactsForPrompt({
+        ...admitted,
+        question: 'Hi! Are you open today? We were thinking of coming with our children.',
+      }).facts,
+    ).toEqual([])
   })
   it('compares separately stated measurements only when the whole attraction rule is recognised', () => {
     const fixture = {
@@ -422,7 +410,7 @@ describe('prompt admission adapter', () => {
     const packet = buildGuestComputedFactsForPrompt({
       ...admitted,
       mode: 'height',
-      question: 'Can my 50 inch child ride Silver Finch and Blue Finch?',
+      question: 'My child is 50 inch. Can they ride?',
       places: rides,
       identityPlaces: rides,
     })
@@ -537,7 +525,7 @@ describe('prompt admission adapter', () => {
     expect(
       buildGuestComputedFactsForPrompt({
         ...admitted,
-        question: 'Is Lantern Cafe open now?',
+        question: 'Open now?',
         places: [cafe],
         identityPlaces: [cafe],
       }).facts,
@@ -559,7 +547,7 @@ describe('prompt admission adapter', () => {
     }
     const test = {
       ...admitted,
-      question: 'Is East Garden Annex open now?',
+      question: 'Open now?',
       places: [east, annex],
       identityPlaces: [east, annex],
     }
@@ -595,7 +583,7 @@ describe('prompt admission adapter', () => {
     expect(
       buildGuestComputedFactsForPrompt({
         ...admitted,
-        question: 'Is Lantern Cafe open now?',
+        question: 'Open now?',
         places: [cafe],
         identityPlaces: [cafe],
       }).facts,
@@ -611,7 +599,7 @@ describe('prompt admission adapter', () => {
     }
     const test = {
       ...admitted,
-      question: 'Can my 121 cm child ride Silver Finch?',
+      question: 'My child is 121 cm. Can they ride?',
       places: [ride],
       identityPlaces: [ride],
     }
@@ -675,13 +663,14 @@ describe('exact height conditions', () => {
     expect(
       buildGuestComputedFacts({
         ...heightInput,
-        question: 'Can my 50 inch child ride Silver Finch?',
+        question: 'My child is 50 inch. Can they ride?',
       }).facts[0],
     ).toMatchObject({ status: 'height_condition_met' })
     expect(
       buildGuestComputedFacts({
         ...heightInput,
-        question: 'My children are 40 and 50 inches; which rides?',
+        question:
+          'Our children are 40 inches and 50 inches. Which slides meet each height condition?',
       }).facts,
     ).toEqual([
       expect.objectContaining({ riderHeight: '40 inches', status: 'below_minimum' }),
@@ -692,5 +681,103 @@ describe('exact height conditions', () => {
       'Can my 6 year old ride?',
     ])
       expect(buildGuestComputedFacts({ ...heightInput, question }).facts).toEqual([])
+  })
+})
+
+describe('whole question admission grammar', () => {
+  const heightPacket = (question: string) =>
+    buildGuestComputedFacts({
+      ...input,
+      mode: 'height',
+      question,
+      resolvedSubject: { id: 'slide', name: 'Silver Slide', kind: 'place' },
+      authorizedRecords: [
+        {
+          key: 'place:slide',
+          subjectId: 'slide',
+          kind: 'height',
+          content: 'Height: 48 in minimum.',
+          version: 'v1',
+        },
+      ],
+    })
+  it.each([
+    'My child is 50 in or less. Can they ride?',
+    'My child is no taller than 50 in. Can they ride?',
+    'My child is 50 inches give or take 5. Can they ride?',
+    'My child is 50 in maximum. Can they ride?',
+    'My child is not quite 50 in tall. Can they ride?',
+    'My child is 40 in, not 50 in. Can they ride?',
+    'My child is 50 in unless measured incorrectly. Can they ride?',
+    'My child is either 40 in or 50 in. Can they ride?',
+    'I wish my child were 50 in. Can they ride?',
+    'My child was 50 in last year. Can they ride?',
+    'My child is 50 in allegedly. Can they ride?',
+    'My child is 50 in but that is not their height. Can they ride?',
+    'Our children are 40 in and not 50 in. Which slides meet each height condition?',
+    'Our children are 40 in and 50 in or less. Which slides meet each height condition?',
+    'Can my 50 inch child ride Silver Slide?',
+    'Height: 50 in or smaller.',
+    '50 in?',
+    'My child is 50 in. Can they ride? Actually 40 in.',
+    'Height: 50 in. Height: 40 in.',
+    'My child is 50 in tall and can bend down. Can they ride?',
+  ])(
+    'rejects the whole unclassified height assertion without partial positive facts: %s',
+    (question) => {
+      const packet = heightPacket(question)
+      expect(packet.facts).toEqual([])
+      expect(packet.state).toBe('unknown')
+      expect(packet.abstentions).toContain('ambiguous-rider-or-rule')
+    },
+  )
+  it.each([
+    ['50 in', 'height_condition_met'],
+    ['Height: 47 in.', 'below_minimum'],
+    ['My child is 50 inches. Can they ride?', 'height_condition_met'],
+    ['My child is 47 in tall. Can they ride?', 'below_minimum'],
+    ['I am 4 ft 2 in tall. Can I ride?', 'height_condition_met'],
+    ['I am 121.92 cm.', 'height_condition_met'],
+    ['My child is 121.919999 cm tall', 'below_minimum'],
+  ])('accepts only the complete exact scalar assertion: %s', (question, status) => {
+    expect(heightPacket(question).facts).toEqual([
+      expect.objectContaining({ kind: 'height', status }),
+    ])
+  })
+  it.each([
+    'Open a day from tomorrow?',
+    'Open Monday fortnight?',
+    'Open not today, but tomorrow?',
+    'Hours today except tomorrow?',
+    'Open tomorrow or maybe Friday?',
+    'Open tomorrow plus one day?',
+    'Open today unless I mean tomorrow?',
+    'Open the Monday after tomorrow?',
+    'Open tomorrow minus a day?',
+    'Open tomorrow, but not Monday?',
+    'Hours on today and perhaps Friday?',
+    'Hours today and tomorrow except tomorrow?',
+    'Hours today and?',
+    'Hours today,',
+    'Open tomorrow! Actually today.',
+    'Is Briar Park open now?',
+    'Hours tomorrow or Friday?',
+    'Hours Tuesday (November 3, 2026)?',
+    'Hours Monday, November 3, 2026?',
+  ])('rejects every incomplete or unclassified temporal expression: %s', (question) => {
+    expect(resolveRequestedDays({ question, now, timeZone: input.timeZone }).dates).toEqual([])
+    expect(buildGuestComputedFacts({ ...input, mode: 'schedule', question }).facts).toEqual([])
+  })
+  it.each([
+    ['Are you open today?', ['2026-10-29']],
+    ['Is it closed on tomorrow?', ['2026-10-30']],
+    ['What are your opening hours on Friday?', ['2026-10-30']],
+    ['Hours today and tomorrow?', ['2026-10-29', '2026-10-30']],
+    ['Today, Friday, and Sunday?', ['2026-10-29', '2026-10-30', '2026-11-01']],
+    ['Hours Tuesday, November 10, 2026?', ['2026-11-10']],
+    ['2026-10-31', ['2026-10-31']],
+    ['Open', ['2026-10-29']],
+  ])('admits each complete supported calendar production: %s', (question, dates) => {
+    expect(resolveRequestedDays({ question, now, timeZone: input.timeZone }).dates).toEqual(dates)
   })
 })

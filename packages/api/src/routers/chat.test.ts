@@ -1859,9 +1859,14 @@ describe('chat router', () => {
       expect(anthropicCreate).toHaveBeenCalledOnce()
     })
 
-    it.each(['off', 'schedule'])(
-      'captures the actual before-opening cue and optional computation (%s)',
-      async (mode) => {
+    it.each([
+      { mode: 'off', message: 'Open now?', computed: false },
+      { mode: 'off', message: 'Is Ember House open now?', computed: false },
+      { mode: 'schedule', message: 'Open now?', computed: true },
+      { mode: 'schedule', message: 'Is Ember House open now?', computed: false },
+    ])(
+      'captures the actual before-opening cue and optional computation ($mode, $message)',
+      async ({ mode, message, computed }) => {
         vi.stubEnv('GUEST_CHAT_COMPUTED_FACTS', mode)
         vi.useFakeTimers({ toFake: ['Date'] })
         vi.setSystemTime(new Date('2026-10-17T14:00:00.000Z')) // Saturday, 9 AM in Chicago.
@@ -1889,24 +1894,26 @@ describe('chat router', () => {
 
           const result = await caller.chat.send({
             ...sendInput,
-            message: 'Is Ember House open now?',
+            message,
           })
 
           const evidence =
             guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
           const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
           const system = callArgs.system as Array<{ type: string; text: string }>
-          expect(evidence.system.dynamicPart).toContain('CURRENT POSTED HOURS CHECK:')
-          if (mode === 'schedule') {
+          if (message === 'Is Ember House open now?') {
+            expect(evidence.system.dynamicPart).toContain('CURRENT POSTED HOURS CHECK:')
+            expect(evidence.system.dynamicPart).toContain(
+              "Saturday before Ember House's regular 12 pm opening time",
+            )
+            expect(evidence.system.dynamicPart).toContain(
+              'Ember House is closed now according to its posted hours',
+            )
+          } else expect(evidence.system.dynamicPart).not.toContain('CURRENT POSTED HOURS CHECK:')
+          if (computed) {
             expect(evidence.system.dynamicPart).toContain('COMPUTED POSTED FACTS:')
             expect(evidence.system.dynamicPart).toContain('before_opening')
           } else expect(evidence.system.dynamicPart).not.toContain('COMPUTED POSTED FACTS:')
-          expect(evidence.system.dynamicPart).toContain(
-            "Saturday before Ember House's regular 12 pm opening time",
-          )
-          expect(evidence.system.dynamicPart).toContain(
-            'Ember House is closed now according to its posted hours',
-          )
           expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
           expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
             getConcatenatedSystemPrompt(),
@@ -2006,9 +2013,13 @@ describe('chat router', () => {
       },
     )
 
-    it.each(['height', 'off'])(
-      'captures exact admitted rider-height comparison (%s)',
-      async (mode) => {
+    it.each([
+      { mode: 'height', message: 'My child is 121 cm. Can they ride?', computed: true },
+      { mode: 'off', message: 'My child is 121 cm. Can they ride?', computed: false },
+      { mode: 'height', message: 'Can my 121 cm child ride Silver Finch?', computed: false },
+    ])(
+      'captures exact admitted rider-height comparison ($mode, $message)',
+      async ({ mode, message, computed }) => {
         vi.stubEnv('GUEST_CHAT_COMPUTED_FACTS', mode)
         setupHappyPath('The posted height minimum is 48 inches.', {
           ...venueRow,
@@ -2023,9 +2034,9 @@ describe('chat router', () => {
         }
         placeFindMany.mockReset().mockResolvedValue([ride])
         semanticSearch.places.mockResolvedValue([ride])
-        await caller.chat.send({ ...sendInput, message: 'Can my 121 cm child ride Silver Finch?' })
+        await caller.chat.send({ ...sendInput, message })
         const prompt = getConcatenatedSystemPrompt()
-        if (mode === 'height') {
+        if (computed) {
           expect(prompt).toContain('COMPUTED POSTED FACTS:')
           expect(prompt).toContain('below_minimum')
           expect(prompt).toContain('121 cm')
