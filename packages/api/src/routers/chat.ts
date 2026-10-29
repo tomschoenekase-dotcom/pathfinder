@@ -135,6 +135,7 @@ import {
 import { facetCoverage, recognizedStatementCountLines } from '../lib/guest-facet-evidence'
 import { GUEST_DATED_TITLE_RULE, GUEST_DATED_TITLE_RULE_VERSION } from '../lib/guest-event-dates'
 import { GUEST_RECORD_DATES_VERSION, guestRecordDatesEnabled } from '../lib/guest-record-dates'
+import { GUEST_SOURCE_NOTES_VERSION, loadLocalGuestSourceNotes } from '../lib/guest-source-notes'
 import {
   GUEST_STATED_DATES_VERSION,
   guestStatedDatesForModel,
@@ -1743,12 +1744,36 @@ const chatReadRouter = router({
         version: GUEST_STATED_DATES_VERSION,
         mode: statedDatesMode,
       })
+    // Off by default and local-only: development/test with an explicit note file.
+    const sourceNotesFile = loadLocalGuestSourceNotes({
+      nodeEnv: process.env.NODE_ENV,
+      enabled: process.env.GUEST_CHAT_SOURCE_NOTES,
+      file: process.env.TORCHIKO_LOCAL_SOURCE_NOTES_FILE,
+    })
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
       currentDate,
       recordDates: recordDatesEnabled,
       ...(statedDatesEnabled ? { statedDates: true } : {}),
       ...(evidenceStrategyEnabled ? { strategy: 'evidence' as const, indexCoreKnowledge } : {}),
+      ...(sourceNotesFile ? { sourceNotes: sourceNotesFile.notes } : {}),
     })
+    if (sourceNotesFile) {
+      const notes = venueGuide.sourceNotes
+      logger.info({
+        action: 'guest-chat.source-notes',
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        version: GUEST_SOURCE_NOTES_VERSION,
+        guideMode: venueGuide.mode,
+        fileSha256: sourceNotesFile.fileSha256,
+        eligibleUnits: notes?.eligibleUnits ?? 0,
+        attached: notes?.attached ?? 0,
+        missing: notes?.missing ?? 0,
+        rejected: notes?.rejected ?? {},
+        budgetOmitted: notes?.budgetOmitted ?? 0,
+        chars: notes?.chars ?? 0,
+      })
+    }
     // Whole guide records for every part of the question, ranked in memory over the same fenced,
     // projected and stale-suppressed guide. A DIRECTORY guide gains their full bodies, so a
     // governing condition past a record's first sentence still reaches the model; a FULL guide

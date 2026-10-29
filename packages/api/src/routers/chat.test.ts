@@ -1,11 +1,18 @@
 import { TRPCError } from '@trpc/server'
 import { createHash } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
 import { GuestChatTurnActionError } from '@pathfinder/db'
 import { verifyGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
 import { GUEST_ANSWER_SHAPE_INSTRUCTION } from '../lib/guest-answer-shape'
+import {
+  GUEST_SOURCE_NOTES_RULE,
+  guestSourceNoteUnits,
+  packGuestSourceNote,
+} from '../lib/guest-source-notes'
 
 import {
   setOpenAiEmbeddingsClientForTesting,
@@ -4598,6 +4605,89 @@ describe('chat router', () => {
           type: 'complete',
           result: { response: checkedAnswer },
         })
+      })
+
+      it('attaches local source notes to the full guide only when the flag and file are set', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'chat-source-notes-'))
+        try {
+          const developerTexts = (request: CapturedWire) =>
+            request.input
+              .filter((item) => item.role === 'developer')
+              .flatMap((item) => item.content.map((block) => block.text))
+          const guideOf = (request: CapturedWire) =>
+            developerTexts(request).find((text) => /^\s*VENUE GUIDE:/u.test(text))
+          const send = async () => {
+            setupHappyPath('unused anthropic text')
+            placeFindMany.mockResolvedValue(
+              placeRows.map((row) => ({
+                ...row,
+                longDescription: 'Shaded elephant yard. Keeper talks start at 11 am on weekends.',
+              })),
+            )
+            routeTo('guest-chat-luna')
+            const create = vi.fn().mockResolvedValueOnce({
+              status: 'completed',
+              output_text: 'The garden has a pond, beside the gate.',
+              usage: openAiUsage,
+            })
+            setOpenAiResponsesClientForTesting({ responses: { create } })
+            await caller.chat.send(sendInput)
+            return create.mock.calls[0]?.[0] as CapturedWire
+          }
+          const off = await send()
+          const guide = guideOf(off)!
+          expect(guide).toBeDefined()
+          const unit = guestSourceNoteUnits(guide)[0]!
+          const sentence = unit.unitText.split('\n')[1]!.split(/(?<=\.)\s/u)[0]!
+          const packed = packGuestSourceNote(
+            unit.unitText,
+            JSON.stringify({
+              rows: [
+                {
+                  subject: '',
+                  attribute: 'opening date',
+                  value: 'UNKNOWN',
+                  valueKind: 'UNKNOWN',
+                  appliesTo: '',
+                  when: '',
+                  onlyIf: [],
+                  except: [],
+                  notSameAs: ['opening hours'],
+                  evidence: [sentence],
+                },
+              ],
+              unclear: [],
+            }),
+          )
+          if ('error' in packed) throw new Error(packed.error)
+          expect(packed.validation).toEqual({ ok: true })
+          const file = join(dir, 'notes.jsonl')
+          writeFileSync(file, `${JSON.stringify(packed.note)}\n`)
+          vi.stubEnv('TORCHIKO_LOCAL_SOURCE_NOTES_FILE', file)
+          vi.stubEnv('GUEST_CHAT_SOURCE_NOTES', 'off')
+          expect(developerTexts(await send())).toEqual(developerTexts(off))
+          vi.stubEnv('GUEST_CHAT_SOURCE_NOTES', 'on')
+          const on = await send()
+          const onGuide = guideOf(on)!
+          const note =
+            '<source_note>\n- opening date: not stated | not the same as: opening hours\n</source_note>'
+          expect(onGuide).toContain(`${unit.unitText}\n${note}`)
+          expect(onGuide.replace(`\n${note}`, '').replace(` ${GUEST_SOURCE_NOTES_RULE}`, '')).toBe(
+            guide,
+          )
+          // Only the cached guide block changes; rules, turn context and the question do not.
+          const others = (request: CapturedWire) =>
+            developerTexts(request).filter((text) => !/^\s*VENUE GUIDE:/u.test(text))
+          expect(others(on)).toEqual(others(off))
+          expect(on.input.filter((item) => item.role === 'user')).toEqual(
+            off.input.filter((item) => item.role === 'user'),
+          )
+          const evidence =
+            guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.answerEvidence
+          expect(evidence.system.staticPart).toContain(note)
+        } finally {
+          rmSync(dir, { recursive: true, force: true })
+        }
       })
 
       it('adds decision-first guidance on Luna only and streams it before completion', async () => {
