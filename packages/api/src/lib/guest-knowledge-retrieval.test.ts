@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
+import { selectGuestQuestionEvidence } from './guest-question-evidence'
+import { buildGuestVenueGuidePrompt } from './guest-venue-directory'
 
-import { retrieveGuestKnowledge, type GuestKnowledgeRow } from './guest-knowledge-retrieval'
+import {
+  guestQueryIsFollowup,
+  guestRetrievalConcepts,
+  retrieveGuestKnowledge,
+  type GuestKnowledgeRow,
+} from './guest-knowledge-retrieval'
 
 function row(
   id: string,
@@ -45,11 +52,28 @@ describe('retrieveGuestKnowledge', () => {
     expect(result.trace.truncatedSourceIds).toEqual([])
   })
   it('retains governing year, adjacent restrictions and requested facility lines in a whole legacy schedule', async () => {
-    const conditions = ['Schedule for 2031 only.', 'October 12: rides noon to 7 PM.', 'Rides close during high winds.', 'October 12: arcade 11 AM to 9 PM; admission requires a separate wristband.']
-    const content = conditions[0] + '\n' + 'Other dated facility information. '.repeat(200) + '\n' + conditions.slice(1).join('\n')
+    const conditions = [
+      'Schedule for 2031 only.',
+      'October 12: rides noon to 7 PM.',
+      'Rides close during high winds.',
+      'October 12: arcade 11 AM to 9 PM; admission requires a separate wristband.',
+    ]
+    const content =
+      conditions[0] +
+      '\n' +
+      'Other dated facility information. '.repeat(200) +
+      '\n' +
+      conditions.slice(1).join('\n')
     expect(content.length).toBeGreaterThan(5000)
     const source = row('schedule', 'Facility schedule', content)
-    const result = await retrieveGuestKnowledge({ reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue([source]) } }, query: 'October 12 ride and arcade hours?', tenantId: 'tenant-a', venueId: 'venue-a', includeSecondLayer: false, queryEmbedding: null })
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue([source]) } },
+      query: 'October 12 ride and arcade hours?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
     expect(result.entries[0]?.content).toBe(content)
     for (const condition of conditions) expect(result.entries[0]?.content).toContain(condition)
     expect(result.trace.partialCoverage).toBe(false)
@@ -77,11 +101,21 @@ describe('retrieveGuestKnowledge', () => {
     expect(result.trace.truncatedSourceIds).toEqual([])
   })
   it('reports whole-record total-budget omissions without presenting partial policies', async () => {
-    const sources = Array.from({ length: 5 }, (_, index) => row(`policy-${index}`, 'Visitor policy', 'Policy conditions. '.padEnd(5000, '.')))
-    const result = await retrieveGuestKnowledge({ reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue(sources) } }, query: 'Visitor policy?', tenantId: 'tenant-a', venueId: 'venue-a', includeSecondLayer: false, queryEmbedding: null })
+    const sources = Array.from({ length: 5 }, (_, index) =>
+      row(`policy-${index}`, 'Visitor policy', 'Policy conditions. '.padEnd(5000, '.')),
+    )
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue(sources) } },
+      query: 'Visitor policy?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
     expect(result.entries).toHaveLength(4)
     expect(result.entries.reduce((total, entry) => total + entry.content.length, 0)).toBe(20000)
-    for (const entry of result.entries) expect(entry.content).toBe(sources.find((source) => source.id === entry.id)!.content)
+    for (const entry of result.entries)
+      expect(entry.content).toBe(sources.find((source) => source.id === entry.id)!.content)
     expect(result.trace.excludedSourceIds).toHaveLength(1)
     expect(result.trace.partialCoverage).toBe(true)
     expect(result.trace.truncatedSourceIds).toEqual([])
@@ -699,5 +733,105 @@ describe('retrieveGuestKnowledge', () => {
     expect(findMany.mock.calls[0]![0]).toMatchObject({
       where: { AND: expect.arrayContaining([expect.objectContaining({ OR: expect.any(Array) })]) },
     })
+  })
+})
+
+// Characterization of a retrieval gap, not evidence that a FULL guide omits this policy.
+describe('long referential follow-up retrieval characterization', () => {
+  const previousQuery =
+    'There are 10 of us. Which reserved cabana fits everyone, and is entry included?'
+  const longFollowup = 'Does that mean all 10 of us are admitted to the amusement park too?'
+
+  it('loses the prior cabana concept beyond the short follow-up limit', async () => {
+    const cabana = row(
+      'bay-capacity',
+      'Reserved cabanas',
+      'Bay rentals accommodate 12 guests and require stairs.',
+    )
+    const distractors = Array.from({ length: 12 }, (_, index) =>
+      row(`entry-${index}`, 'Amusement park admission', 'Park entry requires a separate ticket.'),
+    )
+    const sources = [cabana, ...distractors]
+    // Reader intentionally returns an over-inclusive pool, so real lexical scoring must
+    // reject unrelated rows; this is not a canned source list asserting the outcome.
+    const retrieve = (query: string) =>
+      retrieveGuestKnowledge({
+        reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue(sources) } },
+        query,
+        previousQuery,
+        tenantId: 'tenant-fictional',
+        venueId: 'venue-fictional',
+        includeSecondLayer: false,
+        queryEmbedding: null,
+      })
+    expect(guestQueryIsFollowup(longFollowup)).toBe(false)
+    expect(guestRetrievalConcepts(longFollowup, previousQuery).concepts.flat()).not.toContain(
+      'cabana',
+    )
+    const long = await retrieve(longFollowup)
+    expect(long.entries.map(({ id }) => id)).not.toContain(cabana.id)
+    expect(long.entries.some(({ id }) => id.startsWith('entry-'))).toBe(true)
+    const short = await retrieve('Is that entry included?')
+    expect(guestQueryIsFollowup('Is that entry included?')).toBe(true)
+    expect(
+      guestRetrievalConcepts('Is that entry included?', previousQuery).concepts.flat(),
+    ).toContain('cabana')
+    expect(short.entries.map(({ id }) => id)).toContain(cabana.id)
+  })
+
+  it.each([
+    'What are the admission rules for the amusement park on Saturday?',
+    'Which restaurants serve vegetarian meals inside the amusement park?',
+    'What does the annual pass include for amusement park admission?',
+  ])('does not inherit reserved-space context for standalone topic: %s', (query) => {
+    expect(guestQueryIsFollowup(query)).toBe(false)
+    expect(guestRetrievalConcepts(query, previousQuery).concepts).toEqual(
+      guestRetrievalConcepts(query).concepts,
+    )
+  })
+})
+
+describe('referential grounding in complementary guide lanes', () => {
+  it('keeps villa facts in a small FULL guide and hydrates them in DIRECTORY mode', () => {
+    const villa = {
+      ...row(
+        'fictional-villa',
+        'Waterpark reserved villas',
+        'Bay Villas accommodate 12 guests, require stairs and do not include admission.',
+      ),
+      distance: 0,
+    }
+    const directory = {
+      knowledge: [
+        villa,
+        ...Array.from({ length: 12 }, (_, index) => ({
+          ...row(
+            `fictional-ticket-${index}`,
+            'Amusement park admission',
+            'Entry requires a separate ticket.',
+          ),
+          distance: 0,
+        })),
+      ],
+      places: [],
+      incomplete: false,
+    }
+    const guide = buildGuestVenueGuidePrompt(directory, { currentDate: '2026-10-29' })
+    expect(guide.mode).toBe('FULL')
+    expect(guide.recordIds.has('knowledge:fictional-villa')).toBe(true)
+    expect(guide.prompt).toContain(villa.content)
+    const hydrated = selectGuestQuestionEvidence({
+      query: 'Does that villa mean all 10 of us are admitted to the amusement park too?',
+      previousQuery:
+        'There are 10 of us. Which waterpark reserved space fits everyone, and is entry included?',
+      venueName: 'Lantern Cove',
+      directory,
+      mode: 'DIRECTORY',
+      currentDate: '2026-10-29',
+      knowledgeInContext: [],
+      placesInContext: [],
+    })
+    expect(hydrated.knowledge.map(({ id }) => id)).toContain(villa.id)
+    expect(hydrated.knowledge.find(({ id }) => id === villa.id)?.content).toBe(villa.content)
   })
 })

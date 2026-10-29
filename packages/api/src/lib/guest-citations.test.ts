@@ -128,24 +128,45 @@ describe('selectGuestVisibleCitations', () => {
     'Can I order food ahead on my phone?',
     'Can we drive the wildlife loop more than once on the same ticket?',
     'Does my ticket include parking?',
+    'Is visitor parking 35 dollars? I saw that on the website.',
+    'Your website says Harbor Market is free. Is parking included?',
+    'The booking page says closed. Are you open?',
+    'What does the website say about parking?',
+    'What is the website cancellation policy?',
+    'How much to book a visit?',
+    'I booked a visit yesterday. Is parking included?',
+    'I bought tickets yesterday; does that include parking?',
+    'Does my reservation include parking?',
+    'Do not send links.',
+    'Please do not send me the website link.',
+    'Do not send links. Where can I book?',
+    'No links please.',
   ])('hides routine venue sources for %j', (visitorMessage) => {
     expect(selectGuestVisibleCitations({ visitorMessage, citations: stored })).toBeNull()
   })
 
-  it.each(['Where can I get tickets?', 'Can you send me the ticket link?'])(
-    'shows a ticket destination only when the visitor asks for one (%j)',
-    (visitorMessage) => {
-      const ticket = {
-        label: 'Tickets',
-        href: 'https://park.example/tickets/',
-        detail: 'Venue knowledge: Tickets',
-      }
-      expect(selectGuestVisibleCitations({ visitorMessage, citations: [ticket] })).toEqual({
-        heading: 'links',
-        citations: [ticket],
-      })
-    },
-  )
+  it.each([
+    'Where can I get tickets?',
+    'Can you send me the ticket link?',
+    'Link please',
+    'Website?',
+    'Where can I book?',
+    'How do we buy tickets?',
+    'What is the website for that?',
+    'What is the official website?',
+    'Where can I find the parking page?',
+    'Send me the Harbor Market link.',
+  ])('shows a ticket destination only when the visitor asks for one (%j)', (visitorMessage) => {
+    const ticket = {
+      label: 'Tickets',
+      href: 'https://park.example/tickets/',
+      detail: 'Venue knowledge: Tickets',
+    }
+    expect(selectGuestVisibleCitations({ visitorMessage, citations: [ticket] })).toEqual({
+      heading: 'links',
+      citations: [ticket],
+    })
+  })
 
   it('shows at most two distinct linked destinations when the visitor asks for a page', () => {
     expect(

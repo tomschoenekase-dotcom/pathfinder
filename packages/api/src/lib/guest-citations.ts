@@ -88,8 +88,36 @@ const MAX_REQUESTED_VENUE_LINKS = 2
 // The visitor asked for somewhere to go next: a page, a booking or purchase, or a ticket destination.
 // Mentioning an existing ticket in a policy question is not a link request. Ordering is left to the
 // venue's approved guest actions: a dining page is not a way to order.
-const VISITOR_LINK_REQUEST =
-  /\b(?:links?|urls?|websites?|web ?pages?|web ?sites?|official (?:site|page)|(?:the|its|their|a) (?:site|page)|book(?:ing)?|reserv(?:e|ations?)|buy(?:ing)?|purchas(?:e|ing)|(?:get|find)\s+(?:(?:a|the|my|our)\s+)?tickets?|tickets?\s+(?:link|url|website|web ?page|web ?site)|sign ?up|register)\b/iu
+function visitorRequestsLink(message: string): boolean {
+  // A source mention ("the website says") is not a request. Explicit refusal wins,
+  // including when a navigation question follows it in the same message.
+  if (
+    /\b(?:do not|don't|don’t|never)\s+(?:send|show|give|share|provide|include)\b[^.!?;]{0,80}\b(?:links?|urls?|websites?|pages?)\b/iu.test(
+      message,
+    ) ||
+    /\bno\s+(?:links?|urls?|websites?)\b/iu.test(message)
+  )
+    return false
+  const destination = '(?:links?|urls?|websites?|web ?sites?|(?:web )?pages?|official site)'
+  return (
+    new RegExp(`^(?:please\\s+)?${destination}(?:\\s+please)?[?!.\\s]*$`, 'iu').test(message) ||
+    new RegExp(
+      `\\b(?:send|show|give|share|provide)\\b[^.!?;]{0,80}\\b${destination}\\b`,
+      'iu',
+    ).test(message) ||
+    new RegExp(
+      `\\b(?:what|where)\\s+(?:is|are)\\b[^.!?;]{0,60}\\b${destination}(?:\\s+(?:for|of)\\b[^.!?;]*)?[?!.\\s]*$`,
+      'iu',
+    ).test(message) ||
+    new RegExp(
+      `\\bwhere\\s+(?:can|do|should)\\s+(?:I|we)\\s+(?:find|get)\\b[^.!?;]{0,60}\\b${destination}\\b`,
+      'iu',
+    ).test(message) ||
+    /\b(?:where|how)\s+(?:can|do|should)\s+(?:I|we)\s+(?:book|reserve|buy|purchase|register|sign up|get\s+(?:(?:a|the|our|my)\s+)?tickets?)\b/iu.test(
+      message,
+    )
+  )
+}
 
 export type GuestVisibleCitations = {
   heading: 'sources' | 'links'
@@ -110,7 +138,7 @@ export function selectGuestVisibleCitations(input: {
     (citation) => citation.detail === GENERAL_BACKGROUND_CITATION_DETAIL,
   )
   const requested = new Map<string, GuestCitation>()
-  if (VISITOR_LINK_REQUEST.test(input.visitorMessage)) {
+  if (visitorRequestsLink(input.visitorMessage)) {
     for (const citation of input.citations) {
       if (requested.size >= MAX_REQUESTED_VENUE_LINKS) break
       if (citation.detail === GENERAL_BACKGROUND_CITATION_DETAIL || !citation.href) continue
