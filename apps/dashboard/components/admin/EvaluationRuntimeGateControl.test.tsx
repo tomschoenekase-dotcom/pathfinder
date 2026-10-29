@@ -56,7 +56,7 @@ describe('EvaluationRuntimeGateControl', () => {
         allowedProviders: ['openai'],
       }),
     )
-    expect(screen.getByText(/Railway process gate remains off/)).toBeTruthy()
+    expect(await screen.findByText(/Railway process gate remains off/)).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalled()
   })
 
