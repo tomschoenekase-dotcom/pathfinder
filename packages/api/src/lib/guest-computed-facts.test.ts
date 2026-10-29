@@ -372,6 +372,14 @@ describe('prompt admission adapter', () => {
       )
     }
   })
+  it.each([
+    'Silver Finch is a ride for children of any size.',
+    'Silver Finch is a ride with unrestricted admission.',
+    'Silver Finch is a slide if the attendant approves shorter guests.',
+  ])('does not classify eligibility prose as harmless description: %s', (description) => {
+    const rule = parseHeightRule(`${description}\nHeight: 48 in minimum.`)
+    expect(compareRiderHeight(rule, '40 in').status).toBe('unknown')
+  })
   it('computes from an admitted whole topic, retaining its content hash', () => {
     const packet = buildGuestComputedFactsForPrompt(admitted)
     expect(packet.facts[0]).toMatchObject({ status: 'open_by_schedule', subjectId: 'park' })

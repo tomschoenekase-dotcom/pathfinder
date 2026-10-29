@@ -261,10 +261,12 @@ export function parseHeightRule(raw: string): HeightRule {
   )
   if (candidates.length !== 1) return { raw, state: 'unknown' }
   const remainingClauses = clauses.filter((clause) => clause !== candidates[0])
-  const remainder = remainingClauses.join('\n')
+  const remainder = remainingClauses
+    .filter((clause) => !/^riders go one at a time[.]?$/iu.test(clause.trim()))
+    .join('\n')
   // Interpret all eligibility clauses, never silently discard an age/companion/health exception.
   if (
-    /\b(?:age|aged|under|over|shorter|taller|minimum|maximum|least|must|cannot|can.t|pregnan\w*|health|companion|adult|parent|guardian|supervis\w*|accompan\w*|exception|unconfirm\w*|unsettled|eligible|eligibility|restriction\w*|require\w*|waiv\w*|approval|attendant|medical|injur\w*|height|inches|cm)\b/iu.test(
+    /\b(?:age|aged|under|over|shorter|taller|minimum|maximum|least|must|cannot|can.t|pregnan\w*|health|companion|adult|parent|guardian|supervis\w*|accompan\w*|exception|unconfirm\w*|unsettled|eligible|eligibility|restriction\w*|require\w*|waiv\w*|approval|attendant|medical|injur\w*|height|inches|cm|for|if|when|unless|except|but|where|any|all|everyone|regardless|unrestricted|limit\w*|admission|permission|child|children|person|people|guest|guests|rider|riders|infant|baby|babies)\b/iu.test(
       remainder,
     )
   )
