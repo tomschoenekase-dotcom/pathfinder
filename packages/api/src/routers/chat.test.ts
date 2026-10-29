@@ -1859,19 +1859,83 @@ describe('chat router', () => {
       expect(anthropicCreate).toHaveBeenCalledOnce()
     })
 
-    it('captures the actual before-opening cue in both dynamic evidence and the dispatched prompt', async () => {
-      vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(new Date('2026-10-17T14:00:00.000Z')) // Saturday, 9 AM in Chicago.
-      try {
-        setupHappyPath('Ember House opens at noon.', {
-          ...venueRow,
-          name: 'Ember House',
-          chatAppearance: { timeZone: 'America/Chicago' },
-        })
-        semanticSearch.places.mockResolvedValue([])
-        placeFindMany.mockReset().mockResolvedValue([])
-        venueKnowledgeEntryFindMany.mockResolvedValue([
-          {
+    it.each(['off', 'schedule'])(
+      'captures the actual before-opening cue and optional computation (%s)',
+      async (mode) => {
+        vi.stubEnv('GUEST_CHAT_COMPUTED_FACTS', mode)
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(new Date('2026-10-17T14:00:00.000Z')) // Saturday, 9 AM in Chicago.
+        try {
+          setupHappyPath('Ember House opens at noon.', {
+            ...venueRow,
+            name: 'Ember House',
+            chatAppearance: { timeZone: 'America/Chicago' },
+          })
+          semanticSearch.places.mockResolvedValue([])
+          placeFindMany.mockReset().mockResolvedValue([])
+          venueKnowledgeEntryFindMany.mockResolvedValue([
+            {
+              id: 'ember-hours',
+              title: 'Opening hours',
+              category: 'hours',
+              content: 'Hours: Ember House, 12 pm - 6 pm Saturday',
+              sourceType: 'FOUNDER_PROVIDED',
+              sourceName: 'Fictional visitor guide',
+              sourceUrl: null,
+              updatedAt: new Date('2026-10-16T00:00:00.000Z'),
+              lastReviewedAt: null,
+            },
+          ])
+
+          const result = await caller.chat.send({
+            ...sendInput,
+            message: 'Is Ember House open now?',
+          })
+
+          const evidence =
+            guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+          const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+          const system = callArgs.system as Array<{ type: string; text: string }>
+          expect(evidence.system.dynamicPart).toContain('CURRENT POSTED HOURS CHECK:')
+          if (mode === 'schedule') {
+            expect(evidence.system.dynamicPart).toContain('COMPUTED POSTED FACTS:')
+            expect(evidence.system.dynamicPart).toContain('before_opening')
+          } else expect(evidence.system.dynamicPart).not.toContain('COMPUTED POSTED FACTS:')
+          expect(evidence.system.dynamicPart).toContain(
+            "Saturday before Ember House's regular 12 pm opening time",
+          )
+          expect(evidence.system.dynamicPart).toContain(
+            'Ember House is closed now according to its posted hours',
+          )
+          expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
+          expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
+            getConcatenatedSystemPrompt(),
+          )
+          expect(
+            verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+          ).toBe(true)
+          expect(anthropicCreate).toHaveBeenCalledOnce()
+        } finally {
+          vi.useRealTimers()
+        }
+      },
+    )
+
+    it.each(['off', 'schedule'])(
+      'does not compute from stale directory hours when current retrieval omits the whole record (%s)',
+      async (mode) => {
+        vi.stubEnv('GUEST_CHAT_COMPUTED_FACTS', mode)
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(new Date('2026-10-17T14:00:00.000Z'))
+        try {
+          setupHappyPath('Please confirm the current opening hours with staff.', {
+            ...venueRow,
+            name: 'Ember House',
+            chatAppearance: { timeZone: 'America/Chicago' },
+          })
+          semanticSearch.places.mockResolvedValue([])
+          placeFindMany.mockReset().mockResolvedValue([])
+          const staleHours = {
             id: 'ember-hours',
             title: 'Opening hours',
             category: 'hours',
@@ -1879,113 +1943,98 @@ describe('chat router', () => {
             sourceType: 'FOUNDER_PROVIDED',
             sourceName: 'Fictional visitor guide',
             sourceUrl: null,
-            updatedAt: new Date('2026-10-16T00:00:00.000Z'),
+            updatedAt: new Date('2026-10-01T00:00:00.000Z'),
             lastReviewedAt: null,
-          },
-        ])
+          }
+          const currentHours = {
+            ...staleHours,
+            content:
+              'Hours: Ember House, 8 am - 6 pm Saturday\n' +
+              'Current visitor guidance. '.repeat(1_000),
+            updatedAt: new Date('2026-10-16T00:00:00.000Z'),
+          }
+          // The cached directory has the old version; live lexical retrieval observes a
+          // newer whole record that exceeds its 20k content budget and must be omitted.
+          venueKnowledgeEntryFindMany.mockImplementation(
+            async (args: {
+              take?: number
+              orderBy?: Array<Record<string, string>>
+              select?: Record<string, unknown>
+            }) => {
+              const directoryPage = args.take === 500 && args.orderBy?.[0]?.id === 'asc'
+              if (!directoryPage) return [currentHours]
+              // Metadata identifies the cached version; only the body page supplies old text.
+              return args.select?.content
+                ? [staleHours]
+                : [{ id: staleHours.id, updatedAt: staleHours.updatedAt }]
+            },
+          )
 
-        const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
+          const result = await caller.chat.send({
+            ...sendInput,
+            message: 'Is Ember House open now?',
+          })
 
-        const evidence =
-          guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
-        const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
-        const system = callArgs.system as Array<{ type: string; text: string }>
-        expect(evidence.system.dynamicPart).toContain('CURRENT POSTED HOURS CHECK:')
-        expect(evidence.system.dynamicPart).toContain(
-          "Saturday before Ember House's regular 12 pm opening time",
-        )
-        expect(evidence.system.dynamicPart).toContain(
-          'Ember House is closed now according to its posted hours',
-        )
-        expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
-        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
-          getConcatenatedSystemPrompt(),
-        )
-        expect(
-          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
-        ).toBe(true)
-        expect(anthropicCreate).toHaveBeenCalledOnce()
-      } finally {
-        vi.useRealTimers()
-      }
-    })
+          const evidence =
+            guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
+          const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
+          const system = callArgs.system as Array<{ type: string; text: string }>
+          expect(getConcatenatedSystemPrompt()).not.toContain(staleHours.content)
+          expect(getConcatenatedSystemPrompt()).not.toContain(currentHours.content)
+          expect(getConcatenatedSystemPrompt()).not.toContain('CURRENT POSTED HOURS CHECK:')
+          expect(getConcatenatedSystemPrompt()).not.toContain('COMPUTED POSTED FACTS:')
+          expect(evidence.system.dynamicPart).not.toContain('regular 12 pm opening time')
+          expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
+          expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
+            getConcatenatedSystemPrompt(),
+          )
+          expect(configLogger.info).toHaveBeenCalledWith(
+            expect.objectContaining({
+              knowledgeInContextCount: 0,
+              retrievedCount: 0,
+              excludedCount: 1,
+              partialCoverage: true,
+            }),
+          )
+          expect(
+            verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
+          ).toBe(true)
+          expect(anthropicCreate).toHaveBeenCalledOnce()
+        } finally {
+          vi.useRealTimers()
+        }
+      },
+    )
 
-    it('does not derive an old opening cue from stale directory hours when current retrieval omits the whole record', async () => {
-      vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(new Date('2026-10-17T14:00:00.000Z'))
-      try {
-        setupHappyPath('Please confirm the current opening hours with staff.', {
+    it.each(['height', 'off'])(
+      'captures exact admitted rider-height comparison (%s)',
+      async (mode) => {
+        vi.stubEnv('GUEST_CHAT_COMPUTED_FACTS', mode)
+        setupHappyPath('The posted height minimum is 48 inches.', {
           ...venueRow,
-          name: 'Ember House',
           chatAppearance: { timeZone: 'America/Chicago' },
         })
-        semanticSearch.places.mockResolvedValue([])
-        placeFindMany.mockReset().mockResolvedValue([])
-        const staleHours = {
-          id: 'ember-hours',
-          title: 'Opening hours',
-          category: 'hours',
-          content: 'Hours: Ember House, 12 pm - 6 pm Saturday',
-          sourceType: 'FOUNDER_PROVIDED',
-          sourceName: 'Fictional visitor guide',
-          sourceUrl: null,
-          updatedAt: new Date('2026-10-01T00:00:00.000Z'),
-          lastReviewedAt: null,
+        const ride = {
+          ...placeRows[0]!,
+          name: 'Silver Finch',
+          type: 'ride',
+          shortDescription: 'Height: 48 in minimum.',
+          longDescription: null,
         }
-        const currentHours = {
-          ...staleHours,
-          content:
-            'Hours: Ember House, 8 am - 6 pm Saturday\n' +
-            'Current visitor guidance. '.repeat(1_000),
-          updatedAt: new Date('2026-10-16T00:00:00.000Z'),
-        }
-        // The cached directory has the old version; live lexical retrieval observes a
-        // newer whole record that exceeds its 20k content budget and must be omitted.
-        venueKnowledgeEntryFindMany.mockImplementation(
-          async (args: {
-            take?: number
-            orderBy?: Array<Record<string, string>>
-            select?: Record<string, unknown>
-          }) => {
-            const directoryPage = args.take === 500 && args.orderBy?.[0]?.id === 'asc'
-            if (!directoryPage) return [currentHours]
-            // Metadata identifies the cached version; only the body page supplies old text.
-            return args.select?.content
-              ? [staleHours]
-              : [{ id: staleHours.id, updatedAt: staleHours.updatedAt }]
-          },
-        )
-
-        const result = await caller.chat.send({ ...sendInput, message: 'Is Ember House open now?' })
-
+        placeFindMany.mockReset().mockResolvedValue([ride])
+        semanticSearch.places.mockResolvedValue([ride])
+        await caller.chat.send({ ...sendInput, message: 'Can my 121 cm child ride Silver Finch?' })
+        const prompt = getConcatenatedSystemPrompt()
+        if (mode === 'height') {
+          expect(prompt).toContain('COMPUTED POSTED FACTS:')
+          expect(prompt).toContain('below_minimum')
+          expect(prompt).toContain('121 cm')
+        } else expect(prompt).not.toContain('COMPUTED POSTED FACTS:')
         const evidence =
           guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata.answerEvidence
-        const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
-        const system = callArgs.system as Array<{ type: string; text: string }>
-        expect(getConcatenatedSystemPrompt()).not.toContain(staleHours.content)
-        expect(getConcatenatedSystemPrompt()).not.toContain(currentHours.content)
-        expect(getConcatenatedSystemPrompt()).not.toContain('CURRENT POSTED HOURS CHECK:')
-        expect(evidence.system.dynamicPart).not.toContain('regular 12 pm opening time')
-        expect(system.at(-1)?.text).toBe(evidence.system.dynamicPart)
-        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(
-          getConcatenatedSystemPrompt(),
-        )
-        expect(configLogger.info).toHaveBeenCalledWith(
-          expect.objectContaining({
-            knowledgeInContextCount: 0,
-            retrievedCount: 0,
-            excludedCount: 1,
-            partialCoverage: true,
-          }),
-        )
-        expect(
-          verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence }),
-        ).toBe(true)
-        expect(anthropicCreate).toHaveBeenCalledOnce()
-      } finally {
-        vi.useRealTimers()
-      }
-    })
+        expect(evidence.system.staticPart + evidence.system.dynamicPart).toBe(prompt)
+      },
+    )
 
     it('finalizes a web-only dispatch fallback without manufacturing an answer-dispatch receipt', async () => {
       setupHappyPath('Unused.', { ...generalWebVenue, description: 'x'.repeat(160_001) })

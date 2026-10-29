@@ -466,7 +466,11 @@ function hasYears(range: DateRange): boolean {
 }
 
 /** Parses the whole hours topic, or returns null when any schedule statement is not understood. */
-export function parseVenueSchedule(content: string, venueName?: string): Schedule | null {
+export function parseVenueSchedule(
+  content: string,
+  venueName?: string,
+  options?: { allowGenericSubjects?: boolean },
+): Schedule | null {
   const schedule: Schedule = {
     openRules: [],
     closedWeekdays: [],
@@ -527,7 +531,11 @@ export function parseVenueSchedule(content: string, venueName?: string): Schedul
   }
 
   const acceptSubject = (raw: string | undefined, allowGeneric: boolean): boolean => {
-    const kind = subjectKind(raw, venueName, allowGeneric)
+    const kind = subjectKind(
+      raw,
+      venueName,
+      allowGeneric && options?.allowGenericSubjects !== false,
+    )
     if (!kind.ok) return false
     if (kind.generic) generics.add(kind.generic === 'garden' ? 'gardens' : kind.generic)
     return true
@@ -680,7 +688,7 @@ function seasonClosed(schedule: Schedule, date: Required<Ymd>): boolean {
   return events[0]?.kind === 'start'
 }
 
-function dayStatus(schedule: Schedule, date: Required<Ymd>): DayStatus {
+export function dayStatus(schedule: Schedule, date: Required<Ymd>): DayStatus {
   if (schedule.exceptRanges.some((range) => inRange(date, range))) return { kind: 'unknown' }
   const yearlessRanges = [
     ...schedule.openRules.flatMap((rule) =>
@@ -759,7 +767,7 @@ function nextOpening(schedule: Schedule, today: Required<Ymd>): string | null {
   return null
 }
 
-function venueLocalNow(
+export function venueLocalNow(
   now: Date,
   timeZone: string,
 ): { date: Required<Ymd>; minute: number } | null {

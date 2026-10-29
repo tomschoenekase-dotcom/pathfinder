@@ -82,6 +82,10 @@ import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
 import { guestTodayStatusCue, guestTodayStatusEnabled } from '../lib/guest-today-status'
+import {
+  buildGuestComputedFactsForPrompt,
+  guestComputedFactsMode,
+} from '../lib/guest-computed-facts'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -2283,7 +2287,31 @@ const chatReadRouter = router({
         knowledgeEntries: relevantKnowledgeEntries,
       })
       updatedGuideRecordCount = updatedGuideRecordIds.size
+      const computedMode = guestComputedFactsMode()
+      const computedFacts =
+        computedMode !== 'off'
+          ? buildGuestComputedFactsForPrompt({
+              mode: computedMode,
+              question: trimmedInput,
+              venue,
+              places: promptPlaces,
+              knowledge: promptKnowledge,
+              identityPlaces: guestDirectory.places,
+              identityKnowledge: guestDirectory.knowledge,
+              now: operationalNow,
+              timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
+              freshComplete:
+                guideLoadStatus === 'READY' &&
+                !guestDirectory.incomplete &&
+                !entryPlaceFromOtherSource &&
+                updatedGuideRecordIds.size === 0,
+              identityAmbiguous:
+                Boolean(placeIdentity.ambiguity) || placeIdentityDiscoveryIncomplete,
+              activeUpdates,
+            })
+          : undefined
       return buildVenueSystemPromptParts({
+        ...(computedFacts ? { computedFacts } : {}),
         currentDate,
         ...(venueClock.localTime ? { currentLocalTime: venueClock.localTime } : {}),
         beforeOpeningStatusCue:
