@@ -39,6 +39,17 @@ describe('guest stated dates', () => {
     }
   })
 
+  it.each([
+    ['October 31 and October 1, 2026', '2026-10-15', '2026-10-31'],
+    ['October 31, 1 and 15, 2026', '2026-10-20', '2026-10-31'],
+    ['November 2 and October 1, 2026', '2026-10-15', '2026-11-02'],
+    ['November, September and October 2026', '2026-11-15', '2026-11-30'],
+  ])('uses the latest calendar date in unordered lists: %s', (text, today, latest) => {
+    const entry = topic(text)
+    expect(guestStatedDatesPassed(entry, today)).toBeNull()
+    expect(guestStatedDatesPassed(entry, '2026-12-01')).toBe(latest)
+  })
+
   it('marks a record only after every date it states has passed', () => {
     const hours = topic(
       'Moonbeam Zoo is open daily, 10 a.m. to 4 p.m., September 8, 2026 to May 28, 2027.',

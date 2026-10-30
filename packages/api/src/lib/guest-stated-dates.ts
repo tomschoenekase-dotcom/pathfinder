@@ -173,7 +173,10 @@ export function guestStatedDates(text: string): {
     let last: string | null = null
     for (const pair of body.matchAll(PAIR)) {
       if (pair[1]) month = monthNumber(pair[1])
-      if (month) last = iso(year, month, Number(pair[2])) ?? last
+      if (month) {
+        const candidate = iso(year, month, Number(pair[2]))
+        if (candidate && (!last || candidate > last)) last = candidate
+      }
     }
     push(last, year, opensAt(text, start) && !RANGE_WORD.test(body))
   }
@@ -191,7 +194,7 @@ export function guestStatedDates(text: string): {
     claimed.push([start, start + match[0].length])
     const year = Number(match[1])
     const months = [...match[0].matchAll(MONTH_NAME)].map((name) => monthNumber(name[0]))
-    const month = months.at(-1)
+    const month = months.reduce<number>((latest, value) => Math.max(latest, value ?? 0), 0)
     if (!month) continue
     // A month names its last day: "through May 2027" ends on May 31.
     const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()

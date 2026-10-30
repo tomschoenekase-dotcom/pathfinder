@@ -102,7 +102,7 @@ const PRONOUN_SUBJECTS = new Set(['', 'we', 'it'])
 const SCHEDULE_TOKEN = new RegExp(
   [
     `\\b${DAY_RE}s?\\b`,
-    '\\b(?:january|february|march|april|june|july|august|september|october|november|december)\\b',
+    '\\b(?:january|february|march|april|may\s+\d{1,2}|\d{1,2}\s+may|\d{4}-\d{2}-\d{2}|june|july|august|september|october|november|december)\\b',
     '\\bmay\\s+\\d|\\d\\s+may\\b',
     '\\b(?:jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\\.?\\s+\\d',
     '\\d\\s*(?:am|pm)\\b',
@@ -787,7 +787,7 @@ function venueLocalNow(
 }
 
 const OTHER_TIME =
-  /\b(?:tomorrow|yesterday|next|last (?:week|month|year|time|summer|winter)|weekend|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays|january|february|march|april|june|july|august|september|october|november|december|christmas|thanksgiving|easter|holiday|holidays|summer|winter|spring|autumn|later this|someday|in (?:a|two|three|\d+) (?:days?|weeks?|months?)|\d{1,2}(?:st|nd|rd|th)|\d{1,2}\/\d{1,2}|came|visited|went|last visit|usually|normally|in general|ever)\b/u
+  /\b(?:tomorrow|yesterday|next|last (?:week|month|year|time|summer|winter)|weekend|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays|january|february|march|april|may\s+\d{1,2}|\d{1,2}\s+may|\d{4}-\d{2}-\d{2}|june|july|august|september|october|november|december|christmas|thanksgiving|easter|holiday|holidays|summer|winter|spring|autumn|later this|someday|in (?:a|two|three|\d+) (?:days?|weeks?|months?)|\d{1,2}(?:st|nd|rd|th)|\d{1,2}\/\d{1,2}|came|visited|went|last visit|usually|normally|in general|ever)\b/u
 const TODAY_WORDS =
   /\b(?:today|tonight|right now|now|this (?:morning|afternoon|evening)|currently|at the moment)\b/u
 const ARRIVAL_WORDS =

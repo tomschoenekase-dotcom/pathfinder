@@ -41,6 +41,17 @@ const cue = (
 ) => guestTodayStatusCue({ question: ask, now: new Date(now), timeZone, knowledge, ...extra })
 
 describe('guestTodayStatusQuestion', () => {
+  it.each(['May 10', '10 May', '2027-04-10'])(
+    'does not inject today closure into an explicit date plan: %s',
+    (date) => {
+      expect(
+        cue([{ title: 'Hours', content: 'Open daily 10am-4pm.' }], '2026-10-30T20:00:00Z', 'UTC', {
+          question: `I am planning to visit ${date}. What can we do?`,
+        }),
+      ).toBeNull()
+    },
+  )
+
   it.each([
     'Can I borrow a wheelchair when I arrive?',
     'Is the cafe busy today?',
@@ -51,6 +62,8 @@ describe('guestTodayStatusQuestion', () => {
     "We're on our way, is parking free?",
     'Anything good to do this afternoon?',
     'Is it open now?',
+    'May I visit today?',
+    'We may be planning to visit, can we rent a stroller?',
   ])('turns on for today, arrival or plan wording: %s', (question) => {
     expect(guestTodayStatusQuestion(question)).toBe(true)
   })
@@ -59,6 +72,9 @@ describe('guestTodayStatusQuestion', () => {
     'Can I borrow a wheelchair tomorrow?',
     'Is it open on Saturday?',
     'Are you open on December 26?',
+    'I am planning to visit May 10. What can we do?',
+    'I am planning to visit 10 May. What can we do?',
+    'I am planning to visit 2027-04-10. What can we do?',
     'What animals live here?',
     'Can I bring a dog?',
     'We visited last year, is the maze still there?',
