@@ -187,8 +187,14 @@ async function createProviderResponse(params: {
   maxOutputTokens: number
   timeoutMs: number
   onTextDelta?: (delta: string) => void | Promise<void>
+  reasoningEffort?: 'low'
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
+}): Promise<{
+  text: string
+  usage: AiTokenUsage
+  incomplete?: boolean
+  incompleteReason?: string
+}> {
   const options = { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) }
   switch (params.spec.provider) {
     case 'openai':
@@ -363,6 +369,9 @@ export async function generateText<TParsed = string>(params: {
   let lastError: unknown
   let dispatchRecorded = false
   let textEmitted = false
+  // Set after a high-effort OpenAI attempt spends its whole output cap reasoning and streams
+  // nothing; the next attempt answers at low effort instead of the guest getting a fallback.
+  let reasoningEffortOverride: 'low' | undefined
 
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
     throw new Error('maxAttempts must be a positive integer')
@@ -506,6 +515,7 @@ export async function generateText<TParsed = string>(params: {
         messages: params.messages,
         maxOutputTokens,
         timeoutMs,
+        ...(reasoningEffortOverride ? { reasoningEffort: reasoningEffortOverride } : {}),
         ...(params.onTextDelta
           ? {
               onTextDelta: async (delta: string) => {
@@ -532,6 +542,35 @@ export async function generateText<TParsed = string>(params: {
         }
       }
       const text = response.text
+      const reasoningExhausted =
+        response.incomplete === true &&
+        response.incompleteReason === 'max_output_tokens' &&
+        spec.provider === 'openai' &&
+        spec.reasoningEffort === 'high' &&
+        !reasoningEffortOverride &&
+        !textEmitted &&
+        attempt < maxAttempts
+      if (reasoningExhausted) {
+        await recordUsageBestEffort(params.usageSink, {
+          usageObservationStatus: 'OBSERVED',
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: spec.pricingVersion,
+          usage,
+          estimatedCostUsd: estimateCostUsd(params.modelKey, usage),
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt,
+          success: false,
+          errorCode: 'provider-reasoning-exhausted',
+        })
+        lastError = new AiGatewayError('Provider reasoning used the whole output cap', {
+          attempts: attempt,
+          code: 'provider-reasoning-exhausted',
+          usageRecorded: true,
+        })
+        reasoningEffortOverride = 'low'
+        continue
+      }
       if (response.incomplete || !text) {
         const gatewayError = new AiGatewayError(
           response.incomplete

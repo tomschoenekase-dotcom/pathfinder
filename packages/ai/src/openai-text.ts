@@ -264,14 +264,24 @@ export function setOpenAiResponsesClientForTesting(
   if (client) openAiResponsesClients.set('openai', client)
 }
 
+export type OpenAiTextResult = {
+  text: string
+  usage: AiTokenUsage
+  incomplete?: boolean
+  /** The provider's incomplete_details.reason, such as max_output_tokens. */
+  incompleteReason?: string
+}
+
 export async function createOpenAiTextResponse(params: {
   spec: AiModelSpec
   system: AiSystemBlock[]
   messages: AiMessage[]
   maxOutputTokens: number
   timeoutMs: number
+  /** Overrides the spec's effort for one attempt (gateway reasoning-exhaustion retry). */
+  reasoningEffort?: 'low'
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
+}): Promise<OpenAiTextResult> {
   const prompt = promptInput(
     params.spec.provider,
     params.spec.model,
@@ -283,7 +293,12 @@ export async function createOpenAiTextResponse(params: {
       model: params.spec.model,
       ...prompt,
       max_output_tokens: params.maxOutputTokens,
-      reasoning: { effort: params.spec.reasoningEffort ?? reasoningEffort(params.spec.model) },
+      reasoning: {
+        effort:
+          params.reasoningEffort ??
+          params.spec.reasoningEffort ??
+          reasoningEffort(params.spec.model),
+      },
       ...(params.spec.serviceTier ? { service_tier: params.spec.serviceTier } : {}),
       store: false,
     },
@@ -309,6 +324,9 @@ export async function createOpenAiTextResponse(params: {
       .trim()
   return {
     ...(incomplete ? { incomplete: true as const } : {}),
+    ...(incomplete && response.incomplete_details?.reason
+      ? { incompleteReason: response.incomplete_details.reason }
+      : {}),
     text,
     usage: tokenUsage(response.usage, hasExplicitBreakpoint(prompt)),
   }
@@ -321,8 +339,9 @@ export async function createOpenAiTextStream(params: {
   maxOutputTokens: number
   timeoutMs: number
   onTextDelta: (delta: string) => void | Promise<void>
+  reasoningEffort?: 'low'
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
+}): Promise<OpenAiTextResult> {
   const prompt = promptInput(
     params.spec.provider,
     params.spec.model,
@@ -334,7 +353,12 @@ export async function createOpenAiTextStream(params: {
       model: params.spec.model,
       ...prompt,
       max_output_tokens: params.maxOutputTokens,
-      reasoning: { effort: params.spec.reasoningEffort ?? reasoningEffort(params.spec.model) },
+      reasoning: {
+        effort:
+          params.reasoningEffort ??
+          params.spec.reasoningEffort ??
+          reasoningEffort(params.spec.model),
+      },
       ...(params.spec.serviceTier ? { service_tier: params.spec.serviceTier } : {}),
       store: false,
       stream: true,
@@ -386,6 +410,9 @@ export async function createOpenAiTextStream(params: {
     streamedText.trim()
   return {
     ...(incomplete ? { incomplete: true as const } : {}),
+    ...(incomplete && completedResponse.incomplete_details?.reason
+      ? { incompleteReason: completedResponse.incomplete_details.reason }
+      : {}),
     text: finalText,
     usage: tokenUsage(completedResponse.usage, hasExplicitBreakpoint(prompt)),
   }
