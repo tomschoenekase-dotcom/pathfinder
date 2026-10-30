@@ -550,3 +550,74 @@ describe('guest source notes', () => {
     expect(units.map((unit) => unit.kind)).toEqual(['place', 'topic', 'topic', 'topic'])
   })
 })
+
+describe('source span numeric boundaries', () => {
+  const sample =
+    '<topic title="Fictional shuttle">\nThe shuttle has 312 seats. Prices are $12.50 and $25. Vans have 9–16 seats.\n</topic>'
+  const check = (value: string, valueKind: GuestSourceNoteRow['valueKind'] = 'single') =>
+    noteFor(sample, [row({ value, valueKind, evidence: ['The shuttle has 312 seats.'] })])
+      .validation
+
+  it.each(['12', '$12', '50', '2.50'])('rejects a partial numeric token %s', (value) => {
+    expect(check(value)).toMatchObject({ ok: false, reason: 'SPAN_NOT_IN_SOURCE' })
+  })
+
+  it.each(['312', '$12.50', '$25', '9', '16'])('keeps a complete numeric token %s', (value) => {
+    expect(check(value)).toEqual({ ok: true })
+  })
+
+  it('rejects two unrelated numbers labelled as a range', () => {
+    expect(check('$12.50 and $25', 'range')).toMatchObject({ ok: false, reason: 'RANGE_ENDPOINTS' })
+  })
+
+  it('keeps an explicit interval with both endpoints', () => {
+    expect(check('9–16', 'range')).toEqual({ ok: true })
+  })
+})
+
+describe('numeric occurrence selection', () => {
+  it('accepts a later complete occurrence after an earlier numeric substring', () => {
+    const sample = '<topic title="Fictional tickets">\nGroups of 312; tickets cost 12.\n</topic>'
+    expect(
+      noteFor(sample, [row({ value: '12', valueKind: 'single', evidence: ['tickets cost 12.'] })])
+        .validation,
+    ).toEqual({ ok: true })
+  })
+
+  it.each(['9 to 16', '9 through 16', '9 until 16', '9–16', '$9–$16', '10 am–12 pm'])(
+    'accepts a copied interval %s',
+    (value) => {
+      const sample = `<topic title="Fictional interval">\nThe interval is ${value}.\n</topic>`
+      expect(
+        noteFor(sample, [
+          row({ value, valueKind: 'range', evidence: [`The interval is ${value}.`] }),
+        ]).validation,
+      ).toEqual({ ok: true })
+    },
+  )
+})
+
+describe('range syntax and alphanumeric boundaries', () => {
+  const check = (body: string, value: string, valueKind: GuestSourceNoteRow['valueKind']) => {
+    const sample = `<topic title="Fictional admission">\n${body}\n</topic>`
+    return noteFor(sample, [row({ value, valueKind, evidence: [body] })]).validation
+  }
+
+  it('rejects a hyphen in unrelated prose between two prices', () => {
+    const body = '$12 for adults; child-friendly activities cost $8'
+    expect(check(body, body, 'range')).toMatchObject({ ok: false, reason: 'RANGE_ENDPOINTS' })
+  })
+
+  it('accepts a between-and interval', () => {
+    expect(check('Groups contain between 5 and 15 people.', 'between 5 and 15', 'range')).toEqual({
+      ok: true,
+    })
+  })
+
+  it.each(['A12B', 'A12', '12B'])('rejects a numeric substring of %s', (token) => {
+    expect(check(`Identifier ${token}.`, '12', 'single')).toMatchObject({
+      ok: false,
+      reason: 'SPAN_NOT_IN_SOURCE',
+    })
+  })
+})

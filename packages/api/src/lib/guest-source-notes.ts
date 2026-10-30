@@ -180,6 +180,23 @@ function noteShapeValid(note: unknown): note is GuestSourceNote {
   })
 }
 
+// Syntax only: adjacent numeric endpoints, optionally with one unit word before the
+// connector. A dash elsewhere in intervening prose is not a range. This intentionally does
+// not decide whether the interval measures the row's label or whether a single row lost one.
+const intervalNumber = String.raw`\d+(?:[.,]\d+)*(?::\d+)?`
+const intervalLeft = `${intervalNumber}(?:\\s*[a-z%]+\\.?)?`
+const intervalRight = `[$£€]?\\s*${intervalNumber}`
+const numericInterval = new RegExp(
+  `${intervalLeft}\\s*(?:-|\\bto\\b|\\bthrough\\b|\\buntil\\b)\\s*${intervalRight}`,
+  'u',
+)
+const betweenInterval = new RegExp(
+  `\\bbetween\\s+[$£€]?\\s*${intervalLeft}\\s+and\\s+${intervalRight}`,
+  'u',
+)
+const hasNumericInterval = (value: string) =>
+  numericInterval.test(value) || betweenInterval.test(value)
+
 const labelValid = (label: string, required: boolean) =>
   (required ? label.trim().length > 0 : true) &&
   label.length <= MAX_LABEL_CHARS &&
@@ -209,9 +226,32 @@ export function validateGuestSourceNote(
     return fail('METHOD', 'method')
   if (note.rows.length > MAX_ROWS || note.unclear.length > MAX_LIST) return fail('SHAPE', 'count')
   const source = foldGuestSourceText(unitText)
+  // A copied span may not cut through a number, including its decimal/grouping separators.
+  // Check occurrences rather than just includes: a later complete occurrence may still qualify.
+  const numericTokens = [...source.matchAll(/\d+(?:[.,]\d+)*/gu)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }))
   const inSource = (span: string) => {
     const folded = foldGuestSourceText(span)
-    return folded.length > 0 && span.length <= MAX_SPAN_CHARS && source.includes(folded)
+    if (!folded.length || span.length > MAX_SPAN_CHARS) return false
+    for (
+      let start = source.indexOf(folded);
+      start >= 0;
+      start = source.indexOf(folded, start + 1)
+    ) {
+      const end = start + folded.length
+      if (/^\d/u.test(folded) && /\p{L}$/u.test(source.slice(0, start))) continue
+      if (/\d$/u.test(folded) && /^\p{L}/u.test(source.slice(end))) continue
+      if (
+        numericTokens.every(
+          (token) =>
+            token.end <= start || token.start >= end || (token.start >= start && token.end <= end),
+        )
+      )
+        return true
+    }
+    return false
   }
   for (const span of note.unclear) if (!inSource(span)) return fail('SPAN_NOT_IN_SOURCE', span)
   for (const row of note.rows) {
@@ -229,8 +269,9 @@ export function validateGuestSourceNote(
     const unknown = row.valueKind === 'UNKNOWN' || row.valueKind === 'UNRESOLVED'
     if (unknown ? row.value !== row.valueKind : !inSource(row.value))
       return fail('SPAN_NOT_IN_SOURCE', row.value)
-    // A range keeps both of its endpoints; one number is a collapsed range.
-    if (row.valueKind === 'range' && (row.value.match(/\d+(?:[.,]\d+)?/gu) ?? []).length < 2)
+    // A range needs two endpoints joined as an interval, not merely any two numbers.
+    // Occurrence checks above keep both endpoints intact; semantic relevance still needs review.
+    if (row.valueKind === 'range' && !hasNumericInterval(foldGuestSourceText(row.value)))
       return fail('RANGE_ENDPOINTS', row.value)
     for (const span of [row.appliesTo, row.when])
       if (span && !inSource(span)) return fail('SPAN_NOT_IN_SOURCE', span)
