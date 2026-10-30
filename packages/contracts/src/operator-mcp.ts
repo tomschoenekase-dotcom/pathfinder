@@ -623,6 +623,17 @@ export const OPERATOR_MCP_INPUTS = {
     ...OrganizationFilters,
     size: z.enum(['XS', 'S', 'M', 'L', 'XL']).optional(),
     uncontacted: z.boolean().optional(),
+    outreachView: z
+      .enum([
+        'neverContacted',
+        'firstFollowupDue',
+        'finalFollowupDue',
+        'inConversation',
+        'deferred',
+        'stopped',
+        'historyNeedsReview',
+      ])
+      .optional(),
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
@@ -1724,6 +1735,38 @@ const OperatorContact = z
   })
   .strict()
 
+const OperatorOutreachHistory = z
+  .object({
+    canonicalOrganizationId: Identifier,
+    organizationIds: z.array(Identifier),
+    coldEmailCount: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).nullable(),
+    lastColdEmailAt: IsoDateTime.nullable(),
+    firstHumanReply: z.enum(['after1', 'after2', 'after3', 'otherUnknown', 'noReply']),
+    relationship: z.enum([
+      'prospect',
+      'awaitingReply',
+      'inConversation',
+      'deferred',
+      'declined',
+      'customer',
+      'closed',
+    ]),
+    nextEligibleAt: IsoDateTime.nullable(),
+    eligibility: z.enum(['eligible', 'hold', 'stopped']),
+    eligibilityReason: z.string(),
+    contactHealth: z.enum([
+      'healthy',
+      'unverified',
+      'bounced',
+      'suppressed',
+      'policyBlocked',
+      'unknown',
+    ]),
+    historyComplete: z.boolean(),
+    reasons: z.array(z.string()),
+  })
+  .strict()
+
 const OperatorOrganization = z
   .object({
     organizationId: Identifier,
@@ -1735,6 +1778,7 @@ const OperatorOrganization = z
     version: z.number().int().nonnegative(),
     sizeClass: z.string().max(10).nullable(),
     contacted: z.boolean(),
+    outreachHistory: OperatorOutreachHistory.optional(),
   })
   .strict()
 
@@ -2826,6 +2870,7 @@ const OutreachContextBlocker = z
 const OperatorOutreachContext = z
   .object({
     packVersion: z.literal('outreach-context-v1'),
+    outreachHistory: OperatorOutreachHistory.optional(),
     generatedAt: IsoDateTime,
     /** SHA-256 over the ids and versions of every record the pack read: equal records give an equal value. */
     sourceFingerprint: Sha256Hex,

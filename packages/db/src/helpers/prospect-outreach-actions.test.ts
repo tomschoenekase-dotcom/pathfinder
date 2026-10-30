@@ -1,3 +1,7 @@
+vi.mock('./prospect-outreach-history', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./prospect-outreach-history')>()),
+  requireProspectOutreachHistory: vi.fn().mockResolvedValue({ eligibility: 'eligible' }),
+}))
 import { describe, expect, it, vi } from 'vitest'
 
 import {

@@ -84,6 +84,7 @@ export type NormalizedProviderMessage = Readonly<{
    * It is evidence for operator review only: never a reply and never verified delivery state.
    */
   deliveryStatusNotice?: true
+  automatedReplyKind?: 'automated' | 'outOfOffice'
 }>
 
 export type ProviderSyncPage = Readonly<{

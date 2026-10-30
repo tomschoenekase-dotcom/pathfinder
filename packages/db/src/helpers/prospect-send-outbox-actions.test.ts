@@ -1,3 +1,7 @@
+vi.mock('./prospect-outreach-history', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./prospect-outreach-history')>()),
+  requireProspectOutreachHistory: vi.fn().mockResolvedValue({ eligibility: 'eligible' }),
+}))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import { launchAttachmentsSha256 } from '@pathfinder/contracts/venue-launch-asset-node'
@@ -16,6 +20,10 @@ import {
   recordProspectSendFailureAction,
   revalidateProspectSendOutboxClaimAction,
 } from './prospect-send-outbox-actions'
+import {
+  requireProspectOutreachHistory,
+  ProspectOutreachHistoryError,
+} from './prospect-outreach-history'
 import { prospectOperationalContentHash } from './prospect-launch-attachments'
 
 const qrUrl = 'https://guide.example.com/venue/chat?source=qr'
@@ -733,7 +741,12 @@ describe('prospect frozen launch attachment readback', () => {
 })
 
 describe('prospect reply stop boundary', () => {
-  beforeEach(() => attachmentMocks.current.mockReset())
+  beforeEach(() => {
+    attachmentMocks.current.mockReset()
+    vi.mocked(requireProspectOutreachHistory)
+      .mockReset()
+      .mockResolvedValue({ eligibility: 'eligible' } as never)
+  })
   const now = new Date('2026-08-22T16:00:00.000Z')
   const createdAt = new Date('2026-08-22T15:00:00.000Z')
   const recipient = 'prospect@example.test'
@@ -752,6 +765,7 @@ describe('prospect reply stop boundary', () => {
     },
     sendItem: {
       id: 'item-1',
+      draft: { id: 'draft-1', groundingSnapshot: { outreachKind: 'cold' } },
       createdAt,
       recipientEmailSnapshot: recipient,
       recipientIdentityHash: createHash('sha256').update(recipient).digest('hex'),
@@ -814,6 +828,28 @@ describe('prospect reply stop boundary', () => {
     expect(tx.prospectEmailMessage.findFirst).not.toHaveBeenCalled()
   })
 
+  it('cancels before provider permission when shared account history becomes ineligible', async () => {
+    const { client, tx } = clientFor()
+    vi.mocked(requireProspectOutreachHistory).mockRejectedValueOnce(
+      new ProspectOutreachHistoryError('OUTREACH_HISTORY_HOLD: history_incomplete'),
+    )
+    Object.assign(tx, { prospectSendBatch: { findUnique: vi.fn().mockResolvedValue(null) } })
+    await expect(
+      revalidateProspectSendOutboxClaimAction(
+        { outboxId: 'outbox-1', workerId: 'worker-1', now },
+        client as never,
+      ),
+    ).resolves.toBe(false)
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'CANCELLED',
+          lastErrorCode: 'OUTREACH_HISTORY_HOLD',
+        }),
+      }),
+    )
+  })
+
   it('queries exact organization/contact/from scope and createdAt boundary', async () => {
     const { client, tx } = clientFor()
     await expect(
@@ -834,7 +870,6 @@ describe('prospect reply stop boundary', () => {
           }),
         ]),
       }),
-      select: { id: true },
     })
   })
 
@@ -863,8 +898,9 @@ describe('prospect reply stop boundary', () => {
           launchAttachmentsSha256: attachmentHash,
         },
         draft: {
+          id: 'draft-1',
           venueId: 'venue-1',
-          groundingSnapshot: { launchAttachments: [frozenPdfAsset] },
+          groundingSnapshot: { outreachKind: 'cold', launchAttachments: [frozenPdfAsset] },
         },
         member: {
           ...claimed.sendItem.member,

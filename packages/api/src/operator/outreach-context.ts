@@ -1,3 +1,4 @@
+import type { ProspectOutreachHistoryProjection } from '@pathfinder/db'
 import { createHash } from 'node:crypto'
 
 import { PROSPECT_ELIGIBILITY_REASON_TEXT, type ProspectEligibilityReason } from '@pathfinder/db'
@@ -62,6 +63,7 @@ export type OutreachEligibility = {
 }
 
 export type OutreachContextInput = {
+  outreachHistory?: ProspectOutreachHistoryProjection
   now: Date
   organization: {
     id: string
@@ -326,6 +328,14 @@ export function buildOutreachContext(input: OutreachContextInput) {
         }.`,
       })
     }
+  }
+  if (input.outreachHistory && input.outreachHistory.eligibility !== 'eligible') {
+    blockers.push({
+      code: 'outreach_history_hold',
+      scope: 'account',
+      contactId: null,
+      text: input.outreachHistory.eligibilityReason.slice(0, 300),
+    })
   }
   const allowed = blockers.length === 0
 
@@ -632,6 +642,7 @@ export function buildOutreachContext(input: OutreachContextInput) {
     .update(
       stableJson({
         v: OUTREACH_CONTEXT_PACK_VERSION,
+        ...(input.outreachHistory ? { outreachHistory: input.outreachHistory } : {}),
         org: [org.id, org.updatedAt.toISOString(), org.stage, org.archived],
         venue: input.venue ? [input.venue.row.id, input.venue.row.updatedAt.toISOString()] : null,
         contact: chosen

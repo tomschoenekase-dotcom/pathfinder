@@ -1,5 +1,11 @@
 'use client'
 
+import {
+  OUTREACH_VIEWS,
+  ProspectOutreachHistorySummary,
+  type OutreachView,
+} from './ProspectOutreachHistorySummary'
+
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -100,6 +106,10 @@ export function ProspectDirectory({
     const value = searchParams.get('emailReadiness')
     return ['READY', 'MISSING', 'SUPPRESSED'].includes(value ?? '') ? (value as EmailReadiness) : ''
   })
+  const [outreachView, setOutreachView] = useState<OutreachView | ''>(() => {
+    const value = searchParams.get('outreachView') ?? ''
+    return value in OUTREACH_VIEWS ? (value as OutreachView) : ''
+  })
   const [goodFit, setGoodFit] = useState(() => searchParams.get('goodFit') === 'true')
   const [goodFitRules, setGoodFitRules] = useState<ProspectGoodFitRules>(
     defaultProspectGoodFitRules,
@@ -138,6 +148,7 @@ export function ProspectDirectory({
 
   const filters = useMemo(
     () => ({
+      ...(outreachView ? { outreachView } : {}),
       ...(search.trim() ? { search: search.trim() } : {}),
       ...(stage ? { stage } : {}),
       ...(priority ? { priority } : {}),
@@ -147,12 +158,24 @@ export function ProspectDirectory({
       ...(goodFit ? { goodFit: true, goodFitRules } : {}),
       ...(territoryId ? { territoryId } : {}),
     }),
-    [emailReadiness, goodFit, goodFitRules, nextAction, priority, search, stage, territoryId, tier],
+    [
+      outreachView,
+      emailReadiness,
+      goodFit,
+      goodFitRules,
+      nextAction,
+      priority,
+      search,
+      stage,
+      territoryId,
+      tier,
+    ],
   )
 
   useEffect(() => {
     const next = new URLSearchParams(searchParams.toString())
     const values = {
+      outreachView,
       search: search.trim(),
       stage,
       priority,
@@ -170,6 +193,7 @@ export function ProspectDirectory({
     if (query !== searchParams.toString())
       router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }, [
+    outreachView,
     emailReadiness,
     goodFit,
     nextAction,
@@ -328,6 +352,11 @@ export function ProspectDirectory({
 
   function applyView(view: SavedView) {
     const value = view.filters as Record<string, unknown>
+    setOutreachView(
+      typeof value.outreachView === 'string' && value.outreachView in OUTREACH_VIEWS
+        ? (value.outreachView as OutreachView)
+        : '',
+    )
     setSearch(typeof value.search === 'string' ? value.search : '')
     setStage(STAGES.includes(value.stage as Stage) ? (value.stage as Stage) : '')
     setPriority(
@@ -557,6 +586,22 @@ export function ProspectDirectory({
             options={['STRATEGIC', 'HIGH_VALUE', 'STANDARD']}
             empty="All tiers"
           />
+          <label className="block text-xs font-semibold text-slate-600">
+            Outreach history
+            <select
+              aria-label="Outreach history"
+              value={outreachView}
+              onChange={(event) => setOutreachView(event.target.value as OutreachView | '')}
+              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="">Any outreach history</option>
+              {Object.entries(OUTREACH_VIEWS).map(([value, text]) => (
+                <option key={value} value={value}>
+                  {text}
+                </option>
+              ))}
+            </select>
+          </label>
           <FilterSelect
             labelText="Email readiness"
             value={emailReadiness}
@@ -810,7 +855,26 @@ export function ProspectDirectory({
         ) : !result?.items.length ? (
           <div className="p-12 text-center">
             <Building2 className="mx-auto h-8 w-8 text-slate-300" />
-            <p className="mt-3 font-semibold text-slate-900">No prospects match this view</p>
+            <p className="mt-3 font-semibold text-slate-900">
+              {result?.nextCursor
+                ? 'No matches in this scan window'
+                : 'No prospects match this view'}
+            </p>
+            {result?.nextCursor ? (
+              <>
+                <p className="mt-2 text-sm text-slate-600">
+                  More records remain. Continue scanning with these filters.
+                </p>
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => void loadMore()}
+                  className="mt-3 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  {loadingMore ? 'Scanning…' : 'Continue scan'}
+                </button>
+              </>
+            ) : null}
           </div>
         ) : (
           <>
@@ -846,6 +910,9 @@ export function ProspectDirectory({
                         {item.venues[0]?.name ?? 'Organization prospect'} ·{' '}
                         {item.territory?.name ?? 'Unassigned territory'}
                       </p>
+                      <div className="mt-2">
+                        <ProspectOutreachHistorySummary history={item.outreachHistory} />
+                      </div>
                       {goodFit && item.venues[0]?.goodFit ? (
                         <p className="mt-2 text-xs leading-5 text-slate-700">
                           {item.venues[0].goodFit.reason}

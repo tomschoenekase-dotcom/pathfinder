@@ -1,3 +1,4 @@
+import { loadProspectOutreachHistory } from '@pathfinder/db'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import type { OperatorDatabase } from '../audit'
@@ -342,7 +343,8 @@ export async function loadOutreachContext(
     evidenceTotal,
     evidence,
   }
-  const context = buildOutreachContext(input)
+  const outreachHistory = await loadProspectOutreachHistory(database, organizationId, { now })
+  const context = buildOutreachContext({ ...input, outreachHistory })
   // Import evidence is a source claim, never a verified Gmail message or delivery receipt.
   const importedEvidence = await database.prospectSourceEvidence.findMany({
     where: { organizationId, importRowId: { not: null } },
@@ -352,6 +354,7 @@ export async function loadOutreachContext(
   })
   return {
     ...context,
+    outreachHistory,
     correspondence: {
       ...context.correspondence,
       importedReferences: {

@@ -101,20 +101,41 @@ export async function applyVerifiedProspectEmailEventAction(
       })
     }
     if ((next === 'BOUNCED' || next === 'COMPLAINED') && item.member.contact) {
-      const reasonCode = next === 'BOUNCED' ? 'PROVIDER_HARD_BOUNCE' : 'PROVIDER_COMPLAINT'
+      const deliveryDetail = JSON.stringify(input.payload ?? {}).slice(0, 20_000)
+      const policyBlock =
+        next === 'BOUNCED' &&
+        /5\.7\.\d|access denied|policy|spam|dmarc|blocked/iu.test(deliveryDetail)
+      const invalidAddress =
+        next === 'BOUNCED' &&
+        !policyBlock &&
+        /5\.1\.[12]|invalid recipient|user unknown|mailbox (?:does not exist|not found)|no such (?:user|mailbox)|recipient not found/iu.test(
+          deliveryDetail,
+        )
+      const reasonCode =
+        next === 'COMPLAINED'
+          ? 'PROVIDER_COMPLAINT'
+          : policyBlock
+            ? 'PROVIDER_POLICY_BLOCK'
+            : invalidAddress
+              ? 'PROVIDER_HARD_BOUNCE'
+              : 'PROVIDER_BOUNCE_REVIEW_REQUIRED'
       await tx.prospectContact.update({
         where: { id: item.member.contact.id },
         data: {
           doNotContact: true,
           suppressedAt: input.occurredAt,
           suppressionReason: reasonCode,
-          emailReadiness: 'INVALID',
+          ...(invalidAddress
+            ? { emailReadiness: 'INVALID', lastHardBounceAt: input.occurredAt }
+            : {}),
+          ...(policyBlock ? { permissionState: 'PROHIBITED' } : {}),
         },
       })
       await tx.prospectContactSuppressionEvent.create({
         data: {
           contactId: item.member.contact.id,
-          eventType: next === 'BOUNCED' ? 'HARD_BOUNCE' : 'COMPLAINT',
+          eventType:
+            next === 'BOUNCED' ? (invalidAddress ? 'HARD_BOUNCE' : 'SUPPRESSED') : 'COMPLAINT',
           source: 'PROVIDER',
           reasonCode,
           provider: item.providerAccount?.provider ?? 'GMAIL',

@@ -7,9 +7,18 @@ import {
 import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 
 import { db } from '../client'
+import {
+  ProspectOutreachHistoryError,
+  isProspectKnownAutomatedReply,
+  requireProspectOutreachHistory,
+  recordProspectOutreachMessageEvidence,
+  prospectDraftOutreachKind,
+} from './prospect-outreach-history'
 import { evaluateProspectSendRatePolicy } from './prospect-send-rate-policy'
 import {
   prospectOperationalContentHash,
+  prospectOutreachIntentSnapshot,
+  requireSameProspectOutreachIntent,
   requireCurrentProspectLaunchAttachments,
   requireSameLaunchAttachments,
 } from './prospect-launch-attachments'
@@ -65,6 +74,21 @@ function readFrozenLaunchAttachments(sendItem: {
   draft?: { groundingSnapshot: unknown } | null
 }): VenueLaunchAsset[] {
   const attachments = launchAttachmentsFromSnapshot(sendItem.headerSnapshot)
+  if (Object.keys(prospectOutreachIntentSnapshot(sendItem.headerSnapshot)).length) {
+    if (!sendItem.draft)
+      throw new ProspectSendOutboxError('CONFLICT', 'Frozen draft snapshot is missing')
+    requireSameProspectOutreachIntent(sendItem.draft.groundingSnapshot, sendItem.headerSnapshot)
+    if (
+      prospectOperationalContentHash(
+        sendItem.recipientEmailSnapshot,
+        sendItem.subjectSnapshot,
+        sendItem.textBodySnapshot,
+        sendItem.htmlBodySnapshot ?? '',
+        sendItem.headerSnapshot,
+      ) !== sendItem.contentHashSnapshot
+    )
+      throw new ProspectSendOutboxError('CONFLICT', 'Frozen outreach intent changed after approval')
+  }
   if (!attachments.length) return attachments
   if (!sendItem.draft)
     throw new ProspectSendOutboxError('CONFLICT', 'Frozen draft snapshot is missing')
@@ -81,7 +105,7 @@ function readFrozenLaunchAttachments(sendItem: {
     sendItem.subjectSnapshot,
     sendItem.textBodySnapshot,
     sendItem.htmlBodySnapshot ?? '',
-    { launchAttachments: attachments },
+    { ...prospectOutreachIntentSnapshot(sendItem.headerSnapshot), launchAttachments: attachments },
   )
   if (contentHash !== sendItem.contentHashSnapshot) {
     throw new ProspectSendOutboxError(
@@ -157,7 +181,7 @@ function recipientEligibility(
 }
 
 async function prospectReplyExistsBeforeProvider(
-  tx: Pick<TransactionClient, 'prospectEmailMessage'>,
+  tx: Pick<TransactionClient, 'prospectEmailMessage' | 'prospectActivity'>,
   sendItem: {
     createdAt: Date
     recipientEmailSnapshot: string
@@ -165,24 +189,31 @@ async function prospectReplyExistsBeforeProvider(
   },
 ): Promise<boolean> {
   if (sendItem.member.status === 'REPLIED') return true
-  const reply = await tx.prospectEmailMessage.findFirst({
-    where: {
-      organizationId: sendItem.member.organizationId,
-      direction: 'INBOUND',
-      createdAt: { gte: sendItem.createdAt },
-      OR: [
-        {
-          fromAddress: { equals: sendItem.recipientEmailSnapshot, mode: 'insensitive' },
-        },
-        {
-          thread: { messages: { some: { sendItem: { memberId: sendItem.member.id } } } },
-        },
-        ...(sendItem.member.contactId ? [{ contactId: sendItem.member.contactId }] : []),
-      ],
-    },
-    select: { id: true },
-  })
-  return Boolean(reply)
+  const excluded: string[] = []
+  do {
+    const reply = await tx.prospectEmailMessage.findFirst({
+      where: {
+        organizationId: sendItem.member.organizationId,
+        ...(excluded.length ? { id: { notIn: excluded } } : {}),
+        direction: 'INBOUND',
+        createdAt: { gte: sendItem.createdAt },
+        OR: [
+          {
+            fromAddress: { equals: sendItem.recipientEmailSnapshot, mode: 'insensitive' },
+          },
+          {
+            thread: { messages: { some: { sendItem: { memberId: sendItem.member.id } } } },
+          },
+          ...(sendItem.member.contactId ? [{ contactId: sendItem.member.contactId }] : []),
+        ],
+      },
+    })
+    if (!reply) return false
+    if (excluded.includes(reply.id) || !(await isProspectKnownAutomatedReply(tx, reply)))
+      return true
+    excluded.push(reply.id)
+  } while (excluded.length > 0)
+  return false
 }
 
 export async function finalizeProspectSendBatch(
@@ -453,6 +484,49 @@ export async function claimProspectSendOutboxAction(
     // The first provider call may already have succeeded. Recovery only reads the
     // sent mailbox and compares this exact frozen envelope; it cannot dispatch.
     if (reconcileOnly) {
+      if (operation.attemptCount <= 1) {
+        try {
+          await requireProspectOutreachHistory(
+            tx,
+            sendItem.member.organizationId,
+            sendItem.draft.groundingSnapshot,
+            {
+              now,
+              excludeDraftId: sendItem.draft.id,
+              ...(sendItem.member.contactId ? { contactId: sendItem.member.contactId } : {}),
+            },
+          )
+        } catch (error) {
+          if (!(error instanceof ProspectOutreachHistoryError)) throw error
+          const stopped = await tx.prospectSendOutbox.updateMany({
+            where: {
+              id: operation.id,
+              status: 'CLAIMED',
+              claimOwner: input.workerId,
+              claimExpiresAt: { equals: operation.claimExpiresAt, gt: input.now ?? new Date() },
+            },
+            data: {
+              status: 'CANCELLED',
+              terminalAt: now,
+              claimOwner: null,
+              claimExpiresAt: null,
+              lastErrorCode: 'OUTREACH_HISTORY_HOLD',
+              lastErrorMessage: error.message,
+              lastErrorRetryable: false,
+            },
+          })
+          if (stopped.count !== 1) return { send: null, terminalBatchId: null }
+          await tx.prospectSendItem.update({
+            where: { id: sendItem.id },
+            data: {
+              status: 'CANCELLED',
+              lastErrorCode: 'OUTREACH_HISTORY_HOLD',
+              lastErrorMessage: error.message,
+            },
+          })
+          return { send: null, terminalBatchId: sendItem.batchId }
+        }
+      }
       if (!providerAccount.credentialReferenceId) {
         await tx.prospectSendOutbox.update({
           where: { id: operation.id },
@@ -792,6 +866,50 @@ export async function revalidateProspectSendOutboxClaimAction(
       terminalBatchId = sendItem.batchId
       return false
     }
+    if (operation.attemptCount <= 1) {
+      try {
+        await requireProspectOutreachHistory(
+          tx,
+          sendItem.member.organizationId,
+          sendItem.draft.groundingSnapshot,
+          {
+            now,
+            excludeDraftId: sendItem.draft.id,
+            ...(sendItem.member.contactId ? { contactId: sendItem.member.contactId } : {}),
+          },
+        )
+      } catch (error) {
+        if (!(error instanceof ProspectOutreachHistoryError)) throw error
+        const stopped = await tx.prospectSendOutbox.updateMany({
+          where: {
+            id: operation.id,
+            status: 'CLAIMED',
+            claimOwner: input.workerId,
+            claimExpiresAt: { equals: operation.claimExpiresAt, gt: input.now ?? new Date() },
+          },
+          data: {
+            status: 'CANCELLED',
+            terminalAt: now,
+            claimOwner: null,
+            claimExpiresAt: null,
+            lastErrorCode: 'OUTREACH_HISTORY_HOLD',
+            lastErrorMessage: error.message,
+            lastErrorRetryable: false,
+          },
+        })
+        if (stopped.count !== 1) return false
+        await tx.prospectSendItem.update({
+          where: { id: sendItem.id },
+          data: {
+            status: 'CANCELLED',
+            lastErrorCode: 'OUTREACH_HISTORY_HOLD',
+            lastErrorMessage: error.message,
+          },
+        })
+        terminalBatchId = sendItem.batchId
+        return false
+      }
+    }
     return true
   })
   if (terminalBatchId) await finalizeProspectSendBatch(terminalBatchId, client)
@@ -897,6 +1015,7 @@ export async function recordProspectSendSuccessAction(
         sendItem: {
           include: {
             batch: true,
+            draft: true,
             member: { include: { organization: { include: { opportunity: true } } } },
           },
         },
@@ -979,6 +1098,14 @@ export async function recordProspectSendSuccessAction(
         occurredAt: acceptedAt,
       },
     })
+    const kind = prospectDraftOutreachKind(item.draft.groundingSnapshot)
+    await recordProspectOutreachMessageEvidence(
+      tx,
+      message,
+      kind === 'unknown' ? 'unknown' : kind,
+      'system:prospect-correspondence',
+      'Observed provider Sent; intent frozen in human-approved draft',
+    )
     await tx.prospectSendItem.update({
       where: { id: item.id },
       data: {

@@ -18,6 +18,7 @@ vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
   PROSPECT_OUTREACH_RELEASE_POLICY: { maxRecipients: 50 },
   ProspectOutreachError: class ProspectOutreachError extends Error {},
+  ProspectOutreachHistoryError: class ProspectOutreachHistoryError extends Error {},
 }))
 vi.mock('@pathfinder/jobs', () => ({
   enqueueProspectImportCommit: vi.fn(),

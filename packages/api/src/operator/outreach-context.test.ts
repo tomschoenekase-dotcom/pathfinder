@@ -431,3 +431,30 @@ describe('publicHttpsUrl', () => {
     expect(publicHttpsUrl(value)).toBe(expected)
   })
 })
+
+describe('canonical outreach history hold', () => {
+  it('withholds drafting when recipient history is incomplete', () => {
+    const pack = buildOutreachContext(
+      input({
+        outreachHistory: {
+          canonicalOrganizationId: 'org_1',
+          organizationIds: ['org_1'],
+          coldEmailCount: null,
+          lastColdEmailAt: null,
+          firstHumanReply: 'noReply',
+          relationship: 'prospect',
+          nextEligibleAt: null,
+          eligibility: 'hold',
+          eligibilityReason: 'History coverage needs review',
+          reasons: [],
+          contactHealth: 'unknown',
+          historyComplete: false,
+        },
+      }),
+    )
+    expect(pack.drafting.allowed).toBe(false)
+    expect(pack.drafting.blockers).toContainEqual(
+      expect.objectContaining({ code: 'outreach_history_hold' }),
+    )
+  })
+})

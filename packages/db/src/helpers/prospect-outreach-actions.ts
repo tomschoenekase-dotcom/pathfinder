@@ -7,6 +7,7 @@ import {
 import type { VenueLaunchAsset } from '@pathfinder/contracts/venue-launch-asset'
 
 import { db } from '../client'
+import { requireProspectOutreachHistory } from './prospect-outreach-history'
 import { writeAuditLogStrict } from './audit'
 import {
   evaluateProspectContactEligibility,
@@ -14,6 +15,8 @@ import {
 } from './prospect-eligibility'
 import {
   prospectOperationalContentHash,
+  prospectOutreachIntentSnapshot,
+  requireSameProspectOutreachIntent,
   requireCurrentProspectLaunchAttachments,
   requireSameLaunchAttachments,
 } from './prospect-launch-attachments'
@@ -282,6 +285,12 @@ export async function saveProspectOutreachDraftAction(
     if (!member.contact?.normalizedEmail || !draftEligibility?.eligible) {
       throw new ProspectOutreachError('SUPPRESSED', 'The selected contact is not email-ready')
     }
+    await requireProspectOutreachHistory(tx, member.organizationId, input.groundingSnapshot, {
+      ...(member.contactId ? { contactId: member.contactId } : {}),
+      ...(member.drafts[0] && ['NEEDS_REVIEW', 'APPROVED'].includes(member.drafts[0].status)
+        ? { excludeDraftId: member.drafts[0].id }
+        : {}),
+    })
     const launchAttachments = await currentDraftLaunchAttachments(
       member.venueId,
       input.groundingSnapshot,
@@ -405,7 +414,7 @@ export async function reviewProspectOutreachDraftAction(
       draft.subject,
       draft.textBody,
       draft.htmlBody ?? '',
-      { launchAttachments },
+      { ...prospectOutreachIntentSnapshot(draft.groundingSnapshot), launchAttachments },
     )
     if (reviewedContentHash !== draft.contentHash) {
       throw new ProspectOutreachError(
@@ -414,6 +423,10 @@ export async function reviewProspectOutreachDraftAction(
       )
     }
     if (input.approve) {
+      await requireProspectOutreachHistory(tx, draft.organizationId, draft.groundingSnapshot, {
+        excludeDraftId: draft.id,
+        ...(draft.contactId ? { contactId: draft.contactId } : {}),
+      })
       const acknowledged = new Set(input.acknowledgedEscalations ?? [])
       const missing = draft.escalationFlags.filter((flag) => !acknowledged.has(flag))
       if (missing.length)
@@ -473,6 +486,11 @@ export async function stageProspectSendBatchAction(
       },
       orderBy: { id: 'asc' },
     })
+    for (const draft of drafts)
+      await requireProspectOutreachHistory(tx, draft.organizationId, draft.groundingSnapshot, {
+        excludeDraftId: draft.id,
+        ...(draft.contactId ? { contactId: draft.contactId } : {}),
+      })
     const stagedEligibility = await Promise.all(
       drafts.map(async (draft) =>
         draft.contact?.normalizedEmail
@@ -506,7 +524,7 @@ export async function stageProspectSendBatchAction(
           draft.subject,
           draft.textBody,
           draft.htmlBody ?? '',
-          { launchAttachments },
+          { ...prospectOutreachIntentSnapshot(draft.groundingSnapshot), launchAttachments },
         )
         if (currentContentHash !== draft.contentHash) {
           throw new ProspectOutreachError(
@@ -544,6 +562,7 @@ export async function stageProspectSendBatchAction(
             headerSnapshot: {
               playbookVersion: PROSPECT_PLAYBOOK_VERSION,
               draftVersion: draft.version,
+              ...prospectOutreachIntentSnapshot(draft.groundingSnapshot),
               ...(launchAttachments.length
                 ? {
                     launchAttachments,
@@ -591,21 +610,38 @@ export async function approveProspectSendBatchAction(
         'Batch confirmation does not match the frozen recipient snapshot',
       )
     }
+    for (const item of batch.items)
+      await requireProspectOutreachHistory(
+        tx,
+        item.draft.organizationId,
+        item.draft.groundingSnapshot,
+        {
+          excludeDraftId: item.draft.id,
+          ...(item.draft.contactId ? { contactId: item.draft.contactId } : {}),
+        },
+      )
     const frozenAttachmentSnapshot = await Promise.all(
       batch.items.map(async (item) => {
         try {
           const draftAttachments = launchAttachmentsFromSnapshot(item.draft.groundingSnapshot)
           const frozenAttachments = launchAttachmentsFromSnapshot(item.headerSnapshot)
+          requireSameProspectOutreachIntent(item.draft.groundingSnapshot, item.headerSnapshot)
           requireSameLaunchAttachments(
             { launchAttachments: draftAttachments },
-            { launchAttachments: frozenAttachments },
+            {
+              ...prospectOutreachIntentSnapshot(item.headerSnapshot),
+              launchAttachments: frozenAttachments,
+            },
           )
           const reviewedContentHash = prospectOperationalContentHash(
             item.recipientEmailSnapshot,
             item.subjectSnapshot,
             item.textBodySnapshot,
             item.htmlBodySnapshot ?? '',
-            { launchAttachments: frozenAttachments },
+            {
+              ...prospectOutreachIntentSnapshot(item.headerSnapshot),
+              launchAttachments: frozenAttachments,
+            },
           )
           if (
             item.draft.contentHash !== item.contentHashSnapshot ||
@@ -615,7 +651,10 @@ export async function approveProspectSendBatchAction(
           }
           await currentDraftLaunchAttachments(
             item.draft.venueId,
-            { launchAttachments: frozenAttachments },
+            {
+              ...prospectOutreachIntentSnapshot(item.headerSnapshot),
+              launchAttachments: frozenAttachments,
+            },
             tx,
             input.verifiedCurrentPrintAssets,
           )
@@ -774,9 +813,13 @@ export async function releaseProspectSendBatchAction(
       const draftAttachments = launchAttachmentsFromSnapshot(item.draft.groundingSnapshot)
       const frozenAttachments = launchAttachmentsFromSnapshot(item.headerSnapshot)
       try {
+        requireSameProspectOutreachIntent(item.draft.groundingSnapshot, item.headerSnapshot)
         requireSameLaunchAttachments(
           { launchAttachments: draftAttachments },
-          { launchAttachments: frozenAttachments },
+          {
+            ...prospectOutreachIntentSnapshot(item.headerSnapshot),
+            launchAttachments: frozenAttachments,
+          },
         )
       } catch (error) {
         throw new ProspectOutreachError(
@@ -789,7 +832,10 @@ export async function releaseProspectSendBatchAction(
         item.subjectSnapshot,
         item.textBodySnapshot,
         item.htmlBodySnapshot ?? '',
-        { launchAttachments: frozenAttachments },
+        {
+          ...prospectOutreachIntentSnapshot(item.headerSnapshot),
+          launchAttachments: frozenAttachments,
+        },
       )
       if (currentContentHash !== item.contentHashSnapshot) {
         throw new ProspectOutreachError(
@@ -799,13 +845,25 @@ export async function releaseProspectSendBatchAction(
       }
       await currentDraftLaunchAttachments(
         item.draft.venueId,
-        { launchAttachments: frozenAttachments },
+        {
+          ...prospectOutreachIntentSnapshot(item.headerSnapshot),
+          launchAttachments: frozenAttachments,
+        },
         tx,
         input.verifiedCurrentPrintAssets,
       )
     }
 
     for (const item of batch.items) {
+      await requireProspectOutreachHistory(
+        tx,
+        item.draft.organizationId,
+        item.draft.groundingSnapshot,
+        {
+          excludeDraftId: item.draft.id,
+          ...(item.draft.contactId ? { contactId: item.draft.contactId } : {}),
+        },
+      )
       const contact = item.draft.contact
       const identityHash = contact?.normalizedEmail
         ? hash(contact.normalizedEmail.toLowerCase())

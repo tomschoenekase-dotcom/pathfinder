@@ -4,6 +4,7 @@ import {
   db,
   publishCrmOperationalSignal,
   recordProspectInboundReplyAction,
+  recordProspectOutreachMessageEvidence,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import { ProspectCampaignMemberStatus } from '@prisma/client'
@@ -278,6 +279,13 @@ export function createPrismaInboundCorrespondenceStore(
               occurredAt: input.message.internalDate,
             },
           })
+          await recordProspectOutreachMessageEvidence(
+            tx,
+            message,
+            input.message.automatedReplyKind ?? 'unknown',
+            'system:gmail-sync',
+            'Provider normalization; unreviewed messages remain unknown',
+          )
           await tx.prospectEmailThreadProvider.upsert({
             where: {
               providerAccountId_providerThreadId: {

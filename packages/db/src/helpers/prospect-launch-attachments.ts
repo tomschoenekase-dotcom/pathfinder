@@ -133,6 +133,26 @@ export function requireSameLaunchAttachments(left: unknown, right: unknown) {
     throw new ProspectLaunchAttachmentError('Launch attachment selection changed after review')
 }
 
+/** Intent is part of human approval, including the exact human-reply anchor for warm mail. */
+export function prospectOutreachIntentSnapshot(snapshot: unknown): Record<string, unknown> {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return {}
+  const record = snapshot as Record<string, unknown>
+  return record.outreachKind === undefined
+    ? {}
+    : {
+        outreachKind: record.outreachKind,
+        ...(record.warmReplyAnchor === undefined
+          ? {}
+          : { warmReplyAnchor: record.warmReplyAnchor }),
+      }
+}
+export function requireSameProspectOutreachIntent(left: unknown, right: unknown) {
+  if (hash(prospectOutreachIntentSnapshot(left)) !== hash(prospectOutreachIntentSnapshot(right)))
+    throw new ProspectLaunchAttachmentError(
+      'Outreach intent or human-reply anchor changed after approval',
+    )
+}
+
 /** Preserve historical text-only hashes exactly. */
 export function prospectOperationalContentHash(
   recipient: string,
@@ -145,7 +165,10 @@ export function prospectOperationalContentHash(
   return createHash('sha256')
     .update(
       `${recipient}\n${subject}\n${body}\n${html}` +
-        (attachments.length ? `\nlaunchAttachments:${hash(attachments)}` : ''),
+        (attachments.length ? `\nlaunchAttachments:${hash(attachments)}` : '') +
+        (Object.keys(prospectOutreachIntentSnapshot(snapshot)).length
+          ? `\noutreachIntent:${hash(prospectOutreachIntentSnapshot(snapshot))}`
+          : ''),
     )
     .digest('hex')
 }

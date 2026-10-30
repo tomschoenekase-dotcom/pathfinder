@@ -11,6 +11,7 @@ import {
   emergencyStopProspectDeliveryAction,
   evaluateProspectFollowupReadinessAction,
   ProspectOutreachError,
+  ProspectOutreachHistoryError,
   PROSPECT_OUTREACH_RELEASE_POLICY,
   type VerifiedCurrentProspectPrintAsset,
   publishCrmOperationalSignal,
@@ -41,6 +42,13 @@ import {
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
+  if (error instanceof ProspectOutreachHistoryError) {
+    const reason = error.message
+      .replace(/^OUTREACH_HISTORY_HOLD:\s*/u, '')
+      .replace(/_/gu, ' ')
+      .replace(/([a-z])([A-Z])/gu, '$1 $2')
+    throw new TRPCError({ code: 'BAD_REQUEST', message: `Outreach is on hold: ${reason}` })
+  }
   if (!(error instanceof ProspectOutreachError)) throw error
   const code =
     error.code === 'NOT_FOUND'

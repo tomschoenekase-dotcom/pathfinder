@@ -1706,3 +1706,5 @@ export {
 export type { SourceConnectionPreview } from './helpers/source-connections'
 export { publishSourceConnectionSnapshot } from './helpers/source-connection-publication'
 export { recordSourceConnectionDiagnostic } from './helpers/source-connection-diagnostics'
+
+export * from './helpers/prospect-outreach-history'

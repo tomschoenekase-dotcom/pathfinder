@@ -15,6 +15,11 @@ import {
   saveProspectOutreachDraftAction,
   stageProspectSendBatchAction,
   withTenantIsolationBypass,
+  planProspectOutreachEvidence,
+  recordProspectOutreachEvidenceAction,
+  reconcileProspectObservedMessageAction,
+  loadProspectOutreachHistory,
+  requireProspectOutreachHistory,
 } from '../index'
 
 const enabled =
@@ -53,6 +58,60 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
         },
         actor,
       })
+      const mailboxAddress = 'tomschoenekase@torchiko.com'
+      const providerAccount = await db.correspondenceProviderAccount.upsert({
+        where: { provider_mailboxAddress: { provider: 'GMAIL', mailboxAddress } },
+        update: {
+          capabilities: ['SEND', 'RECEIVE'],
+          connectionStatus: 'CONNECTED',
+          lastSuccessfulSyncAt: new Date(),
+          deliveryEnabled: true,
+          pausedAt: null,
+        },
+        create: {
+          provider: 'GMAIL',
+          externalAccountId: `disposable-gmail-${suffix}`,
+          mailboxAddress,
+          capabilities: ['SEND', 'RECEIVE'],
+          connectionStatus: 'CONNECTED',
+          lastSuccessfulSyncAt: new Date(),
+          credentialReferenceId: `fake-credential-reference-${suffix}`,
+          deliveryEnabled: true,
+          dailySendCap: 10,
+          perDomainDailyCap: 2,
+          minimumDelaySeconds: 0,
+          jitterSeconds: 0,
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+      })
+      const evidencePlan = await planProspectOutreachEvidence(db, prospect.organization.id)
+      const checkedAt = new Date().toISOString()
+      await recordProspectOutreachEvidenceAction({
+        organizationId: prospect.organization.id,
+        operationId: randomUUID(),
+        actor,
+        evidence: {
+          schema: 'prospect-outreach-history/v1',
+          kind: 'complete',
+          reviewerId: actor.id,
+          reason: 'All disposable provider fixture mailboxes have zero historical messages',
+          historyFingerprint: evidencePlan.historyFingerprint,
+          organizationIds: evidencePlan.organizationIds,
+          contactIds: evidencePlan.contactIds,
+          mailboxIds: evidencePlan.mailboxes.map((item) => item.id),
+          coverage: evidencePlan.mailboxes.map((item) => ({
+            providerAccountId: item.id,
+            mailboxAddress: item.mailboxAddress,
+            searchedAt: checkedAt,
+            throughAt: checkedAt,
+            query: 'all fixture history including Sent, received and automated notices',
+            sourceReceiptId: 'disposable-empty-provider-history',
+            resultFingerprint: createHash('sha256').update('[]').digest('hex'),
+            complete: true,
+          })),
+        },
+      })
       const campaign = await createProspectCampaignAction({
         name: `Campaign ${suffix}`,
         organizationIds: [prospect.organization.id],
@@ -62,18 +121,48 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
       const member = await db.prospectCampaignMember.findFirstOrThrow({
         where: { campaignId: campaign.id, organizationId: prospect.organization.id },
       })
-      const draft = await saveProspectOutreachDraftAction({
+      let draft = await saveProspectOutreachDraftAction({
         memberId: member.id,
         subject: `Torchiko for Outreach Museum ${suffix}`,
         textBody:
           'I would be happy to explain Torchiko. Pricing for a venue like yours could be $25 per month.',
-        groundingSnapshot: { organizationId: prospect.organization.id },
+        groundingSnapshot: { organizationId: prospect.organization.id, outreachKind: 'cold' },
         actor: {
           type: 'AGENT',
           id: `agent-${suffix}`,
           capabilities: ['prospects:read', 'prospects:draft'],
         },
       })
+      const firstDraftId = draft.id
+      draft = await saveProspectOutreachDraftAction({
+        memberId: member.id,
+        subject: draft.subject,
+        textBody: draft.textBody,
+        groundingSnapshot: { organizationId: prospect.organization.id, outreachKind: 'cold' },
+        actor,
+      })
+      expect(draft.version).toBe(2)
+      expect(
+        await db.prospectOutreachDraft.findUniqueOrThrow({ where: { id: firstDraftId } }),
+      ).toMatchObject({ status: 'SUPERSEDED' })
+      const siblingCampaign = await createProspectCampaignAction({
+        name: `Sibling campaign ${suffix}`,
+        organizationIds: [prospect.organization.id],
+        cohortSnapshot: { source: 'integration-test' },
+        actor,
+      })
+      const siblingMember = await db.prospectCampaignMember.findFirstOrThrow({
+        where: { campaignId: siblingCampaign.id },
+      })
+      await expect(
+        saveProspectOutreachDraftAction({
+          memberId: siblingMember.id,
+          subject: 'Another cold draft',
+          textBody: 'Another cold note',
+          groundingSnapshot: { outreachKind: 'cold' },
+          actor,
+        }),
+      ).rejects.toThrow('existing_unsent_draft')
       expect(draft.escalationFlags).toEqual(['pricing'])
       await expect(
         reviewProspectOutreachDraftAction({ draftId: draft.id, approve: true, actor }),
@@ -118,24 +207,6 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
       const recipientEmail = prospect.contact?.email
       if (!contactId || !recipientEmail)
         throw new Error('Disposable prospect fixture requires contact')
-      const mailboxAddress = 'tomschoenekase@torchiko.com'
-      const providerAccount = await db.correspondenceProviderAccount.create({
-        data: {
-          provider: 'GMAIL',
-          externalAccountId: `disposable-gmail-${suffix}`,
-          mailboxAddress,
-          capabilities: ['SEND'],
-          connectionStatus: 'CONNECTED',
-          credentialReferenceId: `fake-credential-reference-${suffix}`,
-          deliveryEnabled: true,
-          dailySendCap: 10,
-          perDomainDailyCap: 2,
-          minimumDelaySeconds: 0,
-          jitterSeconds: 0,
-          createdBy: actor.id,
-          updatedBy: actor.id,
-        },
-      })
       await db.prospectDeliveryControl.upsert({
         where: { id: 'global' },
         create: {
@@ -328,4 +399,122 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
       ).toBe(0)
     })
   }, 30_000)
+  it('reconciles observed Sent idempotently, preserves original contact data and keeps incomplete history held', async () => {
+    await withTenantIsolationBypass(async () => {
+      const suffix = randomUUID().slice(0, 8)
+      const actor = {
+        type: 'HUMAN' as const,
+        role: 'PLATFORM_ADMIN' as const,
+        id: `fixture-human-${suffix}`,
+      }
+      const prospect = await createProspectAction({
+        organization: {
+          canonicalName: `Fictional Harbor Gallery ${suffix}`,
+          source: 'disposable-test',
+        },
+        contact: {
+          fullName: 'Morgan Example',
+          email: `morgan-${suffix}@example.test`,
+          source: 'original-source',
+        },
+        actor,
+      })
+      const contact = await db.prospectContact.findUniqueOrThrow({
+        where: { id: prospect.contact!.id },
+      })
+      const mailbox = await db.correspondenceProviderAccount.create({
+        data: {
+          provider: 'GMAIL',
+          externalAccountId: `observed-${suffix}`,
+          mailboxAddress: `archive-${suffix}@example.test`,
+          connectionStatus: 'DISCONNECTED',
+          deliveryEnabled: false,
+          capabilities: [],
+          createdBy: actor.id,
+          updatedBy: actor.id,
+        },
+      })
+      const reconcileActor = {
+        type: 'AGENT' as const,
+        id: `fixture-agent-${suffix}`,
+        capabilities: ['prospects:outreach-history:reconcile'],
+      }
+      const observed = {
+        organizationId: prospect.organization.id,
+        providerAccountId: mailbox.id,
+        providerMessageId: `sent-${suffix}`,
+        providerThreadId: `thread-${suffix}`,
+        direction: 'OUTBOUND' as const,
+        occurredAt: new Date('2026-08-01T12:00:00Z'),
+        fromAddress: mailbox.mailboxAddress,
+        toAddresses: [contact.normalizedEmail!],
+        subject: 'A fictional gallery guide',
+        providerLabelIds: ['SENT'],
+        sourceReceiptId: `fixture-receipt-${suffix}`,
+        sourceReceiptSha256: createHash('sha256')
+          .update('fictional-provider-observation')
+          .digest('hex'),
+        classification: 'cold' as const,
+        actor: reconcileActor,
+        dryRun: false,
+      }
+      const before = await db.prospectEmailMessage.count({
+        where: { organizationId: prospect.organization.id },
+      })
+      const first = await reconcileProspectObservedMessageAction(observed)
+      const second = await reconcileProspectObservedMessageAction(observed)
+      expect(first.inserted).toBe(true)
+      expect(second).toMatchObject({ inserted: false, messageId: first.messageId })
+      expect(
+        await db.prospectEmailMessage.count({
+          where: { organizationId: prospect.organization.id },
+        }),
+      ).toBe(before + 1)
+      expect(await db.prospectContact.findUniqueOrThrow({ where: { id: contact.id } })).toEqual(
+        contact,
+      )
+      expect(await loadProspectOutreachHistory(db, prospect.organization.id)).toMatchObject({
+        coldEmailCount: null,
+        historyComplete: false,
+        eligibility: 'hold',
+      })
+      await expect(
+        requireProspectOutreachHistory(db, prospect.organization.id, { outreachKind: 'cold' }),
+      ).rejects.toThrow('OUTREACH_HISTORY_HOLD')
+      await expect(
+        reconcileProspectObservedMessageAction({
+          ...observed,
+          providerMessageId: `draft-${suffix}`,
+          providerLabelIds: ['DRAFT'],
+        }),
+      ).rejects.toThrow('observed provider SENT')
+      await recordProspectOutreachEvidenceAction({
+        organizationId: prospect.organization.id,
+        operationId: randomUUID(),
+        actor: reconcileActor,
+        evidence: {
+          schema: 'prospect-outreach-history/v1',
+          kind: 'relationship',
+          reviewerId: reconcileActor.id,
+          reason: 'Explicit fictional recipient decline observed in reviewed source',
+          relationship: 'declined',
+          deferUntil: null,
+        },
+      })
+      expect(await loadProspectOutreachHistory(db, prospect.organization.id)).toMatchObject({
+        relationship: 'declined',
+        eligibility: 'stopped',
+      })
+      const receipt = await db.prospectActivity.findFirstOrThrow({
+        where: {
+          organizationId: prospect.organization.id,
+          summary: 'Outreach history relationship reviewed',
+        },
+      })
+      expect(receipt.evidence).toMatchObject({
+        reviewerType: 'AGENT',
+        reviewerId: reconcileActor.id,
+      })
+    })
+  })
 })

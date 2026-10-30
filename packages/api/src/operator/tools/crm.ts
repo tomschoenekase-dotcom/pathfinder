@@ -1,10 +1,15 @@
+import {
+  matchesProspectOutreachView,
+  outreachCompleteCandidateWhere,
+  type prospectOutreachViews,
+} from '../../routers/admin/prospect-crm-outreach-views'
+import { loadProspectOutreachHistory } from '@pathfinder/db'
 import type { Prisma } from '@prisma/client'
 
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import {
   blockedAddressSet,
-  isUncontactedOrganization,
   operatorContactView,
   operatorOrganizationView,
   operatorUntrustedText,
@@ -28,7 +33,7 @@ const MAX_NOTES = 20
 const UNCONTACTED_BATCH = 100
 const CAN_CONTACT_BATCH = 500
 /** Bounds the work of one uncontacted scan; the caller continues from `nextCursor`. */
-const UNCONTACTED_SCAN_CAP = 1_000
+const UNCONTACTED_SCAN_CAP = 100
 
 type OrganizationFilters = {
   city?: string | undefined
@@ -129,16 +134,21 @@ async function pageUncontacted(
     where: Prisma.ProspectOrganizationWhereInput
     limit: number
     cursor: string | undefined
+    outreachView?: keyof typeof prospectOutreachViews
   },
 ) {
   const items: ReturnType<typeof operatorOrganizationView>[] = []
+  const needsComplete =
+    !input.outreachView ||
+    ['neverContacted', 'firstFollowupDue', 'finalFollowupDue'].includes(input.outreachView)
+  const coarse = needsComplete ? await outreachCompleteCandidateWhere(database) : null
   let scanned = 0
   let cursor = input.cursor
   let lastScannedId: string | null = null
   let exhausted = false
   outer: while (scanned < UNCONTACTED_SCAN_CAP) {
     const rows = await database.prospectOrganization.findMany({
-      where: input.where,
+      where: coarse ? { AND: [input.where, coarse] } : input.where,
       orderBy: [{ id: 'asc' }],
       take: UNCONTACTED_BATCH,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -152,7 +162,9 @@ async function pageUncontacted(
     for (const { record, view } of views) {
       scanned += 1
       lastScannedId = record.id
-      if (isUncontactedOrganization(record)) items.push(view)
+      const outreachHistory = await loadProspectOutreachHistory(database, record.id)
+      if (matchesProspectOutreachView(outreachHistory, input.outreachView ?? 'neverContacted'))
+        items.push({ ...view, outreachHistory } as typeof view)
       if (items.length >= input.limit) {
         exhausted = false
         break outer
@@ -191,15 +203,33 @@ const listCandidates: OperatorReadTool = {
   async handler(raw, context) {
     const input = OPERATOR_MCP_INPUTS['crm.list_candidates'].parse(raw)
     const where = organizationWhere(input)
-    if (input.uncontacted) {
-      return pageUncontacted(context.database, { where, limit: input.limit, cursor: input.cursor })
+    if (input.uncontacted || input.outreachView) {
+      return pageUncontacted(context.database, {
+        where,
+        limit: input.limit,
+        cursor: input.cursor,
+        ...(input.outreachView ? { outreachView: input.outreachView } : {}),
+      })
     }
-    return pageOrganizations(context.database, {
+    const page = await pageOrganizations(context.database, {
       where,
       orderBy: [{ id: 'asc' }],
       limit: input.limit,
       cursor: input.cursor,
     })
+    return {
+      ...page,
+      items: await Promise.all(
+        page.items.map(async (item) => ({
+          ...item,
+          outreachHistory: await loadProspectOutreachHistory(
+            context.database,
+            item.organizationId,
+            { now: context.now },
+          ),
+        })),
+      ),
+    }
   },
 }
 

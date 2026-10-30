@@ -45,6 +45,19 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
+  loadProspectOutreachHistory: vi.fn(async () => ({
+    canonicalOrganizationId: 'fictional-org',
+    coldEmailCount: null,
+    lastColdEmailAt: null,
+    firstHumanReply: 'noReply',
+    relationship: 'prospect',
+    nextEligibleAt: null,
+    eligibility: 'hold',
+    eligibilityReason: 'History needs review',
+    contactHealth: 'unknown',
+    historyComplete: false,
+    reasons: [],
+  })),
   withTenantIsolationBypass: mocks.bypass,
   createProspectAction: mocks.createProspect,
   prepareProspectEmailAttachmentRetentionAction: mocks.prepareAttachmentRetention,

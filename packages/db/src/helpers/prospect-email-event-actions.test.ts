@@ -57,6 +57,52 @@ describe('persisted prospect provider events', () => {
     )
   })
 
+  it('keeps a policy access-denied bounce separate from address invalidity and account decline', async () => {
+    const tx = {
+      prospectSendItem: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'item',
+          status: 'SENT',
+          providerAccountId: 'mailbox',
+          providerAccount: { provider: 'GMAIL' },
+          message: { id: 'message' },
+          member: { organizationId: 'org', contact: { id: 'contact' } },
+        }),
+        update: vi.fn(),
+      },
+      prospectEmailEvent: { upsert: vi.fn(({ create }) => create) },
+      prospectEmailMessage: { update: vi.fn() },
+      prospectContact: { update: vi.fn() },
+      prospectContactSuppressionEvent: { create: vi.fn() },
+      prospectFollowup: { updateMany: vi.fn() },
+    }
+    await applyVerifiedProspectEmailEventAction(
+      {
+        providerAccountId: 'mailbox',
+        providerEventId: 'policy-denied',
+        sendItemId: 'item',
+        eventType: 'BOUNCED',
+        occurredAt: new Date(),
+        payload: { smtpStatus: '550 5.7.1 Access denied by policy' },
+      },
+      { $transaction: vi.fn((work) => work(tx)) } as never,
+    )
+    expect(tx.prospectContact.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          suppressionReason: 'PROVIDER_POLICY_BLOCK',
+          permissionState: 'PROHIBITED',
+        }),
+      }),
+    )
+    const data = tx.prospectContact.update.mock.calls[0]![0].data
+    expect(data).not.toHaveProperty('emailReadiness')
+    expect(data).not.toHaveProperty('lastHardBounceAt')
+    expect(tx.prospectContactSuppressionEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ eventType: 'SUPPRESSED' }) }),
+    )
+  })
+
   it('rejects an event from a different provider account before persistence', async () => {
     const tx = {
       prospectSendItem: {

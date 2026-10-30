@@ -473,6 +473,27 @@ describe('inbound correspondence synchronization', () => {
   })
 })
 
+describe('automated inbound reply handling', () => {
+  it.each(['automated', 'outOfOffice'] as const)(
+    'persists %s without human relationship or followup effects',
+    async (automatedReplyKind) => {
+      const provider = createFakeCorrespondenceProvider()
+      const incoming = message({ automatedReplyKind })
+      provider.state.messages.set('provider-message-1', incoming)
+      const fixture = createStore({ candidates: [candidate()] })
+      const service = createInboundCorrespondenceService({ provider, store: fixture.store })
+      await service.receiveNotification({
+        mailbox,
+        externalReceiptId: `auto-${automatedReplyKind}`,
+        message: incoming.message,
+      })
+      expect(fixture.events).toContain('message-upserted')
+      expect(fixture.calls.replies).toEqual([])
+      expect(fixture.calls.holds).toEqual([])
+    },
+  )
+})
+
 describe('delivery-status notices', () => {
   it('quarantines a bounce matched to a prospect thread without reply, followup or client effects', async () => {
     const provider = createFakeCorrespondenceProvider()
