@@ -13,29 +13,29 @@ import { buildVenueSystemPromptParts, escapeUntrustedPromptData } from './venue-
 const knowledge = [
   {
     id: 'k-orbit',
-    title: 'Orbit Cradle',
+    title: 'Tide Swing',
     category: 'Rides',
-    content: 'Orbit Cradle is a swinging ride near the pier gate. Height: 44 in minimum.',
+    content: 'Tide Swing is a swinging ride near the pier gate. Height: 44 in minimum.',
   },
   {
     id: 'k-cart',
-    title: 'Current Cart',
+    title: 'Lagoon Looper',
     category: 'Rides',
     content:
-      'Current Cart is a family coaster by the lagoon. Height: 36 in minimum. Children under age 8 must ride with a ticketed adult aged 18 or older.',
+      'Lagoon Looper is a family coaster by the lagoon. Height: 36 in minimum. Children under age 8 must ride with a ticketed adult aged 18 or older.',
   },
   {
     id: 'k-pods',
     title: 'Picnic pods',
     category: 'Tickets',
     content:
-      'Picnic pods are fenced lawn areas cost $42 per pod per game; game admission is sold separately for each occupant.',
+      'Picnic pods are fenced lawn areas cost $38 per pod per game; game admission is sold separately for each occupant.',
   },
   {
     id: 'k-day',
     title: 'Day admission',
     category: 'Tickets',
-    content: 'Day admission costs $23 for ages 13 and older and $14 for ages 3 through 12.',
+    content: 'Day admission costs $21 for ages 13 and older and $12 for ages 3 through 12.',
   },
   {
     id: 'k-galley',
@@ -59,10 +59,10 @@ const knowledge = [
   },
   {
     id: 'k-ironclaw',
-    title: 'Ironclaw',
+    title: 'Rustfang',
     category: 'Rides',
     content:
-      'Ironclaw is a steel coaster with two inversions.\nThe cast, limb and transfer requirements below were specified for 2025.\nCasts are prohibited.\nHeight: 48 in minimum',
+      'Rustfang is a steel coaster with two inversions.\nThe cast, limb and transfer requirements below were specified for 2025.\nCasts are prohibited.\nHeight: 48 in minimum',
   },
   {
     id: 'k-wave',
@@ -76,7 +76,7 @@ const knowledge = [
 const places = [
   {
     id: 'p-cart',
-    name: 'Current Cart',
+    name: 'Lagoon Looper',
     areaName: 'Lagoon',
     shortDescription: 'Family coaster.',
     longDescription: null,
@@ -104,16 +104,16 @@ describe('guest focus facts', () => {
   })
 
   it('copies only the named subject and fences it', () => {
-    const focus = build('How tall do you need to be for Orbit Cradle?')!
-    expect(focus.subjects).toEqual(['Orbit Cradle'])
-    expect(focus.data).toContain('<focus_subject name="Orbit Cradle">')
+    const focus = build('How tall do you need to be for Tide Swing?')!
+    expect(focus.subjects).toEqual(['Tide Swing'])
+    expect(focus.data).toContain('<focus_subject name="Tide Swing">')
     expect(focus.data).toContain('Height: 44 in minimum.')
-    expect(focus.data).not.toContain('Current Cart')
+    expect(focus.data).not.toContain('Lagoon Looper')
     expect(focus.data).not.toContain('Not stated')
   })
 
   it('marks a neighbour-only adult rule as not stated for the asked ride', () => {
-    const focus = build('Can my 6 year old ride Orbit Cradle with an adult?')!
+    const focus = build('Can my 6 year old ride Tide Swing with an adult?')!
     expect(focus.data).toContain(
       'Not stated in its records: an age rule; an adult or companion rule.',
     )
@@ -121,40 +121,40 @@ describe('guest focus facts', () => {
   })
 
   it('counterexample: a ride that states its own adult rule gets no unknown note', () => {
-    const focus = build('Can my 6 year old ride Current Cart with an adult?')!
+    const focus = build('Can my 6 year old ride Lagoon Looper with an adult?')!
     expect(focus.data).toContain('must ride with a ticketed adult')
     expect(focus.data).not.toContain('Not stated')
     // The place and knowledge record with one name form one subject.
-    expect(focus.subjects).toEqual(['Current Cart'])
+    expect(focus.subjects).toEqual(['Lagoon Looper'])
     expect(focus.data).toContain('Area: Lagoon')
   })
 
   it('follows a subject named in the previous question when the message names none', () => {
     const focus = build('So 40 inches still cannot ride, even with an adult?', {
-      previousQuestion: 'Is Orbit Cradle 22 feet tall or 44 inches?',
+      previousQuestion: 'Is Tide Swing 22 feet tall or 44 inches?',
     })!
     expect(focus.fromPreviousQuestion).toBe(true)
-    expect(focus.subjects).toEqual(['Orbit Cradle'])
+    expect(focus.subjects).toEqual(['Tide Swing'])
     expect(focus.data).toMatch(/Not stated in its records: an adult or companion rule/u)
-    const current = build('What about Current Cart?', {
-      previousQuestion: 'Is Orbit Cradle tall?',
+    const current = build('What about Lagoon Looper?', {
+      previousQuestion: 'Is Tide Swing tall?',
     })!
-    expect(current.subjects).toEqual(['Current Cart'])
+    expect(current.subjects).toEqual(['Lagoon Looper'])
     expect(current.fromPreviousQuestion).toBe(false)
   })
 
   it('matches a singular mention of a plural title and keeps the product price on it', () => {
-    const focus = build('A picnic pod for 4, is that $168 plus tickets?')!
+    const focus = build('A picnic pod for 4, is that $152 plus tickets?')!
     expect(focus.subjects).toEqual(['Picnic pods'])
-    expect(focus.data).toContain('$42 per pod per game')
+    expect(focus.data).toContain('$38 per pod per game')
     expect(focus.data).not.toContain('Not stated')
-    expect(focus.data).not.toContain('$23')
+    expect(focus.data).not.toContain('$21')
   })
 
   it('counterexample: a price that belongs to the asked product stays stated', () => {
     const focus = build('How much is day admission for a 10 year old?')!
     expect(focus.subjects).toEqual(['Day admission'])
-    expect(focus.data).toContain('$14 for ages 3 through 12')
+    expect(focus.data).toContain('$12 for ages 3 through 12')
     expect(focus.data).not.toContain('Not stated')
   })
 
@@ -200,7 +200,7 @@ describe('guest focus facts', () => {
   })
 
   it('keeps a qualifier in place with the requirements it names, verbatim', () => {
-    const focus = build('How tall and fast is Ironclaw?')!
+    const focus = build('How tall and fast is Rustfang?')!
     expect(focus.data).toContain(
       'The cast, limb and transfer requirements below were specified for 2025.\nCasts are prohibited.\nHeight: 48 in minimum',
     )
@@ -276,7 +276,7 @@ describe('focus facts in the visitor prompt', () => {
   } as unknown as Parameters<typeof buildVenueSystemPromptParts>[0]
 
   it('puts the rule outside the data fence and the data inside it', () => {
-    const focus = build('Can my child ride Orbit Cradle with an adult?')!
+    const focus = build('Can my child ride Tide Swing with an adult?')!
     const { dynamicPart } = buildVenueSystemPromptParts({
       ...base,
       focusFacts: { rule: focus.rule, data: focus.data },
@@ -285,7 +285,7 @@ describe('focus facts in the visitor prompt', () => {
     const fenceEnd = dynamicPart.indexOf('</untrusted_venue_data>')
     expect(fenceStart).toBeGreaterThan(-1)
     expect(dynamicPart.indexOf('FOCUS FACTS:')).toBeLessThan(fenceStart)
-    const blockAt = dynamicPart.indexOf('<focus_subject name="Orbit Cradle">')
+    const blockAt = dynamicPart.indexOf('<focus_subject name="Tide Swing">')
     expect(blockAt).toBeGreaterThan(fenceStart)
     expect(blockAt).toBeLessThan(fenceEnd)
   })
