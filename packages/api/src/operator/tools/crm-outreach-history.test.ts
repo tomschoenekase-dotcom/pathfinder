@@ -262,4 +262,17 @@ describe('operator outreach history workflow', () => {
       } as unknown as OperatorCallContext),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
+  it('never guesses or defaults a relationship decision', async () => {
+    const output = OPERATOR_MCP_OUTPUTS['crm.get_outreach_history'].parse(
+      await getOutreachHistory.handler({ organizationId: 'org-fiction', limit: 1 }, context),
+    )
+    const actions = output.actions as {
+      relationshipReview: {
+        args: { change: { kind: string; relationship?: string } }
+        allowedValues: string[]
+      }
+    }
+    expect(actions.relationshipReview.args.change).toEqual({ kind: 'relationship' })
+    expect(actions.relationshipReview.allowedValues).toEqual(['deferred', 'declined', 'closed'])
+  })
 })

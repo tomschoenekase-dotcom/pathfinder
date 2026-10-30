@@ -106,12 +106,11 @@ export const getOutreachHistory: OperatorReadTool = {
         reviewTool: 'crm.propose_outreach_history_review',
         retractTool: 'crm.propose_outreach_history_retract',
         relationshipReview: {
-          ...actionBase(),
-          change: {
-            kind: 'relationship',
-            relationship: plan.projection.relationship === 'deferred' ? 'deferred' : 'prospect',
-            deferUntil: null,
-          },
+          tool: 'crm.propose_outreach_history_review',
+          args: { ...actionBase(), change: { kind: 'relationship' } },
+          allowedValues: ['deferred', 'declined', 'closed'],
+          instruction:
+            'Choose a relationship value and reason explicitly. Clearing a stop to prospect requires the human owner.',
         },
         reasonRequired: true,
         operationIdRequired:
