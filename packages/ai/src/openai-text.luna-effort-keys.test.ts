@@ -39,7 +39,8 @@ describe('Luna effort and Fast model keys', () => {
       if (tier) expect(request.service_tier).toBe(tier)
       else expect(request).not.toHaveProperty('service_tier')
       // Apart from effort and tier, the request is the brief-reasoning route's request.
-      const strip = ({ reasoning: _r, service_tier: _t, ...rest }: Record<string, unknown>) => rest
+      const strip = (value: Record<string, unknown>) =>
+        Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'reasoning' && key !== 'service_tier'))
       expect(strip(request)).toEqual(strip(reasoning.request))
     })
   }
