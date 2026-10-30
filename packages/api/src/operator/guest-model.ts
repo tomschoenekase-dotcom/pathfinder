@@ -72,6 +72,27 @@ export const GUEST_MODEL_CHOICES: Readonly<
       'Luna that reasons briefly before answering. Cheaper than Sol, with slower first text.',
     recommended: false,
   },
+  'guest-chat-luna-reasoning-high': {
+    title: 'Luna + high reasoning',
+    alsoKnownAs: ['Luna high reasoning'],
+    description:
+      'Luna that reasons longer before answering, at standard speed. Still under evaluation; not yet accepted for live guides.',
+    recommended: false,
+  },
+  'guest-chat-luna-reasoning-medium-fast': {
+    title: 'Luna + medium reasoning + Fast',
+    alsoKnownAs: ['Luna medium Fast'],
+    description:
+      'Luna with medium reasoning on Fast mode (twice the Luna rates, quicker first text). Still under evaluation; not yet accepted for live guides.',
+    recommended: false,
+  },
+  'guest-chat-luna-reasoning-high-fast': {
+    title: 'Luna + high reasoning + Fast',
+    alsoKnownAs: ['Luna high Fast'],
+    description:
+      'Luna with high reasoning on Fast mode (twice the Luna rates). Still under evaluation; not yet accepted for live guides.',
+    recommended: false,
+  },
   'guest-chat': {
     title: 'Platform built-in (Haiku)',
     alsoKnownAs: ['Haiku', 'built-in'],

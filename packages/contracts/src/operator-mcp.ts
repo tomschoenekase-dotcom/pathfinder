@@ -502,6 +502,9 @@ export const OPERATOR_GUEST_MODEL_KEYS = [
   'guest-chat-sol',
   'guest-chat-luna',
   'guest-chat-luna-reasoning',
+  'guest-chat-luna-reasoning-high',
+  'guest-chat-luna-reasoning-medium-fast',
+  'guest-chat-luna-reasoning-high-fast',
   'guest-chat',
 ] as const
 export const OperatorGuestModelKey = z.enum(OPERATOR_GUEST_MODEL_KEYS)

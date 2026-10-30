@@ -108,6 +108,9 @@ export const adminAiWorkloadConfigurationRouter = router({
       ...(workloadId === 'guest-chat' &&
       (process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna' ||
         process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna-reasoning' ||
+        process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna-reasoning-high' ||
+        process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna-reasoning-medium-fast' ||
+        process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna-reasoning-high-fast' ||
         process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol' ||
         process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol-fast' ||
         process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-terra-fast')

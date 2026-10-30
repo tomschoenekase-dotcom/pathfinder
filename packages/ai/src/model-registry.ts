@@ -11,6 +11,9 @@ export const AI_MODEL_KEYS = {
   GUEST_CHAT_DEEPSEEK_PRO: 'guest-chat-deepseek-pro',
   GUEST_CHAT_LUNA: 'guest-chat-luna',
   GUEST_CHAT_LUNA_REASONING: 'guest-chat-luna-reasoning',
+  GUEST_CHAT_LUNA_REASONING_HIGH: 'guest-chat-luna-reasoning-high',
+  GUEST_CHAT_LUNA_REASONING_MEDIUM_FAST: 'guest-chat-luna-reasoning-medium-fast',
+  GUEST_CHAT_LUNA_REASONING_HIGH_FAST: 'guest-chat-luna-reasoning-high-fast',
   GUEST_CHAT_SOL: 'guest-chat-sol',
   GUEST_CHAT_SOL_FAST: 'guest-chat-sol-fast',
   GUEST_CHAT_TERRA_FAST: 'guest-chat-terra-fast',
@@ -29,7 +32,7 @@ export type AiModelSpec = {
   costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   maxOutputTokens: number
   /** OpenAI reasoning effort when the route pins one; otherwise the model's default effort. */
-  reasoningEffort?: 'none' | 'minimal' | 'low'
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
   /** OpenAI processing tier the route requests; omitted means the project default (standard). */
   serviceTier?: 'fast'
   timeoutMs: number
@@ -81,6 +84,25 @@ function openAiLunaSpec(maxOutputTokens: number): AiModelSpec {
       output: 0.5,
       cacheWrite: 0.125,
       cacheRead: 0.01,
+    },
+  }
+}
+
+function lunaReasoningSpec(effort: 'medium' | 'high', serviceTier?: 'fast'): AiModelSpec {
+  const standard = openAiLunaSpec(2_048)
+  if (!serviceTier) return { ...standard, reasoningEffort: effort, timeoutMs: 20_000 }
+  const rates = standard.pricingUsdPerMillionTokens
+  return {
+    ...standard,
+    reasoningEffort: effort,
+    serviceTier,
+    timeoutMs: 20_000,
+    pricingVersion: 'openai-fast-public-2026-10-26',
+    pricingUsdPerMillionTokens: {
+      input: rates.input * 2,
+      output: rates.output * 2,
+      cacheWrite: rates.cacheWrite * 2,
+      cacheRead: rates.cacheRead * 2,
     },
   }
 }
@@ -230,6 +252,12 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
     reasoningEffort: 'low',
     timeoutMs: 20_000,
   },
+  // Lab candidates: Luna with more reasoning before it answers. Same model, output cap and timeout
+  // as the brief-reasoning route; only the effort and processing tier differ. Fast mode bills twice
+  // the standard rates, as for Sol + Fast. Not selected anywhere by default.
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING_HIGH]: lunaReasoningSpec('high'),
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING_MEDIUM_FAST]: lunaReasoningSpec('medium', 'fast'),
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING_HIGH_FAST]: lunaReasoningSpec('high', 'fast'),
   // Reasoning tokens count against the output cap, so Sol gets more room than Luna.
   [AI_MODEL_KEYS.GUEST_CHAT_SOL]: openAiSolSpec(2_048),
   // The same Sol route on OpenAI Fast mode (service_tier "fast"): billed at twice the standard

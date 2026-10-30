@@ -14,6 +14,9 @@ export type GuestAnswerShapeMode = 'off' | 'decision-first'
 export const GUEST_ANSWER_SHAPE_MODEL_KEYS: ReadonlySet<string> = new Set([
   'guest-chat-luna',
   'guest-chat-luna-reasoning',
+  'guest-chat-luna-reasoning-high',
+  'guest-chat-luna-reasoning-medium-fast',
+  'guest-chat-luna-reasoning-high-fast',
 ])
 
 export const GUEST_ANSWER_SHAPE_INSTRUCTION = `DECISION-FIRST ANSWERS (trusted system rule):

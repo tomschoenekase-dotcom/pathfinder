@@ -349,6 +349,9 @@ function conflict(): never {
 const GUEST_CHAT_DEPLOYMENT_DEFAULT_KEYS = [
   'guest-chat-luna',
   'guest-chat-luna-reasoning',
+  'guest-chat-luna-reasoning-high',
+  'guest-chat-luna-reasoning-medium-fast',
+  'guest-chat-luna-reasoning-high-fast',
   'guest-chat-sol',
   'guest-chat-sol-fast',
   'guest-chat-terra-fast',
