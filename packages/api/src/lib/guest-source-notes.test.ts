@@ -22,6 +22,7 @@ import {
   type GuestSourceNoteRow,
 } from './guest-source-notes'
 import { buildGuestVenueGuidePrompt, type GuestVenueDirectory } from './guest-venue-directory'
+import { captureGuestEvidencePacket } from './guest-evidence-packet'
 
 // Fictional park. Each record carries one of the misapplications seen in development traces:
 // a seat range read as a party size, a rider minimum read as ride height, festival prices read
@@ -415,6 +416,52 @@ describe('guest source notes', () => {
     expect(smallNotes.mode).toBe('DIRECTORY')
     expect(smallNotes.prompt).toBe(small.prompt)
     expect(smallNotes.sourceNotes).toBeUndefined()
+  })
+
+  it('keeps the complete noted guide within the evidence packet guide allowance', () => {
+    const large = {
+      places: [],
+      incomplete: false,
+      knowledge: Array.from({ length: 100 }, (_, i) =>
+        topic(`k-${i}`, `Shuttle ${i}`, 'Transport', `${SHUTTLE} ${'Calm paths. '.repeat(80)}`),
+      ),
+    } as unknown as GuestVenueDirectory
+    const plain = buildGuestVenueGuidePrompt(large, { currentDate: DATE })
+    const notes = new Map(
+      guestSourceNoteUnits(plain.prompt).map((unit) => {
+        const { note } = noteFor(unit.unitText, [
+          row({
+            attribute: 'vehicle seats',
+            value: '9–16',
+            valueKind: 'range',
+            onlyIf: ['Book at least 48 hours ahead.'],
+            notSameAs: ['party size'],
+            evidence: [SHUTTLE],
+          }),
+        ])
+        return [note.unitSha256, note] as const
+      }),
+    )
+    const noted = buildGuestVenueGuidePrompt(large, { currentDate: DATE, sourceNotes: notes })
+    const packet = (guide: typeof plain) =>
+      captureGuestEvidencePacket({
+        staticPart: 's'.repeat(40_000),
+        directoryPrompt: guide.prompt,
+        dynamicPart: '',
+        mode: guide.mode,
+        loadStatus: 'COMPLETE',
+        incomplete: false,
+        rendererTruncated: false,
+        updatedRecordCount: 0,
+        retrievedCoveragePartial: false,
+      })
+    expect(plain.mode).toBe('FULL')
+    expect(noted.mode).toBe('FULL')
+    expect(noted.sourceNotes!.attached).toBeGreaterThan(0)
+    expect(stripNotes(noted.prompt)).toBe(plain.prompt)
+    expect(() => packet(plain)).not.toThrow()
+    expect(() => packet(noted)).not.toThrow()
+    expect(noted.prompt.length).toBeLessThanOrEqual(120_000)
   })
 
   it('offers notes only to the full guide, never to evidence or directory strategies', () => {
