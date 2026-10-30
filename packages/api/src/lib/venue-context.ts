@@ -319,6 +319,8 @@ export function buildVenueSystemPromptParts(params: {
   venueGuideUpdatedRecordIds?: ReadonlySet<string>
   /** The visitor asked whether a child of a stated height or age can ride something. */
   heightOrAgeRideQuestion?: boolean
+  /** Server-built focus facts (guest-focus-facts.ts): rule outside, escaped data inside the fence. */
+  focusFacts?: { rule: string; data: string } | null
 }): { staticPart: string; dynamicPart: string } {
   const { venue, relevantPlaces, featuredPlace, language, engagementQuestion } = params
   const knowledgeEntries = params.knowledgeEntries ?? []
@@ -560,7 +562,10 @@ ${writtenChatRules}- Never use markdown, bullet points, asterisks, or headers. P
 ${languageRule}`
 
   const dynamicVenueData = untrustedDataBlock(`MOST RELEVANT PLACES FOR THIS QUERY:
-${placesSection}${featuredPlaceSection}${identityAmbiguityData}${knowledgeSection}`)
+${placesSection}${featuredPlaceSection}${identityAmbiguityData}${knowledgeSection}${
+    params.focusFacts ? `\n\n${params.focusFacts.data}` : ''
+  }`)
+  const focusFactsRule = params.focusFacts ? `\n\n${params.focusFacts.rule}` : ''
 
   const identityClarificationRule =
     params.placeIdentityAmbiguity || params.placeIdentityDiscoveryIncomplete
@@ -594,7 +599,7 @@ DATE: ${params.currentLocalTime ? `At the venue it is ${params.currentLocalTime}
   const todayStatusCue = params.todayStatusCue
     ? `\n\n${escapeUntrustedPromptData(params.todayStatusCue)}`
     : ''
-  const dynamicPart = `${heightRule}${writingRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${todayStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
+  const dynamicPart = `${heightRule}${writingRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${todayStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}${focusFactsRule}
 
 ${dynamicVenueData}
 

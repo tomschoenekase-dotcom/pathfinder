@@ -255,6 +255,65 @@ describe('chat.send low-confidence flag', () => {
     }
   })
 
+  it('sends the named subject as focus facts on the real prompt path when enabled', async () => {
+    const elephants = {
+      ...place(0.1),
+      shortDescription: 'Elephant yard beside the north lawn.',
+      hours: 'Closed starting November 3, 2026',
+    }
+    const { distance: _distance, ...directoryPlace } = elephants
+    vi.mocked(mockDb.place.findMany).mockResolvedValue([directoryPlace] as never)
+    setup([elephants], 'The elephant yard is beside the north lawn.')
+    vi.stubEnv('GUEST_CHAT_FOCUS_FACTS', 'on')
+    try {
+      await caller.chat.send({ ...sendInput, message: 'Are the Elephants open with an adult?' })
+      const request = anthropicCreate.mock.calls[0]?.[0] as { system: unknown }
+      const system = JSON.stringify(request.system)
+      expect(system).toContain('FOCUS FACTS:')
+      expect(system).toContain('<focus_subject name=\\"Elephants\\">')
+      expect(system).toContain('Elephant yard beside the north lawn.')
+      expect(system).toContain(
+        'It is closed on Tuesday, November 3, 2026 and after it, unless a record gives a reopening date.',
+      )
+      expect(system).toContain('Not stated in its records: an adult or companion rule.')
+    } finally {
+      vi.unstubAllEnvs()
+      vi.mocked(mockDb.place.findMany).mockReset()
+    }
+  })
+
+  it('adds no focus facts when the flag is off', async () => {
+    const { distance: _distance, ...directoryPlace } = place(0.1)
+    vi.mocked(mockDb.place.findMany).mockResolvedValue([directoryPlace] as never)
+    setup([place(0.1)], 'The elephants are nearby.')
+    try {
+      await caller.chat.send({ ...sendInput, message: 'Are the Elephants open?' })
+      const request = anthropicCreate.mock.calls[0]?.[0] as { system: unknown }
+      expect(JSON.stringify(request.system)).not.toContain('focus_subject')
+      expect(JSON.stringify(request.system)).not.toContain('FOCUS FACTS')
+    } finally {
+      vi.mocked(mockDb.place.findMany).mockReset()
+    }
+  })
+
+  it('luna-scoped focus facts stay off for a non-Luna route and reject a changed route', async () => {
+    setup([place(0.1)], 'This response must never be generated.')
+    vi.stubEnv('GUEST_CHAT_FOCUS_FACTS', 'luna')
+    const resolveConfiguration = vi.mocked(resolveRuntimeAiWorkloadConfiguration)
+    const original = await resolveConfiguration({ workloadId: 'guest-chat' }, mockDb)
+    resolveConfiguration.mockResolvedValueOnce({
+      ...original,
+      primaryModelKey: 'guest-chat-luna-reasoning-high-fast',
+    })
+    try {
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+      anthropicCreate.mockReset()
+    }
+  })
+
   it('flags when the best place is semantically far, with the distance as score', async () => {
     setup([place(0.9)], 'Confidently worded answer that names nothing in particular.')
 

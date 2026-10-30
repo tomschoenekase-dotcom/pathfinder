@@ -78,12 +78,18 @@ import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-pla
 import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
 import { guestTodayStatusCue, guestTodayStatusEnabled } from '../lib/guest-today-status'
 import { guestStatedDatesEnabled } from '../lib/guest-stated-dates'
+import {
+  buildGuestFocusFacts,
+  guestFocusFactsForModel,
+  guestFocusFactsMode,
+} from '../lib/guest-focus-facts'
 import { guestDateCueLunaScope, guestDateCuesForModel } from '../lib/guest-date-cue-scope'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
 import {
   buildVenueSystemPromptParts,
+  escapeUntrustedPromptData,
   guestResponseIntentForMessage,
   guestVenueClock,
   isGuestHeightOrAgeRideQuestion,
@@ -1551,6 +1557,20 @@ const chatReadRouter = router({
         )
       : null
     const dateCuesAllowed = guestDateCuesForModel(dateCueConfiguration?.primaryModelKey)
+    const focusFactsMode = guestFocusFactsMode()
+    // Reuse the date-cue read when there was one; generation later rejects a changed route.
+    const focusConfiguration =
+      focusFactsMode === 'luna'
+        ? (dateCueConfiguration ??
+          (await resolveRuntimeAiWorkloadConfiguration(
+            { workloadId: 'guest-chat', tenantId: venue.tenantId, venueId: input.venueId },
+            ctx.db,
+          )))
+        : null
+    const focusFactsEnabled = guestFocusFactsForModel(
+      focusFactsMode,
+      focusConfiguration?.primaryModelKey,
+    )
     const statedDatesEnabled = dateCuesAllowed && guestStatedDatesEnabled()
     const todayStatusEnabled = dateCuesAllowed && guestTodayStatusEnabled()
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
@@ -1835,7 +1855,39 @@ const chatReadRouter = router({
         knowledgeEntries: relevantKnowledgeEntries,
       })
       updatedGuideRecordCount = updatedGuideRecordIds.size
+      // Retrieved rows can be newer than the cached directory; the newer version wins by id.
+      const focusFacts =
+        focusFactsEnabled && guideLoadStatus === 'READY'
+          ? buildGuestFocusFacts({
+              question: trimmedInput,
+              previousQuestion: previousGuestQuery,
+              knowledge: [
+                ...relevantKnowledgeEntries,
+                ...guestDirectory.knowledge.filter(
+                  (entry) => !relevantKnowledgeEntries.some((row) => row.id === entry.id),
+                ),
+              ],
+              places: [
+                ...relevantPlaces,
+                ...guestDirectory.places.filter(
+                  (place) => !relevantPlaces.some((row) => row.id === place.id),
+                ),
+              ],
+              retrieved: relevantKnowledgeEntries,
+              escape: escapeUntrustedPromptData,
+            })
+          : null
+      if (focusFacts)
+        logger.info({
+          action: 'guest-chat.focus-facts',
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          subjectCount: focusFacts.subjects.length,
+          fromPreviousQuestion: focusFacts.fromPreviousQuestion,
+          truncated: focusFacts.truncated,
+        })
       return buildVenueSystemPromptParts({
+        ...(focusFacts ? { focusFacts: { rule: focusFacts.rule, data: focusFacts.data } } : {}),
         currentDate,
         ...(venueClock.localTime ? { currentLocalTime: venueClock.localTime } : {}),
         beforeOpeningStatusCue:
@@ -2038,8 +2090,10 @@ const chatReadRouter = router({
       )
       configurationMs = elapsedMilliseconds(configurationStartedAt)
       if (
-        dateCueConfiguration &&
-        JSON.stringify(configuration) !== JSON.stringify(dateCueConfiguration)
+        (dateCueConfiguration &&
+          JSON.stringify(configuration) !== JSON.stringify(dateCueConfiguration)) ||
+        (focusConfiguration &&
+          JSON.stringify(configuration) !== JSON.stringify(focusConfiguration))
       ) {
         throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
       }
