@@ -34,10 +34,10 @@ describe('production high-fast route', () => {
       model: 'gpt-6-luna',
       reasoning: { effort: 'high' },
       service_tier: 'fast',
-      max_output_tokens: 2048,
+      max_output_tokens: 4096,
       store: false,
     })
-    expect(create.mock.calls[0]?.[1]).toEqual({ timeout: 20_000 })
+    expect(create.mock.calls[0]?.[1]).toEqual({ timeout: 25_000 })
     expect(spec.maxAttempts).toBe(2)
     expect(spec.pricingUsdPerMillionTokens).toEqual({
       input: 0.2,

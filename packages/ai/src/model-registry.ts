@@ -220,11 +220,15 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   // response becomes a fallback reply, so the guest route leaves room. Billing is per token used.
   [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaSpec(1_024),
   // Explicit, default-off route: reasoning shares the output cap; Fast doubles token rates.
+  // 2026-10-30: 2 of about 2,080 measured answers spent all 2,048 tokens reasoning on large
+  // planning questions and returned no answer (the guest saw the fallback); completed answers
+  // reached 1,832. 4,096 leaves room, billing stays per token used, and at about 185 tokens/s
+  // a full cap ends near 22 s, inside the 25 s timeout and the web client's 30 s idle read.
   [AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING_HIGH_FAST]: {
-    ...openAiLunaSpec(2_048),
+    ...openAiLunaSpec(4_096),
     reasoningEffort: 'high',
     serviceTier: 'fast',
-    timeoutMs: 20_000,
+    timeoutMs: 25_000,
     pricingVersion: 'openai-fast-public-2026-10-26',
     pricingUsdPerMillionTokens: { input: 0.2, output: 1, cacheWrite: 0.25, cacheRead: 0.02 },
   },
