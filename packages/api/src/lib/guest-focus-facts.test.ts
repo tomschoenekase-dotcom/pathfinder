@@ -47,7 +47,8 @@ const knowledge = [
     id: 'k-grill',
     title: 'Dockside Grill',
     category: 'Dining',
-    content: 'Dockside Grill is a burger counter. Closed for the 2026 season after October 25, 2026.',
+    content:
+      'Dockside Grill is a burger counter. Closed for the 2026 season after October 25, 2026.',
   },
   {
     id: 'k-rooftop',
@@ -67,7 +68,8 @@ const knowledge = [
     id: 'k-wave',
     title: 'Wave Swinger',
     category: 'Rides',
-    content: 'Wave Swinger is a chair swing. The 2025 minimum height was 42 in; confirm current rules.',
+    content:
+      'Wave Swinger is a chair swing. The 2025 minimum height was 42 in; confirm current rules.',
   },
   { id: 'k-hours', title: 'Hours', category: 'Visitor information', content: 'Open daily.' },
 ]
@@ -225,7 +227,8 @@ describe('guest focus facts', () => {
       content: `Ride Number ${'ABCDEF'[index]} is a ride. ${'x'.repeat(2_000)}`,
     }))
     const focus = buildGuestFocusFacts({
-      question: 'Compare ride number a, ride number b, ride number c, ride number d and ride number e',
+      question:
+        'Compare ride number a, ride number b, ride number c, ride number d and ride number e',
       knowledge: many,
       places: [],
       escape: escapeUntrustedPromptData,

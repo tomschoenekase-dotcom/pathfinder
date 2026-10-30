@@ -2092,8 +2092,7 @@ const chatReadRouter = router({
       if (
         (dateCueConfiguration &&
           JSON.stringify(configuration) !== JSON.stringify(dateCueConfiguration)) ||
-        (focusConfiguration &&
-          JSON.stringify(configuration) !== JSON.stringify(focusConfiguration))
+        (focusConfiguration && JSON.stringify(configuration) !== JSON.stringify(focusConfiguration))
       ) {
         throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
       }

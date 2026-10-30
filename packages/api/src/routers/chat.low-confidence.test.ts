@@ -154,6 +154,11 @@ function place(distance: number) {
   }
 }
 
+// The guide directory stores places without a retrieval distance.
+function withoutDistance(row: ReturnType<typeof place>) {
+  return Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'distance'))
+}
+
 function setup(places: ReturnType<typeof place>[], reply: string) {
   dbQueryRaw.mockResolvedValueOnce([venueRow])
   sessionUpsert.mockResolvedValueOnce({ id: 'sess_1' })
@@ -242,7 +247,9 @@ describe('chat.send low-confidence flag', () => {
       primaryModelKey: 'guest-chat-luna-reasoning-high-fast',
     })
     try {
-      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+      })
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(
         guestTurnActions.dispatch.mock.calls.some(
@@ -261,8 +268,7 @@ describe('chat.send low-confidence flag', () => {
       shortDescription: 'Elephant yard beside the north lawn.',
       hours: 'Closed starting November 3, 2026',
     }
-    const { distance: _distance, ...directoryPlace } = elephants
-    vi.mocked(mockDb.place.findMany).mockResolvedValue([directoryPlace] as never)
+    vi.mocked(mockDb.place.findMany).mockResolvedValue([withoutDistance(elephants)] as never)
     setup([elephants], 'The elephant yard is beside the north lawn.')
     vi.stubEnv('GUEST_CHAT_FOCUS_FACTS', 'on')
     try {
@@ -283,8 +289,7 @@ describe('chat.send low-confidence flag', () => {
   })
 
   it('adds no focus facts when the flag is off', async () => {
-    const { distance: _distance, ...directoryPlace } = place(0.1)
-    vi.mocked(mockDb.place.findMany).mockResolvedValue([directoryPlace] as never)
+    vi.mocked(mockDb.place.findMany).mockResolvedValue([withoutDistance(place(0.1))] as never)
     setup([place(0.1)], 'The elephants are nearby.')
     try {
       await caller.chat.send({ ...sendInput, message: 'Are the Elephants open?' })
@@ -306,7 +311,9 @@ describe('chat.send low-confidence flag', () => {
       primaryModelKey: 'guest-chat-luna-reasoning-high-fast',
     })
     try {
-      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+      })
       expect(anthropicCreate).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllEnvs()
