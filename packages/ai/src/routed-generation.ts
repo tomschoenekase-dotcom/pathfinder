@@ -55,6 +55,8 @@ export async function generateTextForCapability<TParsed = string>(params: {
   invocationId?: string
   onBeforeFirstDispatch?: () => Promise<void>
   onTextDelta?: (delta: string) => void | Promise<void>
+  /** See generateText: honored only on high-effort OpenAI candidates. */
+  reasoningEffortHint?: 'medium'
   signal?: AbortSignal
 }): Promise<RoutedAiTextResult<TParsed>> {
   const budgetGate =
@@ -92,6 +94,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
         budgetAttemptNumberOffset,
         ...(params.signal ? { signal: params.signal } : {}),
         ...(params.onTextDelta ? { onTextDelta: params.onTextDelta } : {}),
+        ...(params.reasoningEffortHint ? { reasoningEffortHint: params.reasoningEffortHint } : {}),
         ...(params.onBeforeFirstDispatch
           ? {
               onBeforeFirstDispatch: async () => {

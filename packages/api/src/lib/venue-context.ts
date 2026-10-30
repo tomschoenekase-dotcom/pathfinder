@@ -69,6 +69,19 @@ export function isGuestHeightOrAgeRideQuestion(message: string): boolean {
   return HEIGHT_OR_AGE_RIDE_QUESTION.test(message)
 }
 
+// A request to list every ride, attraction or slide a stated child or group can use. High
+// reasoning on these checks every item of a large venue and can spend its whole output cap
+// (2026-10-30: a 42-inch "which rides" question failed 4 of 6 times at 4,096 tokens on high,
+// 0 of 3 on medium).
+const RIDE_LIST_REQUEST =
+  /\b(?:which|what)\s+(?:\w+\s+){0,2}(?:rides?|attractions?|coasters?|slides?)\b|\bwhat (?:can|could) (?:he|she|they|we|my|our|the kids?)\b[\s\S]{0,40}\b(?:ride|do|go on)\b|\b(?:all|every|list) (?:the )?(?:rides?|attractions?)\b/iu
+const STATED_RIDER =
+  /\b(?:child|children|kids?|son|daughter|toddler|grandkids?|\d{1,2}\s*(?:years?|yrs?|yo)\b|\d{1,2}[- ]year[- ]old|\d{2}(?:\.\d)?\s*(?:"|in\b|inch(?:es)?\b|”|cm\b))/iu
+
+export function isGuestRideListEligibilityQuestion(message: string): boolean {
+  return RIDE_LIST_REQUEST.test(message) && STATED_RIDER.test(message)
+}
+
 export function guestResponseIntentForMessage(
   message: string,
   requested: 'DEFAULT' | 'EXPAND' | undefined,

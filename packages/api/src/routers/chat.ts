@@ -94,6 +94,7 @@ import {
   guestResponseIntentForMessage,
   guestVenueClock,
   isGuestHeightOrAgeRideQuestion,
+  isGuestRideListEligibilityQuestion,
 } from '../lib/venue-context'
 import { buildGuestRecommendationDecision } from '../lib/venue-recommendation-context'
 import {
@@ -2275,6 +2276,10 @@ const chatReadRouter = router({
         route,
         timeoutMs: configuration.timeoutMs,
         maxAttempts: configuration.maxAttempts,
+        // Honored only by high-effort OpenAI routes; see isGuestRideListEligibilityQuestion.
+        ...(isGuestRideListEligibilityQuestion(trimmedInput)
+          ? { reasoningEffortHint: 'medium' as const }
+          : {}),
         ...(configuration.maxOutputTokens !== null
           ? { maxOutputTokens: configuration.maxOutputTokens }
           : {}),

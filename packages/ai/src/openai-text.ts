@@ -68,7 +68,7 @@ export type OpenAiResponsesClient = {
         >
         prompt_cache_options?: { mode: 'explicit' }
         max_output_tokens: number
-        reasoning: { effort: 'none' | 'minimal' | 'low' | 'high' }
+        reasoning: { effort: 'none' | 'minimal' | 'low' | 'medium' | 'high' }
         service_tier?: 'fast'
         store: false
         stream?: boolean
@@ -279,7 +279,7 @@ export async function createOpenAiTextResponse(params: {
   maxOutputTokens: number
   timeoutMs: number
   /** Overrides the spec's effort for one attempt (gateway reasoning-exhaustion retry). */
-  reasoningEffort?: 'low'
+  reasoningEffort?: 'medium' | 'low'
   signal?: AbortSignal
 }): Promise<OpenAiTextResult> {
   const prompt = promptInput(
@@ -339,7 +339,7 @@ export async function createOpenAiTextStream(params: {
   maxOutputTokens: number
   timeoutMs: number
   onTextDelta: (delta: string) => void | Promise<void>
-  reasoningEffort?: 'low'
+  reasoningEffort?: 'medium' | 'low'
   signal?: AbortSignal
 }): Promise<OpenAiTextResult> {
   const prompt = promptInput(

@@ -187,7 +187,7 @@ async function createProviderResponse(params: {
   maxOutputTokens: number
   timeoutMs: number
   onTextDelta?: (delta: string) => void | Promise<void>
-  reasoningEffort?: 'low'
+  reasoningEffort?: 'medium' | 'low'
   signal?: AbortSignal
 }): Promise<{
   text: string
@@ -358,6 +358,12 @@ export async function generateText<TParsed = string>(params: {
   budgetAttemptNumberOffset?: number
   onBeforeFirstDispatch?: () => Promise<void>
   onTextDelta?: (delta: string) => void | Promise<void>
+  /**
+   * Caller's hint that this request is a long enumeration (every ride checked against a
+   * child's height). Honored only on high-effort OpenAI routes, where high reasoning on such
+   * lists can spend the whole output cap; ignored everywhere else.
+   */
+  reasoningEffortHint?: 'medium'
   signal?: AbortSignal
 }): Promise<AiTextResult<TParsed>> {
   const spec = getAiModelSpec(params.modelKey)
@@ -369,9 +375,13 @@ export async function generateText<TParsed = string>(params: {
   let lastError: unknown
   let dispatchRecorded = false
   let textEmitted = false
-  // Set after a high-effort OpenAI attempt spends its whole output cap reasoning and streams
-  // nothing; the next attempt answers at low effort instead of the guest getting a fallback.
-  let reasoningEffortOverride: 'low' | undefined
+  // Starts at the caller's hint (high-effort OpenAI only). After an attempt spends its whole
+  // output cap reasoning and streams nothing, the next attempt answers at low effort instead of
+  // the guest getting a fallback.
+  let reasoningEffortOverride: 'medium' | 'low' | undefined =
+    params.reasoningEffortHint && spec.provider === 'openai' && spec.reasoningEffort === 'high'
+      ? params.reasoningEffortHint
+      : undefined
 
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
     throw new Error('maxAttempts must be a positive integer')
@@ -547,7 +557,7 @@ export async function generateText<TParsed = string>(params: {
         response.incompleteReason === 'max_output_tokens' &&
         spec.provider === 'openai' &&
         spec.reasoningEffort === 'high' &&
-        !reasoningEffortOverride &&
+        reasoningEffortOverride !== 'low' &&
         !textEmitted &&
         attempt < maxAttempts
       if (reasoningExhausted) {

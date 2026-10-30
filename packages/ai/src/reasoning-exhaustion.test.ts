@@ -109,3 +109,40 @@ describe('high-effort reasoning that exhausts the output cap', () => {
     expect(create).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('reasoning effort hint for long enumerations', () => {
+  afterEach(() => setOpenAiResponsesClientForTesting(null))
+
+  it('starts a high-effort route at medium and still falls back to low once', async () => {
+    const create = vi.fn().mockResolvedValueOnce(exhausted).mockResolvedValueOnce(answered)
+    setOpenAiResponsesClientForTesting({ responses: { create } })
+    const result = await generateText({
+      modelKey: 'guest-chat-luna-reasoning-high-fast',
+      system: [{ type: 'text', text: 'Rules' }],
+      messages: [{ role: 'user', content: 'Which rides can my 42-inch son ride?' }],
+      usageSink: vi.fn().mockResolvedValue(undefined),
+      admissionGuard: vi.fn().mockResolvedValue(undefined),
+      budgetGate: NOOP_AI_BUDGET_GATE,
+      retryDelayMs: 0,
+      reasoningEffortHint: 'medium',
+    })
+    expect(result.text).toBe(answered.output_text)
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ reasoning: { effort: 'medium' } })
+    expect(create.mock.calls[1]?.[0]).toMatchObject({ reasoning: { effort: 'low' } })
+  })
+
+  it('ignores the hint on routes that are not high effort', async () => {
+    const create = vi.fn().mockResolvedValueOnce(answered)
+    setOpenAiResponsesClientForTesting({ responses: { create } })
+    await generateText({
+      modelKey: 'guest-chat-luna',
+      system: [{ type: 'text', text: 'Rules' }],
+      messages: [{ role: 'user', content: 'Which rides can my 42-inch son ride?' }],
+      usageSink: vi.fn().mockResolvedValue(undefined),
+      admissionGuard: vi.fn().mockResolvedValue(undefined),
+      budgetGate: NOOP_AI_BUDGET_GATE,
+      reasoningEffortHint: 'medium',
+    })
+    expect(create.mock.calls[0]?.[0].reasoning.effort).not.toBe('medium')
+  })
+})
