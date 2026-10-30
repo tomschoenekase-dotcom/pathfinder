@@ -267,7 +267,7 @@ describe('chat.send low-confidence flag', () => {
       ...place(0.1),
       shortDescription: 'Elephant yard beside the north lawn.',
       hours: 'Closed starting November 3, 2026',
-    }
+    } as unknown as ReturnType<typeof place>
     vi.mocked(mockDb.place.findMany).mockResolvedValue([withoutDistance(elephants)] as never)
     setup([elephants], 'The elephant yard is beside the north lawn.')
     vi.stubEnv('GUEST_CHAT_FOCUS_FACTS', 'on')
@@ -279,7 +279,7 @@ describe('chat.send low-confidence flag', () => {
       expect(system).toContain('<focus_subject name=\\"Elephants\\">')
       expect(system).toContain('Elephant yard beside the north lawn.')
       expect(system).toContain(
-        'It is closed on Tuesday, November 3, 2026 and after it, unless a record gives a reopening date.',
+        'closed on Tuesday, November 3, 2026 and after it, unless a record gives a reopening date.',
       )
       expect(system).toContain('Not stated in its records: an adult or companion rule.')
     } finally {

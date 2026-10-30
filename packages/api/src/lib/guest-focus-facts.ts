@@ -140,13 +140,13 @@ const BOUNDARY_PATTERNS: ReadonlyArray<{ pattern: RegExp; note: (date: Date) => 
       'giu',
     ),
     note: (date) =>
-      `${formatDate(date)} is the closure date, so it is not an open day; the last possible open day is ${formatDate(addDays(date, -1))}.`,
+      `the closure date is ${formatDate(date)}, so that day is not open; the last possible open day is ${formatDate(addDays(date, -1))}.`,
   },
   {
     // "closed for the 2026 season after October 25, 2026"
     pattern: new RegExp(String.raw`\bclosed\b[^.;\n]{0,40}?\bafter ${DATE}`, 'giu'),
     note: (date) =>
-      `${formatDate(date)} is the last listed open day; it is closed from ${formatDate(addDays(date, 1))}.`,
+      `the last listed open day is ${formatDate(date)}; closed from ${formatDate(addDays(date, 1))}.`,
   },
   {
     // "closed from November 3, 2026"
@@ -155,16 +155,32 @@ const BOUNDARY_PATTERNS: ReadonlyArray<{ pattern: RegExp; note: (date: Date) => 
       'giu',
     ),
     note: (date) =>
-      `It is closed on ${formatDate(date)} and after it, unless a record gives a reopening date.`,
+      `closed on ${formatDate(date)} and after it, unless a record gives a reopening date.`,
   },
 ]
+
+// The clause a boundary came from. A record can list several things ("Gift shop: temporarily
+// closed as of ..."), so a note must name what its own clause names, never the whole record.
+function sourceClause(text: string, start: number, end: number): string {
+  // Not back to "; ": in "Shell Stand: souvenir cart; closed as of ..." the subject is before it.
+  const before = Math.max(text.lastIndexOf('\n', start), text.lastIndexOf('. ', start))
+  const after = [text.indexOf('\n', end), text.indexOf('. ', end), text.indexOf('; ', end)]
+    .filter((index) => index >= 0)
+    .reduce((first, index) => Math.min(first, index), text.length)
+  const clause = text
+    .slice(before + 1, after)
+    .trim()
+    .replace(/\s+/gu, ' ')
+  return clause.length > 220 ? `${clause.slice(0, 217)}...` : clause
+}
 
 export function guestFocusDateBoundaryNotes(text: string): string[] {
   const notes = new Set<string>()
   for (const { pattern, note } of BOUNDARY_PATTERNS)
     for (const match of text.matchAll(pattern)) {
       const date = parseDate(match[1]!, match[2]!, match[3]!)
-      if (date) notes.add(note(date))
+      const clause = sourceClause(text, match.index!, match.index! + match[0].length)
+      if (date) notes.add(`For "${clause.replaceAll('"', "'")}": ${note(date)}`)
     }
   return [...notes]
 }
@@ -221,7 +237,7 @@ function namedSubjects(
   }
   for (const entry of knowledge) add(entry.title, entry.content)
   for (const place of places) add(place.name, placeText(place))
-  // A name inside a longer named subject ("Hawg" in "Steel Hawg") is the same mention.
+  // A name inside a longer named subject ("Falcon" in "Iron Falcon") is the same mention.
   const ordered = [...subjects.values()].sort((left, right) => right.key.length - left.key.length)
   return ordered.filter(
     (subject, index) =>
@@ -244,7 +260,7 @@ export const GUEST_FOCUS_FACTS_RULE =
   'FOCUS FACTS: Each <focus_subject> block below repeats, from the VENUE GUIDE, the complete records of a place or topic the visitor named. Everything inside a block is about that subject only. A status, rule, price, date or qualifier stated for one subject, or in a record about other things, never transfers to another subject unless a record says it applies to it. "Not stated in its records" means unknown: answer what is known, say plainly what is not listed, and never fill the gap from a neighbour or call it absent, free, closed, not required or not applicable. A qualifier applies only to the requirements it names. Answer the visitor\'s question first; add claims about other places, products or dates only when their own records state them.'
 
 export const GUEST_FOCUS_BOUNDARY_RULE =
-  'DATE BOUNDARIES: The computed_date_boundaries lines below restate closure and last-open dates that the named records state. Use them instead of re-deriving those boundaries; never describe a closure date as an open day.'
+  'DATE BOUNDARIES: The computed_date_boundaries lines below restate closure and last-open dates that records state. Each applies only to what its quoted sentence names, never to the rest of that record. Use them instead of re-deriving those boundaries; never describe a closure date as an open day.'
 
 /**
  * Builds the focus block, or null when the visitor named no specific place or topic in this
@@ -301,7 +317,7 @@ export function buildGuestFocusFacts(input: {
   for (const entry of input.retrieved ?? []) {
     if (focusedKeys.has(guestPlaceIdentityKey(entry.title))) continue
     const notes = guestFocusDateBoundaryNotes(entry.content)
-    if (notes.length) boundaryLines.add(`${entry.title}: ${notes.join(' ')}`)
+    if (notes.length) boundaryLines.add(`In the "${entry.title}" record: ${notes.join(' ')}`)
   }
   const boundaries = [...boundaryLines].slice(0, 8)
   if (!blocks.length && !boundaries.length) return null

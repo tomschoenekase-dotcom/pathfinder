@@ -168,7 +168,7 @@ describe('guest focus facts', () => {
     expect(focus.data).toContain('Closed for the 2026 season after October 25, 2026.')
     expect(focus.data).not.toContain('Not stated')
     expect(focus.data).toContain(
-      'Sunday, October 25, 2026 is the last listed open day; it is closed from Monday, October 26, 2026.',
+      'the last listed open day is Sunday, October 25, 2026; closed from Monday, October 26, 2026.',
     )
   })
 
@@ -176,10 +176,10 @@ describe('guest focus facts', () => {
     expect(
       guestFocusDateBoundaryNotes('Friday-Sunday before the November 1, 2026 seasonal closure.'),
     ).toEqual([
-      'Sunday, November 1, 2026 is the closure date, so it is not an open day; the last possible open day is Saturday, October 31, 2026.',
+      'For "Friday-Sunday before the November 1, 2026 seasonal closure.": the closure date is Sunday, November 1, 2026, so that day is not open; the last possible open day is Saturday, October 31, 2026.',
     ])
     expect(guestFocusDateBoundaryNotes('Closed starting November 3, 2026.')).toEqual([
-      'It is closed on Tuesday, November 3, 2026 and after it, unless a record gives a reopening date.',
+      'For "Closed starting November 3, 2026.": closed on Tuesday, November 3, 2026 and after it, unless a record gives a reopening date.',
     ])
     expect(guestFocusDateBoundaryNotes('It closes November 1, 2026.')).toEqual([])
     expect(guestFocusDateBoundaryNotes('Open through November 1, 2026.')).toEqual([])
@@ -194,9 +194,19 @@ describe('guest focus facts', () => {
     expect(focus.rule).toMatch(/^DATE BOUNDARIES:/u)
     expect(focus.rule).not.toContain('FOCUS FACTS')
     expect(focus.data).toContain('<computed_date_boundaries>')
-    expect(focus.data).toContain('Gull Deck Bar: Sunday, November 1, 2026 is the closure date')
-    expect(focus.data).toContain('Dockside Grill: Sunday, October 25, 2026 is the last listed')
+    expect(focus.data).toContain('In the "Gull Deck Bar" record: For "')
+    expect(focus.data).toContain('the closure date is Sunday, November 1, 2026')
+    expect(focus.data).toContain('In the "Dockside Grill" record: For "Closed for the 2026 season')
     expect(focus.data).not.toContain('Harbor Galley')
+  })
+
+  it('binds a boundary in an overview record to its own clause, not the whole record', () => {
+    const notes = guestFocusDateBoundaryNotes(
+      'Pier shops overview.\nKite Hut: kite store at the north gate; open daily.\nShell Stand: souvenir cart; temporarily closed as of October 28, 2026\nCandy Barn: sweets by the carousel.',
+    )
+    expect(notes).toEqual([
+      'For "Shell Stand: souvenir cart; temporarily closed as of October 28, 2026": closed on Wednesday, October 28, 2026 and after it, unless a record gives a reopening date.',
+    ])
   })
 
   it('keeps a qualifier in place with the requirements it names, verbatim', () => {
