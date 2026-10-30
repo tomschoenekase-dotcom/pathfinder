@@ -64,6 +64,18 @@ const getCampaign: OperatorReadTool = {
           ? operatorUntrustedText(redactAddresses(campaign.description))
           : null,
         status: campaign.status,
+        archived: Boolean(
+          campaign.cohortSnapshot &&
+          typeof campaign.cohortSnapshot === 'object' &&
+          !Array.isArray(campaign.cohortSnapshot) &&
+          (campaign.cohortSnapshot as Record<string, unknown>).crmArchive &&
+          (
+            (campaign.cohortSnapshot as Record<string, unknown>).crmArchive as Record<
+              string,
+              unknown
+            >
+          ).archived === true,
+        ),
         dailyLimit: campaign.dailySendCap,
         pausedAt: iso(campaign.pausedAt),
         createdAt: campaign.createdAt.toISOString(),

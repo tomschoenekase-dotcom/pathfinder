@@ -75,3 +75,14 @@ until that evidence is reviewed.
 6. Enabling or sending outreach is a separate human action. Roll back application
    code if needed; retain append-only evidence and receipts rather than deleting
    history or resetting counts.
+
+
+## MCP read, write, edit and remove parity
+
+The staging catalog adds `crm.get_outreach_history`, `crm.propose_outreach_history_review`, `crm.propose_outreach_history_retract` and `crm.propose_record_update`. The read returns canonical eligibility, message metadata, current revision/record IDs and ready-to-copy mutation arguments. Evidence and messages are separately paginated; default windows are 25 and max 100. No body is returned by the history plan. Review binds source hashes server-side; receipt plus effective projection comes back after writing. MCP-generated evidence is attributed to the authenticated operator agent, not a fictitious human reviewer. Complete reviews require actual per-mailbox full-search provenance. Scope/parent identity remains a human-owned decision.
+
+Existing account/contact tools cover create, field updates, address correction, archive and restoration. Existing follow-up/stage tools retain owner/next-action responsibility. The new generic record tool covers editable draft revision/discard, campaign edit/archive/restore, safe campaign member removal, and append-only note correction/archive/restore. Full note reads expose current revision and original words; archived notes can be explicitly included. A queued/ambiguous draft or member with send intent is refused rather than silently cancelled. A campaign restore never reactivates delivery. Draft HTML and frozen provenance are not arbitrary edit fields; actual outgoing approvals, send intent and provider receipts remain immutable.
+
+History removal is a source-bound soft retraction, not deletion of provider messages, actual sends, consent, approvals or audit receipts. Correction/retraction cannot make an unreviewed chronology appear as zero sends or clear suppression; uncertainty holds outreach. Contact policy health and cold cadence remain separate from address readiness; `crm.check_can_contact` now exposes both. A valid email address alone never clears a history hold.
+
+Use one returned operation UUID for an unchanged retry. Changed content needs a new operation UUID; stale revision needs a fresh read. Deploying the staging catalog does not change installed production tools; production changes require a separate reviewed production deployment. These additions grant no new sending, mailbox or production authority.

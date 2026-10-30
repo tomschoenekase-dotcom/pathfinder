@@ -1,3 +1,4 @@
+import { requireOutreachGroupScope } from '../outreach-history'
 import { loadProspectOutreachHistory } from '@pathfinder/db'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
@@ -344,6 +345,7 @@ export async function loadOutreachContext(
     evidence,
   }
   const outreachHistory = await loadProspectOutreachHistory(database, organizationId, { now })
+  await requireOutreachGroupScope(outreachHistory.organizationIds, { database, grant })
   const context = buildOutreachContext({ ...input, outreachHistory })
   // Import evidence is a source claim, never a verified Gmail message or delivery receipt.
   const importedEvidence = await database.prospectSourceEvidence.findMany({

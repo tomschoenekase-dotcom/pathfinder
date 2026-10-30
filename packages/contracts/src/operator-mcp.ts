@@ -309,6 +309,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.resolve_account',
   'crm.get_account_context',
   'crm.get_outreach_context',
+  'crm.get_outreach_history',
   'crm.list_contacts',
   'crm.list_notes',
   'crm.get_note',
@@ -372,6 +373,9 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_contact_archive',
   'crm.propose_followup_update',
   'crm.propose_note',
+  'crm.propose_outreach_history_review',
+  'crm.propose_outreach_history_retract',
+  'crm.propose_record_update',
   'crm.propose_account_archive',
   'crm.propose_account_update',
   'crm.propose_contact_address_change',
@@ -611,6 +615,56 @@ const PackageCheckIssue = z
   .object({ code: z.string().max(80), path: z.string().max(300), message: z.string().max(600) })
   .strict()
 
+const OutreachReviewCoverage = z
+  .object({
+    providerAccountId: Identifier,
+    searchedAt: IsoDateTime,
+    throughAt: IsoDateTime,
+    query: z.string().trim().min(1).max(2000),
+    sourceReceiptId: z.string().trim().min(1).max(512),
+    resultFingerprint: Sha256Hex,
+  })
+  .strict()
+const OutreachReviewChange = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('message'),
+      messageId: Identifier,
+      classification: z.enum([
+        'cold',
+        'warm',
+        'human',
+        'automated',
+        'outOfOffice',
+        'bounce',
+        'policyBlocked',
+        'unknown',
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('relationship'),
+      relationship: z.enum(['prospect', 'deferred', 'declined', 'closed']),
+      deferUntil: IsoDateTime.nullable().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('contactHealth'),
+      contactId: Identifier,
+      messageId: Identifier,
+      health: z.enum(['bounced', 'policyBlocked', 'healthy']),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('complete'),
+      coverage: z.array(OutreachReviewCoverage).min(1).max(20),
+    })
+    .strict(),
+])
+
 export const OPERATOR_MCP_INPUTS = {
   'crm.search_organizations': readInput({
     query: z.string().trim().min(1).max(200),
@@ -657,6 +711,12 @@ export const OPERATOR_MCP_INPUTS = {
     },
   ),
   'crm.get_account_context': readInput({ organizationId: Identifier }),
+  'crm.get_outreach_history': readInput({
+    organizationId: Identifier,
+    cursor: Cursor.optional(),
+    messageCursor: Identifier.optional(),
+    limit: z.number().int().min(1).max(100).default(25),
+  }),
   'crm.get_outreach_context': readInput({
     organizationId: Identifier,
     /** The person to write to. Leave out to let the server pick the first draftable contact. */
@@ -841,6 +901,7 @@ export const OPERATOR_MCP_INPUTS = {
   }),
   'crm.list_notes': readInput({
     organizationId: Identifier,
+    includeArchived: z.boolean().default(false),
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
@@ -1210,6 +1271,91 @@ export const OPERATOR_MCP_INPUTS = {
       value.priority !== undefined,
     { message: 'Provide at least one field to change' },
   ),
+  'crm.propose_outreach_history_review': writeInput({
+    organizationId: Identifier,
+    expectedRevision: Sha256Hex,
+    reason: z.string().trim().min(1).max(2000),
+    targetEvidenceId: Identifier.optional(),
+    change: OutreachReviewChange,
+  }),
+  'crm.propose_outreach_history_retract': writeInput({
+    organizationId: Identifier,
+    expectedRevision: Sha256Hex,
+    targetEvidenceId: Identifier,
+    reason: z.string().trim().min(1).max(2000),
+  }),
+  'crm.propose_record_update': writeInput({
+    reason: z.string().trim().min(1).max(500),
+    record: z.discriminatedUnion('type', [
+      z
+        .object({
+          type: z.literal('draft'),
+          draftId: Identifier,
+          expectedVersion: z.number().int().positive(),
+          expectedContentHash: Sha256Hex,
+          action: z.enum(['edit', 'discard']),
+          subject: z.string().trim().min(1).max(998).optional(),
+          textBody: z.string().trim().min(1).max(50000).optional(),
+        })
+        .strict()
+        .refine(
+          (value) =>
+            value.action !== 'edit' || value.subject !== undefined || value.textBody !== undefined,
+          { message: 'An edit needs subject or textBody' },
+        ),
+      z
+        .object({
+          type: z.literal('campaign'),
+          campaignId: Identifier,
+          expectedUpdatedAt: IsoDateTime,
+          action: z.enum(['edit', 'archive', 'restore']),
+          name: z.string().trim().min(1).max(191).optional(),
+          description: z.string().max(4000).nullable().optional(),
+          dailyLimit: z.number().int().min(1).max(1000).optional(),
+        })
+        .strict()
+        .refine(
+          (value) =>
+            value.action !== 'edit' ||
+            value.name !== undefined ||
+            value.description !== undefined ||
+            value.dailyLimit !== undefined,
+          { message: 'Campaign edit needs a field change' },
+        )
+        .refine(
+          (value) =>
+            value.action === 'edit' ||
+            (value.name === undefined &&
+              value.description === undefined &&
+              value.dailyLimit === undefined),
+          { message: 'Archive and restore do not accept field edits' },
+        ),
+      z
+        .object({
+          type: z.literal('member'),
+          memberId: Identifier,
+          expectedUpdatedAt: IsoDateTime,
+          action: z.literal('remove'),
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal('note'),
+          organizationId: Identifier,
+          noteId: Identifier,
+          expectedRevision: Sha256Hex,
+          action: z.enum(['correct', 'archive', 'restore']),
+          text: z.string().trim().min(1).max(4000).optional(),
+        })
+        .strict()
+        .refine((value) => value.action !== 'correct' || value.text !== undefined, {
+          message: 'A correction needs text',
+        })
+        .refine((value) => value.action === 'correct' || value.text === undefined, {
+          message: 'Archive and restore do not accept text edits',
+        }),
+    ]),
+  }),
   'crm.propose_note': writeInput({
     organizationId: Identifier,
     note: z.string().trim().min(1).max(4_000),
@@ -2096,6 +2242,7 @@ const OperatorCampaignDetail = z
     campaign: z
       .object({
         campaignId: Identifier,
+        archived: z.boolean(),
         name: z.string().max(191),
         description: UntrustedText.nullable(),
         status: ProspectCampaignStatusValue,
@@ -3124,6 +3271,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.get_contact_history': z
     .object({
       organizationId: Identifier,
+      outreachHistory: OperatorOutreachHistory.optional(),
       events: z
         .array(
           z
@@ -3151,6 +3299,32 @@ export const OPERATOR_MCP_OUTPUTS = {
     })
     .strict(),
   'crm.get_account_context': OperatorAccountContext,
+  'crm.get_outreach_history': z
+    .object({
+      organizationId: Identifier,
+      revision: Sha256Hex,
+      projection: OperatorOutreachHistory,
+      explanation: z.string(),
+      reviewPlan: z.unknown(),
+      evidence: Page(
+        z
+          .object({
+            evidenceId: Identifier,
+            currentEvidenceId: Identifier,
+            fingerprint: Sha256Hex,
+            revision: z.number().int().nonnegative(),
+            active: z.boolean(),
+            retracted: z.boolean(),
+            evidence: z.unknown(),
+            originalEvidence: z.unknown(),
+            provenance: z.object({ actorId: Identifier, occurredAt: IsoDateTime }).strict(),
+            actions: z.unknown(),
+          })
+          .strict(),
+      ),
+      actions: z.unknown(),
+    })
+    .strict(),
   'crm.get_outreach_context': OperatorOutreachContext,
   'crm.list_contacts': Page(OperatorContactDetail),
   'crm.list_duplicates': Page(
@@ -3170,6 +3344,9 @@ export const OPERATOR_MCP_OUTPUTS = {
     z
       .object({
         noteId: Identifier,
+        revision: Sha256Hex,
+        archived: z.boolean(),
+        corrected: z.boolean(),
         occurredAt: IsoDateTime,
         text: UntrustedText,
       })
@@ -3187,6 +3364,10 @@ export const OPERATOR_MCP_OUTPUTS = {
       text: UntrustedText.nullable(),
       /** The stored length in characters, so a cut is visible even when `text.truncated` is false. */
       length: z.number().int().nonnegative(),
+      revision: Sha256Hex.nullable(),
+      archived: z.boolean(),
+      corrected: z.boolean(),
+      originalText: UntrustedText.nullable(),
     })
     .strict(),
   'crm.list_imports': Page(OperatorImportSummary),
@@ -3290,9 +3471,14 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.check_can_contact': z
     .object({
       allowed: z.boolean(),
+      addressAllowed: z.boolean().optional(),
+      coldOutreachAllowed: z.boolean().optional(),
+      outreachHistory: OperatorOutreachHistory.nullable().optional(),
+      explanation: z.string().optional(),
       /** The first reason that applies. `reasons` lists every one. */
       reason: z.enum([
         'ok',
+        'outreach_history_hold',
         'unknown_address',
         'do_not_contact',
         'suppressed',
@@ -4316,6 +4502,9 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.propose_contact_update': OperatorWriteResult,
   'crm.propose_contact_archive': OperatorWriteResult,
   'crm.propose_followup_update': OperatorWriteResult,
+  'crm.propose_outreach_history_review': OperatorWriteResult,
+  'crm.propose_outreach_history_retract': OperatorWriteResult,
+  'crm.propose_record_update': OperatorWriteResult,
   'crm.propose_note': OperatorWriteResult,
   'support.propose_internal_note': OperatorWriteResult,
   'support.propose_information_request': OperatorWriteResult,
@@ -5069,6 +5258,41 @@ const seeds: readonly Seed[] = [
     'crm:propose',
     'platform',
     'crm.followup-update',
+  ],
+  [
+    'crm.get_outreach_history',
+    'Read outreach history and review options',
+    'Read canonical counts, reply chronology, eligibility, source-bound message review choices and paginated append-only evidence. Returns ready-to-use revision tokens; no mailbox or provider call.' +
+      READ,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.propose_outreach_history_review',
+    'Review or correct outreach history',
+    'Propose a message classification, relationship/defer decision, contact health or proved complete-search coverage. Pass the revision from get_outreach_history; the server binds source fingerprints and actor. Optional targetEvidenceId corrects an existing same-kind decision without erasing it. Sending and suppression controls remain separate.' +
+      PROPOSE,
+    'crm:propose',
+    'platform',
+    'crm.outreach-history-review',
+  ],
+  [
+    'crm.propose_outreach_history_retract',
+    'Retract an outreach history decision',
+    'Soft-retract an exact reviewed evidence item using its current revision. Original words, provider messages and receipts remain. Retraction never erases actual sends or clears contact suppression; incomplete history holds outreach.' +
+      PROPOSE,
+    'crm:propose',
+    'platform',
+    'crm.outreach-history-retract',
+  ],
+  [
+    'crm.propose_record_update',
+    'Edit or archive a CRM record',
+    'Edit or discard an editable draft, edit/archive/restore a campaign, remove a safe campaign member, or correct/archive/restore a note. Pass the current record token from its read tool. Immutable correspondence and send receipts are never deleted; queued or ambiguous send intent stays protected.' +
+      PROPOSE,
+    'crm:propose',
+    'platform',
+    'crm.record-update',
   ],
   [
     'crm.propose_note',

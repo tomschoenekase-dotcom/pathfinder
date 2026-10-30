@@ -13,6 +13,29 @@ export type ProspectOutreachHistoryReader = Pick<
   | 'prospectDuplicateCandidate'
   | 'prospectInboundQuarantine'
 >
+const OUTREACH_HISTORY_MESSAGE_SELECT = {
+  id: true,
+  threadId: true,
+  organizationId: true,
+  direction: true,
+  status: true,
+  providerAccountId: true,
+  providerMessageId: true,
+  occurredAt: true,
+  fromAddress: true,
+  toAddresses: true,
+  subject: true,
+  inReplyTo: true,
+  sendItem: { select: { sentAt: true } },
+} as const
+const OUTREACH_HISTORY_MESSAGE_LIMIT = 2000
+const OUTREACH_HISTORY_EVIDENCE_LIMIT = 5000
+function requireBoundedOutreachEvidence(activities: readonly unknown[]) {
+  if (activities.length > OUTREACH_HISTORY_EVIDENCE_LIMIT)
+    throw new ProspectOutreachHistoryError(
+      'Outreach evidence exceeds the bounded 5000-event limit; use a scoped review',
+    )
+}
 export class ProspectOutreachHistoryError extends Error {}
 export const OUTREACH_EVIDENCE_SCHEMA = 'prospect-outreach-history/v1'
 const binding = z
@@ -99,6 +122,24 @@ export const prospectOutreachEvidenceSchema = z.discriminatedUnion('kind', [
     .strict(),
 ])
 export type ProspectOutreachEvidence = z.infer<typeof prospectOutreachEvidenceSchema>
+export const prospectOutreachEvidenceAmendmentSchema = z
+  .object({
+    ...base,
+    kind: z.literal('amendment'),
+    targetEvidenceId: z.string().min(1),
+    expectedCurrentEvidenceId: z.string().min(1),
+    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    expectedRevision: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
+    replacement: prospectOutreachEvidenceSchema.nullable(),
+  })
+  .strict()
+export type ProspectOutreachEvidenceActor =
+  | { type: 'HUMAN'; role: 'PLATFORM_ADMIN'; id: string }
+  | { type: 'AGENT'; id: string; capabilities: readonly string[] }
+
 export type OutreachMessage = {
   id: string
   organizationId: string
@@ -113,7 +154,13 @@ export type OutreachMessage = {
   inReplyTo?: string | null
   sentEvidence?: boolean
 }
-export type OutreachActivity = { evidence: unknown; actorId: string; occurredAt: Date }
+export type OutreachActivity = {
+  id?: string
+  organizationId?: string
+  evidence: unknown
+  actorId: string
+  occurredAt: Date
+}
 export type ProspectOutreachHistoryProjection = {
   canonicalOrganizationId: string
   organizationIds: string[]
@@ -190,6 +237,146 @@ function evidenceFrom(activity: OutreachActivity) {
   const parsed = prospectOutreachEvidenceSchema.safeParse(activity.evidence)
   return parsed.success && parsed.data.reviewerId === activity.actorId ? parsed.data : null
 }
+function evidenceKey(evidence: ProspectOutreachEvidence): string {
+  if (evidence.kind === 'message') return `message:${evidence.binding.messageId}`
+  if (evidence.kind === 'contactHealth') return `contactHealth:${evidence.contactId}`
+  if (evidence.kind === 'scope') return `scope:${evidence.canonicalOrganizationId}`
+  return evidence.kind
+}
+export type ProspectOutreachEvidenceVersion = {
+  evidenceId: string
+  currentEvidenceId: string
+  fingerprint: string
+  revision: number
+  current: boolean
+  active: boolean
+  retracted: boolean
+  evidence: ProspectOutreachEvidence | null
+  originalEvidence: ProspectOutreachEvidence
+  provenance: { actorId: string; occurredAt: string; organizationId: string | null }
+}
+/** Fold corrections as tombstones, never by removing records and exposing an older value. */
+export function resolveProspectOutreachEvidence(activities: readonly OutreachActivity[]) {
+  const versions = new Map<string, ProspectOutreachEvidenceVersion>()
+  const streams = new Map<string, string>()
+  let invalid = false
+  let lastCorrection = -1
+  let lastComplete = -1
+  const ordered = [...activities].sort(
+    (a, b) =>
+      a.occurredAt.getTime() - b.occurredAt.getTime() || (a.id ?? '').localeCompare(b.id ?? ''),
+  )
+  for (const [position, activity] of ordered.entries()) {
+    const amendment = prospectOutreachEvidenceAmendmentSchema.safeParse(activity.evidence)
+    if (amendment.success && amendment.data.reviewerId === activity.actorId) {
+      const event = amendment.data
+      const target = versions.get(event.targetEvidenceId)
+      if (
+        !activity.id ||
+        !target ||
+        !target.current ||
+        target.currentEvidenceId !== event.expectedCurrentEvidenceId ||
+        target.fingerprint !== event.expectedFingerprint ||
+        (event.replacement &&
+          evidenceKey(event.replacement) !== evidenceKey(target.originalEvidence))
+      ) {
+        invalid = true
+        continue
+      }
+      target.currentEvidenceId = activity.id
+      target.revision += 1
+      target.evidence = event.replacement
+      target.active = event.replacement !== null
+      target.retracted = event.replacement === null
+      target.fingerprint = hash([
+        target.evidenceId,
+        activity.id,
+        target.revision,
+        event.replacement,
+      ])
+      target.provenance = {
+        actorId: activity.actorId,
+        occurredAt: activity.occurredAt.toISOString(),
+        organizationId: activity.organizationId ?? null,
+      }
+      lastCorrection = position
+      if (event.replacement?.kind === 'complete') lastComplete = position
+      continue
+    }
+    const evidence = evidenceFrom(activity)
+    if (!evidence) continue
+    const evidenceId = activity.id ?? `unpersisted:${position}`
+    const key = evidenceKey(evidence)
+    const previous = streams.get(key)
+    if (previous) {
+      const old = versions.get(previous)
+      if (old) {
+        old.current = false
+        old.active = false
+      }
+    }
+    streams.set(key, evidenceId)
+    versions.set(evidenceId, {
+      evidenceId,
+      currentEvidenceId: evidenceId,
+      fingerprint: hash([evidenceId, evidenceId, 1, evidence]),
+      revision: 1,
+      current: true,
+      active: true,
+      retracted: false,
+      evidence,
+      originalEvidence: evidence,
+      provenance: {
+        actorId: activity.actorId,
+        occurredAt: activity.occurredAt.toISOString(),
+        organizationId: activity.organizationId ?? null,
+      },
+    })
+    if (evidence.kind === 'complete') lastComplete = position
+  }
+  const rows = [...versions.values()]
+  return {
+    effective: rows
+      .filter((row) => row.current && row.active && row.evidence)
+      .map((row) => row.evidence!),
+    versions: rows,
+    invalidated: invalid || lastCorrection > lastComplete,
+  }
+}
+async function readScopeOutreachActivities(
+  reader: ProspectOutreachHistoryReader,
+  ids: readonly string[],
+) {
+  const claims = await reader.prospectActivity.findMany({
+    where: {
+      OR: [
+        { organizationId: { in: [...ids] } },
+        ...ids.flatMap((id) => [
+          { evidence: { path: ['organizationIds'], array_contains: [id] } },
+          { evidence: { path: ['replacement', 'organizationIds'], array_contains: [id] } },
+        ]),
+      ],
+    },
+    orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+    select: { id: true, organizationId: true, evidence: true, actorId: true, occurredAt: true },
+    take: OUTREACH_HISTORY_EVIDENCE_LIMIT + 1,
+  })
+  requireBoundedOutreachEvidence(claims)
+  const owners = [
+    ...new Set([
+      ...ids,
+      ...claims.flatMap((claim) => (claim.organizationId ? [claim.organizationId] : [])),
+    ]),
+  ]
+  const activities = await reader.prospectActivity.findMany({
+    where: { organizationId: { in: owners } },
+    orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+    select: { id: true, organizationId: true, evidence: true, actorId: true, occurredAt: true },
+    take: OUTREACH_HISTORY_EVIDENCE_LIMIT + 1,
+  })
+  requireBoundedOutreachEvidence(activities)
+  return activities
+}
 function addCalendarMonth(date: Date) {
   const out = new Date(date)
   const day = out.getUTCDate()
@@ -214,10 +401,8 @@ export function projectProspectOutreachHistory(input: {
   now?: Date
 }): ProspectOutreachHistoryProjection {
   const now = input.now ?? new Date()
-  const evidence = [...input.activities]
-    .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())
-    .map(evidenceFrom)
-    .filter((item): item is ProspectOutreachEvidence => item !== null)
+  const resolved = resolveProspectOutreachEvidence(input.activities)
+  const evidence = resolved.effective
   // Canonical provider identity, not activities, send attempts or delivery events, defines one observation.
   let contradictory = false
   const seenFingerprints = new Map<string, string>()
@@ -237,6 +422,17 @@ export function projectProspectOutreachHistory(input: {
       return true
     })
   const sentEvidenceIds = new Set<string>()
+  for (const item of input.activities.map(evidenceFrom)) {
+    if (item?.kind !== 'message' || !item.observedSent) continue
+    const message = messages.find((message) => message.id === item.binding.messageId)
+    if (
+      message?.direction === 'OUTBOUND' &&
+      message.providerAccountId === item.binding.providerAccountId &&
+      message.providerMessageId === item.binding.providerMessageId &&
+      prospectOutreachMessageFingerprint(message) === item.binding.fingerprint
+    )
+      sentEvidenceIds.add(message.id)
+  }
   const classifications = new Map<string, string>()
   for (const item of evidence) {
     if (item.kind !== 'message') continue
@@ -315,7 +511,8 @@ export function projectProspectOutreachHistory(input: {
     ? cold.filter((message) => message.occurredAt < first.occurredAt).length
     : 0
   const last = cold.at(-1)?.occurredAt ?? null
-  const historyComplete = complete && !unknown && !input.unresolved && !contradictory
+  const historyComplete =
+    complete && !unknown && !input.unresolved && !contradictory && !resolved.invalidated
   let relationship: ProspectOutreachHistoryProjection['relationship'] = first
     ? 'inConversation'
     : cold.length
@@ -407,22 +604,12 @@ export async function loadProspectOutreachHistory(
     }
     canonicalOrganizationId = organization.mergedIntoOrganizationId
   }
-  const scopeActivities = await reader.prospectActivity.findMany({
-    where: {
-      OR: [
-        { organizationId: canonicalOrganizationId },
-        { evidence: { path: ['organizationIds'], array_contains: [canonicalOrganizationId] } },
-      ],
-    },
-    orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-    select: { evidence: true, actorId: true, occurredAt: true },
-  })
-  const scopes = scopeActivities
-    .map(evidenceFrom)
-    .filter(
-      (item): item is Extract<ProspectOutreachEvidence, { kind: 'scope' }> =>
-        item?.kind === 'scope',
-    )
+  const scopeActivities = await readScopeOutreachActivities(reader, [canonicalOrganizationId])
+  const scopeResolution = resolveProspectOutreachEvidence(scopeActivities)
+  if (scopeResolution.invalidated) unresolved = true
+  const scopes = scopeResolution.effective.filter(
+    (item): item is Extract<ProspectOutreachEvidence, { kind: 'scope' }> => item.kind === 'scope',
+  )
   const scope = scopes.at(-1)
   if (
     new Set(
@@ -455,19 +642,10 @@ export async function loadProspectOutreachHistory(
     for (const id of frontier) organizationIds.add(id)
   }
   const ids = [...organizationIds].sort()
-  const overlappingScopes = await reader.prospectActivity.findMany({
-    where: {
-      OR: [
-        { organizationId: { in: ids } },
-        ...ids.map((id) => ({ evidence: { path: ['organizationIds'], array_contains: [id] } })),
-      ],
-    },
-    select: { evidence: true, actorId: true, occurredAt: true },
-  })
-  for (const activity of overlappingScopes) {
-    const claim = evidenceFrom(activity)
+  const overlappingScopes = await readScopeOutreachActivities(reader, ids)
+  for (const claim of resolveProspectOutreachEvidence(overlappingScopes).effective) {
     if (
-      claim?.kind === 'scope' &&
+      claim.kind === 'scope' &&
       (claim.canonicalOrganizationId !== canonicalOrganizationId ||
         JSON.stringify([...claim.organizationIds].sort()) !== JSON.stringify(ids))
     )
@@ -486,12 +664,14 @@ export async function loadProspectOutreachHistory(
     reader.prospectEmailMessage.findMany({
       where: { organizationId: { in: ids } },
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-      include: { sendItem: { select: { sentAt: true } } },
+      select: OUTREACH_HISTORY_MESSAGE_SELECT,
+      take: OUTREACH_HISTORY_MESSAGE_LIMIT + 1,
     }),
     reader.prospectActivity.findMany({
       where: { organizationId: { in: ids } },
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-      select: { evidence: true, actorId: true, occurredAt: true },
+      select: { id: true, organizationId: true, evidence: true, actorId: true, occurredAt: true },
+      take: OUTREACH_HISTORY_EVIDENCE_LIMIT + 1,
     }),
     reader.prospectOutreachDraft.findMany({
       where: {
@@ -518,6 +698,11 @@ export async function loadProspectOutreachHistory(
       select: { id: true },
     }),
   ])
+  if (messages.length > OUTREACH_HISTORY_MESSAGE_LIMIT)
+    throw new ProspectOutreachHistoryError(
+      'Outreach history exceeds the bounded 2000-message limit; use a scoped review',
+    )
+  requireBoundedOutreachEvidence(activities)
   if (
     duplicates.length ||
     mailboxes.length === 0 ||
@@ -563,8 +748,7 @@ export async function loadProspectOutreachHistory(
     ? allContacts.filter((item) => item.id === options.contactId)
     : allContacts
   const healthOverrides = new Map<string, string>()
-  for (const activity of activities) {
-    const evidence = evidenceFrom(activity)
+  for (const evidence of resolveProspectOutreachEvidence(activities).effective) {
     if (evidence?.kind !== 'contactHealth') continue
     const message = messages.find((item) => item.id === evidence.binding.messageId)
     const contact = allContacts.find((item) => item.id === evidence.contactId)
@@ -707,11 +891,12 @@ export async function requireProspectOutreachHistory(
     const reviews = await reader.prospectActivity.findMany({
       where: { organizationId: { in: projection.organizationIds } },
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-      select: { evidence: true, actorId: true, occurredAt: true },
+      select: { id: true, organizationId: true, evidence: true, actorId: true, occurredAt: true },
+      take: OUTREACH_HISTORY_EVIDENCE_LIMIT + 1,
     })
-    const classification = reviews
-      .map(evidenceFrom)
-      .filter(
+    requireBoundedOutreachEvidence(reviews)
+    const classification = resolveProspectOutreachEvidence(reviews)
+      .effective.filter(
         (item) => item?.kind === 'message' && item.binding.messageId === anchor.data.messageId,
       )
       .at(-1)
@@ -737,6 +922,44 @@ export async function requireProspectOutreachHistory(
   return projection
 }
 
+export function prospectOutreachEvidencePlanRevision(plan: {
+  historyFingerprint: string
+  organizationIds: readonly string[]
+  contactIds: readonly string[]
+  mailboxes: readonly {
+    id: string
+    mailboxAddress: string
+    lastSuccessfulSyncAt: Date | null
+    connectionStatus: string
+  }[]
+  evidence: readonly ProspectOutreachEvidenceVersion[]
+  projection: ProspectOutreachHistoryProjection
+}) {
+  return hash({
+    historyFingerprint: plan.historyFingerprint,
+    organizationIds: [...plan.organizationIds].sort(),
+    contactIds: [...plan.contactIds].sort(),
+    mailboxes: plan.mailboxes
+      .map((mailbox) => [
+        mailbox.id,
+        mailbox.mailboxAddress,
+        mailbox.lastSuccessfulSyncAt?.toISOString() ?? null,
+        mailbox.connectionStatus,
+      ])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    evidence: plan.evidence
+      .map((item) => [
+        item.evidenceId,
+        item.currentEvidenceId,
+        item.fingerprint,
+        item.current,
+        item.active,
+      ])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    relationship: plan.projection.relationship,
+    contactHealth: plan.projection.contactHealth,
+  })
+}
 export async function planProspectOutreachEvidence(
   reader: ProspectOutreachHistoryReader,
   organizationId: string,
@@ -746,7 +969,8 @@ export async function planProspectOutreachEvidence(
     reader.prospectEmailMessage.findMany({
       where: { organizationId: { in: projection.organizationIds } },
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-      include: { sendItem: { select: { sentAt: true } } },
+      select: OUTREACH_HISTORY_MESSAGE_SELECT,
+      take: OUTREACH_HISTORY_MESSAGE_LIMIT + 1,
     }),
     reader.prospectOrganization.findMany({
       where: { id: { in: projection.organizationIds } },
@@ -763,10 +987,13 @@ export async function planProspectOutreachEvidence(
     }),
     reader.prospectActivity.findMany({
       where: { organizationId: { in: projection.organizationIds } },
-      select: { evidence: true, actorId: true, occurredAt: true },
+      orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, organizationId: true, evidence: true, actorId: true, occurredAt: true },
+      take: OUTREACH_HISTORY_EVIDENCE_LIMIT + 1,
     }),
   ])
-  if (messages.length > 2000)
+  requireBoundedOutreachEvidence(activities)
+  if (messages.length > OUTREACH_HISTORY_MESSAGE_LIMIT)
     throw new Error('Outreach evidence review exceeds the bounded 2000-message limit')
   const sentProof = activities
     .map(evidenceFrom)
@@ -787,8 +1014,22 @@ export async function planProspectOutreachEvidence(
           proof.binding.fingerprint === prospectOutreachMessageFingerprint(message),
       ),
   )
-  return {
+  const plan = {
     projection,
+    evidence: resolveProspectOutreachEvidence(activities).versions,
+    evidenceHistory: activities
+      .filter(
+        (activity) =>
+          evidenceFrom(activity) ||
+          prospectOutreachEvidenceAmendmentSchema.safeParse(activity.evidence).success,
+      )
+      .map((activity) => ({
+        evidenceId: activity.id,
+        organizationId: activity.organizationId,
+        actorId: activity.actorId,
+        occurredAt: activity.occurredAt.toISOString(),
+        evidence: activity.evidence,
+      })),
     organizationIds: projection.organizationIds,
     contactIds: organizations.flatMap((item) => item.contacts.map((contact) => contact.id)).sort(),
     mailboxes,
@@ -807,12 +1048,102 @@ export async function planProspectOutreachEvidence(
       toAddresses: message.toAddresses,
     })),
   }
+  return { ...plan, revision: prospectOutreachEvidencePlanRevision(plan) }
+}
+async function validateProspectOutreachEvidence(
+  tx: Transaction,
+  organizationId: string,
+  evidence: ProspectOutreachEvidence,
+  reviewedPlan?: Awaited<ReturnType<typeof planProspectOutreachEvidence>>,
+) {
+  const plan = reviewedPlan ?? (await planProspectOutreachEvidence(tx, organizationId))
+  if (evidence.kind === 'message' || evidence.kind === 'contactHealth') {
+    const message = plan.messages.find(
+      (message) => message.messageId === evidence.binding.messageId,
+    )
+    if (
+      !message ||
+      message.providerAccountId !== evidence.binding.providerAccountId ||
+      message.providerMessageId !== evidence.binding.providerMessageId ||
+      message.fingerprint !== evidence.binding.fingerprint
+    )
+      throw new Error('Evidence is not bound to a current canonical provider message')
+    if (
+      evidence.kind === 'message' &&
+      (message.direction === 'OUTBOUND'
+        ? !['cold', 'warm', 'unknown'].includes(evidence.classification)
+        : ['cold', 'warm'].includes(evidence.classification))
+    )
+      throw new Error('Message classification conflicts with direction')
+    if (evidence.kind === 'contactHealth') {
+      if (!plan.contactIds.includes(evidence.contactId))
+        throw new Error('Health evidence contact is outside the account scope')
+      const contact = await tx.prospectContact.findUnique({
+        where: { id: evidence.contactId },
+        select: { normalizedEmail: true },
+      })
+      if (
+        !contact?.normalizedEmail ||
+        contact.normalizedEmail.toLowerCase() !== evidence.recipientAddress.toLowerCase() ||
+        !message.toAddresses.some(
+          (address) => address.toLowerCase() === evidence.recipientAddress.toLowerCase(),
+        ) ||
+        message.direction !== 'OUTBOUND'
+      )
+        throw new Error(
+          'Delivery health evidence must bind the exact original outbound recipient address',
+        )
+    }
+  }
+  if (evidence.kind === 'complete') {
+    if (
+      evidence.historyFingerprint !== plan.historyFingerprint ||
+      JSON.stringify([...evidence.organizationIds].sort()) !==
+        JSON.stringify(plan.organizationIds) ||
+      JSON.stringify([...evidence.contactIds].sort()) !== JSON.stringify(plan.contactIds) ||
+      JSON.stringify([...evidence.mailboxIds].sort()) !==
+        JSON.stringify(plan.mailboxes.map((item) => item.id).sort())
+    )
+      throw new Error('History, contacts or expected mailbox coverage changed; review again')
+    for (const mailbox of plan.mailboxes) {
+      const coverage = evidence.coverage.find((item) => item.providerAccountId === mailbox.id)
+      if (
+        !coverage ||
+        coverage.mailboxAddress.toLowerCase() !== mailbox.mailboxAddress.toLowerCase() ||
+        new Date(coverage.throughAt) > new Date() ||
+        new Date(coverage.searchedAt) < new Date(coverage.throughAt)
+      )
+        throw new Error('Each expected mailbox requires completed full-search provenance')
+    }
+  }
+  if (evidence.kind === 'scope') {
+    if (
+      organizationId !== evidence.canonicalOrganizationId ||
+      !evidence.organizationIds.includes(organizationId) ||
+      new Set(evidence.organizationIds).size !== evidence.organizationIds.length
+    )
+      throw new Error('Explicit parent scope is invalid')
+    const organizations = await tx.prospectOrganization.findMany({
+      where: { id: { in: evidence.organizationIds } },
+      select: { id: true, mergedIntoOrganizationId: true },
+    })
+    if (
+      organizations.length !== evidence.organizationIds.length ||
+      organizations.some(
+        (item) =>
+          item.mergedIntoOrganizationId &&
+          !evidence.organizationIds.includes(item.mergedIntoOrganizationId),
+      )
+    )
+      throw new Error('Explicit parent scope conflicts with canonical merges')
+  }
 }
 /** Append-only, operation-idempotent review. No mailbox/provider mutation or send authority. */
 export async function recordProspectOutreachEvidenceAction(
   input: {
     organizationId: string
     operationId: string
+    expectedRevision?: string
     evidence: unknown
     actor:
       | { type: 'HUMAN'; role: 'PLATFORM_ADMIN'; id: string }
@@ -846,112 +1177,38 @@ export async function recordProspectOutreachEvidenceAction(
     throw new Error('Canonical parent identity requires human review')
   if (evidence.reviewerId !== input.actor.id)
     throw new Error('Review actor must match evidence reviewer')
-  return client.$transaction(async (tx) => {
-    const receiptKey = `outreach-history:${operationId}`
-    const existing = await tx.prospectActivity.findUnique({
-      where: { externalReceiptKey: receiptKey },
-    })
-    if (existing) {
-      if (
-        existing.organizationId !== input.organizationId ||
-        hash(existing.evidence) !== hash(evidence)
-      )
-        throw new Error('Evidence operation id was already used with different content')
-      return { activityId: existing.id, inserted: false }
-    }
-    const plan = await planProspectOutreachEvidence(tx, input.organizationId)
-    if (evidence.kind === 'message' || evidence.kind === 'contactHealth') {
-      const message = plan.messages.find(
-        (message) => message.messageId === evidence.binding.messageId,
-      )
-      if (
-        !message ||
-        message.providerAccountId !== evidence.binding.providerAccountId ||
-        message.providerMessageId !== evidence.binding.providerMessageId ||
-        message.fingerprint !== evidence.binding.fingerprint
-      )
-        throw new Error('Evidence is not bound to a current canonical provider message')
-      if (
-        evidence.kind === 'message' &&
-        (message.direction === 'OUTBOUND'
-          ? !['cold', 'warm', 'unknown'].includes(evidence.classification)
-          : ['cold', 'warm'].includes(evidence.classification))
-      )
-        throw new Error('Message classification conflicts with direction')
-      if (evidence.kind === 'contactHealth') {
-        if (!plan.contactIds.includes(evidence.contactId))
-          throw new Error('Health evidence contact is outside the account scope')
-        const contact = await tx.prospectContact.findUnique({
-          where: { id: evidence.contactId },
-          select: { normalizedEmail: true },
-        })
-        if (
-          !contact?.normalizedEmail ||
-          contact.normalizedEmail.toLowerCase() !== evidence.recipientAddress.toLowerCase() ||
-          !message.toAddresses.some(
-            (address) => address.toLowerCase() === evidence.recipientAddress.toLowerCase(),
-          ) ||
-          message.direction !== 'OUTBOUND'
-        )
-          throw new Error(
-            'Delivery health evidence must bind the exact original outbound recipient address',
-          )
-      }
-    }
-    if (evidence.kind === 'complete') {
-      if (
-        evidence.historyFingerprint !== plan.historyFingerprint ||
-        JSON.stringify([...evidence.organizationIds].sort()) !==
-          JSON.stringify(plan.organizationIds) ||
-        JSON.stringify([...evidence.contactIds].sort()) !== JSON.stringify(plan.contactIds) ||
-        JSON.stringify([...evidence.mailboxIds].sort()) !==
-          JSON.stringify(plan.mailboxes.map((item) => item.id).sort())
-      )
-        throw new Error('History, contacts or expected mailbox coverage changed; review again')
-      for (const mailbox of plan.mailboxes) {
-        const coverage = evidence.coverage.find((item) => item.providerAccountId === mailbox.id)
-        if (
-          !coverage ||
-          coverage.mailboxAddress.toLowerCase() !== mailbox.mailboxAddress.toLowerCase() ||
-          new Date(coverage.throughAt) > new Date() ||
-          new Date(coverage.searchedAt) < new Date(coverage.throughAt)
-        )
-          throw new Error('Each expected mailbox requires completed full-search provenance')
-      }
-    }
-    if (evidence.kind === 'scope') {
-      if (
-        input.organizationId !== evidence.canonicalOrganizationId ||
-        !evidence.organizationIds.includes(input.organizationId) ||
-        new Set(evidence.organizationIds).size !== evidence.organizationIds.length
-      )
-        throw new Error('Explicit parent scope is invalid')
-      const organizations = await tx.prospectOrganization.findMany({
-        where: { id: { in: evidence.organizationIds } },
-        select: { id: true, mergedIntoOrganizationId: true },
+  return client.$transaction(
+    async (tx) => {
+      const receiptKey = `outreach-history:${operationId}`
+      const existing = await tx.prospectActivity.findUnique({
+        where: { externalReceiptKey: receiptKey },
       })
-      if (
-        organizations.length !== evidence.organizationIds.length ||
-        organizations.some(
-          (item) =>
-            item.mergedIntoOrganizationId &&
-            !evidence.organizationIds.includes(item.mergedIntoOrganizationId),
+      if (existing) {
+        if (
+          existing.organizationId !== input.organizationId ||
+          hash(existing.evidence) !== hash(evidence)
         )
-      )
-        throw new Error('Explicit parent scope conflicts with canonical merges')
-    }
-    const activity = await tx.prospectActivity.create({
-      data: {
-        organizationId: input.organizationId,
-        type: 'NOTE_ADDED',
-        summary: `Outreach history ${evidence.kind} reviewed`,
-        evidence,
-        actorId: input.actor.id,
-        externalReceiptKey: receiptKey,
-      },
-    })
-    return { activityId: activity.id, inserted: true }
-  })
+          throw new Error('Evidence operation id was already used with different content')
+        return { activityId: existing.id, inserted: false }
+      }
+      const plan = await planProspectOutreachEvidence(tx, input.organizationId)
+      if (input.expectedRevision !== undefined && input.expectedRevision !== plan.revision)
+        throw new Error('Evidence revision changed; read current history before reviewing')
+      await validateProspectOutreachEvidence(tx, input.organizationId, evidence, plan)
+      const activity = await tx.prospectActivity.create({
+        data: {
+          organizationId: input.organizationId,
+          type: 'NOTE_ADDED',
+          summary: `Outreach history ${evidence.kind} reviewed`,
+          evidence,
+          actorId: input.actor.id,
+          externalReceiptKey: receiptKey,
+        },
+      })
+      return { activityId: activity.id, inserted: true }
+    },
+    { isolationLevel: 'Serializable' },
+  )
 }
 /** Machine evidence is limited to provider normalization and already-approved sent intent. */
 export async function recordProspectOutreachMessageEvidence(
@@ -1203,11 +1460,12 @@ export async function isProspectKnownAutomatedReply(
   const activities = await reader.prospectActivity.findMany({
     where: { organizationId: message.organizationId },
     orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-    select: { evidence: true, actorId: true, occurredAt: true },
+    select: { id: true, organizationId: true, evidence: true, actorId: true, occurredAt: true },
+    take: OUTREACH_HISTORY_EVIDENCE_LIMIT + 1,
   })
-  const classification = activities
-    .map(evidenceFrom)
-    .filter(
+  requireBoundedOutreachEvidence(activities)
+  const classification = resolveProspectOutreachEvidence(activities)
+    .effective.filter(
       (item) =>
         item?.kind === 'message' &&
         item.binding.messageId === message.id &&
@@ -1219,5 +1477,103 @@ export async function isProspectKnownAutomatedReply(
   return (
     classification?.kind === 'message' &&
     ['automated', 'outOfOffice', 'bounce'].includes(classification.classification)
+  )
+}
+
+/** Correct or retract one exact current evidence version. Originals remain append-only. */
+export async function amendProspectOutreachEvidenceAction(
+  input: {
+    organizationId: string
+    operationId: string
+    expectedRevision?: string
+    targetEvidenceId: string
+    expectedCurrentEvidenceId: string
+    expectedFingerprint: string
+    reason: string
+    replacement: unknown | null
+    actor: ProspectOutreachEvidenceActor
+  },
+  client: typeof db = db,
+) {
+  if (
+    !input.actor.id ||
+    (input.actor.type === 'HUMAN'
+      ? input.actor.role !== 'PLATFORM_ADMIN'
+      : !input.actor.capabilities.includes('prospects:outreach-history:reconcile'))
+  )
+    throw new Error('Outreach history reconciliation authority is required')
+  const operationId = z.string().uuid().parse(input.operationId)
+  const rawReplacement =
+    input.replacement && typeof input.replacement === 'object' && !Array.isArray(input.replacement)
+      ? (input.replacement as Record<string, unknown>)
+      : {}
+  const replacement =
+    input.replacement === null
+      ? null
+      : prospectOutreachEvidenceSchema.parse({
+          ...rawReplacement,
+          reviewerId: input.actor.id,
+          reviewerType: input.actor.type,
+          reason: input.reason,
+        })
+  const amendment = prospectOutreachEvidenceAmendmentSchema.parse({
+    schema: OUTREACH_EVIDENCE_SCHEMA,
+    kind: 'amendment',
+    reviewerId: input.actor.id,
+    reviewerType: input.actor.type,
+    reason: input.reason,
+    targetEvidenceId: input.targetEvidenceId,
+    expectedCurrentEvidenceId: input.expectedCurrentEvidenceId,
+    expectedFingerprint: input.expectedFingerprint,
+    ...(input.expectedRevision !== undefined ? { expectedRevision: input.expectedRevision } : {}),
+    replacement,
+  })
+  return client.$transaction(
+    async (tx) => {
+      const externalReceiptKey = `outreach-history-amend:${operationId}`
+      const existing = await tx.prospectActivity.findUnique({ where: { externalReceiptKey } })
+      if (existing) {
+        if (
+          existing.organizationId !== input.organizationId ||
+          hash(existing.evidence) !== hash(amendment)
+        )
+          throw new Error('Evidence operation id was already used with different content')
+        return { activityId: existing.id, inserted: false }
+      }
+      const plan = await planProspectOutreachEvidence(tx, input.organizationId)
+      if (input.expectedRevision !== undefined && input.expectedRevision !== plan.revision)
+        throw new Error('Evidence revision changed; read current history before editing')
+      const target = plan.evidence.find((item) => item.evidenceId === input.targetEvidenceId)
+      if (
+        !target ||
+        !target.current ||
+        target.currentEvidenceId !== input.expectedCurrentEvidenceId ||
+        target.fingerprint !== input.expectedFingerprint
+      )
+        throw new Error('Evidence version changed; read current history before editing')
+      if (target.originalEvidence.kind === 'scope' && input.actor.type !== 'HUMAN')
+        throw new Error('Canonical parent identity requires human review')
+      if (replacement) {
+        if (evidenceKey(replacement) !== evidenceKey(target.originalEvidence))
+          throw new Error('Evidence edits cannot change the original semantic target')
+        await validateProspectOutreachEvidence(tx, input.organizationId, replacement)
+      }
+      // A unique, immutable operation receipt provides replay safety; version admission and append
+      // execute under one serializable transaction so two edits cannot both win the same version.
+      const activity = await tx.prospectActivity.create({
+        data: {
+          organizationId: input.organizationId,
+          type: 'NOTE_ADDED',
+          summary: replacement
+            ? 'Outreach history evidence corrected'
+            : 'Outreach history evidence retracted',
+          evidence: amendment,
+          actorId: input.actor.id,
+          externalReceiptKey,
+        },
+      })
+      return { activityId: activity.id, inserted: true }
+    },
+    { isolationLevel: 'Serializable' },
   )
 }

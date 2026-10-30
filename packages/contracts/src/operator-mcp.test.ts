@@ -53,6 +53,10 @@ it('fits the full declared tool catalog in context while rejecting an oversized 
 
 const EXPECTED_TOOLS = [
   'crm.search_organizations',
+  'crm.get_outreach_history',
+  'crm.propose_outreach_history_review',
+  'crm.propose_outreach_history_retract',
+  'crm.propose_record_update',
   'crm.get_organization',
   'crm.list_candidates',
   'crm.get_contact_history',

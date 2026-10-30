@@ -1708,3 +1708,4 @@ export { publishSourceConnectionSnapshot } from './helpers/source-connection-pub
 export { recordSourceConnectionDiagnostic } from './helpers/source-connection-diagnostics'
 
 export * from './helpers/prospect-outreach-history'
+export * from './helpers/prospect-crm-record-actions'

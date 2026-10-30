@@ -233,6 +233,9 @@ export async function saveProspectOutreachDraftAction(
     textBody: string
     htmlBody?: string
     groundingSnapshot: unknown
+    expectedPreviousDraftId?: string
+    expectedPreviousVersion?: number
+    expectedPreviousContentHash?: string
     verifiedCurrentPrintAssets?: readonly VerifiedCurrentProspectPrintAsset[]
     actor: DraftActor
   },
@@ -264,11 +267,16 @@ export async function saveProspectOutreachDraftAction(
         drafts: {
           orderBy: { version: 'desc' },
           take: 1,
-          select: { id: true, version: true, status: true },
+          select: { id: true, version: true, status: true, contentHash: true },
         },
       },
     })
     if (!member) throw new ProspectOutreachError('NOT_FOUND', 'Campaign member not found')
+    if (member.status === 'CANCELLED') throw new ProspectOutreachError('CONFLICT', 'Campaign membership was removed; reselect it explicitly before drafting')
+    if (input.expectedPreviousDraftId !== undefined &&
+      (member.drafts[0]?.id !== input.expectedPreviousDraftId || member.drafts[0].version !== input.expectedPreviousVersion || member.drafts[0].contentHash !== input.expectedPreviousContentHash)) {
+      throw new ProspectOutreachError('CONFLICT', 'Draft changed; read the current version and content hash again')
+    }
     // The one shared rule: no address, any suppression, a complaint or hard bounce, an invalid
     // address, a do-not-contact account, or the same address blocked on another record all stop
     // a draft. Drafting may begin before an address is verified; sending may not.

@@ -3,7 +3,7 @@
  * filesystem at runtime (a Next standalone bundle does not ship docs/). A test keeps this equal to
  * the docs file; edit the docs file first, then update this constant to match.
  */
-export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v14'
+export const OPERATOR_MANUAL_VERSION = 'torchiko-operator-manual-v15'
 
 export const OPERATOR_MANUAL_TEXT = [
   '# Operator manual',
@@ -351,5 +351,26 @@ export const OPERATOR_MANUAL_TEXT = [
   'Use these tools when the owner says "for venue X, use model Y", or when a measured test shows one venue needs a different model. `venues.propose_guest_model` sets the model for that one venue only, never client-wide. `venues.propose_guest_model_reset` removes the venue choice so it follows the client, workload or deployment default again. Both keep any other stored override settings, accept `expectedRevision` (the `venueOverride.revision` you read, or null when there is none) and return the same receipt when the same `operationId` is sent again. A key outside the list is refused, and a model whose provider has no key on this deployment is refused with `MODEL_UNAVAILABLE`.',
   '',
   'Choosing: `guest-chat-sol-fast` (Sol + Fast) is the default best choice. `guest-chat-terra-fast` (Terra + Fast) is faster but omitted more needed details in testing, so pick it only when the owner accepts that trade. Never pick a slower or bigger model just because it is bigger. After a change, ask the live guide a first-visit question and a question with conditions (hours, height, price) and confirm the answers still carry those details.',
+  '',
+  '',
+  '## CRM outreach history and easy record maintenance',
+  '',
+  'Read `crm.get_outreach_history` for the exact account before writing. It returns canonical cold-email count (0/1/2/3 or Unknown), first-human-reply chronology, relationship, due date, contact health, eligibility and its reason. It also returns source-bound message review choices, current revision tokens and paged evidence. `cursor` pages evidence; `messageCursor` pages message metadata. Neither reads a mailbox or sends mail. Unknown history is a hold, never zero sends.',
+  '',
+  'Use `crm.list_candidates` with `outreachView`: `neverContacted`, `firstFollowupDue`, `finalFollowupDue`, `inConversation`, `deferred`, `stopped` or `historyNeedsReview`. Continue `nextCursor` even after an empty bounded scan until `complete` is true. `crm.check_can_contact` reports address eligibility separately from cold-outreach eligibility, so a valid address does not clear a history hold. Actual warm replies need the existing source-bound reply path.',
+  '',
+  'Copy the returned review action arguments, add a clear `reason`, choose the `change`, and call `crm.propose_outreach_history_review`. For a message use only its `messageId` and `classification`; the server binds the actual source fingerprint. For a relationship choose `prospect`, `deferred` (optional `deferUntil`), `declined` or `closed`. Contact-health review uses the exact `contactId`, outbound `messageId` and `healthy`, `bounced` or `policyBlocked`. A policy rejection is not proof that an address does not exist. Correct an earlier same-kind decision by including its `targetEvidenceId` from the evidence page.',
+  '',
+  "A complete-history review requires actual completed full-search receipts for every listed mailbox. Supply each receipt's `providerAccountId`, `searchedAt`, `throughAt`, `query`, `sourceReceiptId` and `resultFingerprint`; the server builds the contact/account/history binding. Never fabricate missing coverage or treat an empty local inbox as a proved empty history. Account parent-scope decisions still belong to actual human review; the agent cannot assert a new parent identity. MCP evidence is attributed to the authenticated operator agent, not relabeled as human-reviewed.",
+  '',
+  'To remove a mistaken history decision, copy its returned retract action into `crm.propose_outreach_history_retract` and add the reason. This appends a soft retraction: original words, provider messages, real sends and receipts remain. Retraction cannot reset the cold-email count to zero, unsuppress a contact or restart a completed sequence; uncertain chronology becomes Unknown and held. Corrections/retractions invalidate old completeness evidence until an actual fresh review restores it. The mutation result includes a receipt and the effective projection; read it back with `crm.get_outreach_history`.',
+  '',
+  'For ordinary CRM records use the existing account/contact create, update and archive tools. `crm.propose_record_update` fills the remaining narrow gaps:',
+  "- `record.type: draft`: `edit` an editable draft's subject/text using its current version/content hash, or `discard` it. It never approves or sends.",
+  '- `record.type: campaign`: `edit`, `archive` or `restore` using its current `updatedAt`. Archive retains history and pauses the campaign; restore never silently starts delivery.',
+  '- `record.type: member`: `remove` a safe campaign member using its current `updatedAt`; queued or ambiguous send intent is protected.',
+  "- `record.type: note`: `correct`, `archive` or `restore` using the note's current revision. The original words remain readable. `crm.list_notes(includeArchived:true)` includes archived notes; `crm.get_note` returns full text, original text and the current revision.",
+  '',
+  'Keep one `operationId` for one unchanged write. A retry or unknown outcome uses that same ID and the existing operation lookup; changed content needs a new ID. A stale revision means read again and make a fresh decision. These tools change records through the existing proposal/audit owner. They add no hard delete of correspondence, activity, consent, approval or send receipts, and they grant no new sending, release or unsuppression authority.',
   '',
 ].join('\n')

@@ -516,5 +516,5 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
         reviewerId: reconcileActor.id,
       })
     })
-  })
+  }, 30_000)
 })

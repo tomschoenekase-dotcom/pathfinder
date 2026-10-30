@@ -1,3 +1,4 @@
+import { readableOutreachReason, requireOutreachGroupScope } from '../outreach-history'
 import {
   matchesProspectOutreachView,
   outreachCompleteCandidateWhere,
@@ -204,12 +205,18 @@ const listCandidates: OperatorReadTool = {
     const input = OPERATOR_MCP_INPUTS['crm.list_candidates'].parse(raw)
     const where = organizationWhere(input)
     if (input.uncontacted || input.outreachView) {
-      return pageUncontacted(context.database, {
+      const page = await pageUncontacted(context.database, {
         where,
         limit: input.limit,
         cursor: input.cursor,
         ...(input.outreachView ? { outreachView: input.outreachView } : {}),
       })
+      for (const item of page.items) {
+        const history = (item as typeof item & { outreachHistory?: { organizationIds: string[] } })
+          .outreachHistory
+        if (history) await requireOutreachGroupScope(history.organizationIds, context)
+      }
+      return page
     }
     const page = await pageOrganizations(context.database, {
       where,
@@ -222,11 +229,15 @@ const listCandidates: OperatorReadTool = {
       items: await Promise.all(
         page.items.map(async (item) => ({
           ...item,
-          outreachHistory: await loadProspectOutreachHistory(
-            context.database,
-            item.organizationId,
-            { now: context.now },
-          ),
+          outreachHistory: await (async () => {
+            const history = await loadProspectOutreachHistory(
+              context.database,
+              item.organizationId,
+              { now: context.now },
+            )
+            await requireOutreachGroupScope(history.organizationIds, context)
+            return history
+          })(),
         })),
       ),
     }
@@ -412,8 +423,13 @@ const getContactHistory: OperatorReadTool = {
         (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
     )
     const page = events.slice(0, limit)
+    const outreachHistory = await loadProspectOutreachHistory(database, organizationId, {
+      now: context.now,
+    })
+    await requireOutreachGroupScope(outreachHistory.organizationIds, context)
     return {
       organizationId,
+      outreachHistory,
       events: page.map((event) => ({
         type: event.type,
         occurredAt: event.occurredAt.toISOString(),
@@ -467,10 +483,40 @@ const checkCanContact: OperatorReadTool = {
       cursor = batch.at(-1)!.id
     }
     const answer = evaluateAddress(rows, purpose)
+    const histories = await Promise.all(
+      rows.map(async (row) => {
+        const history = await loadProspectOutreachHistory(context.database, row.organizationId, {
+          now: context.now,
+          contactId: row.id,
+        })
+        await requireOutreachGroupScope(history.organizationIds, context)
+        return history
+      }),
+    )
+    const selected = rows.findIndex((row) => row.id === answer.contactId)
+    const history = selected >= 0 ? histories[selected]! : null
+    const blockedHealth = histories.find((item) =>
+      ['bounced', 'suppressed', 'policyBlocked'].includes(item.contactHealth),
+    )
+    const coldAllowed = answer.allowed && history?.eligibility === 'eligible' && !blockedHealth
+    const hold = history?.eligibility !== 'eligible' || Boolean(blockedHealth)
     return {
-      allowed: answer.allowed,
-      reason: answer.reason,
-      reasons: [...answer.reasons],
+      allowed: Boolean(coldAllowed),
+      addressAllowed: answer.allowed,
+      coldOutreachAllowed: Boolean(coldAllowed),
+      outreachHistory: history,
+      reason: answer.allowed && hold ? ('outreach_history_hold' as const) : answer.reason,
+      reasons: [
+        ...answer.reasons,
+        ...(hold
+          ? [blockedHealth?.eligibilityReason ?? history?.eligibilityReason ?? 'history_incomplete']
+          : []),
+      ].slice(0, 15),
+      explanation: !answer.allowed
+        ? readableOutreachReason(answer.reason)
+        : readableOutreachReason(
+            blockedHealth?.eligibilityReason ?? history?.eligibilityReason ?? 'history_incomplete',
+          ),
       purpose: answer.purpose,
       organizationId: answer.organizationId,
       contactId: answer.contactId,

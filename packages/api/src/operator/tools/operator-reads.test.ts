@@ -200,6 +200,7 @@ describe('OPERATOR_READ_TOOLS', () => {
     expect(names).toEqual(
       [
         'crm.search_organizations',
+        'crm.get_outreach_history',
         'crm.get_organization',
         'crm.list_candidates',
         'crm.get_contact_history',

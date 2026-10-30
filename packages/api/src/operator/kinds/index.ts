@@ -1,3 +1,5 @@
+import { CRM_OUTREACH_HISTORY_KINDS } from './crm-outreach-history'
+import { crmRecordUpdateKind } from './crm-record-update'
 import type { AnyOperatorProposalKind } from '../proposals'
 import { appearanceUpdateKind } from './appearance'
 import { appearanceGuestActionsKind } from './appearance-guest-actions'
@@ -35,6 +37,8 @@ import { sourceConnectionKind } from './source-connections'
 export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   appearanceUpdateKind,
   appearanceGuestActionsKind,
+  ...CRM_OUTREACH_HISTORY_KINDS,
+  crmRecordUpdateKind,
   crmOutreachDraftKind,
   crmOutreachLogKind,
   crmStageChangeKind,
