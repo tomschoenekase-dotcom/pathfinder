@@ -48,7 +48,7 @@ const inputSchema = z
     expectedVersion: z.number().int().positive(),
     fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
     draftKey: z.string().uuid(),
-    payload: z.record(z.unknown()),
+    payload: z.record(z.string(), z.unknown()),
     operationCounts: SupportPackageDraftApplyParameters.shape.operationCounts,
     reason: z.string().trim().min(3).max(2000),
     evidence: z.array(evidenceReference).max(20).default([]),

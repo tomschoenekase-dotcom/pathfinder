@@ -1,0 +1,318 @@
+import { describe, expect, it, vi } from 'vitest'
+import {
+  guestQueryChatExperimentEnabled,
+  guestQuerySourcesAgree,
+  prepareGuestChatQueryExperiment,
+} from './guest-query-chat-experiment'
+import type { GuestQuerySource } from './guest-query-source'
+import type { GeneralizedContentPayload } from '@pathfinder/contracts/universal-content-actions'
+function source(): GuestQuerySource {
+  return {
+    tenantId: 'fictional-tenant',
+    venueId: 'fictional-venue',
+    version: 'v1',
+    asOf: '2026-10-21T05:00:00.000Z',
+    coverage: 'COMPLETE',
+    readPath: 'LEGACY',
+    includeSecondLayer: false,
+    directory: {
+      incomplete: false,
+      searchVersion: 'v1',
+      places: [
+        {
+          id: 'ride',
+          name: 'Moon Ride',
+          type: 'ATTRACTION',
+          itemType: 'ride',
+          shortDescription: null,
+          longDescription:
+            'Height at least 48 inches; under 10 with a paid adult. Booking does not waive restrictions.',
+          lat: null,
+          lng: null,
+          tags: [],
+          areaName: 'North',
+          hours: null,
+          photoUrl: null,
+          sourceType: 'MANUAL',
+          sourceName: null,
+          sourceUrl: null,
+        },
+      ],
+      knowledge: [
+        {
+          id: 'policy',
+          title: 'Moon Ride booking',
+          category: 'POLICY',
+          content:
+            'Weekends only; each rider pays $8. Closed October 20–22. Reservations do not waive restrictions.',
+          sourceType: 'MANUAL',
+          sourceName: null,
+          sourceUrl: null,
+        },
+      ],
+    },
+  }
+}
+const plan = (predicates: unknown[]) =>
+  JSON.stringify({ status: 'QUERY', mode: 'list', predicates })
+const kind = { field: 'kind', equals: 'ATTRACTION' }
+function publishedSource(): GuestQuerySource {
+  const value = source()
+  const bodies: GeneralizedContentPayload[] = [
+    { kind: 'SERVICE', name: 'Moon counter', placeId: 'ride', availability: 'Weekends only' },
+    {
+      kind: 'ITEM',
+      name: 'Sketch kit',
+      itemType: 'PRODUCT',
+      description: 'Equipment sold separately.',
+    },
+    {
+      kind: 'RELATIONSHIP',
+      fromModuleId: 'module-0',
+      toModuleId: 'module-1',
+      relationshipType: 'OFFERS_PRODUCT_V1',
+    },
+    {
+      kind: 'POLICY',
+      title: 'Kit purchase',
+      rule: 'Each kit costs $8. No refunds.',
+      appliesTo: ['module-0'],
+    },
+  ]
+  value.canonicalModules = {
+    contract: 'published-query-source-v1',
+    modules: bodies.map((payload, i) => ({
+      moduleId: `module-${i}`,
+      revisionId: `revision-${i}`,
+      publicationId: `publication-${i}`,
+      publicationOrder: String(i + 1),
+      version: 1,
+      kind: payload.kind,
+      payload,
+      audience: 'PUBLIC',
+      effectiveFrom: null,
+      effectiveUntil: null,
+      evidence: [
+        { sourceId: 'operator-review', locator: null, capturedAt: value.asOf, excerptHash: null },
+      ],
+    })),
+  }
+  return value
+}
+describe('local structured chat experiment boundary', () => {
+  it('prepares a direct count receipt without admitting unrequested condition bodies', async () => {
+    const interpret = vi.fn(async () => JSON.stringify({ status: 'QUERY', mode: 'count', predicates: [kind] }))
+    const output = await prepareGuestChatQueryExperiment({ source: source(), question: 'How many attractions?', interpret, directAnswer: true })
+    expect(interpret).toHaveBeenCalledOnce()
+    expect(output.status).toBe('DIRECT_READY')
+    if (output.status !== 'DIRECT_READY') throw new Error('Expected direct count')
+    expect(output.answer).toBe('1 matching listed record.\n\nThis describes listed entries, not a complete physical inventory or a live availability check.')
+    expect(output.places).toEqual([])
+    expect(output.knowledge).toEqual([])
+    expect(output.summary).toMatchObject({ answerMode: 'LOCAL_DETERMINISTIC', notDispatchedModelPrompt: true, sourceVersion: 'v1', query: { mode: 'count' } })
+  })
+  it('admits a broad count without overflowing on unrequested whole legacy condition bodies', async () => {
+    const value = source()
+    value.directory.places = Array.from({ length: 501 }, (_, i) => ({
+      ...value.directory.places[0]!,
+      id: String(i),
+      name: `Attraction ${i}`,
+    }))
+    value.directory.knowledge[0]!.content = 'OMITTED_DETAIL_MARKER ' + 'x'.repeat(40_000)
+    const output = await prepareGuestChatQueryExperiment({
+      source: value,
+      question: 'How many attractions are listed?',
+      interpret: async () => JSON.stringify({ status: 'QUERY', mode: 'count', predicates: [kind] }),
+    })
+    if (output.status !== 'READY') throw new Error('Expected count without detail fallback')
+    expect(output.summary).toMatchObject({
+      mode: 'count',
+      knownMatchCount: 501,
+      exactEligibleCount: 501,
+      hasMore: false,
+      omittedContextCount: 0,
+      omittedPageRecordCount: 0,
+    })
+    expect(output.partial).toBe(false)
+    expect(output.places).toEqual([])
+    expect(output.knowledge).toEqual([])
+    expect(output.canonicalSources).toEqual([])
+    expect(output.prompt).not.toContain('OMITTED_DETAIL_MARKER')
+    expect(output.prompt).not.toContain('Attraction 500')
+  })
+  it('canonical product count retains positive-only unknown arithmetic without item or policy bodies', async () => {
+    const value = publishedSource()
+    value.directory.places.push({
+      ...value.directory.places[0]!,
+      id: 'unknown-place',
+      name: 'Unreviewed place',
+    })
+    const output = await prepareGuestChatQueryExperiment({
+      source: value,
+      question: 'How many listed places offer a Sketch kit?',
+      interpret: async () =>
+        JSON.stringify({
+          status: 'QUERY',
+          mode: 'count',
+          predicates: [{ field: 'product', name: 'Sketch kit' }],
+        }),
+    })
+    if (output.status !== 'READY') throw new Error('Expected canonical count')
+    expect(output.summary).toMatchObject({
+      mode: 'count',
+      knownMatchCount: 1,
+      unknownCandidateCount: 1,
+      exactEligibleCount: null,
+      canonicalAuthority: true,
+    })
+    expect(output.partial).toBe(true)
+    expect(output.canonicalSources).toEqual([])
+    expect(output.prompt).not.toContain('Equipment sold separately')
+    expect(output.prompt).not.toContain('Each kit costs')
+    expect(output.prompt).toContain('unknown candidates may also match')
+  })
+  it('uses published product relationships and retains whole seller/item/policy evidence', async () => {
+    const result = await prepareGuestChatQueryExperiment({
+      source: publishedSource(),
+      question: 'Where can I get a Sketch kit?',
+      interpret: async () => plan([{ field: 'product', name: 'Sketch kit' }]),
+    })
+    expect(result.status).toBe('READY')
+    if (result.status !== 'READY') throw new Error('Expected canonical query')
+    expect(result.places.map((place) => place.id)).toEqual(['ride'])
+    expect(result.canonicalSources).toHaveLength(4)
+    expect(result.prompt).toContain('Equipment sold separately.')
+    expect(result.prompt).toContain('Each kit costs $8. No refunds.')
+    expect(result.prompt).toContain('Weekends only')
+    expect(result.prompt).toContain('Closed October 20')
+    expect(result.summary.policyCoverage).toBe('UNKNOWN')
+    expect(result.summary).toMatchObject({ canonicalAuthority: true })
+  })
+
+  it('declines the entire augmentation when a governing whole policy cannot fit', async () => {
+    const value = publishedSource()
+    const policy = value.canonicalModules!.modules[3]!
+    if (policy.payload.kind !== 'POLICY') throw new Error('Expected policy')
+    policy.payload.rule = 'Whole condition. '.repeat(1100)
+    const second = structuredClone(policy)
+    second.moduleId = 'second-policy'
+    second.revisionId = 'second-policy-revision'
+    second.publicationId = 'second-policy-publication'
+    second.publicationOrder = '5'
+    value.canonicalModules!.modules.push(second)
+    const result = await prepareGuestChatQueryExperiment({
+      source: value,
+      question: 'Where can I get a Sketch kit?',
+      interpret: async () => plan([{ field: 'product', name: 'Sketch kit' }]),
+    })
+    expect(result.status).toBe('BASELINE')
+  })
+  it('rejects differing same-ID bodies while allowing equal duplicates and new IDs', () => {
+    const previous = [{ id: 'same', content: 'Old whole body', title: 'Topic' }]
+    expect(guestQuerySourcesAgree(previous, [{ ...previous[0]! }])).toBe(true)
+    const independent = [{ id: 'new', content: 'New independent body' }]
+    const changed = [{ id: 'same', content: 'New whole body' }]
+    expect(guestQuerySourcesAgree(previous, independent)).toBe(true)
+    expect(guestQuerySourcesAgree(previous, changed)).toBe(false)
+  })
+  it.each([
+    [
+      { nodeEnv: 'test', enabled: undefined, experienceScope: 'PUBLIC', nativePath: 'LEGACY' },
+      false,
+    ],
+    [
+      { nodeEnv: 'production', enabled: '1', experienceScope: 'PUBLIC', nativePath: 'LEGACY' },
+      false,
+    ],
+    [{ nodeEnv: 'test', enabled: '1', experienceScope: 'PUBLIC', nativePath: 'NATIVE' }, false],
+    [
+      { nodeEnv: 'test', enabled: '1', experienceScope: 'SECOND_LAYER', nativePath: 'LEGACY' },
+      false,
+    ],
+    [{ nodeEnv: 'test', enabled: '1', experienceScope: 'PUBLIC', nativePath: 'LEGACY' }, true],
+    [{ nodeEnv: 'development', enabled: '1', experienceScope: 'PUBLIC', nativePath: 'DARK' }, true],
+  ])('gates explicit local admission %#', (input, expected) =>
+    expect(guestQueryChatExperimentEnabled(input)).toBe(expected),
+  )
+  it('retains complete matching and context conditions with exact original bodies', async () => {
+    const original = source()
+    const interpret = vi.fn(async () => plan([kind]))
+    const result = await prepareGuestChatQueryExperiment({
+      source: original,
+      question: 'List attractions',
+      interpret,
+    })
+    expect(result.status).toBe('READY')
+    if (result.status !== 'READY') return
+    expect(result.partial).toBe(false)
+    expect(result.places).toEqual(original.directory.places)
+    expect(result.knowledge).toEqual(original.directory.knowledge)
+    const rendered = JSON.parse(result.prompt.split('\n').at(-1)!)
+    expect(JSON.parse(rendered.rows[0].sourceText)).toEqual(original.directory.places[0])
+    expect(JSON.parse(rendered.context[0].text)).toEqual(original.directory.knowledge[0])
+    expect(interpret).toHaveBeenCalledOnce()
+  })
+  it.each([
+    plan([kind, { field: 'feature', name: 'wheelchairAccessible', value: true }]),
+    plan([
+      { field: 'name', equals: 'Moon Ride' },
+      { field: 'product', name: 'pizza' },
+    ]),
+    JSON.stringify({ status: 'UNSUPPORTED', reason: 'Age and date conditions unsupported' }),
+    'invalid JSON',
+    plan([]),
+  ])('falls back for whole unsupported or invalid conjunct plans %#', async (raw) => {
+    const interpret = vi.fn(async () => raw)
+    const result = await prepareGuestChatQueryExperiment({
+      source: source(),
+      question: 'Attractions for a nine year old today',
+      interpret,
+    })
+    expect(result.status).toBe('BASELINE')
+    expect(result).not.toHaveProperty('prompt')
+    expect(interpret).toHaveBeenCalledOnce()
+  })
+  it('propagates pre-completion gateway/accounting failure without retry', async () => {
+    const interpret = vi.fn(async () => {
+      throw new Error('accounting rejected')
+    })
+    await expect(
+      prepareGuestChatQueryExperiment({
+        source: source(),
+        question: 'List attractions',
+        interpret,
+      }),
+    ).rejects.toThrow('accounting rejected')
+    expect(interpret).toHaveBeenCalledOnce()
+  })
+  it('copies authoritative inputs before callback mutation', async () => {
+    const original = source()
+    const before = structuredClone(original)
+    const result = await prepareGuestChatQueryExperiment({
+      source: original,
+      question: 'List attractions',
+      interpret: async () => {
+        original.directory.places = []
+        original.directory.knowledge = []
+        return plan([kind])
+      },
+    })
+    expect(result.status).toBe('READY')
+    if (result.status === 'READY') {
+      expect(result.places).toEqual(before.directory.places)
+      expect(result.knowledge).toEqual(before.directory.knowledge)
+    }
+  })
+  it('reports omitted oversized context whole instead of retaining a condition fragment', async () => {
+    const original = source()
+    original.directory.knowledge[0]!.content =
+      'WHOLE_CONDITION_START ' + 'x'.repeat(35000) + ' WHOLE_CONDITION_END'
+    const result = await prepareGuestChatQueryExperiment({
+      source: original,
+      question: 'List attractions',
+      interpret: async () => plan([kind]),
+    })
+    expect(result).toEqual({ status: 'BASELINE', reason: 'INCOMPLETE_SOURCE_CONTEXT' })
+    expect(result).not.toHaveProperty('prompt')
+  })
+})

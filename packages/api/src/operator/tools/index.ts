@@ -1,3 +1,4 @@
+import { crmOutreachHistoryReadTools } from './crm-outreach-history'
 import type { OperatorReadTool } from '../registry'
 import { controlTools } from './controls'
 import { crmReadTools } from './crm'
@@ -29,12 +30,14 @@ import { venueReleaseReadTools } from './venue-releases'
 import { venueSourceReadTools } from './venue-sources'
 import { sourceConnectionReadTools } from './source-connections'
 import { venueReadTools } from './venues'
+import { guestModelReadTools } from './guest-model'
 import { attentionReadTools } from './attention'
 import { evidenceReadTools } from './evidence'
 
 /** Every read tool the operator adds beside the built-in proposal, autonomy and appearance reads. */
 export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...crmReadTools,
+  ...crmOutreachHistoryReadTools,
   ...mailReadTools,
   ...mailReconciliationTools,
   ...crmAccountReadTools,
@@ -51,6 +54,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...routineReadTools,
   ...accessReadTools,
   ...venueReadTools,
+  ...guestModelReadTools,
   ...evidenceReadTools,
   ...attentionReadTools,
   ...venueSourceReadTools,

@@ -35,11 +35,12 @@ import { VenueBotResponseDepth } from './venue-bot-configuration'
 
 // Operator input never exposes a server-issued approval receipt. Preserve all configuration
 // refinements while omitting that authority field from both Zod and the advertised JSON schema.
-const SourceConnectionDraftInput = SourceConnectionConfigSchema.innerType()
+const SourceConnectionDraftInput = z
+  .strictObject(SourceConnectionConfigSchema.shape)
   .omit({ approval: true })
   .superRefine((config, context) => {
     const result = SourceConnectionConfigSchema.safeParse(config)
-    if (!result.success) for (const issue of result.error.issues) context.addIssue(issue)
+    if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue })
   })
 
 /**
@@ -186,7 +187,7 @@ export const OperatorWriteResult = z
     status: OperatorProposalStatus,
     argsHash: Sha256Hex,
     approveUrl: z.string().url().max(2000).optional(),
-    result: z.record(z.unknown()).optional(),
+    result: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
 export type OperatorWriteResult = z.infer<typeof OperatorWriteResult>
@@ -288,6 +289,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'venues.get_release_preflight',
   'venues.get_preview_link',
   'venues.get_guest_link',
+  'venues.get_guest_model',
   'appearance.get',
   'support.list',
   'operator.get_manual',
@@ -307,6 +309,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.resolve_account',
   'crm.get_account_context',
   'crm.get_outreach_context',
+  'crm.get_outreach_history',
   'crm.list_contacts',
   'crm.list_notes',
   'crm.get_note',
@@ -370,6 +373,9 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'crm.propose_contact_archive',
   'crm.propose_followup_update',
   'crm.propose_note',
+  'crm.propose_outreach_history_review',
+  'crm.propose_outreach_history_retract',
+  'crm.propose_record_update',
   'crm.propose_account_archive',
   'crm.propose_account_update',
   'crm.propose_contact_address_change',
@@ -405,6 +411,8 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'venues.propose_package_import',
   'venues.propose_content_changeset',
   'venues.propose_publish',
+  'venues.propose_guest_model',
+  'venues.propose_guest_model_reset',
   'venues.propose_operational_update',
   'venues.propose_operational_update_schedule',
   'venues.propose_operational_update_end',
@@ -451,7 +459,7 @@ const readInput = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict(
 /** A venue package given inline or as an attached .json file (check and import take the same). */
 const VenuePackageSourceShape = {
   /** The same venue-package JSON the dashboard importer accepts (schemaVersion 1, 2 or 3). */
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
   /** Or the package as an attached .json file; the server downloads it and uses it unchanged. */
   file: z
     .object({
@@ -483,6 +491,25 @@ const TimeZoneName = z
 const tenantScope = { tenantId: Identifier } as const
 const venueScope = { tenantId: Identifier, venueId: Identifier } as const
 
+/**
+ * The visitor-chat routes an operator may pick for one venue. Every key is a governed public
+ * visitor route (packages/ai AI_PUBLIC_VISITOR_CHAT_ROUTE_KEYS; a test keeps them in that set).
+ * Direct DeepSeek canaries and the legacy mini route stay dashboard-only.
+ */
+export const OPERATOR_GUEST_MODEL_KEYS = [
+  'guest-chat-sol-fast',
+  'guest-chat-terra-fast',
+  'guest-chat-sol',
+  'guest-chat-luna',
+  'guest-chat-luna-reasoning',
+  'guest-chat',
+] as const
+export const OperatorGuestModelKey = z.enum(OPERATOR_GUEST_MODEL_KEYS)
+export type OperatorGuestModelKey = z.infer<typeof OperatorGuestModelKey>
+
+/** The guest-chat override revision you read: a number, or null when the venue has no override row. */
+const GuestModelExpectedRevision = z.number().int().positive().nullable().optional()
+
 const OperationalUpdateType = z.enum([
   'GENERAL_NOTICE',
   'TEMPORARY_CLOSURE',
@@ -510,7 +537,7 @@ const OrganizationFilters = {
 export const OperatorPlanStep = z
   .object({
     tool: z.enum(OPERATOR_PLAN_STEP_TOOLS),
-    arguments: z.record(z.unknown()),
+    arguments: z.record(z.string(), z.unknown()),
     dependsOn: z.array(z.number().int().min(0).max(11)).max(11).optional(),
   })
   .strict()
@@ -564,7 +591,7 @@ const AppearanceGuestActionsProposeInput = z
   )
 
 /** Same appearance fields as Release B's McpAppearanceUpdateInput, scoped by tenantId. */
-const appearanceUpdateBase = McpAppearanceUpdateInput.innerType().innerType()
+const appearanceUpdateBase = z.strictObject(McpAppearanceUpdateInput.shape)
 const AppearanceProposeInput = appearanceUpdateBase
   .omit({ clientId: true, expectedUpdatedAt: true })
   // Omitted means apply to the current version, as venues.propose_update does.
@@ -588,6 +615,56 @@ const PackageCheckIssue = z
   .object({ code: z.string().max(80), path: z.string().max(300), message: z.string().max(600) })
   .strict()
 
+const OutreachReviewCoverage = z
+  .object({
+    providerAccountId: Identifier,
+    searchedAt: IsoDateTime,
+    throughAt: IsoDateTime,
+    query: z.string().trim().min(1).max(2000),
+    sourceReceiptId: z.string().trim().min(1).max(512),
+    resultFingerprint: Sha256Hex,
+  })
+  .strict()
+const OutreachReviewChange = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('message'),
+      messageId: Identifier,
+      classification: z.enum([
+        'cold',
+        'warm',
+        'human',
+        'automated',
+        'outOfOffice',
+        'bounce',
+        'policyBlocked',
+        'unknown',
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('relationship'),
+      relationship: z.enum(['prospect', 'deferred', 'declined', 'closed']),
+      deferUntil: IsoDateTime.nullable().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('contactHealth'),
+      contactId: Identifier,
+      messageId: Identifier,
+      health: z.enum(['bounced', 'policyBlocked', 'healthy']),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('complete'),
+      coverage: z.array(OutreachReviewCoverage).min(1).max(20),
+    })
+    .strict(),
+])
+
 export const OPERATOR_MCP_INPUTS = {
   'crm.search_organizations': readInput({
     query: z.string().trim().min(1).max(200),
@@ -600,6 +677,17 @@ export const OPERATOR_MCP_INPUTS = {
     ...OrganizationFilters,
     size: z.enum(['XS', 'S', 'M', 'L', 'XL']).optional(),
     uncontacted: z.boolean().optional(),
+    outreachView: z
+      .enum([
+        'neverContacted',
+        'firstFollowupDue',
+        'finalFollowupDue',
+        'inConversation',
+        'deferred',
+        'stopped',
+        'historyNeedsReview',
+      ])
+      .optional(),
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
@@ -623,6 +711,12 @@ export const OPERATOR_MCP_INPUTS = {
     },
   ),
   'crm.get_account_context': readInput({ organizationId: Identifier }),
+  'crm.get_outreach_history': readInput({
+    organizationId: Identifier,
+    cursor: Cursor.optional(),
+    messageCursor: Identifier.optional(),
+    limit: z.number().int().min(1).max(100).default(25),
+  }),
   'crm.get_outreach_context': readInput({
     organizationId: Identifier,
     /** The person to write to. Leave out to let the server pick the first draftable contact. */
@@ -807,6 +901,7 @@ export const OPERATOR_MCP_INPUTS = {
   }),
   'crm.list_notes': readInput({
     organizationId: Identifier,
+    includeArchived: z.boolean().default(false),
     cursor: Cursor.optional(),
     limit: PageLimit,
   }),
@@ -915,6 +1010,7 @@ export const OPERATOR_MCP_INPUTS = {
   'venues.get_release_preflight': VenueReleasePreflightInput,
   'venues.get_preview_link': VenuePreviewLinkInput,
   'venues.get_guest_link': readInput({ ...venueScope }),
+  'venues.get_guest_model': readInput({ ...venueScope }),
   'appearance.get': readInput({ ...venueScope }),
   'support.list': readInput({
     ...tenantScope,
@@ -1175,6 +1271,91 @@ export const OPERATOR_MCP_INPUTS = {
       value.priority !== undefined,
     { message: 'Provide at least one field to change' },
   ),
+  'crm.propose_outreach_history_review': writeInput({
+    organizationId: Identifier,
+    expectedRevision: Sha256Hex,
+    reason: z.string().trim().min(1).max(2000),
+    targetEvidenceId: Identifier.optional(),
+    change: OutreachReviewChange,
+  }),
+  'crm.propose_outreach_history_retract': writeInput({
+    organizationId: Identifier,
+    expectedRevision: Sha256Hex,
+    targetEvidenceId: Identifier,
+    reason: z.string().trim().min(1).max(2000),
+  }),
+  'crm.propose_record_update': writeInput({
+    reason: z.string().trim().min(1).max(500),
+    record: z.discriminatedUnion('type', [
+      z
+        .object({
+          type: z.literal('draft'),
+          draftId: Identifier,
+          expectedVersion: z.number().int().positive(),
+          expectedContentHash: Sha256Hex,
+          action: z.enum(['edit', 'discard']),
+          subject: z.string().trim().min(1).max(998).optional(),
+          textBody: z.string().trim().min(1).max(50000).optional(),
+        })
+        .strict()
+        .refine(
+          (value) =>
+            value.action !== 'edit' || value.subject !== undefined || value.textBody !== undefined,
+          { message: 'An edit needs subject or textBody' },
+        ),
+      z
+        .object({
+          type: z.literal('campaign'),
+          campaignId: Identifier,
+          expectedUpdatedAt: IsoDateTime,
+          action: z.enum(['edit', 'archive', 'restore']),
+          name: z.string().trim().min(1).max(191).optional(),
+          description: z.string().max(4000).nullable().optional(),
+          dailyLimit: z.number().int().min(1).max(1000).optional(),
+        })
+        .strict()
+        .refine(
+          (value) =>
+            value.action !== 'edit' ||
+            value.name !== undefined ||
+            value.description !== undefined ||
+            value.dailyLimit !== undefined,
+          { message: 'Campaign edit needs a field change' },
+        )
+        .refine(
+          (value) =>
+            value.action === 'edit' ||
+            (value.name === undefined &&
+              value.description === undefined &&
+              value.dailyLimit === undefined),
+          { message: 'Archive and restore do not accept field edits' },
+        ),
+      z
+        .object({
+          type: z.literal('member'),
+          memberId: Identifier,
+          expectedUpdatedAt: IsoDateTime,
+          action: z.literal('remove'),
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal('note'),
+          organizationId: Identifier,
+          noteId: Identifier,
+          expectedRevision: Sha256Hex,
+          action: z.enum(['correct', 'archive', 'restore']),
+          text: z.string().trim().min(1).max(4000).optional(),
+        })
+        .strict()
+        .refine((value) => value.action !== 'correct' || value.text !== undefined, {
+          message: 'A correction needs text',
+        })
+        .refine((value) => value.action === 'correct' || value.text === undefined, {
+          message: 'Archive and restore do not accept text edits',
+        }),
+    ]),
+  }),
   'crm.propose_note': writeInput({
     organizationId: Identifier,
     note: z.string().trim().min(1).max(4_000),
@@ -1289,7 +1470,7 @@ export const OPERATOR_MCP_INPUTS = {
     importId: Identifier,
     fileHash: Sha256Hex,
     mappingHash: Sha256Hex,
-    mapping: z.record(z.string().min(1).max(300)).optional(),
+    mapping: z.record(z.string(), z.string().min(1).max(300)).optional(),
     selectedSheets: z.array(z.string().min(1).max(300)).min(1).max(100).optional(),
   }).refine((value) => Boolean(value.mapping) === Boolean(value.selectedSheets), {
     message: 'Provide mapping and selectedSheets together',
@@ -1305,7 +1486,7 @@ export const OPERATOR_MCP_INPUTS = {
       .strict()
       .optional(),
     csvText: z.string().min(1).max(100_000).optional(),
-    mapping: z.record(z.string().min(1).max(300)).optional(),
+    mapping: z.record(z.string(), z.string().min(1).max(300)).optional(),
   }).refine((value) => Boolean(value.file) !== Boolean(value.csvText), {
     message: 'Provide exactly one CSV attachment or csvText',
   }),
@@ -1452,6 +1633,20 @@ export const OPERATOR_MCP_INPUTS = {
     /** The venue updatedAt you read. Omitted means publish the current version. */
     expectedUpdatedAt: IsoDateTime.optional(),
   }),
+  'venues.propose_guest_model': writeInput({
+    ...venueScope,
+    /** One of OPERATOR_GUEST_MODEL_KEYS; anything else is refused. */
+    modelKey: OperatorGuestModelKey,
+    /** Why, in a few words; kept in the configuration history. */
+    reason: z.string().trim().min(1).max(300).optional(),
+    /** venueOverride.revision from venues.get_guest_model. Omitted means the current state. */
+    expectedRevision: GuestModelExpectedRevision,
+  }),
+  'venues.propose_guest_model_reset': writeInput({
+    ...venueScope,
+    reason: z.string().trim().min(1).max(300).optional(),
+    expectedRevision: GuestModelExpectedRevision,
+  }),
   'reports.propose_generate': writeInput({
     ...venueScope,
     /** Retry: the id of a FAILED, or provably stalled GENERATING, report. Its week and title are reused. */
@@ -1506,7 +1701,7 @@ export const OPERATOR_MCP_INPUTS = {
     requiredWorkerRoles: z.array(Identifier).max(50).default([]),
     requiredWorkerCapabilities: z.array(Identifier).max(100).default([]),
     /** When the reminder stops itself. Checked at run time before anything happens. */
-    stopRules: RoutineStopRules.default({}),
+    stopRules: RoutineStopRules.prefault({}),
     /** A dollar budget for the spend its runs can trigger. Omit for none. */
     budget: RoutineBudget.nullable().default(null),
   }),
@@ -1686,6 +1881,38 @@ const OperatorContact = z
   })
   .strict()
 
+const OperatorOutreachHistory = z
+  .object({
+    canonicalOrganizationId: Identifier,
+    organizationIds: z.array(Identifier),
+    coldEmailCount: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).nullable(),
+    lastColdEmailAt: IsoDateTime.nullable(),
+    firstHumanReply: z.enum(['after1', 'after2', 'after3', 'otherUnknown', 'noReply']),
+    relationship: z.enum([
+      'prospect',
+      'awaitingReply',
+      'inConversation',
+      'deferred',
+      'declined',
+      'customer',
+      'closed',
+    ]),
+    nextEligibleAt: IsoDateTime.nullable(),
+    eligibility: z.enum(['eligible', 'hold', 'stopped']),
+    eligibilityReason: z.string(),
+    contactHealth: z.enum([
+      'healthy',
+      'unverified',
+      'bounced',
+      'suppressed',
+      'policyBlocked',
+      'unknown',
+    ]),
+    historyComplete: z.boolean(),
+    reasons: z.array(z.string()),
+  })
+  .strict()
+
 const OperatorOrganization = z
   .object({
     organizationId: Identifier,
@@ -1697,6 +1924,7 @@ const OperatorOrganization = z
     version: z.number().int().nonnegative(),
     sizeClass: z.string().max(10).nullable(),
     contacted: z.boolean(),
+    outreachHistory: OperatorOutreachHistory.optional(),
   })
   .strict()
 
@@ -2002,6 +2230,9 @@ const OperatorDraftView = z
     /** The recipient address, only while the contact may still be written to. */
     recipient: z.string().max(320).nullable(),
     eligibleToEmail: z.boolean(),
+    addressEligibleToEmail: z.boolean().optional(),
+    outreachHistory: OperatorOutreachHistory.optional(),
+    outreachKind: z.enum(['cold', 'warm', 'unknown']).optional(),
     eligibilityReasons: z.array(z.string().max(60)).max(15),
     hasAttachments: z.boolean(),
     reviewedAt: IsoDateTime.nullable(),
@@ -2014,6 +2245,7 @@ const OperatorCampaignDetail = z
     campaign: z
       .object({
         campaignId: Identifier,
+        archived: z.boolean(),
         name: z.string().max(191),
         description: UntrustedText.nullable(),
         status: ProspectCampaignStatusValue,
@@ -2026,13 +2258,13 @@ const OperatorCampaignDetail = z
     members: z
       .object({
         total: z.number().int().nonnegative(),
-        byStatus: z.record(z.number().int().nonnegative()),
+        byStatus: z.record(z.string(), z.number().int().nonnegative()),
       })
       .strict(),
     drafts: z
       .object({
         total: z.number().int().nonnegative(),
-        byStatus: z.record(z.number().int().nonnegative()),
+        byStatus: z.record(z.string(), z.number().int().nonnegative()),
       })
       .strict(),
     batches: z
@@ -2096,6 +2328,9 @@ const OperatorSendBatchView = z
             status: z.string().max(30),
             /** Still eligible to send right now under the shared rule, not as of staging. */
             eligibleNow: z.boolean(),
+            addressEligibleToEmail: z.boolean().optional(),
+            outreachHistory: OperatorOutreachHistory.optional(),
+            outreachKind: z.enum(['cold', 'warm', 'unknown']).optional(),
             reasons: z.array(z.string().max(60)).max(15),
           })
           .strict(),
@@ -2471,7 +2706,7 @@ const OperatorProposalView = z
     /** The one safe next step for this recorded state. */
     nextAction: z.string().max(500).optional(),
     approveUrl: z.string().url().max(2000).optional(),
-    result: z.record(z.unknown()).optional(),
+    result: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
 
@@ -2788,6 +3023,7 @@ const OutreachContextBlocker = z
 const OperatorOutreachContext = z
   .object({
     packVersion: z.literal('outreach-context-v1'),
+    outreachHistory: OperatorOutreachHistory.optional(),
     generatedAt: IsoDateTime,
     /** SHA-256 over the ids and versions of every record the pack read: equal records give an equal value. */
     sourceFingerprint: Sha256Hex,
@@ -2846,6 +3082,8 @@ const OperatorOutreachContext = z
             /** Present only when drafting to this person is allowed. */
             email: z.string().max(320).nullable(),
             flags: ContactFlags,
+            addressDraftEligible: z.boolean().optional(),
+            addressReleaseEligible: z.boolean().optional(),
             draftEligible: z.boolean(),
             draftReasons: z.array(z.string().max(60)).max(15),
             releaseEligible: z.boolean(),
@@ -2870,6 +3108,7 @@ const OperatorOutreachContext = z
                 contactId: Identifier,
                 displayName: z.string().max(200).nullable(),
                 role: z.string().max(200).nullable(),
+                addressDraftEligible: z.boolean().optional(),
                 draftEligible: z.boolean(),
               })
               .strict(),
@@ -3041,6 +3280,7 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.get_contact_history': z
     .object({
       organizationId: Identifier,
+      outreachHistory: OperatorOutreachHistory.optional(),
       events: z
         .array(
           z
@@ -3068,6 +3308,32 @@ export const OPERATOR_MCP_OUTPUTS = {
     })
     .strict(),
   'crm.get_account_context': OperatorAccountContext,
+  'crm.get_outreach_history': z
+    .object({
+      organizationId: Identifier,
+      revision: Sha256Hex,
+      projection: OperatorOutreachHistory,
+      explanation: z.string(),
+      reviewPlan: z.unknown(),
+      evidence: Page(
+        z
+          .object({
+            evidenceId: Identifier,
+            currentEvidenceId: Identifier,
+            fingerprint: Sha256Hex,
+            revision: z.number().int().nonnegative(),
+            active: z.boolean(),
+            retracted: z.boolean(),
+            evidence: z.unknown(),
+            originalEvidence: z.unknown(),
+            provenance: z.object({ actorId: Identifier, occurredAt: IsoDateTime }).strict(),
+            actions: z.unknown(),
+          })
+          .strict(),
+      ),
+      actions: z.unknown(),
+    })
+    .strict(),
   'crm.get_outreach_context': OperatorOutreachContext,
   'crm.list_contacts': Page(OperatorContactDetail),
   'crm.list_duplicates': Page(
@@ -3087,6 +3353,9 @@ export const OPERATOR_MCP_OUTPUTS = {
     z
       .object({
         noteId: Identifier,
+        revision: Sha256Hex,
+        archived: z.boolean(),
+        corrected: z.boolean(),
         occurredAt: IsoDateTime,
         text: UntrustedText,
       })
@@ -3104,6 +3373,10 @@ export const OPERATOR_MCP_OUTPUTS = {
       text: UntrustedText.nullable(),
       /** The stored length in characters, so a cut is visible even when `text.truncated` is false. */
       length: z.number().int().nonnegative(),
+      revision: Sha256Hex.nullable(),
+      archived: z.boolean(),
+      corrected: z.boolean(),
+      originalText: UntrustedText.nullable(),
     })
     .strict(),
   'crm.list_imports': Page(OperatorImportSummary),
@@ -3129,7 +3402,7 @@ export const OPERATOR_MCP_OUTPUTS = {
       planHash: Sha256Hex,
       sourceName: z.string(),
       targetName: z.string(),
-      counts: z.record(z.number().int().nonnegative()),
+      counts: z.record(z.string(), z.number().int().nonnegative()),
       blockers: z.array(z.string()),
       sourceOpportunity: z.object({ id: Identifier, stage: z.string() }).strict().nullable(),
       targetOpportunity: z.object({ id: Identifier, stage: z.string() }).strict().nullable(),
@@ -3207,9 +3480,14 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.check_can_contact': z
     .object({
       allowed: z.boolean(),
+      addressAllowed: z.boolean().optional(),
+      coldOutreachAllowed: z.boolean().optional(),
+      outreachHistory: OperatorOutreachHistory.nullable().optional(),
+      explanation: z.string().optional(),
       /** The first reason that applies. `reasons` lists every one. */
       reason: z.enum([
         'ok',
+        'outreach_history_hold',
         'unknown_address',
         'do_not_contact',
         'suppressed',
@@ -3432,6 +3710,60 @@ export const OPERATOR_MCP_OUTPUTS = {
         .max(10),
     })
     .strict(),
+  'venues.get_guest_model': z
+    .object({
+      tenantId: Identifier,
+      venueId: Identifier,
+      workloadId: z.literal('guest-chat'),
+      /** The model this venue's visitor chat uses now, and the layer that decided it. */
+      effective: z
+        .object({
+          modelKey: z.string().max(80),
+          provider: z.string().max(40),
+          model: z.string().max(120),
+          fastMode: z.boolean(),
+          source: z.enum([
+            'PLATFORM_DEFAULT',
+            'DEPLOYMENT_DEFAULT',
+            'WORKLOAD_OVERRIDE',
+            'CLIENT_OVERRIDE',
+            'VENUE_OVERRIDE',
+          ]),
+          sourceDetail: z.string().max(300),
+        })
+        .strict(),
+      /** GUEST_CHAT_DEFAULT_MODEL_KEY on this deployment, or null when unset. */
+      deploymentDefaultModelKey: z.string().max(80).nullable(),
+      /** The stored venue override row, or null when none was ever saved. */
+      venueOverride: z
+        .object({
+          active: z.boolean(),
+          modelKey: z.string().max(80).nullable(),
+          /** Other stored settings on the row (timeouts, fallback); kept by a model change. */
+          otherSettings: z.array(z.string().max(40)).max(10),
+          revision: z.number().int().positive(),
+          updatedAt: IsoDateTime,
+        })
+        .strict()
+        .nullable(),
+      choices: z
+        .array(
+          z
+            .object({
+              modelKey: OperatorGuestModelKey,
+              title: z.string().max(80),
+              description: z.string().max(300),
+              recommended: z.boolean(),
+              /** False when this deployment has no key for the provider; setting it is refused. */
+              available: z.boolean(),
+              current: z.boolean(),
+            })
+            .strict(),
+        )
+        .max(12),
+      guidance: z.string().max(500),
+    })
+    .strict(),
   'appearance.get': z
     .object({
       venueId: Identifier,
@@ -3440,8 +3772,8 @@ export const OPERATOR_MCP_OUTPUTS = {
       chatTheme: z.string().max(40),
       chatAccentColor: z.string().max(7).nullable(),
       chatFont: z.string().max(40),
-      chatAppearance: z.record(z.unknown()).nullable(),
-      guestActions: z.array(z.record(z.unknown())).max(40),
+      chatAppearance: z.record(z.string(), z.unknown()).nullable(),
+      guestActions: z.array(z.record(z.string(), z.unknown())).max(40),
     })
     .strict(),
   'support.list': Page(
@@ -3582,6 +3914,9 @@ export const OPERATOR_MCP_OUTPUTS = {
         draftCount: z.number().int().nonnegative(),
         /** The selected contact may be drafted to under the shared eligibility rule. */
         eligibleToDraft: z.boolean(),
+        addressEligibleToDraft: z.boolean().optional(),
+        addressEligibleToEmail: z.boolean().optional(),
+        outreachHistory: OperatorOutreachHistory.optional(),
         /** ...and may be sent to (verified, unblocked everywhere). Drafting never implies this. */
         eligibleToEmail: z.boolean(),
         eligibilityReasons: z.array(z.string().max(60)).max(15),
@@ -4015,7 +4350,7 @@ export const OPERATOR_MCP_OUTPUTS = {
         })
         .strict()
         .nullable(),
-      agreementCounts: z.record(z.number().int().nonnegative()),
+      agreementCounts: z.record(z.string(), z.number().int().nonnegative()),
       baseAgreement: z
         .object({
           agreementId: Identifier,
@@ -4179,6 +4514,9 @@ export const OPERATOR_MCP_OUTPUTS = {
   'crm.propose_contact_update': OperatorWriteResult,
   'crm.propose_contact_archive': OperatorWriteResult,
   'crm.propose_followup_update': OperatorWriteResult,
+  'crm.propose_outreach_history_review': OperatorWriteResult,
+  'crm.propose_outreach_history_retract': OperatorWriteResult,
+  'crm.propose_record_update': OperatorWriteResult,
   'crm.propose_note': OperatorWriteResult,
   'support.propose_internal_note': OperatorWriteResult,
   'support.propose_information_request': OperatorWriteResult,
@@ -4252,6 +4590,8 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.propose_package_import': OperatorWriteResult,
   'venues.propose_content_changeset': OperatorWriteResult,
   'venues.propose_publish': OperatorWriteResult,
+  'venues.propose_guest_model': OperatorWriteResult,
+  'venues.propose_guest_model_reset': OperatorWriteResult,
   'reports.propose_generate': OperatorWriteResult,
   'reports.propose_publish': OperatorWriteResult,
   'routines.propose_create': OperatorWriteResult,
@@ -4275,102 +4615,11 @@ export const OPERATOR_MCP_OUTPUTS = {
 // Minimal zod -> JSON Schema converter (only the constructs used in this file)
 // ---------------------------------------------------------------------------
 
-type ZodDefLike = { typeName: string } & Record<string, unknown>
-
-function unwrapEffects(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let current = schema
-  while ((current._def as ZodDefLike).typeName === 'ZodEffects') {
-    current = (current._def as unknown as { schema: z.ZodTypeAny }).schema
-  }
-  return current
-}
-
-function toJsonSchema(input: z.ZodTypeAny): Record<string, unknown> {
-  const schema = unwrapEffects(input)
-  const def = schema._def as ZodDefLike
-  switch (def.typeName) {
-    case 'ZodString': {
-      const out: Record<string, unknown> = { type: 'string' }
-      for (const check of (def.checks ?? []) as Array<{
-        kind: string
-        value?: number
-        regex?: RegExp
-      }>) {
-        if (check.kind === 'min') out.minLength = check.value
-        else if (check.kind === 'max') out.maxLength = check.value
-        else if (check.kind === 'uuid') out.format = 'uuid'
-        else if (check.kind === 'email') out.format = 'email'
-        else if (check.kind === 'url') out.format = 'uri'
-        else if (check.kind === 'datetime') out.format = 'date-time'
-        else if (check.kind === 'regex' && check.regex) out.pattern = check.regex.source
-      }
-      return out
-    }
-    case 'ZodNumber': {
-      const out: Record<string, unknown> = { type: 'number' }
-      for (const check of (def.checks ?? []) as Array<{
-        kind: string
-        value?: number
-        inclusive?: boolean
-      }>) {
-        if (check.kind === 'int') out.type = 'integer'
-        else if (check.kind === 'min') {
-          out[check.inclusive === false ? 'exclusiveMinimum' : 'minimum'] = check.value
-        } else if (check.kind === 'max') {
-          out[check.inclusive === false ? 'exclusiveMaximum' : 'maximum'] = check.value
-        }
-      }
-      return out
-    }
-    case 'ZodBoolean':
-      return { type: 'boolean' }
-    case 'ZodNull':
-      return { type: 'null' }
-    case 'ZodLiteral':
-      return { const: def.value }
-    case 'ZodEnum':
-      return { type: 'string', enum: [...(def.values as string[])] }
-    case 'ZodUnknown':
-      return {}
-    case 'ZodOptional':
-      return toJsonSchema(def.innerType as z.ZodTypeAny)
-    case 'ZodNullable':
-      return { anyOf: [toJsonSchema(def.innerType as z.ZodTypeAny), { type: 'null' }] }
-    case 'ZodDefault':
-      return {
-        ...toJsonSchema(def.innerType as z.ZodTypeAny),
-        default: (def.defaultValue as () => unknown)(),
-      }
-    case 'ZodArray': {
-      const out: Record<string, unknown> = {
-        type: 'array',
-        items: toJsonSchema(def.type as z.ZodTypeAny),
-      }
-      const min = def.minLength as { value: number } | null
-      const max = def.maxLength as { value: number } | null
-      if (min) out.minItems = min.value
-      if (max) out.maxItems = max.value
-      return out
-    }
-    case 'ZodUnion':
-      return { anyOf: (def.options as z.ZodTypeAny[]).map((option) => toJsonSchema(option)) }
-    case 'ZodDiscriminatedUnion':
-      return { oneOf: (def.options as z.ZodTypeAny[]).map((option) => toJsonSchema(option)) }
-    case 'ZodRecord':
-      return { type: 'object', additionalProperties: toJsonSchema(def.valueType as z.ZodTypeAny) }
-    case 'ZodObject': {
-      const shape = (schema as z.AnyZodObject).shape as Record<string, z.ZodTypeAny>
-      const properties: Record<string, unknown> = {}
-      const required: string[] = []
-      for (const [key, value] of Object.entries(shape)) {
-        properties[key] = toJsonSchema(value)
-        if (!value.isOptional()) required.push(key)
-      }
-      return { type: 'object', properties, required, additionalProperties: false }
-    }
-    default:
-      throw new Error(`operator-mcp: unsupported zod type ${def.typeName}`)
-  }
+// Zod's supported converter preserves validation bounds without relying on private internals.
+function toJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+  const json = z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input' })
+  // The catalog promises an explicit required-key list even for all-optional objects.
+  return { ...json, required: json.required ?? [] }
 }
 
 const rootSchema = (schema: z.ZodTypeAny): JsonSchema => ({
@@ -4513,7 +4762,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.preview_content_changeset',
     'Preview content changeset',
-    `Compute, without changing anything, what a content changeset would do: per-operation old and new values, whether each expected revision is still current, problems and notes. The same checks run when the changeset is proposed.${READ}`,
+    `Compute, without changing anything, what a content changeset would do: per-operation old and new values, whether each expected revision is still current, problems and notes. The same checks run when the changeset is proposed. TYPED_REVISION OPERATIONAL_FACT payload.applicability may be {scope:"VENUE"}, {scope:"SUBJECTS",subjectModuleIds:[...],placeIds:[...]}, or absent (unknown). SUBJECTS covers every sentence and only the listed same-venue SERVICE/ITEM/EVENT modules or visible places. Every new revision needs a fresh independently reviewed declaration; never copy the previous one. Manual Knowledge stays unknown.${READ}`,
     'venues:read',
     'venue',
   ],
@@ -4556,6 +4805,13 @@ const seeds: readonly Seed[] = [
     'venues.get_guest_link',
     'Get visitor chatbot link',
     `Return the public visitor chatbot link (and its QR variant) for a venue, whether it works now, and anything that stops it working (not published, no guest content, slug shared with another customer, no guest web origin) with the action that fixes each. Share this link with visitors; it is not a private preview.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
+    'venues.get_guest_model',
+    'Get visitor chat model',
+    `Read which AI model answers this venue's visitor chat, where that choice comes from (platform default, deployment default, workload, client or venue override), the venue override revision, and the allowed choices with a one-line description each. Sol + Fast is the recommended default.${READ}`,
     'venues:read',
     'venue',
   ],
@@ -5016,6 +5272,41 @@ const seeds: readonly Seed[] = [
     'crm.followup-update',
   ],
   [
+    'crm.get_outreach_history',
+    'Read outreach history and review options',
+    'Read canonical counts, reply chronology, eligibility, source-bound message review choices and paginated append-only evidence. Returns ready-to-use revision tokens; no mailbox or provider call.' +
+      READ,
+    'crm:read',
+    'platform',
+  ],
+  [
+    'crm.propose_outreach_history_review',
+    'Review or correct outreach history',
+    'Propose a message classification, relationship/defer decision, contact health or proved complete-search coverage. Pass the revision from get_outreach_history; the server binds source fingerprints and actor. Optional targetEvidenceId corrects an existing same-kind decision without erasing it. Sending and suppression controls remain separate.' +
+      PROPOSE,
+    'crm:propose',
+    'platform',
+    'crm.outreach-history-review',
+  ],
+  [
+    'crm.propose_outreach_history_retract',
+    'Retract an outreach history decision',
+    'Soft-retract an exact reviewed evidence item using its current revision. Original words, provider messages and receipts remain. Retraction never erases actual sends or clears contact suppression; incomplete history holds outreach.' +
+      PROPOSE,
+    'crm:propose',
+    'platform',
+    'crm.outreach-history-retract',
+  ],
+  [
+    'crm.propose_record_update',
+    'Edit or archive a CRM record',
+    'Edit or discard an editable draft, edit/archive/restore a campaign, remove a safe campaign member, or correct/archive/restore a note. Pass the current record token from its read tool. Immutable correspondence and send receipts are never deleted; queued or ambiguous send intent stays protected.' +
+      PROPOSE,
+    'crm:propose',
+    'platform',
+    'crm.record-update',
+  ],
+  [
     'crm.propose_note',
     'Propose note',
     `Propose appending a note to an account's history.${PROPOSE}`,
@@ -5256,7 +5547,7 @@ const seeds: readonly Seed[] = [
   [
     'venues.propose_content_changeset',
     'Propose content changeset',
-    `Propose creating, correcting or retiring venue content in one operation. Each operation names its representation, the row id and the revision it expects; a correction updates or retires the old row instead of adding a contradicting one. Stale revisions are refused. Audiences are never widened and nothing is published.${PROPOSE}`,
+    `Propose creating, correcting or retiring venue content in one operation. Each operation names its representation, the row id and the revision it expects; a correction updates or retires the old row instead of adding a contradicting one. Stale revisions are refused. Audiences are never widened and nothing is published. TYPED_REVISION OPERATIONAL_FACT payload.applicability may be {scope:"VENUE"}, {scope:"SUBJECTS",subjectModuleIds:[...],placeIds:[...]}, or absent (unknown). SUBJECTS covers every sentence and only the listed same-venue SERVICE/ITEM/EVENT modules or visible places, with at least one ID total, unique IDs and at most 50 per array. A new revision never inherits the old declaration: any label or value change needs a fresh independent review of the whole body, other-subject names and venue-wide wording. Keep uncertain scope VENUE or unknown; manual Knowledge stays unknown.${PROPOSE}`,
     'venues:propose',
     'venue',
     'venues.content-changeset',
@@ -5292,6 +5583,22 @@ const seeds: readonly Seed[] = [
     'venues:propose',
     'venue',
     'venues.publish',
+  ],
+  [
+    'venues.propose_guest_model',
+    'Set visitor chat model',
+    `Choose the AI model for one venue's visitor chat with a venue override. Only the listed model keys are accepted; use guest-chat-sol-fast unless there is a measured reason not to. Other stored override settings are kept. Pass venueOverride.revision from venues.get_guest_model as expectedRevision (null when there is none) to refuse a change made since, or omit it. Replaying the same operationId returns the same receipt.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.guest-model',
+  ],
+  [
+    'venues.propose_guest_model_reset',
+    'Reset visitor chat model',
+    `Remove this venue's own visitor chat model choice so it follows the client, workload or deployment default again. Other stored override settings, if any, are kept. Changes nothing when the venue has no model override.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.guest-model-reset',
   ],
   [
     'reports.propose_generate',

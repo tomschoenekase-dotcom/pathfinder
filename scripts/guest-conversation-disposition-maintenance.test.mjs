@@ -1,3 +1,4 @@
+import { historicalStagingFixture } from './test-support/historical-staging-manifest.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFile, mkdtemp, writeFile } from 'node:fs/promises'
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { readMigrationManifest } from './run-staging-migration-predeploy.mjs'
+import { readMigrationManifest as readCurrentMigrationManifest } from './run-staging-migration-predeploy.mjs'
 import {
   initializeDispositionJournal,
   appendDispositionJournal,
@@ -19,6 +20,10 @@ import {
 import { GUEST_CONVERSATION_DISPOSITION_POLICY_SHA256 as policyHash } from '../packages/config/src/guest-conversation-disposition-policy.runtime.mjs'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const operationId = 'd4888a2e-dc80-4a52-b204-676421454a52'
+
+async function readMigrationManifest(directory) {
+  return historicalStagingFixture(await readCurrentMigrationManifest(directory))
+}
 
 test('267 maintenance source verification accepts the reviewed ledger and refuses drift before body reads', async () => {
   const manifest = await readMigrationManifest(join(root, 'packages/db/prisma'))
@@ -339,4 +344,27 @@ test('already-journaled APPLY still refuses before connecting while the database
     /source migration endpoint/u,
   )
   assert.equal(closed, true)
+})
+
+test('maintenance refuses the actual pending 268-row ledger before function reads', async () => {
+  const current = await readCurrentMigrationManifest(join(root, 'packages/db/prisma'))
+  historicalStagingFixture(current)
+  const rows = current.names.map((migration_name) => ({
+    migration_name,
+    checksum: current.ledgerChecksums.get(migration_name),
+    finished_at: new Date(),
+    rolled_back_at: null,
+    logs: null,
+  }))
+  let calls = 0
+  await assert.rejects(
+    verifyDispositionDatabaseSource({
+      query: async () => {
+        calls++
+        return rows
+      },
+    }),
+    /database migration endpoint/u,
+  )
+  assert.equal(calls, 1)
 })

@@ -85,7 +85,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v35')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v44')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -385,6 +385,27 @@ describe('guest chat prompt provenance', () => {
     expect(hashGuestChatPromptManifest(prompts)).toBe(GUEST_CHAT_PROMPT_CONTRACT_HASH)
   })
 
+  it('adds the today status cue only when one is supplied', () => {
+    const base = {
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      currentDate: '2026-11-23',
+      currentLocalTime: 'Monday, November 23, 2026 at 10:05 AM',
+    }
+    const without = buildVenueSystemPrompt(base)
+    expect(buildVenueSystemPrompt({ ...base, todayStatusCue: null })).toBe(without)
+    expect(buildVenueSystemPrompt({ ...base, todayStatusCue: '' })).toBe(without)
+    const withCue = buildVenueSystemPrompt({
+      ...base,
+      todayStatusCue:
+        "TODAY'S POSTED VENUE STATUS (server check of the venue's posted hours): closed today.",
+    })
+    expect(withCue).toContain("TODAY'S POSTED VENUE STATUS")
+    expect(withCue.replace(/\n\nTODAY'S POSTED VENUE STATUS[^\n]*/u, '')).toBe(without)
+  })
+
   it('marks adjacent identity continuity as bounded untrusted data', () => {
     const prompt = buildVenueSystemPrompt({
       venue,
@@ -558,6 +579,48 @@ describe('full venue guide mode', () => {
 })
 
 describe('guest venue clock', () => {
+  it.each([undefined, 'Tuesday, October 6, 2026 at 3:05 PM'])(
+    'keeps venue and outlet schedules separate with local time %s',
+    (currentLocalTime) => {
+      const { dynamicPart } = buildVenueSystemPromptParts({
+        venue,
+        relevantPlaces: [
+          { ...relevantPlaces[0]!, name: 'Garden Cafe', hours: null },
+          { ...relevantPlaces[1]!, name: 'Museum Shop', hours: '11am to 3pm' },
+        ],
+        knowledgeEntries: [
+          { title: 'Zoo hours', content: 'The zoo opens 9am to 5pm.', category: 'HOURS' },
+        ],
+        userLat: null,
+        userLng: null,
+        currentDate: '2026-10-06',
+        ...(currentLocalTime === undefined ? {} : { currentLocalTime }),
+      })
+      expect(dynamicPart).toContain('HOURS AND AVAILABILITY SCOPE: First identify the subject')
+      expect(dynamicPart).toContain('venue or area hours do not establish an individual outlet')
+      expect(dynamicPart).toContain(
+        'A current opening or closure update for that subject takes precedence over regular hours',
+      )
+      expect(dynamicPart).toContain(
+        'Without an applicable schedule or explicit current status for that subject, opening status is unknown',
+      )
+      expect(dynamicPart).toContain(
+        'A current menu, offering or event listing does not prove live stock',
+      )
+      expect(dynamicPart).toContain('Garden Cafe')
+      expect(dynamicPart).toContain('Hours: not specified')
+      expect(dynamicPart).toContain('Museum Shop')
+      expect(dynamicPart).toContain('11am to 3pm')
+      expect(dynamicPart).toContain('The zoo opens 9am to 5pm.')
+      expect(dynamicPart).not.toContain("first find today's weekday and date in the hours")
+      if (currentLocalTime) {
+        expect(dynamicPart).toContain(
+          'after establishing that the schedule covers the requested subject',
+        )
+      }
+    },
+  )
+
   it('uses the venue local date and time, not the UTC date, in the venue evening', () => {
     const now = new Date('2026-10-07T00:30:00Z')
     expect(guestVenueClock(now, undefined)).toEqual({ date: '2026-10-07' })
@@ -602,12 +665,8 @@ describe('height and age ride questions', () => {
       )
       expect(staticPart).toContain('Never infer height or height eligibility from age')
       expect(staticPart).toContain('Answer verified age-only conditions')
-      expect(staticPart).toContain(
-        'ask for measured height when a known height rule needs it',
-      )
-      expect(staticPart).toContain(
-        'If the needed rule is unknown, say so and check with staff',
-      )
+      expect(staticPart).toContain('ask for measured height when a known height rule needs it')
+      expect(staticPart).toContain('If the needed rule is unknown, say so and check with staff')
     },
   )
 
@@ -818,7 +877,7 @@ describe('buildVenueSystemPrompt', () => {
       userLat: 0,
       userLng: 0,
     })
-    expect(prompt).toContain('No specific points of interest have been configured yet.')
+    expect(prompt).toContain('No place was singled out for this question.')
   })
 
   it('does not contain importanceScore or tenantId', () => {
@@ -1046,8 +1105,8 @@ describe('buildVenueSystemPrompt', () => {
 
     expect(staticPart).toContain('City Zoo')
     expect(staticPart).toContain('Rules:')
-    expect(staticPart).not.toContain('No specific points of interest have been configured yet.')
-    expect(dynamicPart).toContain('No specific points of interest have been configured yet.')
+    expect(staticPart).not.toContain('No place was singled out for this question.')
+    expect(dynamicPart).toContain('No place was singled out for this question.')
   })
 
   it('does not retain prior prompt content when supplied facts change or are removed', () => {

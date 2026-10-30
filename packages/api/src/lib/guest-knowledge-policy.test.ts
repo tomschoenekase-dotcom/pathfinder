@@ -182,7 +182,7 @@ describe('guest answer path cannot browse the web regardless of content', () => 
     ]) {
       expect(ChatSendInput.safeParse({ ...valid, ...extra }).success).toBe(false)
     }
-    expect(Object.keys(ChatSendInput.innerType().shape)).not.toEqual(
+    expect(Object.keys(ChatSendInput.shape)).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^(?:open)?web|browse|search|tools$/iu)]),
     )
   })

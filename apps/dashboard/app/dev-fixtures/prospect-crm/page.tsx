@@ -1,3 +1,4 @@
+import { ProspectOutreachHistorySummary } from '../../../components/admin/ProspectOutreachHistorySummary'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
@@ -257,6 +258,20 @@ const campaign = {
 const directory = {
   items: [
     {
+      outreachHistory: {
+        canonicalOrganizationId: 'org-1',
+        organizationIds: ['org-1'],
+        coldEmailCount: 2,
+        lastColdEmailAt: '2026-10-13T12:00:00Z',
+        firstHumanReply: 'noReply',
+        relationship: 'awaitingReply',
+        nextEligibleAt: '2026-11-13T12:00:00Z',
+        eligibility: 'hold',
+        eligibilityReason: 'cooldown',
+        contactHealth: 'healthy',
+        historyComplete: true,
+        reasons: [],
+      },
       id: 'org-1',
       canonicalName: 'North Shore Discovery Museum',
       website: 'https://example.test',
@@ -296,6 +311,20 @@ const directory = {
       _count: { venues: 1, contacts: 1, activities: 6 },
     },
     {
+      outreachHistory: {
+        canonicalOrganizationId: 'org-2',
+        organizationIds: ['org-2'],
+        coldEmailCount: null,
+        lastColdEmailAt: null,
+        firstHumanReply: 'otherUnknown',
+        relationship: 'deferred',
+        nextEligibleAt: null,
+        eligibility: 'hold',
+        eligibilityReason: 'history_incomplete',
+        contactHealth: 'unknown',
+        historyComplete: false,
+        reasons: [],
+      },
       id: 'org-2',
       canonicalName: 'Lakeside Art Center',
       website: null,
@@ -349,7 +378,7 @@ export default async function ProspectCrmFixture({
     <TRPCProvider scopeKey={`fixture:prospect-crm:${view}`}>
       <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-8">
         <nav className="mx-auto mb-6 flex max-w-7xl flex-wrap gap-2" aria-label="CRM fixture views">
-          {['directory', 'outreach', 'campaign'].map((item) => (
+          {['directory', 'history', 'outreach', 'campaign'].map((item) => (
             <Link
               key={item}
               href={`/dev-fixtures/prospect-crm?view=${item}`}
@@ -360,7 +389,17 @@ export default async function ProspectCrmFixture({
           ))}
         </nav>
         <div className="mx-auto max-w-7xl">
-          {view === 'directory' ? (
+          {view === 'history' ? (
+            <section className="border-b border-slate-200 bg-white p-4">
+              <h1 className="mb-3 text-lg font-semibold">Outreach history and eligibility</h1>
+              {directory.items.map((item) => (
+                <div key={item.id} className="border-t border-slate-200 py-4">
+                  <h2 className="mb-2 font-semibold">{item.canonicalName}</h2>
+                  <ProspectOutreachHistorySummary history={item.outreachHistory as never} detail />
+                </div>
+              ))}
+            </section>
+          ) : view === 'directory' ? (
             <ProspectDirectory
               fixture={{
                 result: directory as never,

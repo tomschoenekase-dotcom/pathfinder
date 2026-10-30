@@ -247,7 +247,7 @@ export const VenueConfigurationAxes = z
     preset: VenuePresetId.optional(),
     audiences: z.array(z.string().min(1)).default([]),
     capabilities: CapabilitySelection,
-    featureFlags: z.record(z.string().min(1), z.boolean()).default({}),
+    featureFlags: z.record(z.string().min(1), z.boolean()).prefault({}),
   })
   .strict()
 export type VenueConfigurationAxes = z.infer<typeof VenueConfigurationAxes>

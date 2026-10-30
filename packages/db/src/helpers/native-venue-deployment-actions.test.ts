@@ -106,6 +106,53 @@ describe('native venue deployment actions', () => {
     )
   })
 
+  it.each(['VENUE', 'SUBJECTS'])(
+    'native projection copies %s facts with unknown applicability',
+    async (scope) => {
+      const { db } = client({
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'publication-fact' }]),
+        contentModulePublication: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'publication-fact',
+              moduleId: 'fact-1',
+              moduleKind: 'OPERATIONAL_FACT',
+              revisionId: 'fact-r1',
+              action: 'PUBLISH',
+              eventOrder: 1n,
+              revision: {
+                kind: 'OPERATIONAL_FACT',
+                version: 1,
+                audience: 'PUBLIC',
+                evidence: [],
+                effectiveFrom: null,
+                effectiveUntil: null,
+                operationalFact: {
+                  label: 'Entry',
+                  value: 'North door',
+                  expiresAt: null,
+                  applicabilityScope: scope,
+                  applicabilitySubjectModuleIds: scope === 'SUBJECTS' ? ['service-1'] : [],
+                  applicabilityPlaceIds: [],
+                },
+              },
+            },
+          ]),
+        },
+      })
+      const result = await projectNativeVenueStateAction(db, {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      })
+      expect(result.state.generalizedModules[0]!.payload).toEqual({
+        kind: 'OPERATIONAL_FACT',
+        label: 'Entry',
+        value: 'North door',
+        expiresAt: null,
+      })
+    },
+  )
+
   it.each([approveNativeVenueDeploymentAction, applyNativeVenueDeploymentAction])(
     'refuses custom publication without a matching outside-transaction verifier',
     async (action) => {
@@ -1062,7 +1109,17 @@ describe('native venue deployment actions', () => {
       effectiveFrom: null,
       effectiveUntil: null,
       evidence: [],
-      payload: { kind: 'OPERATIONAL_FACT' as const, label: id, value: 'yes', expiresAt: null },
+      payload: {
+        kind: 'OPERATIONAL_FACT' as const,
+        label: id,
+        value: 'yes',
+        expiresAt: null,
+        applicability: {
+          scope: 'SUBJECTS' as const,
+          subjectModuleIds: ['service-1'],
+          placeIds: [],
+        },
+      },
       publication: { status: 'PUBLISHED' as const, revisionId: `${id}-revision` },
     })
     const relationship = {
@@ -1143,6 +1200,13 @@ describe('native venue deployment actions', () => {
       'admin-1',
     )
     expect(count).toBe(6)
+    expect(tx.operationalFactContent.create).toHaveBeenCalledTimes(2)
+    for (const [call] of tx.operationalFactContent.create.mock.calls) {
+      expect(call.data).not.toHaveProperty('applicability')
+      expect(call.data).not.toHaveProperty('applicabilityScope')
+      expect(call.data).not.toHaveProperty('applicabilitySubjectModuleIds')
+      expect(call.data).not.toHaveProperty('applicabilityPlaceIds')
+    }
     expect(tx.nativeVenueDeploymentPublicationLineage.create).toHaveBeenCalledTimes(3)
     expect(calls.slice(0, 3)).toEqual([
       'identity:a-relationship',

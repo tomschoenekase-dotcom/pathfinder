@@ -72,11 +72,11 @@ export const CatalogItemFieldsInput = z
       .array(z.object({ start: monthDay, end: monthDay }).strict())
       .max(6)
       .default([]),
-    ingredients: VerifiedListInput.default({ status: 'unknown', values: [] }),
-    allergens: VerifiedListInput.default({ status: 'unknown', values: [] }),
+    ingredients: VerifiedListInput.prefault({ status: 'unknown', values: [] }),
+    allergens: VerifiedListInput.prefault({ status: 'unknown', values: [] }),
     dietary: z
       .record(z.string().regex(/^[a-z_]{2,32}$/u), z.enum(['yes', 'no', 'unknown']))
-      .default({}),
+      .prefault({}),
     sources: z
       .array(
         z

@@ -17,7 +17,10 @@ type SetupReader = {
   venue: {
     findFirst(args: unknown): Promise<{ guideMode: string | null; chatAppearance: unknown } | null>
   }
-  place: { count(args: unknown): Promise<number> }
+  place: {
+    count(args: unknown): Promise<number>
+    findMany(args: unknown): Promise<Array<{ id: string }>>
+  }
 }
 
 /**
@@ -98,19 +101,43 @@ export const venuesCheckPackage: OperatorReadTool = {
     const { errors, warnings } = preview.report
     const quality = guideQualityFindings(warnings)
     const plan = counts(parsed.data)
+    const touchedPlaceIds =
+      parsed.data.schemaVersion === 3
+        ? [...parsed.data.places.update, ...parsed.data.places.delete].map(({ id }) => id)
+        : []
     const activePlaces = await (context.database as unknown as SetupReader).place.count({
-      where: { tenantId: input.tenantId, venueId: input.venueId, isActive: true },
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        isActive: true,
+        ...(touchedPlaceIds.length ? { id: { notIn: touchedPlaceIds } } : {}),
+      },
     })
+    // Creates are active by default; V3 updates replace the full desired activity state.
+    const activeUpdateIds =
+      parsed.data.schemaVersion === 3
+        ? parsed.data.places.update.filter(({ value }) => value.isActive).map(({ id }) => id)
+        : []
+    const existingUpdateRows = activeUpdateIds.length
+      ? await (context.database as unknown as SetupReader).place.findMany({
+          where: { tenantId: input.tenantId, venueId: input.venueId, id: { in: activeUpdateIds } },
+          select: { id: true },
+        })
+      : []
+    const activeUpdates = new Set(existingUpdateRows.map(({ id }) => id)).size
     const venueSetup = await venueSetupFindings(context.database, {
       tenantId: input.tenantId,
       venueId: input.venueId,
-      placesAfterImport: Math.max(0, activePlaces + plan.places.create - plan.places.remove),
+      placesAfterImport: activePlaces + plan.places.create + activeUpdates,
     })
     const other = warnings.filter((warning) => !warning.code.startsWith('GUIDE_QUALITY_'))
     return {
       venueId: input.venueId,
       importable: errors.length === 0,
-      ready: errors.length === 0 && quality.total === 0,
+      ready:
+        errors.length === 0 &&
+        quality.total === 0 &&
+        !other.some((warning) => warning.code === 'DUPLICATE_IN_PACKAGE'),
       plan,
       errors: errors.slice(0, SHOWN).map(trim),
       errorCount: errors.length,
@@ -126,7 +153,7 @@ export const venuesCheckPackage: OperatorReadTool = {
       otherWarningCount: other.length,
       // Settings, not package content: they never change ready, but fix them before testing answers.
       venueSetup,
-      note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block an import.',
+      note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block importable. Writing-guide warnings and exact in-package duplicates block ready.',
     }
   },
 }

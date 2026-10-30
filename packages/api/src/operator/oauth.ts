@@ -666,7 +666,7 @@ async function readTokenParameters(request: Request): Promise<Record<string, str
     return out
   }
   if (contentType === 'application/json') {
-    const parsed = z.record(z.string().max(4_096)).safeParse(JSON.parse(text))
+    const parsed = z.record(z.string(), z.string().max(4_096)).safeParse(JSON.parse(text))
     return parsed.success ? parsed.data : null
   }
   return null

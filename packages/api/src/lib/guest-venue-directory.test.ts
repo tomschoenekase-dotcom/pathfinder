@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { GUEST_DATED_TITLE_RULE } from './guest-event-dates'
 import { retrieveGuestKnowledge } from './guest-knowledge-retrieval'
 
 import {
@@ -18,6 +19,7 @@ import {
   suppressStaleGuestDirectoryKnowledge,
   staleGuestGuideRecordIds,
   guestDirectoryName,
+  classifyGuestDatedEvent,
   isPastDatedGuestEvent,
   loadGuestVenueDirectory,
   type GuestVenueDirectory,
@@ -42,38 +44,102 @@ const directory: GuestVenueDirectory = {
 
 describe('guest venue directory', () => {
   it('suppresses an older cached FULL and linked policy when a newer whole body cannot fit', async () => {
-    const cached = { ...knowledge[0]!, id: 'admission', title: 'Admission Policy', content: 'Admission is free without reservation.', updatedAt: new Date('2026-01-01') }
-    const current = { ...cached, content: 'Admission requires reservation. '.repeat(1000), updatedAt: new Date('2026-10-17'), lastReviewedAt: null }
-    const result = await retrieveGuestKnowledge({ reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue([current]) } }, query: 'Admission Policy?', tenantId: 'tenant-a', venueId: 'venue-a', includeSecondLayer: false, queryEmbedding: null })
+    const cached = {
+      ...knowledge[0]!,
+      id: 'admission',
+      title: 'Admission Policy',
+      content: 'Admission is free without reservation.',
+      updatedAt: new Date('2026-01-01'),
+    }
+    const current = {
+      ...cached,
+      content: 'Admission requires reservation. '.repeat(1000),
+      updatedAt: new Date('2026-10-17'),
+      lastReviewedAt: null,
+    }
+    const result = await retrieveGuestKnowledge({
+      reader: { venueKnowledgeEntry: { findMany: vi.fn().mockResolvedValue([current]) } },
+      query: 'Admission Policy?',
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+    })
     expect(result.entries).toEqual([])
-    expect(result.trace.observedSources).toEqual([{ id: current.id, version: current.updatedAt.toISOString() }])
+    expect(result.trace.observedSources).toEqual([
+      { id: current.id, version: current.updatedAt.toISOString() },
+    ])
     const original = { knowledge: [cached], places: [], incomplete: false }
-    expect(buildGuestVenueGuidePrompt(original, { currentDate: '2026-10-17' }).prompt).toContain(cached.content)
-    const suppressed = suppressStaleGuestDirectoryKnowledge({ directory: original, observedSources: result.trace.observedSources ?? [], admittedSourceIds: new Set(result.entries.map((entry) => entry.id)) })
+    expect(buildGuestVenueGuidePrompt(original, { currentDate: '2026-10-17' }).prompt).toContain(
+      cached.content,
+    )
+    const suppressed = suppressStaleGuestDirectoryKnowledge({
+      directory: original,
+      observedSources: result.trace.observedSources ?? [],
+      admittedSourceIds: new Set(result.entries.map((entry) => entry.id)),
+    })
     expect(suppressed.suppressedSourceIds).toEqual([cached.id])
     expect(suppressed.directory.incomplete).toBe(true)
-    expect(buildGuestVenueGuidePrompt(suppressed.directory, { currentDate: '2026-10-17' }).prompt).not.toContain(cached.content)
-    const overview = { ...cached, id: 'overview', title: 'Planning', content: 'See Admission Policy.', distance: 0 }
-    expect(expandGuestKnowledgeLinks({ entries: [overview], directory: suppressed.directory, currentDate: '2026-10-17' }).map((entry) => entry.id)).toEqual([overview.id])
+    expect(
+      buildGuestVenueGuidePrompt(suppressed.directory, { currentDate: '2026-10-17' }).prompt,
+    ).not.toContain(cached.content)
+    const overview = {
+      ...cached,
+      id: 'overview',
+      title: 'Planning',
+      content: 'See Admission Policy.',
+      distance: 0,
+    }
+    expect(
+      expandGuestKnowledgeLinks({
+        entries: [overview],
+        directory: suppressed.directory,
+        currentDate: '2026-10-17',
+      }).map((entry) => entry.id),
+    ).toEqual([overview.id])
   })
   it('keeps FULL coverage for an admitted current record while retaining its existing stale override', () => {
-    const cached = { ...knowledge[0]!, id: 'policy', content: 'Admission is free.', updatedAt: new Date('2026-01-01') }
-    const current = { ...cached, content: 'Admission requires reservation.', updatedAt: new Date('2026-10-17') }
+    const cached = {
+      ...knowledge[0]!,
+      id: 'policy',
+      content: 'Admission is free.',
+      updatedAt: new Date('2026-01-01'),
+    }
+    const current = {
+      ...cached,
+      content: 'Admission requires reservation.',
+      updatedAt: new Date('2026-10-17'),
+    }
     const other = { ...knowledge[0]!, id: 'unrelated', content: 'The east entrance has a ramp.' }
     const original = { knowledge: [cached, other], places: [], incomplete: false }
-    const result = suppressStaleGuestDirectoryKnowledge({ directory: original, observedSources: [{ id: current.id, version: current.updatedAt.toISOString() }], admittedSourceIds: new Set([current.id]) })
+    const result = suppressStaleGuestDirectoryKnowledge({
+      directory: original,
+      observedSources: [{ id: current.id, version: current.updatedAt.toISOString() }],
+      admittedSourceIds: new Set([current.id]),
+    })
     expect(result.directory).toBe(original)
     expect(result.suppressedSourceIds).toEqual([])
     const guide = buildGuestVenueGuidePrompt(result.directory, { currentDate: '2026-10-17' })
     expect(guide.mode).toBe('FULL')
     expect(guide.prompt).toContain(other.content)
-    expect(staleGuestGuideRecordIds({ guide, directory: result.directory, places: [], knowledgeEntries: [current] })).toEqual(new Set(['knowledge:policy']))
+    expect(
+      staleGuestGuideRecordIds({
+        guide,
+        directory: result.directory,
+        places: [],
+        knowledgeEntries: [current],
+      }),
+    ).toEqual(new Set(['knowledge:policy']))
   })
   it('keeps a newer cached policy when observations are older, missing or unparseable', () => {
     const cached = { ...knowledge[0]!, updatedAt: new Date('2026-10-17') }
     const original = { knowledge: [cached], places: [], incomplete: false }
     for (const version of ['2026-01-01T00:00:00Z', null, 'unknown']) {
-      const result = suppressStaleGuestDirectoryKnowledge({ directory: original, observedSources: [{ id: cached.id, version }], admittedSourceIds: new Set() })
+      const result = suppressStaleGuestDirectoryKnowledge({
+        directory: original,
+        observedSources: [{ id: cached.id, version }],
+        admittedSourceIds: new Set(),
+      })
       expect(result.directory).toBe(original)
       expect(result.suppressedSourceIds).toEqual([])
     }
@@ -155,6 +221,89 @@ describe('guest venue directory', () => {
     expect(prompt).toMatch(/Past dated events[^\n]*\n(- .*\n)*- Spring Bloom Festival 2024/u)
   })
 
+  it('asserts an event is over only when its text gives no sign of a newer run', () => {
+    const today = '2026-10-18'
+    const event = (content: string | null) => ({
+      title: 'Lantern Festival 2025',
+      category: 'Events',
+      content,
+    })
+    // Over: every year in the text has passed, or the text has no year at all.
+    for (const content of [
+      'The festival ran October 30 and 31, 2025.',
+      'Returns October 30 and 31 from 6 pm.',
+      'Meet at 2050 Lakeshore Drive. Call 555-2045.',
+      '',
+      null,
+    ])
+      expect(classifyGuestDatedEvent(event(content), today)).toBe('PAST')
+    // Not settled by the title: shown in full with a neutral marker, never asserted current or over.
+    for (const content of [
+      'The festival ran October 30 and 31, 2025. Checked October 18, 2026 against the official site.',
+      'Returns October 23, 24, 30 and 31, 2026, from 6 pm to 9 pm.',
+      'Ran November 21, 2025 through January 4, 2026.',
+      'Next festival: spring 2027 (dates TBA).',
+    ])
+      expect(classifyGuestDatedEvent(event(content), today)).toBe('CHECK_DATES')
+    // Not an old-titled event at all.
+    expect(classifyGuestDatedEvent({ ...event('x'), title: 'Lantern Festival 2026' }, today)).toBe(
+      'CURRENT',
+    )
+    expect(
+      classifyGuestDatedEvent({ title: 'Park history since 1998', category: 'History' }, today),
+    ).toBe('CURRENT')
+    expect(isPastDatedGuestEvent(event('It ran in 2025.'), 2026)).toBe(true)
+  })
+
+  it('never states an uncertain old-titled event is over or current, in either guide mode', () => {
+    const base = { ...knowledge[0]!, category: 'Events' }
+    const checked = {
+      ...base,
+      id: 'checked',
+      title: 'Lantern Festival 2025',
+      content:
+        'The festival ran October 30 and 31, 2025. Checked October 18, 2026 against the official site.',
+    }
+    const relisted = {
+      ...base,
+      id: 'relisted',
+      title: 'Harvest Nights 2025',
+      content: 'Returns October 23, 24, 30 and 31, 2026, from 6 pm to 9 pm.',
+    }
+    const ended = {
+      ...base,
+      id: 'ended',
+      title: 'Spring Fest 2024',
+      content: 'Held April 5 to 7, 2024.',
+    }
+    const directory = { knowledge: [checked, relisted, ended], places: [], incomplete: false }
+    const full = buildGuestVenueGuidePrompt(directory, { currentDate: '2026-10-18' }).prompt
+    expect(full).toContain(
+      'title="Lantern Festival 2025" category="Events" title_year_passed="2025"',
+    )
+    expect(full).toContain('The festival ran October 30 and 31, 2025. Checked October 18, 2026')
+    expect(full).toContain('title="Harvest Nights 2025" category="Events" title_year_passed="2025"')
+    expect(full).toContain('Returns October 23, 24, 30 and 31, 2026')
+    expect(full).toContain(GUEST_DATED_TITLE_RULE)
+    expect(full).toMatch(/Past dated events[^\n]*Spring Fest 2024/u)
+    expect(full).not.toMatch(/Past dated events[^\n]*(Lantern|Harvest)/u)
+    expect(full).not.toContain('Held April 5 to 7, 2024')
+
+    const summary = buildGuestVenueDirectoryPrompt(directory, { currentDate: '2026-10-18' })
+    expect(summary).toContain('Harvest Nights 2025 (title_year_passed="2025")')
+    expect(summary).toContain(GUEST_DATED_TITLE_RULE)
+    expect(summary).toMatch(/Past dated events[^\n]*\n- Spring Fest 2024/u)
+    expect(summary).not.toMatch(/Past dated events[^\n]*\n(- .*\n)*- Harvest Nights 2025/u)
+
+    // No marker or rule appears when no topic needs one, so other prompts are unchanged.
+    const plain = buildGuestVenueGuidePrompt(
+      { knowledge: [ended], places: [], incomplete: false },
+      { currentDate: '2026-10-18' },
+    ).prompt
+    expect(plain).not.toContain('title_year_passed')
+    expect(plain).not.toContain(GUEST_DATED_TITLE_RULE)
+  })
+
   it('withholds descriptions for same-name places so identity resolution stays in charge', () => {
     const base = THEME_PARK_PLACES[0]!
     const prompt = buildGuestVenueDirectoryPrompt(
@@ -219,11 +368,32 @@ describe('guest venue directory', () => {
   })
 
   it('keeps linked policy qualifications whole or omits the detail when it cannot fit', () => {
-    const detail = { ...knowledge[0]!, id: 'policy-detail', title: 'Garden Access', content: 'Entry is included. ' + 'Background. '.repeat(500) + 'Advance reservation and an adult are required.' }
-    const overview = { ...knowledge[0]!, id: 'overview', title: 'Planning', content: 'Ask about Garden Access.' }
-    const input = { entries: [{ ...overview, distance: 0.1 }], directory: { places: [], knowledge: [detail], incomplete: false }, currentDate: '2026-10-17' }
-    expect(expandGuestKnowledgeLinks(input).find((entry) => entry.id === detail.id)?.content).toBe(detail.content)
-    expect(expandGuestKnowledgeLinks({ ...input, maxContextChars: 2000 }).map((entry) => entry.id)).toEqual([overview.id])
+    const detail = {
+      ...knowledge[0]!,
+      id: 'policy-detail',
+      title: 'Garden Access',
+      content:
+        'Entry is included. ' +
+        'Background. '.repeat(500) +
+        'Advance reservation and an adult are required.',
+    }
+    const overview = {
+      ...knowledge[0]!,
+      id: 'overview',
+      title: 'Planning',
+      content: 'Ask about Garden Access.',
+    }
+    const input = {
+      entries: [{ ...overview, distance: 0.1 }],
+      directory: { places: [], knowledge: [detail], incomplete: false },
+      currentDate: '2026-10-17',
+    }
+    expect(expandGuestKnowledgeLinks(input).find((entry) => entry.id === detail.id)?.content).toBe(
+      detail.content,
+    )
+    expect(
+      expandGuestKnowledgeLinks({ ...input, maxContextChars: 2000 }).map((entry) => entry.id),
+    ).toEqual([overview.id])
   })
   it('does not link generic one-word topics from passing mentions', () => {
     const parking = {

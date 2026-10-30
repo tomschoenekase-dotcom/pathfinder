@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 3,
+  "places": {
+    "create": [],
+    "update": [],
+    "delete": []
+  },
+  "knowledgeEntries": {
+    "create": [
+      {
+        "itemKey": "00000000-0000-4000-8000-000000000001",
+        "provenance": {
+          "contentOrigin": "AI_GENERATED",
+          "sourceType": "MANUAL",
+          "sourceName": "Fictional Moonbeam Observatory fixture"
+        },
+        "value": {
+          "title": "Visitor details",
+          "category": "general",
+          "content": "Visitor details are unconfirmed.",
+          "isEnabled": true
+        }
+      }
+    ],
+    "update": [],
+    "delete": []
+  }
+}

@@ -991,6 +991,7 @@ export {
   AiConfigurationActionError,
   configurationOverrideFromRow,
   configurationValuesFromRow,
+  guestChatDeploymentDefaultModelKey,
   resetAiWorkloadConfigurationOverrideAction,
   resolveRuntimeAiWorkloadConfiguration,
   saveAiWorkloadConfigurationOverrideAction,
@@ -1310,11 +1311,13 @@ export type {
 export {
   publishUniversalContentAction,
   resolveEffectivePublishedUniversalContent,
+  resolveEffectivePublishedUniversalContentSnapshot,
   UniversalContentResolverError,
   withdrawUniversalContentAction,
 } from './helpers/universal-content-publication-actions'
 export type {
   EffectivePublishedUniversalContent,
+  EffectivePublishedUniversalContentSnapshot,
   UniversalContentPublicationResult,
 } from './helpers/universal-content-publication-actions'
 export {
@@ -1703,3 +1706,6 @@ export {
 export type { SourceConnectionPreview } from './helpers/source-connections'
 export { publishSourceConnectionSnapshot } from './helpers/source-connection-publication'
 export { recordSourceConnectionDiagnostic } from './helpers/source-connection-diagnostics'
+
+export * from './helpers/prospect-outreach-history'
+export * from './helpers/prospect-crm-record-actions'

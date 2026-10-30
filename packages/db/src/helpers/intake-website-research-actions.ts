@@ -48,7 +48,7 @@ const terminalInput = z
     sourceUriHash: z.string().regex(/^[a-f0-9]{64}$/u),
     bounds: WebsiteIntakeBounds,
     outcome: z.enum(['SUCCEEDED', 'INACCESSIBLE', 'FAILED']),
-    researchSnapshot: z.record(z.unknown()).optional(),
+    researchSnapshot: z.record(z.string(), z.unknown()).optional(),
     candidateSnapshot: z.unknown().optional(),
     discoverySnapshot: WebsiteSourceDiscovery.optional(),
     evidence: z.array(IntakeEvidence).max(5_000).default([]),

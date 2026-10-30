@@ -239,6 +239,7 @@ export function ProspectCampaignWorkbench({
         textBody: body,
         groundingSnapshot: {
           source: 'operator-workbench',
+          outreachKind: 'cold',
           campaignId,
           capturedAt: new Date().toISOString(),
         },
@@ -246,6 +247,12 @@ export function ProspectCampaignWorkbench({
       setEditingMember(null)
       setNotice('Draft saved for review')
       await refresh()
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : 'Draft is on hold. Review outreach history and contact eligibility.',
+      )
     } finally {
       setBusy(false)
     }

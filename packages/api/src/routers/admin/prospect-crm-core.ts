@@ -1,6 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { db, loadProspectOutreachHistory, withTenantIsolationBypass } from '@pathfinder/db'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { prospectStage } from './prospect-crm-common'
@@ -237,6 +237,7 @@ export const adminProspectCrmCoreRouter = router({
           (location) => location.status === 'ACTIVE',
         )
         return {
+          outreachHistory: await loadProspectOutreachHistory(db, canonicalOrganizationId),
           ...prospect,
           activities: mergedActivities,
           sources: mergedSources,
@@ -279,7 +280,7 @@ export const adminProspectCrmCoreRouter = router({
           cursor: z.string().min(1).max(1000).optional(),
         })
         .strict()
-        .default({ limit: 100 }),
+        .prefault({ limit: 100 }),
     )
     .query(({ input }) =>
       withTenantIsolationBypass(async () => {

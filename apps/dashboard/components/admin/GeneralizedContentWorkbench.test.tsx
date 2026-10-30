@@ -30,6 +30,7 @@ vi.mock('../../lib/trpc', () => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
 
 import { GeneralizedContentWorkbench } from './GeneralizedContentWorkbench'
+import { factApplicabilitySummary } from './FactApplicabilityReview'
 
 describe('GeneralizedContentWorkbench', () => {
   afterEach(() => {
@@ -79,6 +80,18 @@ describe('GeneralizedContentWorkbench', () => {
     })
     return { promise, resolve }
   }
+
+  it('keeps missing declarations unknown and malformed declarations visibly invalid', () => {
+    expect(factApplicabilitySummary({})).toMatch(/^Unknown/)
+    for (const applicability of [
+      null,
+      [],
+      { scope: 'SUBJECTS', subjectModuleIds: 'wrong' },
+      { scope: 'SUBJECTS', subjectModuleIds: [] },
+    ]) {
+      expect(factApplicabilitySummary({ applicability })).toMatch(/^Invalid/)
+    }
+  })
 
   it('shows the honest default-off state and disables durable writes', () => {
     render(
@@ -138,6 +151,80 @@ describe('GeneralizedContentWorkbench', () => {
     expect((screen.getByLabelText('Typed payload JSON') as HTMLTextAreaElement).value).toContain(
       '"itemType": ""',
     )
+  })
+
+  it('starts a fact revision without copying its previous declaration', async () => {
+    mocks.revise.mockResolvedValue({ version: 4 })
+    const payload = {
+      kind: 'OPERATIONAL_FACT',
+      label: 'Entry',
+      value: 'Use the north door.',
+      applicability: { scope: 'SUBJECTS', subjectModuleIds: ['service-1'], placeIds: [] },
+    }
+    render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[{ ...contentModule, kind: 'OPERATIONAL_FACT', payload }]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'module-1' } })
+    const draft = JSON.parse(
+      (screen.getByLabelText('Typed payload JSON') as HTMLTextAreaElement).value,
+    )
+    expect(draft).toEqual({
+      kind: 'OPERATIONAL_FACT',
+      label: 'Entry',
+      value: 'Use the north door.',
+    })
+    expect(payload).toHaveProperty('applicability.scope', 'SUBJECTS')
+    expect(screen.getByText(/A new revision never inherits/)).toBeTruthy()
+    expect(screen.getByText('Stored module module-1 · v3 · revision revision-3')).toBeTruthy()
+    expect(screen.getByText('Unknown — no declaration recorded.')).toBeTruthy()
+    expect(screen.getByText(/module IDs: service-1/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Append revision' }))
+    await waitFor(() => expect(mocks.revise).toHaveBeenCalledOnce())
+    expect(mocks.revise.mock.calls[0]?.[0].draft.payload).not.toHaveProperty('applicability')
+  })
+
+  it('binds publication review to stored fact scope even when the unsaved draft differs', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[
+          {
+            ...contentModule,
+            kind: 'OPERATIONAL_FACT',
+            payload: {
+              kind: 'OPERATIONAL_FACT',
+              label: 'Entry',
+              value: 'Use the north door.',
+              applicability: { scope: 'VENUE' },
+            },
+          },
+        ]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'module-1' } })
+    fireEvent.change(screen.getByLabelText('Typed payload JSON'), {
+      target: {
+        value: JSON.stringify({ kind: 'OPERATIONAL_FACT', label: 'Changed', value: 'Unsaved.' }),
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Publish this version to guests' }))
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining('Module module-1; revision revision-3. Applicability: VENUE'),
+    )
+    expect(mocks.publish).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Append retirement revision' }))
+    expect(screen.getByText(/retirement revision has unknown applicability/)).toBeTruthy()
+    expect(screen.getByText(/currently published revision stays published/)).toBeTruthy()
   })
 
   it('creates a strict generalized ITEM with the frozen creation key', async () => {
@@ -231,6 +318,38 @@ describe('GeneralizedContentWorkbench', () => {
       }),
     )
   })
+
+  it.each(['PUBLIC', 'CLIENT', 'OPERATOR'] as const)(
+    'withdraws published v1 while latest draft is %s',
+    async (audience) => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      mocks.withdraw.mockResolvedValue({ action: 'WITHDRAW' })
+      render(
+        <GeneralizedContentWorkbench
+          tenantId="tenant-1"
+          venueId="venue-1"
+          authoringEnabled
+          initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+          modules={[{ ...itemModule, audience, publishedRevisionId: 'item-revision-1' }]}
+        />,
+      )
+      fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'item-1' } })
+      if (audience !== 'PUBLIC')
+        expect(
+          (
+            screen.getByRole('button', {
+              name: 'Publish this version to guests',
+            }) as HTMLButtonElement
+          ).disabled,
+        ).toBe(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Withdraw from guest guide' }))
+      await waitFor(() => expect(mocks.withdraw).toHaveBeenCalledOnce())
+      expect(mocks.withdraw).toHaveBeenCalledWith(
+        expect.objectContaining({ expectedPublishedRevisionId: 'item-revision-1' }),
+      )
+      expect(mocks.publish).not.toHaveBeenCalled()
+    },
+  )
 
   it('uses the displayed latest version as the revision CAS', async () => {
     mocks.revise.mockResolvedValue({ version: 4 })

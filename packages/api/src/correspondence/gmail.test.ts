@@ -310,6 +310,52 @@ describe('Gmail correspondence provider', () => {
     }
   })
 
+  it('classifies automated and out-of-office replies from provider headers without treating ordinary replies as automated', async () => {
+    const messages = [
+      gmailMessage({ id: 'ordinary' }),
+      gmailMessage({
+        id: 'human-office-subject',
+        headers: {
+          from: 'venue@example.test',
+          to: mailbox.mailboxAddress,
+          subject: 'Re: Out of office until Monday',
+        },
+      }),
+      gmailMessage({
+        id: 'human-list-reply',
+        headers: { from: 'venue@example.test', to: mailbox.mailboxAddress, precedence: 'list' },
+      }),
+      gmailMessage({
+        id: 'automated',
+        headers: {
+          from: 'venue@example.test',
+          to: mailbox.mailboxAddress,
+          'auto-submitted': 'auto-replied',
+        },
+      }),
+      gmailMessage({
+        id: 'vacation',
+        headers: {
+          from: 'venue@example.test',
+          to: mailbox.mailboxAddress,
+          subject: 'Out of office until Monday',
+          'auto-submitted': 'auto-replied',
+        },
+      }),
+    ]
+    const { provider } = setup({
+      listMessages: vi.fn(async () => ({ messages, historyId: '103' })),
+    })
+    const page = await provider.reconcile({ mailbox, after: new Date(0), pageSize: 100 })
+    expect(page.messages.map((message) => message.automatedReplyKind)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      'automated',
+      'outOfOffice',
+    ])
+  })
+
   it('flags delivery-status notices so a threaded bounce is never treated as a reply', async () => {
     const messages = [
       gmailMessage({ id: 'reply' }),

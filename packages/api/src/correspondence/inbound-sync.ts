@@ -217,6 +217,7 @@ export function createInboundCorrespondenceService(input: {
     if (
       match.state === 'UNKNOWN' &&
       message.direction === 'INBOUND' &&
+      !message.automatedReplyKind &&
       input.clientReplyLinker !== undefined
     ) {
       const linked = await input.clientReplyLinker(message)
@@ -243,7 +244,7 @@ export function createInboundCorrespondenceService(input: {
       message,
       ingestedAt: now(),
     })
-    if (persisted.inserted && message.direction === 'INBOUND') {
+    if (persisted.inserted && message.direction === 'INBOUND' && !message.automatedReplyKind) {
       await store.appendRelationshipReply({
         canonicalMessageId: persisted.canonicalMessageId,
         canonicalThreadId: match.candidate.canonicalThreadId,

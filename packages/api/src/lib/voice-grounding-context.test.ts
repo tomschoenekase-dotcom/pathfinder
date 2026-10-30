@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { NativeCoreVisibleState } from '@pathfinder/contracts'
+import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/contracts/venue-package'
 import type { SemanticPlace } from '@pathfinder/db'
 import type { Prisma } from '@prisma/client'
 import type { GuestKnowledgeRow } from './guest-knowledge-retrieval'
@@ -70,6 +71,44 @@ function matches(item: Row, where: Record<string, unknown>) {
     !Array.isArray(where.AND) ||
     where.AND.every((x) => or((x as { OR: Record<string, unknown>[] }).OR))
   )
+}
+
+// Fake current public rows, including lexical predicates, ID pages and revalidation reads.
+function findRows<T extends { id: string }>(rows: T[], args: Record<string, unknown>): T[] {
+  const matchesWhere = (row: Record<string, unknown>, where: Record<string, unknown>): boolean =>
+    Object.entries(where).every(([key, value]) => {
+      if (key === 'AND')
+        return (Array.isArray(value) ? value : [value]).every((part) =>
+          matchesWhere(row, part as Record<string, unknown>),
+        )
+      if (key === 'OR')
+        return (value as Record<string, unknown>[]).some((part) => matchesWhere(row, part))
+      const actual = row[key] ?? null
+      if (value === null || typeof value !== 'object') return actual === value
+      return Object.entries(value).every(([op, expected]) => {
+        if (op === 'mode') return true
+        if (op === 'contains')
+          return String(actual ?? '')
+            .toLowerCase()
+            .includes(String(expected).toLowerCase())
+        if (op === 'equals') return String(actual).toLowerCase() === String(expected).toLowerCase()
+        if (op === 'in') return (expected as unknown[]).includes(actual)
+        if (op === 'gt') return String(actual) > String(expected)
+        if (op === 'not') return actual !== expected
+        if (op === 'is')
+          return expected === null
+            ? actual === null
+            : actual !== null &&
+                matchesWhere(actual as Record<string, unknown>, expected as Record<string, unknown>)
+        return false
+      })
+    })
+  return rows
+    .filter((row) =>
+      matchesWhere(row as Record<string, unknown>, args.where as Record<string, unknown>),
+    )
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .slice(0, args.take === undefined ? rows.length : Number(args.take))
 }
 
 describe('voice grounding production retrieval parity', () => {
@@ -317,12 +356,12 @@ describe('voice grounding production retrieval parity', () => {
     expect(result.sourceIds).not.toContain('place:case-second')
   })
 
-  it('retains the identity flag and header when ordinary grounding fills the budget', async () => {
+  it('retains the identity flag and header when all ordinary core grounding fits', async () => {
     const result = await buildVoiceGroundingContext({
       reader: {
         ...identityReader(),
         venueKnowledgeEntry: {
-          findMany: async () => [row('large', 'Large source', 'x'.repeat(11_900))],
+          findMany: async () => [row('large', 'Large source', 'x'.repeat(11_000))],
         },
       } as never,
       tenantId: 'tenant',
@@ -330,6 +369,8 @@ describe('voice grounding production retrieval parity', () => {
       query: 'Tell me about Case 12 large source',
     })
     expect(result.identityClarificationRequired).toBe(true)
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.trace.identityClarificationRequiredBeforePacking).toBe(true)
     expect(result.context.startsWith('IDENTITY CLARIFICATION DATA')).toBe(true)
     expect(result.context.length).toBeLessThanOrEqual(12_000)
   })
@@ -338,10 +379,11 @@ describe('voice grounding production retrieval parity', () => {
     const header =
       'IDENTITY CLARIFICATION DATA: Multiple authorized places match Case 12. Candidates: Case 12 — First floor · East gallery; Case 12 — Second floor · West gallery'
     const prefix = '[PLACE: Case 12]\nPLACE · First floor · East gallery · '
+    const second = '[PLACE: Case 12]\nPLACE · Second floor · West gallery'
     const edgeCases = [
       place({
         ...duplicateCases[0]!,
-        longDescription: 'x'.repeat(12_000 - header.length - 2 - prefix.length),
+        longDescription: 'x'.repeat(12_000 - header.length - 2 - prefix.length - 2 - second.length),
       }),
       duplicateCases[1]!,
     ]
@@ -354,8 +396,10 @@ describe('voice grounding production retrieval parity', () => {
       query: 'Tell me about Case 12 edge source',
     })
     expect(result.context.length).toBe(12_000)
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.identityClarificationRequired).toBe(true)
     expect(result.sourceIds).toContain('place:case-first')
-    expect(result.sourceIds).not.toContain('place:case-second')
+    expect(result.sourceIds).toContain('place:case-second')
   })
 
   it('finds bounded public facts for voice while excluding private and wrong-scope distractors', async () => {
@@ -569,7 +613,18 @@ describe('voice grounding production retrieval parity', () => {
       visitContext: { visitedPlaceIds, interests: ['galleries'] },
     })
 
-    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ take: 16 })
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 16,
+        where: expect.objectContaining({
+          tenantId: 'tenant',
+          venueId: 'venue',
+          visibility: 'PUBLIC',
+          isActive: true,
+        }),
+        orderBy: [{ importanceScore: 'desc' }, { name: 'asc' }],
+      }),
+    )
     expect(result.context).toContain('[PLACE: Gallery 9]')
     expect(result.sourceIds).toContain('place:place-9')
     for (let index = 1; index <= 8; index += 1) {
@@ -603,7 +658,18 @@ describe('voice grounding production retrieval parity', () => {
       },
     })
 
-    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ take: 28 })
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 28,
+        where: expect.objectContaining({
+          tenantId: 'tenant',
+          venueId: 'venue',
+          visibility: 'PUBLIC',
+          isActive: true,
+        }),
+        orderBy: [{ importanceScore: 'desc' }, { name: 'asc' }],
+      }),
+    )
     expect(result.sourceIds.filter((sourceId) => sourceId.startsWith('place:'))).toHaveLength(8)
     expect(result.context.match(/\[PLACE:/gu)).toHaveLength(8)
     expect(result.sourceIds).not.toContain('place:eligible-9')
@@ -657,7 +723,7 @@ describe('voice grounding production retrieval parity', () => {
     expect(result.context).not.toContain('RECOMMENDATION SCOPE')
   })
 
-  it('never emits a partial item or claims an omitted oversized source was included', async () => {
+  it('refuses partial core grounding when an oversized source was omitted', async () => {
     const result = await buildVoiceGroundingContext({
       reader: {
         venueKnowledgeEntry: {
@@ -673,10 +739,238 @@ describe('voice grounding production retrieval parity', () => {
       venueId: 'venue',
       query: 'What is the capacity oversized?',
     })
-    expect(result.context).toContain('Capacity is 137')
-    expect(result.context).not.toContain('x'.repeat(100))
-    expect(result.sourceIds).toEqual(['small'])
+    expect(result.context).toBe('')
+    expect(result.sourceIds).toEqual([])
+    expect(result.corePackingComplete).toBe(false)
+    expect(result.omittedCoreSourceIds).toContain('place:oversized')
+    expect(result.trace.packedCoreSourceIds).toEqual(['small'])
+    expect(result.trace.finalIncludedSourceIds).toEqual([])
     expect(result.omittedSourceIds).toContain('place:oversized')
+  })
+
+  it('never forwards a selected qualifying body partially or packs past its first capacity miss', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: {
+          findMany: async () => [
+            row(
+              'a-access',
+              'Orchid access',
+              `Orchid access. ${'x'.repeat(12_000)} Upper access requires twelve steps; lift service is unconfirmed.`,
+            ),
+            row('b-hours', 'Orchid hours', 'Orchid hours are 10 AM to 4 PM.'),
+          ],
+        },
+        place: { findMany: async () => [place({ id: 'orchid', name: 'Orchid exhibit' })] },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Orchid access and hours',
+    })
+    expect(result.corePackingComplete).toBe(false)
+    expect(result.sourceIds).toEqual([])
+    expect(result.context).not.toContain('Upper access')
+    expect(result.context).not.toContain('Orchid hours are')
+    expect(result.omittedCoreSourceIds).toContain('a-access')
+    expect(result.trace.packedCoreSourceIds).toEqual([])
+  })
+
+  it('keeps three selected whole bodies useful with 500 places and 100 Knowledge records', async () => {
+    const knowledge = Array.from({ length: 100 }, (_, index) =>
+      index < 3
+        ? row(
+            `knowledge-${String(index).padStart(3, '0')}`,
+            `Orchid ${['access', 'hours', 'price'][index]}`,
+            `Orchid ${['access', 'hours', 'price'][index]}. ${'Relevant detail. '.repeat(60)}`,
+          )
+        : row(`knowledge-${index}`, `Archive topic ${index}`, 'Unrelated archived material.'),
+    )
+    const places = Array.from({ length: 500 }, (_, index) => ({
+      ...place({ id: `place-${String(index).padStart(3, '0')}`, name: `Archive marker ${index}` }),
+      tenantId: 'tenant',
+      venueId: 'venue',
+      visibility: 'PUBLIC',
+      isActive: true,
+    }))
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async (args) => findRows(knowledge, args) },
+        place: { findMany: async (args) => findRows(places, args as Record<string, unknown>) },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'What are Orchid access, hours and price?',
+    })
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.context.length).toBeGreaterThan(0)
+    expect(result.context.length).toBeLessThanOrEqual(12_000)
+    for (const entry of knowledge.slice(0, 3)) {
+      expect(result.sourceIds).toContain(entry.id)
+      expect(result.context).toContain(entry.content)
+    }
+  })
+
+  it('preserves labels and clarification for 24 same-name bodies that cannot all fit', async () => {
+    const candidates = Array.from({ length: 24 }, (_, index) =>
+      place({
+        id: `case-${String(index).padStart(2, '0')}`,
+        name: 'Case 12',
+        areaName: `Gallery ${index}`,
+        longDescription: `BODY_QUALIFIER_${index} ${'x'.repeat(520)}`,
+      }),
+    )
+    const result = await buildVoiceGroundingContext({
+      reader: identityReader([], candidates) as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Where is Case 12?',
+    })
+    expect(result.corePackingComplete).toBe(false)
+    expect(result.identityClarificationRequired).toBe(true)
+    expect(result.sourceIds).toEqual([])
+    expect(result.context).toContain('Case 12 — Gallery 0')
+    expect(result.context).toContain('Case 12 — Gallery 23')
+    expect(result.context).not.toContain('BODY_QUALIFIER_')
+    expect(result.context).not.toContain('[PLACE:')
+    expect(result.context.length).toBeLessThanOrEqual(1_500)
+  })
+
+  it('drops oversized unselected expansion extras and caps their attempted bodies at sixteen', async () => {
+    const selectedPlace = place({
+      id: 'selected',
+      name: 'Case 12',
+      shortDescription: 'The selected exhibit fact.',
+    })
+    const extras = Array.from({ length: 20 }, (_, index) =>
+      place({
+        id: `extra-${index}`,
+        name: `Archive ${index}`,
+        longDescription: index === 0 ? 'x'.repeat(13_000) : `EXTRA_BODY_${index}`,
+      }),
+    )
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => [] },
+        // The candidate-reader seam may supply further authorized rows; only the initial
+        // lexical choice and explicitly named identity candidates are mandatory bodies.
+        place: {
+          findMany: async (args) =>
+            args.where && 'name' in args.where ? [selectedPlace, ...extras] : [selectedPlace],
+        },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12',
+    })
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.omittedCoreSourceIds).toEqual([])
+    expect(result.context).toContain('The selected exhibit fact.')
+    expect(result.sourceIds).toContain('place:selected')
+    expect(result.omittedSourceIds).toContain('place:extra-0')
+    for (const extra of extras.slice(16))
+      expect(result.omittedSourceIds).toContain(`place:${extra.id}`)
+    expect(result.context).not.toContain('EXTRA_BODY_16')
+  })
+
+  it('refuses schema-valid V02 core capacity loss without reading optional media', async () => {
+    const records = ['a-history', 'b-history', 'z-access'].map((id) => {
+      const content = `Orchid exhibit access. ${id === 'z-access' ? 'The upper platform requires twelve steps; lift availability is unknown. ' : ''}${'Historical exhibit detail. '.repeat(177)}`
+      const authored = KnowledgeEntryInput.parse({
+        title: 'Orchid exhibit access',
+        category: 'EXHIBITS',
+        content,
+      })
+      return { ...row(id, authored.title, authored.content), category: authored.category }
+    })
+    const authoredPlace = PlaceInput.parse({
+      name: 'Orchid exhibit',
+      type: 'EXHIBIT',
+      hours: '10 AM–4 PM',
+    })
+    const mediaFindMany = vi.fn()
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: { findMany: async () => records },
+        place: {
+          findMany: async () => [
+            place({
+              id: 'orchid',
+              name: authoredPlace.name,
+              type: authoredPlace.type,
+              hours: authoredPlace.hours ?? null,
+            }),
+          ],
+        },
+        venueMediaDerivative: { findMany: mediaFindMany } as never,
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Orchid exhibit access',
+      asOf: new Date('2026-10-24T17:00:00Z'),
+      currentDate: '2026-10-24',
+      mediaPolicy: { venueSlug: 'orchid-venue', showPhotos: true, showLinks: false },
+    })
+    expect(result).toMatchObject({
+      context: '',
+      sourceIds: [],
+      corePackingComplete: false,
+      omittedCoreSourceIds: ['z-access', 'place:orchid'],
+    })
+    expect(result.trace.packedCoreSourceIds).toEqual(['a-history', 'b-history'])
+    expect(result.trace.finalIncludedSourceIds).toEqual([])
+    expect(result.retrievedSourceIds).toContain('z-access')
+    expect(result.omittedSourceIds).toContain('z-access')
+    expect(mediaFindMany).not.toHaveBeenCalled()
+  })
+
+  it('forwards complete core grounding when every selected body fits', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        venueKnowledgeEntry: {
+          findMany: async () => [
+            row(
+              'access',
+              'Orchid access',
+              'The upper platform requires twelve steps; lift availability is unknown.',
+            ),
+          ],
+        },
+        place: { findMany: async () => [place({ id: 'orchid', name: 'Orchid exhibit' })] },
+      },
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Orchid access',
+    })
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.omittedCoreSourceIds).toEqual([])
+    expect(result.sourceIds).toEqual(['access', 'place:orchid'])
+    expect(result.context).toContain('lift availability is unknown')
+    expect(result.context.length).toBeLessThanOrEqual(12_000)
+  })
+
+  it('retains label-only ambiguity on core refusal without forwarding body facts', async () => {
+    const result = await buildVoiceGroundingContext({
+      reader: {
+        ...identityReader(),
+        venueKnowledgeEntry: {
+          findMany: async () => [row('large', 'Case 12', 'x'.repeat(12_000))],
+        },
+      } as never,
+      tenantId: 'tenant',
+      venueId: 'venue',
+      query: 'Tell me about Case 12',
+    })
+    expect(result).toMatchObject({
+      sourceIds: [],
+      corePackingComplete: false,
+      identityClarificationRequired: true,
+    })
+    expect(result.context).toContain('IDENTITY CLARIFICATION DATA')
+    expect(result.context).toContain('Case 12 — First floor')
+    expect(result.context).not.toContain('[KNOWLEDGE:')
+    expect(result.context).not.toContain('[PLACE:')
+    expect(result.trace.identityClarificationRequiredBeforePacking).toBe(true)
+    expect(result.omittedCoreSourceIds).toContain('large')
   })
 
   it('reports the effective legacy fallback separately from native snapshot eligibility', async () => {
@@ -888,6 +1182,8 @@ describe('voice grounding production retrieval parity', () => {
     expect(result.context).not.toContain(editorialCaption)
     expect(result.sourceIds).not.toContain('media:derivative-budget:review:3')
     expect(result.omittedSourceIds).toContain('media:derivative-budget:review:3')
+    expect(result.corePackingComplete).toBe(true)
+    expect(result.omittedCoreSourceIds).toEqual([])
     expect(result.context.length).toBeLessThanOrEqual(12_000)
   })
 

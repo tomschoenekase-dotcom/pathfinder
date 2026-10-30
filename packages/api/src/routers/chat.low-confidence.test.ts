@@ -356,7 +356,18 @@ describe('chat.send low-confidence flag', () => {
         throw new Error('embedding unavailable')
       },
     )
-    ;(mockDb.place.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([])
+    ;(mockDb.place.findMany as ReturnType<typeof vi.fn>).mockImplementation(async (args) => {
+      // Metadata/body and fallback reads all see the same empty scoped place fixture.
+      expect(args.where).toMatchObject({
+        tenantId: venueRow.tenantId,
+        venueId: sendInput.venueId,
+        isActive: true,
+        visibility: 'PUBLIC',
+      })
+      if (args.select?.importanceScore === true)
+        expect(args).toMatchObject({ orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }], take: 8 })
+      return []
+    })
 
     await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
       response: 'I do not have that information.',

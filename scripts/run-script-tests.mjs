@@ -13,7 +13,13 @@ if (testFiles.length === 0) {
   throw new Error('No repository script tests were discovered')
 }
 
-const child = spawn(process.execPath, ['--test', ...testFiles], {
+const requestedConcurrency = process.env.TORCHIKO_SCRIPT_TEST_CONCURRENCY
+if (requestedConcurrency !== undefined && !/^[1-9]\d*$/u.test(requestedConcurrency)) {
+  throw new Error('TORCHIKO_SCRIPT_TEST_CONCURRENCY must be a positive integer')
+}
+const concurrencyArgs = requestedConcurrency ? [`--test-concurrency=${requestedConcurrency}`] : []
+
+const child = spawn(process.execPath, ['--test', ...concurrencyArgs, ...testFiles], {
   shell: false,
   stdio: 'inherit',
 })

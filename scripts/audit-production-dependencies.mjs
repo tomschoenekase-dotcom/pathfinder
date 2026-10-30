@@ -36,7 +36,12 @@ if (!pnpmEntry || !/pnpm(?:\.c?js)?$/iu.test(pnpmEntry)) {
         }
         const timeout = setTimeout(() => {
           child.kill()
-          finish({ code: 1, stdout: '', stderr: 'dependency registry request timeout\n' })
+          finish({
+            code: 1,
+            stdout: '',
+            stderr: 'dependency registry request timeout\n',
+            executionError: true,
+          })
         }, ATTEMPT_TIMEOUT_MS)
         child.stdout.on('data', (chunk) => {
           stdout += chunk
@@ -45,10 +50,10 @@ if (!pnpmEntry || !/pnpm(?:\.c?js)?$/iu.test(pnpmEntry)) {
           stderr += chunk
         })
         child.once('error', (error) =>
-          finish({ code: 1, stdout, stderr: `${stderr}${error.message}\n` }),
+          finish({ code: 1, stdout, stderr: `${stderr}${error.message}\n`, executionError: true }),
         )
         child.once('exit', (code, signal) =>
-          finish({ code: signal ? 1 : (code ?? 1), stdout, stderr }),
+          finish({ code: signal ? 1 : (code ?? 1), stdout, stderr, signal }),
         )
       }),
     sleep: async (delayMs) => {
@@ -61,6 +66,13 @@ if (!pnpmEntry || !/pnpm(?:\.c?js)?$/iu.test(pnpmEntry)) {
 
   process.stdout.write(result.stdout)
   process.stderr.write(result.stderr)
+  if (result.auditReportValid && result.code === 0) {
+    const lower =
+      result.auditSeverities.info + result.auditSeverities.low + result.auditSeverities.moderate
+    process.stderr.write(
+      `Production dependency high-severity gate passed; ${lower} lower-severity advisories remain in the report.\n`,
+    )
+  }
   if (result.code !== 0) {
     if (isTransientRegistryFailure(result)) {
       process.stderr.write(`Dependency audit exhausted ${result.attempts} transient attempts.\n`)

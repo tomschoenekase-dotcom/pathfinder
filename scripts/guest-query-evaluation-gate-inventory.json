@@ -1,0 +1,128 @@
+[
+  {
+    "id": "lint",
+    "argv": ["pnpm", "run", "lint"],
+    "vitest": false
+  },
+  {
+    "id": "query_focused",
+    "argv": [
+      "pnpm",
+      "--filter",
+      "@pathfinder/api",
+      "exec",
+      "vitest",
+      "run",
+      "src/lib/guest-structured-query.test.ts",
+      "src/lib/guest-query-source.test.ts",
+      "src/lib/guest-query-projection.test.ts",
+      "src/lib/guest-query-planning.test.ts",
+      "src/lib/guest-query-result-prompt.test.ts",
+      "src/lib/guest-query-evidence.test.ts",
+      "src/lib/guest-query-chat-experiment.test.ts",
+      "src/routers/guest-structured-query-chat.boundary.test.ts",
+      "src/lib/venue-index/enrichment-authority.test.ts",
+      "src/lib/guest-query-canonical-projection.test.ts",
+      "src/lib/guest-query-direct-answer.test.ts",
+      "src/lib/guest-query-domain.test.ts",
+      "src/lib/guest-query-knowledge-scope.test.ts",
+      "src/lib/guest-query-name-identity.test.ts",
+      "src/lib/guest-query-product-summary.test.ts",
+      "src/lib/guest-query-source-directory.test.ts",
+      "src/lib/guest-query-lookup.test.ts",
+      "src/lib/guest-query-local-planner-profile.test.ts",
+      "src/lib/guest-query-subject-evidence.test.ts",
+      "src/lib/guest-query-timing.test.ts",
+      "src/lib/guest-query-compile-cache.test.ts",
+      "src/lib/guest-query-compile-cache-source.test.ts",
+      "src/lib/guest-query-fact-applicability.test.ts",
+      "src/lib/guest-fact-applicability-read-compatibility.test.ts",
+      "--pool=forks",
+      "--maxWorkers=1",
+      "--minWorkers=1"
+    ],
+    "vitest": true
+  },
+  {
+    "id": "index_focused",
+    "argv": [
+      "pnpm",
+      "--filter",
+      "@pathfinder/api",
+      "exec",
+      "vitest",
+      "run",
+      "src/lib/guest-venue-directory.test.ts",
+      "src/lib/guest-directory-cache-concurrency.test.ts",
+      "src/lib/guest-question-search-index.test.ts",
+      "src/lib/guest-question-evidence.test.ts",
+      "src/routers/guest-evidence-chat.boundary.test.ts",
+      "src/routers/guest-facet-chat.boundary.test.ts",
+      "src/routers/chat.test.ts",
+      "--pool=forks",
+      "--maxWorkers=1",
+      "--minWorkers=1"
+    ],
+    "vitest": true
+  },
+  {
+    "id": "typecheck",
+    "argv": ["pnpm", "run", "typecheck"],
+    "vitest": false
+  },
+  {
+    "id": "verify:source-encoding",
+    "argv": ["pnpm", "run", "verify:source-encoding"],
+    "vitest": false
+  },
+  {
+    "id": "verify:raw-sql",
+    "argv": ["pnpm", "run", "verify:raw-sql"],
+    "vitest": false
+  },
+  {
+    "id": "verify:tenant-registry",
+    "argv": ["pnpm", "run", "verify:tenant-registry"],
+    "vitest": false
+  },
+  {
+    "id": "verify:tenant-bypasses",
+    "argv": ["pnpm", "run", "verify:tenant-bypasses"],
+    "vitest": false
+  },
+  {
+    "id": "verify:tenant-procedures",
+    "argv": ["pnpm", "run", "verify:tenant-procedures"],
+    "vitest": false
+  },
+  {
+    "id": "verify:ai-boundary",
+    "argv": ["pnpm", "run", "verify:ai-boundary"],
+    "vitest": false
+  },
+  {
+    "id": "verify:ai-budget",
+    "argv": ["pnpm", "run", "verify:ai-budget"],
+    "vitest": false
+  },
+  {
+    "id": "repo_characters_sync",
+    "argv": ["pnpm", "run", "characters:sync"],
+    "vitest": false
+  },
+  {
+    "id": "repo_turbo_tests",
+    "argv": ["pnpm", "exec", "turbo", "run", "test"],
+    "vitest": false
+  },
+  {
+    "id": "repo_script_tests",
+    "argv": ["pnpm", "run", "test:scripts"],
+    "vitest": false
+  },
+  {
+    "id": "final_diff_check",
+    "argv": ["git", "diff", "--check"],
+    "vitest": false
+  }
+]

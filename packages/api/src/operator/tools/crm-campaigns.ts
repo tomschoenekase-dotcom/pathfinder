@@ -7,7 +7,7 @@ import { operatorUntrustedText, redactAddresses } from '../crm-projection'
 import { OperatorNotFoundError } from '../grants'
 import { isCampaignReleaseEnabled } from '../kinds/release-gate'
 import type { OperatorReadTool } from '../registry'
-import { eligibilityForContacts } from './crm-eligibility'
+import { eligibilityForContacts, outreachEligibilityForRead } from './crm-eligibility'
 import { pageResult, requireCursorInScope } from './page'
 
 const iso = (value: Date | null | undefined) => (value ? value.toISOString() : null)
@@ -64,6 +64,18 @@ const getCampaign: OperatorReadTool = {
           ? operatorUntrustedText(redactAddresses(campaign.description))
           : null,
         status: campaign.status,
+        archived: Boolean(
+          campaign.cohortSnapshot &&
+          typeof campaign.cohortSnapshot === 'object' &&
+          !Array.isArray(campaign.cohortSnapshot) &&
+          (campaign.cohortSnapshot as Record<string, unknown>).crmArchive &&
+          (
+            (campaign.cohortSnapshot as Record<string, unknown>).crmArchive as Record<
+              string,
+              unknown
+            >
+          ).archived === true,
+        ),
         dailyLimit: campaign.dailySendCap,
         pausedAt: iso(campaign.pausedAt),
         createdAt: campaign.createdAt.toISOString(),
@@ -123,33 +135,58 @@ const listDrafts: OperatorReadTool = {
       page.map((draft) => draft.contactId),
     )
     return pageResult(
-      page.map((draft) => {
-        const eligible = draft.contactId ? eligibility.get(draft.contactId) : undefined
-        return {
-          draftId: draft.id,
-          gmailDraftId:
-            draft.providerDraftAccount?.provider === 'GMAIL' ? draft.providerDraftId : null,
-          gmailDraftMailboxId:
-            draft.providerDraftAccount?.provider === 'GMAIL' ? draft.providerDraftAccountId : null,
-          memberId: draft.memberId,
-          campaignId: draft.campaignId,
-          organizationId: draft.organizationId,
-          contactId: draft.contactId,
-          version: draft.version,
-          status: draft.status,
-          subject: operatorUntrustedText(redactAddresses(draft.subject), 998),
-          body: operatorUntrustedText(draft.textBody, BODY_MAX),
-          contentHash: draft.contentHash,
-          escalationFlags: draft.escalationFlags.slice(0, 10),
-          // The address is shown only while the contact may still be written to.
-          recipient: eligible?.draft.eligible ? draft.toEmail : null,
-          eligibleToEmail: eligible?.send.eligible ?? false,
-          eligibilityReasons: [...(eligible?.send.reasons ?? ['no_contact_selected'])],
-          hasAttachments: hasAttachments(draft.groundingSnapshot),
-          reviewedAt: iso(draft.approvedAt),
-          createdAt: draft.createdAt.toISOString(),
-        }
-      }),
+      await Promise.all(
+        page.map(async (draft) => {
+          const eligible = draft.contactId ? eligibility.get(draft.contactId) : undefined
+          const outreach = await outreachEligibilityForRead(context, {
+            organizationId: draft.organizationId,
+            contactId: draft.contactId,
+            excludeDraftId: draft.id,
+            snapshot: draft.groundingSnapshot,
+          })
+          const identityMatches = Boolean(
+            eligible?.normalizedEmail &&
+            eligible.normalizedEmail === draft.toEmail.trim().toLowerCase(),
+          )
+          return {
+            draftId: draft.id,
+            gmailDraftId:
+              draft.providerDraftAccount?.provider === 'GMAIL' ? draft.providerDraftId : null,
+            gmailDraftMailboxId:
+              draft.providerDraftAccount?.provider === 'GMAIL'
+                ? draft.providerDraftAccountId
+                : null,
+            memberId: draft.memberId,
+            campaignId: draft.campaignId,
+            organizationId: draft.organizationId,
+            contactId: draft.contactId,
+            version: draft.version,
+            status: draft.status,
+            subject: operatorUntrustedText(redactAddresses(draft.subject), 998),
+            body: operatorUntrustedText(draft.textBody, BODY_MAX),
+            contentHash: draft.contentHash,
+            escalationFlags: draft.escalationFlags.slice(0, 10),
+            // The address is shown only while the contact may still be written to.
+            recipient: eligible?.draft.eligible && identityMatches ? draft.toEmail : null,
+            eligibleToEmail: Boolean(
+              eligible?.send.eligible && outreach.allowed && identityMatches,
+            ),
+            addressEligibleToEmail: eligible?.send.eligible ?? false,
+            outreachHistory: outreach.history,
+            outreachKind: outreach.kind,
+            eligibilityReasons: [
+              ...new Set([
+                ...(eligible?.send.reasons ?? ['no_contact_selected']),
+                ...outreach.reasons,
+                ...(!identityMatches ? ['recipient_identity_changed'] : []),
+              ]),
+            ].slice(0, 15),
+            hasAttachments: hasAttachments(draft.groundingSnapshot),
+            reviewedAt: iso(draft.approvedAt),
+            createdAt: draft.createdAt.toISOString(),
+          }
+        }),
+      ),
       rows.length > input.limit ? page.at(-1)!.id : null,
     )
   },
@@ -164,7 +201,14 @@ const getSendBatch: OperatorReadTool = {
     const batch = await database.prospectSendBatch.findUnique({
       where: { id: batchId },
       include: {
-        items: { orderBy: { id: 'asc' }, include: { draft: { select: { contactId: true } } } },
+        items: {
+          orderBy: { id: 'asc' },
+          include: {
+            draft: {
+              select: { id: true, contactId: true, organizationId: true, groundingSnapshot: true },
+            },
+          },
+        },
       },
     })
     if (!batch) throw new OperatorNotFoundError()
@@ -185,25 +229,47 @@ const getSendBatch: OperatorReadTool = {
         releasedAt: iso(batch.releasedAt),
         cancelledReason: batch.cancelledReason,
       },
-      items: batch.items.slice(0, 50).map((item) => {
-        const eligible = item.draft.contactId ? eligibility.get(item.draft.contactId) : undefined
-        const header = item.headerSnapshot as { launchAttachmentsSha256?: unknown } | null
-        return {
-          itemId: item.id,
-          draftId: item.draftId,
-          memberId: item.memberId,
-          recipient: eligible?.draft.eligible ? item.recipientEmailSnapshot : null,
-          subject: operatorUntrustedText(redactAddresses(item.subjectSnapshot), 998),
-          contentHash: item.contentHashSnapshot,
-          attachmentsSha256:
-            typeof header?.launchAttachmentsSha256 === 'string'
-              ? header.launchAttachmentsSha256
-              : null,
-          status: item.status,
-          eligibleNow: eligible?.send.eligible ?? false,
-          reasons: [...(eligible?.send.reasons ?? ['no_contact_selected'])],
-        }
-      }),
+      items: await Promise.all(
+        batch.items.slice(0, 50).map(async (item) => {
+          const eligible = item.draft.contactId ? eligibility.get(item.draft.contactId) : undefined
+          const outreach = await outreachEligibilityForRead(context, {
+            organizationId: item.draft.organizationId,
+            contactId: item.draft.contactId,
+            excludeDraftId: item.draft.id,
+            snapshot: item.draft.groundingSnapshot,
+          })
+          const identityMatches = Boolean(
+            eligible?.normalizedEmail &&
+            eligible.normalizedEmail === item.recipientEmailSnapshot.trim().toLowerCase(),
+          )
+          const header = item.headerSnapshot as { launchAttachmentsSha256?: unknown } | null
+          return {
+            itemId: item.id,
+            draftId: item.draftId,
+            memberId: item.memberId,
+            recipient:
+              eligible?.draft.eligible && identityMatches ? item.recipientEmailSnapshot : null,
+            subject: operatorUntrustedText(redactAddresses(item.subjectSnapshot), 998),
+            contentHash: item.contentHashSnapshot,
+            attachmentsSha256:
+              typeof header?.launchAttachmentsSha256 === 'string'
+                ? header.launchAttachmentsSha256
+                : null,
+            status: item.status,
+            eligibleNow: Boolean(eligible?.send.eligible && outreach.allowed && identityMatches),
+            addressEligibleToEmail: eligible?.send.eligible ?? false,
+            outreachHistory: outreach.history,
+            outreachKind: outreach.kind,
+            reasons: [
+              ...new Set([
+                ...(eligible?.send.reasons ?? ['no_contact_selected']),
+                ...outreach.reasons,
+                ...(!identityMatches ? ['recipient_identity_changed'] : []),
+              ]),
+            ].slice(0, 15),
+          }
+        }),
+      ),
       withinReleasePolicy:
         batch.recipientCount >= 1 &&
         batch.recipientCount <= PROSPECT_OUTREACH_RELEASE_POLICY.maxRecipients,

@@ -44,3 +44,28 @@ No profile deploys, migrates, sends, enables live billing, changes customer stat
 production. Consequential production rollout remains founder-aware/approved. Application rollback is
 an immutable prior-revision redeploy; database recovery follows the forward-repair incident runbook,
 never an improvised destructive rollback.
+
+## Rolling back a newly introduced AI model key
+
+Before redeploying a revision that predates a model key (for example,
+`guest-chat-luna-reasoning`), restore configuration compatibility while the newer
+revision is still running:
+
+1. Record the current scoped configuration and intended compatible replacement
+   in the release evidence. Use the governed admin configuration workflow to
+   replace references to the new key, including primary and fallback selections,
+   or reset the affected override to its inherited configuration. Preserve the
+   audit history; do not delete database rows.
+2. Check disabled overrides too. Disabling an override alone is insufficient:
+   persisted values are schema-validated before their enabled state is applied.
+   A reset tombstone is skipped before this validation. Confirm all applicable
+   workload, client and venue scopes resolve with keys supported by the target.
+3. Replace any `GUEST_CHAT_DEFAULT_MODEL_KEY` environment selection unsupported
+   by the target with a supported, qualified model key on every affected service.
+   Recheck the effective guest route and its limits before the old revision starts.
+4. Redeploy the immutable prior revision, then verify service health and a guest
+   answer. Record both configuration restoration and application rollback timing.
+
+Do not enable a new model key in production until this ordering has been rehearsed
+in staging. A code-only release with the new key unused does not establish model
+quality or prove rollback of a later configuration change.

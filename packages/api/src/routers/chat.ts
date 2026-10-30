@@ -1,8 +1,14 @@
+import { guestQueryTiming, guestQueryTimingAsync } from '../lib/guest-query-timing'
+import type { LocalLunaTierReceipt } from '@pathfinder/ai'
+import { localGuestLunaPlannerProfile } from '../lib/guest-query-local-planner-profile'
 import {
   guestRecommendationRetrievalLimit,
   partitionGuestRecommendationPlaces,
 } from '../lib/guest-recommendation-candidates'
-import { guestVisitRetrievalQuery } from '../lib/guest-visit-retrieval-query'
+import {
+  guestVisitRetrievalQuery,
+  isGuestRecommendationQuery,
+} from '../lib/guest-visit-retrieval-query'
 import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
@@ -75,6 +81,7 @@ import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-qu
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
+import { guestTodayStatusCue, guestTodayStatusEnabled } from '../lib/guest-today-status'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -95,8 +102,44 @@ import { resolveGuestGeneralWebConfiguration } from '../lib/guest-general-web-co
 import { projectGuestGeneralWebContext } from '../lib/guest-general-web-context'
 import { loadGuestLiveDataContext } from '../lib/guest-live-data'
 import { loadGuestSourceConnections } from '../lib/guest-source-connections'
+import { loadGuestQuerySource, type GuestQuerySource } from '../lib/guest-query-source'
+import {
+  guestQueryChatExperimentEnabled,
+  guestQuerySourcesAgree,
+  prepareGuestChatQueryExperiment,
+  type GuestChatQueryExperiment,
+  type GuestDirectChatQuery,
+} from '../lib/guest-query-chat-experiment'
 import { buildGuestAnswerEvidenceBundle } from '../lib/guest-answer-evidence'
+import {
+  appendGuestAnswerCheckInstruction,
+  createGuestAnswerCheckStreamGate,
+  guestAnswerCheckMode,
+  isGuestAnswerCheckEnabled,
+  splitGuestAnswerCheck,
+  summarizeGuestAnswerCheck,
+} from '../lib/guest-answer-check'
+import {
+  GUEST_ANSWER_SHAPE_VERSION,
+  appendGuestAnswerShapeInstruction,
+  guestAnswerShapeMode,
+  isGuestAnswerShapeEnabled,
+} from '../lib/guest-answer-shape'
 import { captureGuestEvidencePacket } from '../lib/guest-evidence-packet'
+import { guestDirectoryVersion } from '../lib/guest-directory-index-loader'
+import { parseFacetCollectionQuery } from '../lib/guest-facet-query'
+import {
+  selectGuestFacetCollection,
+  admitGuestDynamicRecords,
+} from '../lib/guest-facet-integration'
+import { facetCoverage, recognizedStatementCountLines } from '../lib/guest-facet-evidence'
+import { GUEST_DATED_TITLE_RULE, GUEST_DATED_TITLE_RULE_VERSION } from '../lib/guest-event-dates'
+import { GUEST_RECORD_DATES_VERSION, guestRecordDatesEnabled } from '../lib/guest-record-dates'
+import {
+  GUEST_STATED_DATES_VERSION,
+  guestStatedDatesForModel,
+  guestStatedDatesMode,
+} from '../lib/guest-stated-dates'
 import { buildGuestGuideCoverage } from '../lib/guest-guide-coverage'
 import {
   INTERRUPTED_VOICE_PREFIX,
@@ -109,6 +152,18 @@ import {
 } from '../lib/guest-knowledge-retrieval'
 import { fuseGuestPlacesWithLexical } from '../lib/guest-place-lexical'
 import {
+  guestQuestionNamedRecords,
+  mergeGuestQuestionEvidencePlaces,
+  revalidateGuestQuestionEvidence,
+  revalidateGuestQuestionPlaces,
+  selectGuestQuestionEvidence,
+} from '../lib/guest-question-evidence'
+import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
+import {
+  selectGuestVenueIndexCoreKnowledge,
+  prepareGuestVenueIndexCoreKnowledge,
+} from '../lib/guest-venue-index'
+import {
   buildGuestVenueGuidePrompt,
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
@@ -116,6 +171,7 @@ import {
   staleGuestGuideRecordIds,
   suppressStaleGuestDirectoryKnowledge,
   type GuestVenueDirectory,
+  guestKnowledgeNamedPlaces,
 } from '../lib/guest-venue-directory'
 import {
   compatibleGuestPlaceIdentityCandidates,
@@ -177,7 +233,8 @@ function boundedGuestChatFallbackCode(error: unknown): GuestChatFallbackCode {
   if (
     error.code === 'provider-incomplete-response' ||
     error.code === 'provider-invalid-response' ||
-    error.code === 'provider-empty-response'
+    error.code === 'provider-empty-response' ||
+    error.code === 'invalid-structured-output'
   ) {
     return 'PROVIDER_INVALID_RESPONSE'
   }
@@ -223,6 +280,8 @@ export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | 
 }
 
 const NEAREST_PLACES_LIMIT = 8
+// Question-evidence places join after this many retrieved places, inside the place limit above.
+const QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS = 5
 // Semantic candidate pool; guest-knowledge-retrieval fuses it with lexical hits and applies the
 // final per-question budget, so this must exceed that budget.
 const KNOWLEDGE_ENTRIES_LIMIT = 12
@@ -241,7 +300,7 @@ const CHAT_INGRESS_VENUE_LIMIT = 120
 type ChatStreamSink = {
   onTextDelta: (
     delta: string,
-    timings: { providerFirstTextMs: number; requestFirstTextMs: number },
+    timings: { providerFirstTextMs: number | null; requestFirstTextMs: number },
   ) => void | Promise<void>
 }
 
@@ -255,6 +314,11 @@ export function createGuestStreamingProjection(options: {
   let providerFirstTextMs: number | null = null
   let requestFirstTextMs: number | null = null
   return {
+    async pushDeterministic(text: string, timings: { requestFirstTextMs: number }) {
+      if (!text) return
+      requestFirstTextMs ??= timings.requestFirstTextMs
+      await options.onTextDelta(text, { providerFirstTextMs: null, requestFirstTextMs })
+    },
     async push(
       delta: string,
       timings: { providerFirstTextMs: number; requestFirstTextMs: number },
@@ -263,7 +327,10 @@ export function createGuestStreamingProjection(options: {
       providerText += delta
       // Guest action markers stream as their visible link text; a marker still being
       // written is held back, so the guest never sees action syntax or an action ID.
-      const visibleText = projectGuestActionStreamText(providerText)
+      // Dashes are rewritten as in the stored answer, once the word after each is complete.
+      const visibleText = guestPlainDashes(
+        guestPlainDashesStablePrefix(projectGuestActionStreamText(providerText)),
+      )
       const markerIndex = visibleText.indexOf(ENGAGEMENT_ASKED_MARKER)
       let markerSafeLength = markerIndex >= 0 ? markerIndex : visibleText.length
       if (markerIndex < 0) {
@@ -282,7 +349,7 @@ export function createGuestStreamingProjection(options: {
       }
       // Generation is token-bounded by the gateway. A second word cutoff can
       // hide a later qualification, so project all marker-safe provider text.
-      const safePrefix = visibleText.slice(0, markerSafeLength)
+      const safePrefix = visibleText.slice(0, markerSafeLength).trimEnd()
       if (safePrefix.trim().length === 0) return
       providerFirstTextMs ??= timings.providerFirstTextMs
       requestFirstTextMs ??= timings.requestFirstTextMs
@@ -390,7 +457,10 @@ function authorizeChatExperience(
     session.activeTenantId !== venue.tenantId ||
     session.role === null
   ) {
-    throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue experience not found' })
+    throw new TRPCError({
+      code: 'NOT_FOUND',
+      message: 'Venue experience not found',
+    })
   }
   return 'SECOND_LAYER'
 }
@@ -399,7 +469,10 @@ function elapsedMilliseconds(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt))
 }
 
-function stripEngagementMarker(text: string): { cleaned: string; markerFound: boolean } {
+function stripEngagementMarker(text: string): {
+  cleaned: string
+  markerFound: boolean
+} {
   const markerIndex = text.lastIndexOf(ENGAGEMENT_ASKED_MARKER)
   if (markerIndex === -1) {
     return { cleaned: text, markerFound: false }
@@ -407,7 +480,10 @@ function stripEngagementMarker(text: string): { cleaned: string; markerFound: bo
   return { cleaned: text.slice(0, markerIndex).trimEnd(), markerFound: true }
 }
 
-const NO_GUEST_ACTIONS: GuestActionSettings = { inlineLinks: false, buttons: false }
+const NO_GUEST_ACTIONS: GuestActionSettings = {
+  inlineLinks: false,
+  buttons: false,
+}
 
 type GuestActionState = { settings: GuestActionSettings; stored: unknown[] }
 
@@ -458,7 +534,10 @@ function guestActionResponseBlocks(
     now: new Date(),
     places: turn.places as GuestResponsePlace[],
     ...(turn.citations
-      ? { citations: turn.citations.citations, citationsHeading: turn.citations.heading }
+      ? {
+          citations: turn.citations.citations,
+          citationsHeading: turn.citations.heading,
+        }
       : {}),
   })
 }
@@ -468,7 +547,13 @@ function guestCitationBlocks(
   visible: ReturnType<typeof selectGuestVisibleCitations>,
 ): GuestResponseBlock[] | null {
   return visible
-    ? [{ type: 'citations' as const, heading: visible.heading, citations: visible.citations }]
+    ? [
+        {
+          type: 'citations' as const,
+          heading: visible.heading,
+          citations: visible.citations,
+        },
+      ]
     : null
 }
 
@@ -549,7 +634,13 @@ const admittedChatSendProcedure = publicProcedure
     const experienceScope = authorizeChatExperience(chatVenue, ctx.session, input.secondLayerKey)
 
     return next({
-      ctx: { ...ctx, chatVenue, experienceScope, chatIngressStartedAt, chatRateLimitMs },
+      ctx: {
+        ...ctx,
+        chatVenue,
+        experienceScope,
+        chatIngressStartedAt,
+        chatRateLimitMs,
+      },
     })
   })
   .use(async ({ ctx, input, next }) => {
@@ -626,7 +717,10 @@ const chatSessionRouter = router({
       60,
     )
     if (!globallyAllowed) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many session updates.',
+      })
     }
 
     const venueAllowed = await checkRateLimit(
@@ -635,7 +729,10 @@ const chatSessionRouter = router({
       60,
     )
     if (!venueAllowed) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many session updates.',
+      })
     }
 
     const sessionAllowed = await checkRateLimit(
@@ -644,7 +741,10 @@ const chatSessionRouter = router({
       60,
     )
     if (!sessionAllowed) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many session updates.',
+      })
     }
 
     // $queryRaw used here because this is a public cross-tenant lookup — the caller
@@ -724,7 +824,10 @@ const chatSessionRouter = router({
     })
 
     if ((session.experienceScope ?? 'PUBLIC') !== experienceScope) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat session not found' })
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Chat session not found',
+      })
     }
 
     return { sessionId: session.id }
@@ -806,7 +909,10 @@ const chatReadRouter = router({
     let reservation: Awaited<ReturnType<typeof reserveGuestChatTurnAction>>
     const reservationStartedAt = performance.now()
     try {
-      reservation = await reserveGuestChatTurnAction({ client: ctx.db, request: turnRequest })
+      reservation = await reserveGuestChatTurnAction({
+        client: ctx.db,
+        request: turnRequest,
+      })
     } catch (error) {
       guestChatTurnError(error)
     }
@@ -888,7 +994,10 @@ const chatReadRouter = router({
       }
     }
     if (claimed.state !== 'GENERATING') {
-      throw new TRPCError({ code: 'CONFLICT', message: 'Chat turn claim is incomplete.' })
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Chat turn claim is incomplete.',
+      })
     }
     const session = { id: claimed.sessionId }
     const embeddingInvocationId = claimed.providerOperations.find(
@@ -898,7 +1007,10 @@ const chatReadRouter = router({
       (operation) => operation.kind === 'RESPONSE_GENERATION',
     )?.invocationId
     if (!embeddingInvocationId || !generationInvocationId) {
-      throw new TRPCError({ code: 'CONFLICT', message: 'Chat provider evidence is incomplete.' })
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Chat provider evidence is incomplete.',
+      })
     }
 
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
@@ -989,7 +1101,11 @@ const chatReadRouter = router({
           tenantId: venue.tenantId,
           venueId: input.venueId,
           includeSecondLayer,
-          places: authorizedCandidates.map(({ id, name, areaName }) => ({ id, name, areaName })),
+          places: authorizedCandidates.map(({ id, name, areaName }) => ({
+            id,
+            name,
+            areaName,
+          })),
         })
         const effectiveFollowup = resolveGuestPlaceIdentityFollowup({
           rawReply: trimmedInput,
@@ -1142,6 +1258,24 @@ const chatReadRouter = router({
           })
 
     const operationalNow = new Date()
+    // The complete public directory; a failure only removes it from the prompt.
+    const emptyDirectory: GuestVenueDirectory = {
+      knowledge: [],
+      places: [],
+      incomplete: true,
+    }
+    let guideLoadStatus: 'READY' | 'LOAD_FAILED' | 'PROJECTION_MISMATCH' = 'READY'
+    const loadedDirectoryPromise = loadGuestVenueDirectoryCached({
+      reader: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      includeSecondLayer,
+      asOf: operationalNow,
+    }).catch(() => {
+      guideLoadStatus = 'LOAD_FAILED'
+      logger.warn({ action: 'guest-directory-unavailable', venueId: venue.id })
+      return emptyDirectory
+    })
     const [
       queryEmbedding,
       historyDesc,
@@ -1252,7 +1386,11 @@ const chatReadRouter = router({
       ]
       void ctx.db.tenantFeatureFlag
         .findMany({
-          where: { tenantId: venue.tenantId, enabled: true, flagKey: { in: requiredKeys } },
+          where: {
+            tenantId: venue.tenantId,
+            enabled: true,
+            flagKey: { in: requiredKeys },
+          },
           select: { flagKey: true },
         })
         .then((rows) => {
@@ -1327,6 +1465,17 @@ const chatReadRouter = router({
       parseChatAppearance(venue.chatAppearance).timeZone,
     )
     const currentDate = venueClock.date
+    const loadedDirectory = await loadedDirectoryPromise
+    // The directory follows the same native-release projection as retrieved content.
+    const directoryRead = applyNativeGuestContentRead({
+      snapshot: nativeReadSnapshot,
+      legacyPlaces: loadedDirectory.places,
+      legacyKnowledgeEntries: loadedDirectory.knowledge.map((entry) => ({
+        ...entry,
+        distance: 0,
+      })),
+    })
+    const effectiveDirectoryPath = directoryRead.path === 'NATIVE' ? 'NATIVE' : 'LEGACY'
     if (queryEmbedding) {
       const [places, knowledge] = await Promise.all([
         fuseGuestPlacesWithLexical({
@@ -1416,7 +1565,7 @@ const chatReadRouter = router({
           sourceUrl: true,
           importanceScore: true,
         },
-        orderBy: { importanceScore: 'desc' },
+        orderBy: [{ importanceScore: 'desc' }, { id: 'asc' }],
         take: recommendationRetrievalLimit,
       })
       const importanceRankedPlaces = fallbackPlaces.map(({ importanceScore, ...place }) => {
@@ -1488,58 +1637,339 @@ const chatReadRouter = router({
       relevantPlaces = [entryPlace, ...relevantPlaces.filter((place) => place.id !== entryPlace.id)]
     }
     relevantKnowledgeEntries = nativeRead.knowledgeEntries
-    // The complete public directory; a failure only removes it from the prompt.
-    const emptyDirectory: GuestVenueDirectory = { knowledge: [], places: [], incomplete: false }
-    let guideLoadStatus: 'READY' | 'LOAD_FAILED' | 'PROJECTION_MISMATCH' = 'READY'
-    const loadedDirectory = await loadGuestVenueDirectoryCached({
-      reader: ctx.db,
-      tenantId: venue.tenantId,
-      venueId: input.venueId,
-      includeSecondLayer,
-      asOf: operationalNow,
-    }).catch(() => {
-      guideLoadStatus = 'LOAD_FAILED'
-      logger.warn({ action: 'guest-directory-unavailable', venueId: venue.id })
-      return emptyDirectory
-    })
-    // The directory follows the same native-release projection as retrieved content.
-    const directoryRead = applyNativeGuestContentRead({
-      snapshot: nativeReadSnapshot,
-      legacyPlaces: loadedDirectory.places,
-      legacyKnowledgeEntries: loadedDirectory.knowledge.map((entry) => ({ ...entry, distance: 0 })),
-    })
-    if (guideLoadStatus === 'READY' && directoryRead.path !== nativeRead.path)
+    const effectiveCandidatePath = nativeRead.path === 'NATIVE' ? 'NATIVE' : 'LEGACY'
+    if (guideLoadStatus === 'READY' && effectiveDirectoryPath !== effectiveCandidatePath)
       guideLoadStatus = 'PROJECTION_MISMATCH'
     let guestDirectory: GuestVenueDirectory =
-      directoryRead.path === nativeRead.path
+      effectiveDirectoryPath === effectiveCandidatePath
         ? {
             places: directoryRead.places,
             knowledge: directoryRead.knowledgeEntries,
             incomplete: loadedDirectory.incomplete,
+            ...(directoryRead.path === 'NATIVE' && nativeReadSnapshot.releaseId
+              ? {
+                  searchVersion: JSON.stringify([
+                    venue.tenantId,
+                    input.venueId,
+                    includeSecondLayer,
+                    'NATIVE',
+                    nativeReadSnapshot.releaseId,
+                  ]),
+                }
+              : loadedDirectory.searchVersion
+                ? { searchVersion: loadedDirectory.searchVersion }
+                : {}),
           }
         : emptyDirectory
     // Retrieval versions describe legacy reads only; never mix them into a native release.
-    if (directoryRead.path === 'LEGACY' && nativeRead.path === 'LEGACY') {
+    if (effectiveDirectoryPath === 'LEGACY' && effectiveCandidatePath === 'LEGACY') {
       guestDirectory = suppressStaleGuestDirectoryKnowledge({
         directory: guestDirectory,
         observedSources: retrievalTrace?.observedSources ?? [],
         admittedSourceIds: new Set(relevantKnowledgeEntries.map((entry) => entry.id)),
       }).directory
     }
-    const currentYear = Number(currentDate.slice(0, 4))
+    const evidenceStrategyEnabled = process.env.GUEST_GUIDE_STRATEGY === 'evidence'
+    const indexCoreCandidates = evidenceStrategyEnabled
+      ? selectGuestVenueIndexCoreKnowledge(guestDirectory, { currentDate })
+      : []
+    let indexCoreKnowledge = indexCoreCandidates
+    if (evidenceStrategyEnabled && effectiveDirectoryPath === 'LEGACY') {
+      indexCoreKnowledge = await revalidateGuestQuestionEvidence({
+        reader: ctx.db,
+        tenantId: venue.tenantId,
+        venueId: input.venueId,
+        includeSecondLayer,
+        asOf: operationalNow,
+        currentDate,
+        knowledge: indexCoreCandidates,
+      }).catch(() => {
+        logger.warn({
+          action: 'guest-index-core-revalidation-failed',
+          venueId: venue.id,
+        })
+        return []
+      })
+      const preparedCore = prepareGuestVenueIndexCoreKnowledge({
+        directory: guestDirectory,
+        selected: indexCoreCandidates,
+        current: indexCoreKnowledge,
+        relevantKnowledgeEntries,
+        currentDate,
+      })
+      guestDirectory = preparedCore.directory
+      indexCoreKnowledge = preparedCore.coreKnowledge
+      relevantKnowledgeEntries = preparedCore.relevantKnowledgeEntries
+    }
     const normalizedQuery = trimmedInput.toLocaleLowerCase()
     relevantKnowledgeEntries = expandGuestKnowledgeLinks({
       entries: relevantKnowledgeEntries.filter(
         // A past dated event stays out of context unless the visitor names it.
         (entry) =>
-          !isPastDatedGuestEvent(entry, currentYear) ||
+          !isPastDatedGuestEvent(entry, currentDate) ||
           normalizedQuery.includes(entry.title.toLocaleLowerCase()),
       ),
       directory: guestDirectory,
       currentDate,
     })
-    const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, { currentDate })
+    // Off by default: record dates change the cached prompt prefix for every model.
+    const recordDatesEnabled = guestRecordDatesEnabled()
+    const todayStatusEnabled = guestTodayStatusEnabled()
+    if (recordDatesEnabled)
+      logger.info({
+        action: 'guest-chat.record-dates',
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        version: GUEST_RECORD_DATES_VERSION,
+      })
+    // Off by default. "luna" reads the venue's configured guest model before the guide is built;
+    // any failure leaves the marker off, and the later admission read stays authoritative.
+    const statedDatesMode = guestStatedDatesMode()
+    let statedDatesPrimaryModelKey: string | null = null
+    if (statedDatesMode === 'luna')
+      statedDatesPrimaryModelKey = await resolveRuntimeAiWorkloadConfiguration(
+        { workloadId: 'guest-chat', tenantId: venue.tenantId, venueId: input.venueId },
+        ctx.db,
+      )
+        .then((configuration) => configuration.primaryModelKey)
+        .catch(() => null)
+    const statedDatesEnabled = guestStatedDatesForModel(statedDatesMode, statedDatesPrimaryModelKey)
+    if (statedDatesEnabled)
+      logger.info({
+        action: 'guest-chat.stated-dates',
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        version: GUEST_STATED_DATES_VERSION,
+        mode: statedDatesMode,
+      })
+    const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
+      currentDate,
+      recordDates: recordDatesEnabled,
+      ...(statedDatesEnabled ? { statedDates: true } : {}),
+      ...(evidenceStrategyEnabled ? { strategy: 'evidence' as const, indexCoreKnowledge } : {}),
+    })
+    // Whole guide records for every part of the question, ranked in memory over the same fenced,
+    // projected and stale-suppressed guide. A DIRECTORY guide gains their full bodies, so a
+    // governing condition past a record's first sentence still reaches the model; a FULL guide
+    // already has every body and only gains the relevant topic names.
+    const pinnedEntryPlaceId = entryPlace?.id ?? null
+    const questionEvidence = selectGuestQuestionEvidence({
+      query: retrievalQuery,
+      previousQuery: previousGuestQuery,
+      venueName: venue.name,
+      directory: guestDirectory,
+      mode: venueGuide.mode,
+      currentDate,
+      knowledgeInContext: relevantKnowledgeEntries,
+      placesInContext: relevantPlaces,
+      placesInContextLimit: NEAREST_PLACES_LIMIT,
+      maxPlaces: Math.max(
+        0,
+        NEAREST_PLACES_LIMIT -
+          (pinnedEntryPlaceId ? 1 : 0) -
+          QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS,
+      ),
+      // Recommendation and nearby questions keep their own place ranking and slots.
+      allowPlaces: !hasLiveLocation && !isGuestRecommendationQuery(effectiveIdentityQuery),
+    })
+    // Records the visitor names exactly lead the evidence, whatever search ranked.
+    const namedQuestion =
+      venueGuide.mode !== 'NONE'
+        ? guestQuestionNamedRecords({ query: trimmedInput, directory: guestDirectory, currentDate })
+        : { places: [], knowledge: [] }
+    namedQuestion.places = namedQuestion.places.filter((place) => place.id !== pinnedEntryPlaceId)
+    questionEvidence.knowledge = [
+      ...new Map(
+        [...namedQuestion.knowledge, ...questionEvidence.knowledge].map((row) => [row.id, row]),
+      ).values(),
+    ]
+    // Members a context record enumerates join as whole place records ahead of looser matches.
+    const namedPlaces =
+      venueGuide.mode === 'DIRECTORY' && !hasLiveLocation
+        ? guestKnowledgeNamedPlaces({
+            knowledge: [...relevantKnowledgeEntries, ...questionEvidence.knowledge],
+            directory: guestDirectory,
+          }).filter((place) => place.id !== pinnedEntryPlaceId)
+        : []
+    const leadingPlaces = [
+      ...new Map([...namedQuestion.places, ...namedPlaces].map((row) => [row.id, row])).values(),
+    ]
+    if (leadingPlaces.length > 0)
+      questionEvidence.places = [
+        ...new Map(
+          [...leadingPlaces, ...questionEvidence.places].map((row) => [row.id, row]),
+        ).values(),
+      ]
+    const facetQuery = parseFacetCollectionQuery(trimmedInput)
+    // Preserve the bounded pre-collection place priorities before broad facet candidates compete
+    // for the same body budget. These keys never bypass current authority or final admission.
+    const baselinePlaceKeys = mergeGuestQuestionEvidencePlaces({
+      places: relevantPlaces.map(({ id }) => ({ id })),
+      added: questionEvidence.places.map(({ id }) => ({ id })),
+      pinnedId: pinnedEntryPlaceId,
+      limit: NEAREST_PLACES_LIMIT,
+      retrievedSlots: QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS,
+    })
+      .slice(0, NEAREST_PLACES_LIMIT)
+      .map(({ id }) => `place:${id}`)
+    const facetCollection =
+      facetQuery.recognized &&
+      venueGuide.mode === 'DIRECTORY' &&
+      !hasLiveLocation &&
+      !isGuestRecommendationQuery(effectiveIdentityQuery) &&
+      guideLoadStatus === 'READY' &&
+      effectiveDirectoryPath === effectiveCandidatePath
+        ? selectGuestFacetCollection({
+            directory: guestDirectory,
+            currentDate,
+            constraints: facetQuery.constraints,
+            governingKeys: [
+              ...new Set([
+                ...relevantKnowledgeEntries.map((row) => `knowledge:${row.id}`),
+                ...questionEvidence.knowledge.map((row) => `knowledge:${row.id}`),
+                ...indexCoreKnowledge.map((row) => `knowledge:${row.id}`),
+              ]),
+            ],
+            maxChars: 30_000,
+          })
+        : null
+    if (facetCollection) {
+      questionEvidence.knowledge = [
+        ...new Map(
+          [...questionEvidence.knowledge, ...facetCollection.knowledge].map((row) => [row.id, row]),
+        ).values(),
+      ]
+      questionEvidence.places = [
+        ...new Map(
+          [...questionEvidence.places, ...facetCollection.places].map((row) => [row.id, row]),
+        ).values(),
+      ]
+    }
+    const facetVersionScope = {
+      reader: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      includeSecondLayer,
+      asOf: operationalNow,
+    }
+    // Metadata bracket begins BEFORE any collection hydration. NATIVE counts deliberately omitted.
+    const facetVersionBefore =
+      facetCollection &&
+      effectiveDirectoryPath === 'LEGACY' &&
+      guestDirectory.searchVersion &&
+      !guestDirectory.incomplete
+        ? await guestDirectoryVersion(facetVersionScope).catch(() => null)
+        : null
+    const factPlaceLimit = facetCollection
+      ? Math.max(NEAREST_PLACES_LIMIT, relevantPlaces.length + questionEvidence.places.length)
+      : NEAREST_PLACES_LIMIT + leadingPlaces.length
+    // A mixed native entry projection must not be replaced by legacy compatibility text.
+    const protectedNativeEntryId =
+      entryPlace && nativeReadSnapshot.path === 'NATIVE' && directoryRead.path !== 'NATIVE'
+        ? entryPlace.id
+        : null
+    const knowledgeToHydrate =
+      venueGuide.mode === 'DIRECTORY'
+        ? [
+            ...new Map(
+              [...relevantKnowledgeEntries, ...questionEvidence.knowledge].map((row) => [
+                row.id,
+                row,
+              ]),
+            ).values(),
+          ]
+        : questionEvidence.knowledge
+    const placesToHydrate =
+      venueGuide.mode === 'DIRECTORY'
+        ? [
+            ...new Map(
+              [...relevantPlaces, ...questionEvidence.places]
+                .filter((row) => row.id !== protectedNativeEntryId)
+                .map((row) => [row.id, row]),
+            ).values(),
+          ]
+        : questionEvidence.places
+    // FULL guides only gain names of records already in the cached guide. Hydrated DIRECTORY bodies
+    // are re-read live (in parallel with identity projection below), so a record changed or
+    // withdrawn within the cache minute is never sent stale.
+    const currentIndexCore = new Map(
+      evidenceStrategyEnabled ? indexCoreKnowledge.map((entry) => [entry.id, entry]) : [],
+    )
+    const questionKnowledgePromise =
+      venueGuide.mode === 'DIRECTORY' && effectiveDirectoryPath === 'LEGACY'
+        ? revalidateGuestQuestionEvidence({
+            reader: ctx.db,
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            includeSecondLayer,
+            asOf: operationalNow,
+            currentDate,
+            // Core bodies already completed their live authority read for this generation.
+            // A second read could otherwise disagree with the body still in the index.
+            knowledge: evidenceStrategyEnabled
+              ? knowledgeToHydrate.filter((entry) => !currentIndexCore.has(entry.id))
+              : knowledgeToHydrate,
+          })
+            .catch((error: unknown) => {
+              logger.warn({
+                action: 'guest-question-evidence-revalidation-failed',
+                venueId: venue.id,
+                error: error instanceof Error ? error.message : String(error),
+              })
+              return []
+            })
+            .then((entries) => {
+              if (!evidenceStrategyEnabled) return entries
+              const refreshed = new Map(entries.map((entry) => [entry.id, entry]))
+              return knowledgeToHydrate.flatMap((entry) => {
+                const current = currentIndexCore.get(entry.id) ?? refreshed.get(entry.id)
+                return current ? [current] : []
+              })
+            })
+        : Promise.resolve(knowledgeToHydrate)
+    const questionPlaces =
+      effectiveDirectoryPath === 'LEGACY'
+        ? await revalidateGuestQuestionPlaces({
+            reader: ctx.db,
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            includeSecondLayer,
+            places: placesToHydrate,
+          }).catch(() => {
+            logger.warn({
+              action: 'guest-question-place-revalidation-failed',
+              venueId: venue.id,
+            })
+            return []
+          })
+        : venueGuide.mode === 'DIRECTORY'
+          ? placesToHydrate
+          : questionEvidence.places
+    if (venueGuide.mode === 'DIRECTORY' && effectiveDirectoryPath === 'LEGACY') {
+      const current = new Map(questionPlaces.map((row) => [row.id, row]))
+      relevantPlaces = relevantPlaces.flatMap((row) =>
+        row.id === protectedNativeEntryId
+          ? [row]
+          : current.has(row.id)
+            ? [{ ...row, ...current.get(row.id)! }]
+            : [],
+      )
+    }
+    relevantPlaces = mergeGuestQuestionEvidencePlaces({
+      places: relevantPlaces,
+      added: questionPlaces.map((place) => ({ ...place, distance: 1 })),
+      pinnedId: pinnedEntryPlaceId,
+      limit: factPlaceLimit,
+      retrievedSlots: QUESTION_EVIDENCE_RETRIEVED_PLACE_SLOTS,
+    })
     const directoryPrompt = venueGuide.prompt
+    if (directoryPrompt.includes(GUEST_DATED_TITLE_RULE))
+      logger.info({
+        action: 'guest-chat.dated-title-marker',
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        version: GUEST_DATED_TITLE_RULE_VERSION,
+      })
     const guideCoverage = buildGuestGuideCoverage({
       guide: venueGuide,
       directory: guestDirectory,
@@ -1552,7 +1982,11 @@ const chatReadRouter = router({
       tenantId: venue.tenantId,
       venueId: input.venueId,
       includeSecondLayer,
-      places: relevantPlaces.map(({ id, name, areaName }) => ({ id, name, areaName })),
+      places: relevantPlaces.map(({ id, name, areaName }) => ({
+        id,
+        name,
+        areaName,
+      })),
     })
     const entryNameWasExplicit = Boolean(
       entryPlace &&
@@ -1613,7 +2047,7 @@ const chatReadRouter = router({
       query: effectiveIdentityQuery,
       places: relevantPlaces,
       identity: placeIdentity,
-      limit: NEAREST_PLACES_LIMIT,
+      limit: factPlaceLimit,
     }).map((place) => {
       const identity = placeIdentity.places.find((candidate) => candidate.id === place.id)
       const knownLocation = [
@@ -1632,6 +2066,22 @@ const chatReadRouter = router({
         gateReason: nativeReadSnapshot.reason,
         releaseId: nativeReadSnapshot.releaseId,
       })
+    const questionKnowledge = await questionKnowledgePromise
+    if (venueGuide.mode === 'DIRECTORY')
+      relevantKnowledgeEntries = questionKnowledge.map((entry) => ({
+        ...entry,
+        distance: 1,
+      }))
+    else if (questionKnowledge.length) {
+      // A named record may already be among the retrieved entries; never list a source twice.
+      const present = new Set(relevantKnowledgeEntries.map((entry) => entry.id))
+      relevantKnowledgeEntries = [
+        ...relevantKnowledgeEntries,
+        ...questionKnowledge
+          .filter((entry) => !present.has(entry.id))
+          .map((entry) => ({ ...entry, distance: 1 })),
+      ]
+    }
     retrievalMs = elapsedMilliseconds(retrievalStartedAt)
 
     let featuredPlace: {
@@ -1721,7 +2171,10 @@ const chatReadRouter = router({
           priorUserMessages,
         })
       } catch {
-        logger.warn({ action: 'venue-recommendation-unavailable', venueId: venue.id })
+        logger.warn({
+          action: 'venue-recommendation-unavailable',
+          venueId: venue.id,
+        })
       }
     }
     const recommendationContext = recommendationDecision
@@ -1748,7 +2201,10 @@ const chatReadRouter = router({
       })
         .then((result) => result.prompt)
         .catch(() => {
-          logger.warn({ action: 'guest-live-data-unavailable', venueId: venue.id })
+          logger.warn({
+            action: 'guest-live-data-unavailable',
+            venueId: venue.id,
+          })
           return ''
         }),
       loadGuestSourceConnections(ctx.db, {
@@ -1756,7 +2212,10 @@ const chatReadRouter = router({
         venueId: venue.id,
         query: trimmedInput,
       }).catch(() => {
-        logger.warn({ action: 'guest-source-connections-unavailable', venueId: venue.id })
+        logger.warn({
+          action: 'guest-source-connections-unavailable',
+          venueId: venue.id,
+        })
         return ''
       }),
     ]).then((results) => results.filter(Boolean).join('\n\n'))
@@ -1799,7 +2258,10 @@ const chatReadRouter = router({
     }
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     let updatedGuideRecordCount = 0
-    const prepareVenuePrompt = () => {
+    const prepareVenuePrompt = (
+      promptPlaces = relevantPlaces,
+      promptKnowledge = relevantKnowledgeEntries,
+    ) => {
       // Retrieval is live while the guide's directory may be up to a minute old.
       // A released entry place compared with a fallback legacy guide would differ every turn.
       const entryPlaceFromOtherSource =
@@ -1811,7 +2273,10 @@ const chatReadRouter = router({
           .filter((place) => !(entryPlaceFromOtherSource && place.id === entryPlace.id))
           .map((place) =>
             identityAreaOriginals.has(place.id)
-              ? { ...place, areaName: identityAreaOriginals.get(place.id) ?? null }
+              ? {
+                  ...place,
+                  areaName: identityAreaOriginals.get(place.id) ?? null,
+                }
               : place,
           ),
         knowledgeEntries: relevantKnowledgeEntries,
@@ -1828,34 +2293,57 @@ const chatReadRouter = router({
                 question: trimmedInput,
                 now: operationalNow,
                 timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
-                knowledge: guestDirectory.knowledge,
+                // Evidence mode may carry only a bounded live subset of core policies.
+                // A cached hours row outside that subset cannot establish a trusted cue.
+                knowledge: evidenceStrategyEnabled ? indexCoreKnowledge : guestDirectory.knowledge,
                 activeUpdates,
               })
             : null,
+        // Flag-gated (GUEST_CHAT_TODAY_STATUS=on, default off); same trust guards as above.
+        ...(todayStatusEnabled &&
+        guideLoadStatus === 'READY' &&
+        !guestDirectory.incomplete &&
+        updatedGuideRecordIds.size === 0
+          ? {
+              todayStatusCue: guestTodayStatusCue({
+                question: trimmedInput,
+                now: operationalNow,
+                timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
+                knowledge: evidenceStrategyEnabled ? indexCoreKnowledge : guestDirectory.knowledge,
+                activeUpdates,
+                venueName: venue.name,
+              }),
+            }
+          : {}),
         venueGuideRecordIds: updatedGuideRecordIds.size
           ? new Set([...venueGuide.recordIds].filter((id) => !updatedGuideRecordIds.has(id)))
           : venueGuide.recordIds,
         venueGuideUpdatedRecordIds: updatedGuideRecordIds,
+        recordDates: recordDatesEnabled,
+        ...(statedDatesEnabled ? { statedDates: true } : {}),
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {
           ...venue,
           ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),
         },
-        relevantPlaces,
+        relevantPlaces: promptPlaces,
         ...(input.visitContext ? { visitContext: input.visitContext } : {}),
         authorizedVisitPlaces: recommendationSelection.authorizedVisitPlaces,
         recommendationOnly: recommendationSelection.recommendationOnly,
         placeIdentityAmbiguity: placeIdentity.ambiguity,
         placeIdentityDiscoveryIncomplete,
         adjacentPlaceIdentityRequestedName: acceptedAdjacentIdentityName,
-        knowledgeEntries: relevantKnowledgeEntries,
+        knowledgeEntries: promptKnowledge,
         activeUpdates,
         publishedUniversalContent,
         ...(recommendationContext ? { recommendationContext } : {}),
         userLat: liveLocation?.lat ?? null,
         userLng: liveLocation?.lng ?? null,
-        featuredPlace,
+        // DIRECTORY already renders retained current place bodies in the measured typed source
+        // lane. The optional featured blurb duplicates an entire description and may retain a
+        // dropped source, so omit that body lane. FULL cached-guide behavior is unchanged.
+        featuredPlace: venueGuide.mode === 'DIRECTORY' ? null : featuredPlace,
         ...(input.language ? { language: input.language } : {}),
         guideMode,
         responseIntent: guestResponseIntentForMessage(trimmedInput, input.responseIntent),
@@ -1876,12 +2364,92 @@ const chatReadRouter = router({
           : {}),
       })
     }
-    const preparePrompt = () => {
-      const parts = prepareVenuePrompt()
-      return guestActionPrompt
-        ? { ...parts, dynamicPart: `${parts.dynamicPart}\n\n${guestActionPrompt}` }
-        : parts
+    let collectionPromptRule = ''
+    let collectionCoveragePartial = false
+    let dynamicBudgetExcludedKeys: string[] = []
+    if (venueGuide.mode === 'DIRECTORY') {
+      // Revalidate returned whole bodies can grow after preselection. Admit the current combined
+      // arrays using the exact renderer sections before typed source snapshots are retained.
+      const admitted = admitGuestDynamicRecords({
+        knowledge: relevantKnowledgeEntries,
+        places: relevantPlaces,
+        priorityKeys: facetCollection
+          ? [
+              ...facetCollection.selection.governingKeys,
+              ...baselinePlaceKeys,
+              ...facetCollection.selection.selectedKeys,
+            ]
+          : [
+              ...namedQuestion.knowledge.map((row) => `knowledge:${row.id}`),
+              ...namedQuestion.places.map((row) => `place:${row.id}`),
+              ...relevantKnowledgeEntries.map((row) => `knowledge:${row.id}`),
+              ...relevantPlaces.map((row) => `place:${row.id}`),
+            ],
+        maxChars: 30_000,
+        measure: (knowledge, places) => prepareVenuePrompt(places, knowledge).recordContext,
+      })
+      relevantKnowledgeEntries = admitted.knowledge
+      relevantPlaces = admitted.places
+      dynamicBudgetExcludedKeys = admitted.excludedKeys
+      if (facetCollection) {
+        const after = facetVersionBefore
+          ? await guestDirectoryVersion(facetVersionScope).catch(() => null)
+          : null
+        const currentKnowledgeIds = new Set(guestDirectory.knowledge.map((row) => row.id))
+        const currentPlaceIds = new Set(guestDirectory.places.map((row) => row.id))
+        const membershipUnchanged =
+          loadedDirectory.knowledge.length === guestDirectory.knowledge.length &&
+          loadedDirectory.places.length === guestDirectory.places.length &&
+          loadedDirectory.knowledge.every((row) => currentKnowledgeIds.has(row.id)) &&
+          loadedDirectory.places.every((row) => currentPlaceIds.has(row.id))
+        const fresh = Boolean(
+          facetVersionBefore &&
+          after === facetVersionBefore &&
+          membershipUnchanged &&
+          guestDirectory.searchVersion?.endsWith(`:${facetVersionBefore}`) &&
+          !guestDirectory.incomplete,
+        )
+        const finalKeys = new Set([
+          ...venueGuide.recordIds,
+          ...prepareVenuePrompt().recordContext.fullBodyKeys,
+        ])
+        const coverage = facetCoverage({
+          selection: facetCollection.selection,
+          finalPromptKeys: finalKeys,
+          freshCompleteAuthorizedIndex: fresh,
+          hydrationVersionConsistent: fresh,
+        })
+        collectionCoveragePartial = !coverage.complete
+        collectionPromptRule = [
+          coverage.promptRule,
+          ...recognizedStatementCountLines({
+            records: facetCollection.index,
+            freshCompleteAuthorizedIndex: fresh,
+            hydrationVersionConsistent: fresh,
+          }),
+        ].join('\n')
+      }
     }
+    let structuredQuery: GuestChatQueryExperiment | null = null
+    let directQuery: GuestDirectChatQuery | null = null
+    let deterministicAnswerCompleted = false
+    let structuredPlannerInvocationId: string | null = null
+    let structuredPlannerServiceTier: LocalLunaTierReceipt | undefined
+    let structuredQueryFence: (() => Promise<void>) | null = null
+    const preparePrompt = () =>
+      guestQueryTiming('prompt.assembly', () => {
+        const parts = prepareVenuePrompt()
+        return {
+          ...parts,
+          dynamicPart: [
+            parts.dynamicPart,
+            structuredQuery?.prompt ?? collectionPromptRule,
+            guestActionPrompt,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        }
+      })
     let { staticPart, dynamicPart } = preparePrompt()
     const captureEvidence = () =>
       captureGuestEvidencePacket({
@@ -1893,7 +2461,12 @@ const chatReadRouter = router({
         incomplete: guestDirectory.incomplete,
         rendererTruncated: venueGuide.rendererTruncated,
         updatedRecordCount: updatedGuideRecordCount,
-        retrievedCoveragePartial: retrievalTrace?.partialCoverage ?? false,
+        retrievedCoveragePartial:
+          (retrievalTrace?.partialCoverage ?? false) ||
+          dynamicBudgetExcludedKeys.length > 0 ||
+          collectionCoveragePartial ||
+          Boolean(structuredQuery?.partial) ||
+          Boolean(facetCollection && !facetCollection.selection.selectionComplete),
       })
     let generationEvidence: ReturnType<typeof captureEvidence> | null = null
     let responseGenerationDispatched = false
@@ -1959,16 +2532,33 @@ const chatReadRouter = router({
               guideMode,
               guideCoverage,
               contextPacket: evidence.contextPacket,
+              ...(structuredPlannerServiceTier
+                ? {
+                    plannerServiceTier: structuredPlannerServiceTier,
+                    plannerInvocationId: structuredPlannerInvocationId,
+                  }
+                : {}),
+              ...(structuredQuery ? { structuredQuery: structuredQuery.summary } : {}),
             },
           },
-          ...relevantPlaces.map((place, rank) => ({
+          ...[
+            ...relevantPlaces,
+            ...(structuredQuery?.places ?? []).filter(
+              (place) => !relevantPlaces.some((row) => row.id === place.id),
+            ),
+          ].map((place, rank) => ({
             sourceId: `place:${place.id}`,
             kind: 'PLACE' as const,
             label: place.name,
             rank,
             snapshot: place,
           })),
-          ...relevantKnowledgeEntries.map((entry, rank) => ({
+          ...[
+            ...relevantKnowledgeEntries,
+            ...(structuredQuery?.knowledge ?? []).filter(
+              (entry) => !relevantKnowledgeEntries.some((row) => row.id === entry.id),
+            ),
+          ].map((entry, rank) => ({
             sourceId: `knowledge:${entry.id}`,
             kind: 'KNOWLEDGE' as const,
             label: entry.title,
@@ -1988,6 +2578,70 @@ const chatReadRouter = router({
             label: `${content.kind} ${content.moduleId}`,
             rank,
             snapshot: content,
+          })),
+          ...(structuredQuery?.canonicalSources ?? []).map((content, rank) => ({
+            sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
+            kind: 'PUBLISHED_CONTENT' as const,
+            label: `${content.kind} ${content.moduleId}`,
+            rank,
+            snapshot: content.snapshot,
+          })),
+        ],
+      })
+    const buildDirectAnswerEvidence = (candidate: GuestDirectChatQuery) =>
+      buildGuestAnswerEvidenceBundle({
+        assistantResponse: candidate.answer,
+        staticSystemPrompt:
+          'LOCAL_DETERMINISTIC: retained rendering receipt; notDispatchedModelPrompt=true. No answer model was called.',
+        dynamicSystemPrompt: JSON.stringify({
+          ...candidate.summary,
+          ...(structuredPlannerServiceTier
+            ? { plannerServiceTier: structuredPlannerServiceTier }
+            : {}),
+          plannerInvocationId: structuredPlannerInvocationId,
+          plannerUsageReference: chatAccounting.usageEventIds().at(-1) ?? null,
+        }),
+        ...(generationRouteConfigurationVersion
+          ? { routeConfigurationVersion: generationRouteConfigurationVersion }
+          : {}),
+        sources: [
+          {
+            sourceId: `venue:${venue.id}`,
+            kind: 'VENUE_PROFILE',
+            label: venue.name,
+            snapshot: {
+              id: venue.id,
+              tenantId: venue.tenantId,
+              answerMode: 'LOCAL_DETERMINISTIC',
+              notDispatchedModelPrompt: true,
+              structuredQuery: candidate.summary,
+              ...(structuredPlannerServiceTier
+                ? { plannerServiceTier: structuredPlannerServiceTier }
+                : {}),
+              plannerInvocationId: structuredPlannerInvocationId,
+              plannerUsageReference: chatAccounting.usageEventIds().at(-1) ?? null,
+            },
+          },
+          ...candidate.places.map((place, rank) => ({
+            sourceId: `place:${place.id}`,
+            kind: 'PLACE' as const,
+            label: place.name,
+            rank,
+            snapshot: place,
+          })),
+          ...candidate.knowledge.map((entry, rank) => ({
+            sourceId: `knowledge:${entry.id}`,
+            kind: 'KNOWLEDGE' as const,
+            label: entry.title,
+            rank,
+            snapshot: entry,
+          })),
+          ...candidate.canonicalSources.map((content, rank) => ({
+            sourceId: `published-content:${content.moduleId}:${content.revisionId}`,
+            kind: 'PUBLISHED_CONTENT' as const,
+            label: `${content.kind} ${content.moduleId}`,
+            rank,
+            snapshot: content.snapshot,
           })),
         ],
       })
@@ -2011,6 +2665,15 @@ const chatReadRouter = router({
       })
       generationRouteConfigurationVersion = route.configurationVersion
       const configurationSnapshot = JSON.stringify(configuration)
+      const readLocalPlannerProfile = () =>
+        localGuestLunaPlannerProfile({
+          nodeEnv: process.env.NODE_ENV,
+          enabled: process.env.TORCHIKO_LOCAL_STRUCTURED_QUERY,
+          experienceScope: ctx.experienceScope,
+          nativePath: nativeReadSnapshot.path,
+          selected: process.env.TORCHIKO_LOCAL_LUNA_PLANNER_PROFILE,
+        })
+      const plannerProfile = readLocalPlannerProfile()
       // Recheck on every admission, including after reservation and on retries.
       // The existing route and cumulative budget belong to this exact configuration.
       const assertGenerationAvailable = async () => {
@@ -2019,22 +2682,35 @@ const chatReadRouter = router({
           venueId: input.venueId,
         })
         const currentConfiguration = await resolveRuntimeAiWorkloadConfiguration(
-          { workloadId: 'guest-chat', tenantId: venue.tenantId, venueId: input.venueId },
+          {
+            workloadId: 'guest-chat',
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+          },
           ctx.db,
         )
         if (JSON.stringify(currentConfiguration) !== configurationSnapshot) {
           throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
         }
+        if (readLocalPlannerProfile() !== plannerProfile)
+          throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest local planner profile changed')
+        await structuredQueryFence?.()
       }
       const webSearchInvocationId = randomUUID()
+      const queryPlannerInvocationId = randomUUID()
+      structuredPlannerInvocationId = queryPlannerInvocationId
       // Require the underlying durable reservation before a cumulative wrapper
       // can replace a null reservation with its own invocation-local reference.
       const governedBudgetGate: typeof chatAccounting.budgetGate = {
         ...chatAccounting.budgetGate,
         reserve: async (attempt) => {
           const reservation = await chatAccounting.budgetGate.reserve(attempt)
-          if (attempt.invocationId === webSearchInvocationId && !reservation)
-            throw new Error('Web search requires durable accounting')
+          if (
+            (attempt.invocationId === webSearchInvocationId ||
+              attempt.invocationId === queryPlannerInvocationId) &&
+            !reservation
+          )
+            throw new Error('Guest subcall requires durable accounting')
           return reservation
         },
       }
@@ -2045,9 +2721,141 @@ const chatReadRouter = router({
               governedBudgetGate,
               BigInt(configuration.requestBudgetCeilingE8Usd),
             )
+      if (
+        guestQueryChatExperimentEnabled({
+          nodeEnv: process.env.NODE_ENV,
+          enabled: process.env.TORCHIKO_LOCAL_STRUCTURED_QUERY,
+          experienceScope: ctx.experienceScope,
+          nativePath: nativeReadSnapshot.path,
+        })
+      ) {
+        // Gate on original admission, never an effective LEGACY projection fallback.
+        const readPath = nativeReadSnapshot.path === 'DARK' ? 'DARK' : 'LEGACY'
+        const readQuerySource = () =>
+          guestQueryTimingAsync('source.load', () =>
+            loadGuestQuerySource({
+              client: ctx.db,
+              scope: {
+                tenantId: venue.tenantId,
+                venueId: input.venueId,
+                includeSecondLayer,
+                asOf: new Date(),
+              },
+              readPath,
+            }),
+          )
+        let querySource: GuestQuerySource | null = null
+        try {
+          querySource = await readQuerySource()
+        } catch {
+          logger.info({ action: 'guest-chat.structured-query', status: 'SOURCE_UNAVAILABLE' })
+        }
+        if (querySource) {
+          const candidate = await prepareGuestChatQueryExperiment({
+            source: querySource,
+            question: trimmedInput,
+            directAnswer: process.env.TORCHIKO_LOCAL_DIRECT_QUERY === '1',
+            ...(plannerProfile
+              ? {
+                  validatePlannerOperation: true,
+                  getPlannerServiceTier: () => structuredPlannerServiceTier,
+                }
+              : {}),
+            interpret: async ({ system, question, validatePlan }) => {
+              const planned = await generateTextForCapability({
+                ...(plannerProfile ? { invocationProfile: plannerProfile } : {}),
+                ...(validatePlan
+                  ? {
+                      parseResponse: (text: string) => {
+                        validatePlan(text)
+                        return text
+                      },
+                    }
+                  : {}),
+                route,
+                timeoutMs: configuration.timeoutMs,
+                maxAttempts: 1,
+                maxOutputTokens: Math.min(
+                  1024,
+                  configuration.maxOutputTokens ?? 1024,
+                  ...route.candidates.map((candidate) => {
+                    const registered = Object.entries(AI_MODEL_REGISTRY).find(
+                      ([key]) => key === candidate.modelKey,
+                    )?.[1]
+                    if (!registered)
+                      throw new AiRoutingError(
+                        'CAPABILITY_UNAVAILABLE',
+                        'Guest query planner requires a registered text model',
+                      )
+                    return registered.maxOutputTokens
+                  }),
+                ),
+                admissionGuard: assertGenerationAvailable,
+                budgetGate: sharedBudgetGate,
+                system: [{ type: 'text', text: system }],
+                messages: [{ role: 'user', content: question }],
+                usageSink: chatAccounting.sink,
+                invocationId: queryPlannerInvocationId,
+                onBeforeFirstDispatch: async () => {
+                  if (generationDispatched) return
+                  await markGuestChatProviderDispatchedAction({
+                    client: ctx.db,
+                    operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
+                  })
+                  generationDispatched = true
+                },
+              })
+              structuredPlannerServiceTier = planned.serviceTier
+              return planned.text
+            },
+          })
+          if (
+            candidate.status === 'DIRECT_READY' ||
+            (candidate.status === 'READY' &&
+              guestQuerySourcesAgree(relevantPlaces, candidate.places) &&
+              guestQuerySourcesAgree(relevantKnowledgeEntries, candidate.knowledge))
+          ) {
+            try {
+              if (candidate.status === 'DIRECT_READY') {
+                buildDirectAnswerEvidence(candidate)
+                directQuery = candidate
+              } else {
+                structuredQuery = candidate
+                ;({ staticPart, dynamicPart } = preparePrompt())
+                buildAnswerEvidence('Structured evidence preflight.', captureEvidence())
+              }
+              structuredQueryFence = async () => {
+                const currentNative = await resolveNativeGuestReadSnapshotAction({
+                  client: ctx.db,
+                  tenantId: venue.tenantId,
+                  venueId: input.venueId,
+                })
+                if (currentNative.path !== readPath)
+                  throw new AiRoutingError(
+                    'CAPABILITY_UNAVAILABLE',
+                    'Guest source admission changed',
+                  )
+                const currentSource = await readQuerySource()
+                if (currentSource.version !== candidate.sourceVersion)
+                  throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest query source changed')
+              }
+            } catch {
+              directQuery = null
+              structuredQuery = null
+              ;({ staticPart, dynamicPart } = preparePrompt())
+              logger.info({
+                action: 'guest-chat.structured-query',
+                status: 'EVIDENCE_BOUND_FALLBACK',
+              })
+            }
+          }
+        }
+      }
       // Search is an optional first subcall of this durable generation operation.
       // Once dispatched, uncertain turns retain the existing no-duplicate replay fence.
       if (
+        !structuredQuery &&
+        !directQuery &&
         isFeatureEnabled('guestGeneralWebFallback') &&
         ctx.experienceScope === 'PUBLIC' &&
         venue.chatShowLinks &&
@@ -2118,10 +2926,14 @@ const chatReadRouter = router({
                 )
                 if (JSON.stringify(fresh) !== JSON.stringify(webConfiguration))
                   throw new Error('Web search permission changed')
-                await markGuestChatProviderDispatchedAction({
-                  client: ctx.db,
-                  operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
-                })
+                if (!generationDispatched)
+                  await markGuestChatProviderDispatchedAction({
+                    client: ctx.db,
+                    operation: {
+                      ...turnOperationBase,
+                      kind: 'RESPONSE_GENERATION',
+                    },
+                  })
                 generationDispatched = true
               },
               usageSink: chatAccounting.sink,
@@ -2138,7 +2950,10 @@ const chatReadRouter = router({
           }
         } catch (error) {
           if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
-          logger.warn({ action: 'guest-general-web-unavailable', venueId: venue.id })
+          logger.warn({
+            action: 'guest-general-web-unavailable',
+            venueId: venue.id,
+          })
         }
       }
       // Best-effort diagnostic: what context this answer was built from, as hashes and counts only.
@@ -2162,6 +2977,11 @@ const chatReadRouter = router({
           placesInContextCount: relevantPlaces.length,
           // The trace describes the legacy retrieval; a native read replaces its entries.
           retrievalPath: retrievalTrace?.path ?? null,
+          semanticStatus: retrievalTrace?.semanticStatus ?? null,
+          questionEvidenceKnowledgeCount: questionKnowledge.length,
+          questionEvidencePlaceCount: questionEvidence.trace.addedPlaceIds.length,
+          questionEvidenceBudgetExcludedCount: questionEvidence.trace.budgetExcludedIds.length,
+          questionPartsUncoveredCount: questionEvidence.trace.uncoveredTerms.length,
           retrievedCount: retrievalTrace?.retrievedSourceIds.length ?? null,
           excludedCount: retrievalTrace?.excludedSourceIds.length ?? null,
           truncatedCount: retrievalTrace?.truncatedSourceIds.length ?? null,
@@ -2173,86 +2993,150 @@ const chatReadRouter = router({
       } catch {
         // Diagnostics never affect the answer.
       }
-      generationEvidence = captureEvidence()
-      // Validate the exact retained text and source snapshots before any answer provider dispatch.
-      preflightEvidence = buildAnswerEvidence('Evidence preflight.', generationEvidence)
-      const result = await generateTextForCapability({
-        route,
-        timeoutMs: configuration.timeoutMs,
-        maxAttempts: configuration.maxAttempts,
-        ...(configuration.maxOutputTokens !== null
-          ? { maxOutputTokens: configuration.maxOutputTokens }
-          : {}),
-        admissionGuard: assertGenerationAvailable,
-        budgetGate: sharedBudgetGate,
-        // Capture and dispatch share exact strings and established cache breakpoints.
-        system: generationEvidence.system,
-        messages: [
-          ...history.map((m: { role: string; content: string }) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          })),
-          { role: 'user', content: trimmedInput },
-        ],
-        usageSink: chatAccounting.sink,
-        invocationId: generationInvocationId,
-        ...(streamProjection
-          ? {
-              onTextDelta: (delta: string) =>
-                streamProjection.push(delta, {
-                  providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
-                  requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
-                }),
-            }
-          : {}),
-        onBeforeFirstDispatch: async () => {
-          if (generationDispatched) {
-            responseGenerationDispatched = true
-            return
-          }
-          try {
-            await markGuestChatProviderDispatchedAction({
-              client: ctx.db,
-              operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
-            })
-            generationDispatched = true
-            responseGenerationDispatched = true
-          } catch (error) {
-            guestChatTurnError(error)
-          }
-        },
-      })
-
-      const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)
-      // Brevity belongs in generation guidance. Do not discard later sentences:
-      // a restriction or exception may change the meaning of an earlier answer.
-      // The model may only name approved action IDs; the server enforces the venue's
-      // presentation switches and resolves every destination itself.
-      const actionProjection = applyGuestActionMarkers({
-        text: strippedResponse.trim(),
-        actions: guestActions,
-        settings: guestActionSettings,
-      })
-      assistantResponse = actionProjection.text || 'Here is the official option.'
-      guestActionPlacements = actionProjection.text ? actionProjection.placements : []
-      if (recommendationDecision) {
-        // The venue disclosure is guaranteed server-side whenever the featured item is surfaced.
-        const disclosure = enforceRecommendationDisclosure(
-          assistantResponse,
-          recommendationDecision,
+      if (directQuery) {
+        // These strings are a labeled local receipt, never a dispatched answer-model prompt.
+        preflightEvidence = buildDirectAnswerEvidence(directQuery)
+        await assertGenerationAvailable()
+        deterministicAnswerCompleted = true
+        assistantResponse = directQuery.answer
+        await streamProjection?.pushDeterministic(assistantResponse, {
+          requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+        })
+      } else {
+        // The answer check follows every dynamic instruction, after the cache breakpoint, and is
+        // part of the captured evidence. The route's primary model and output cap decide it.
+        const answerCheckEnabled = isGuestAnswerCheckEnabled(
+          guestAnswerCheckMode(),
+          route.candidates[0]?.modelKey,
+          configuration.maxOutputTokens,
         )
-        if (disclosure.disclosureAppended && streamProjection) {
-          await streamProjection.push(disclosure.response.slice(assistantResponse.length), {
-            providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
-            requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+        if (answerCheckEnabled) dynamicPart = appendGuestAnswerCheckInstruction(dynamicPart)
+        // Decision-first prose is the streaming alternative to the check; never both at once.
+        const answerShapeEnabled =
+          !answerCheckEnabled &&
+          isGuestAnswerShapeEnabled(guestAnswerShapeMode(), configuration.primaryModelKey)
+        if (answerShapeEnabled) {
+          dynamicPart = appendGuestAnswerShapeInstruction(dynamicPart)
+          logger.info({
+            action: 'guest-chat.answer-shape',
+            tenantId: venue.tenantId,
+            venueId: venue.id,
+            turnId: reservation.turnId,
+            version: GUEST_ANSWER_SHAPE_VERSION,
           })
         }
-        assistantResponse = disclosure.response
-        recommendationShownInResponse = disclosure.shownInResponse
-        recommendationDisclosureAppended = disclosure.disclosureAppended
+        const pushVisibleDelta = streamProjection
+          ? (delta: string) =>
+              streamProjection.push(delta, {
+                providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
+                requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+              })
+          : null
+        const answerCheckGate =
+          answerCheckEnabled && pushVisibleDelta
+            ? createGuestAnswerCheckStreamGate(pushVisibleDelta)
+            : null
+        // Markers on retrieved entries alone (no guide, or the guide left them out) are logged too.
+        if (
+          !directoryPrompt.includes(GUEST_DATED_TITLE_RULE) &&
+          dynamicPart.includes(GUEST_DATED_TITLE_RULE)
+        )
+          logger.info({
+            action: 'guest-chat.dated-title-marker',
+            tenantId: venue.tenantId,
+            venueId: venue.id,
+            version: GUEST_DATED_TITLE_RULE_VERSION,
+            scope: 'retrieved-entries',
+          })
+        generationEvidence = captureEvidence()
+        // Validate the exact retained text and source snapshots before any answer provider dispatch.
+        preflightEvidence = buildAnswerEvidence('Evidence preflight.', generationEvidence)
+        const result = await generateTextForCapability({
+          route,
+          timeoutMs: configuration.timeoutMs,
+          maxAttempts: configuration.maxAttempts,
+          ...(configuration.maxOutputTokens !== null
+            ? { maxOutputTokens: configuration.maxOutputTokens }
+            : {}),
+          admissionGuard: assertGenerationAvailable,
+          budgetGate: sharedBudgetGate,
+          // Capture and dispatch share exact strings and established cache breakpoints.
+          system: generationEvidence.system,
+          messages: [
+            ...history.map((m: { role: string; content: string }) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })),
+            { role: 'user', content: trimmedInput },
+          ],
+          usageSink: chatAccounting.sink,
+          invocationId: generationInvocationId,
+          // Missing checks, invalid decision JSON or unsupported answer grammar fail closed.
+          ...(answerCheckEnabled ? { parseResponse: splitGuestAnswerCheck } : {}),
+          ...(pushVisibleDelta ? { onTextDelta: answerCheckGate ?? pushVisibleDelta } : {}),
+          onBeforeFirstDispatch: async () => {
+            if (generationDispatched) {
+              responseGenerationDispatched = true
+              return
+            }
+            try {
+              await markGuestChatProviderDispatchedAction({
+                client: ctx.db,
+                operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
+              })
+              generationDispatched = true
+              responseGenerationDispatched = true
+            } catch (error) {
+              guestChatTurnError(error)
+            }
+          },
+        })
+
+        let providerAnswer = result.text
+        if (answerCheckEnabled) {
+          // The gateway already accepted this exact text through the same pure split.
+          const split = splitGuestAnswerCheck(result.text)
+          providerAnswer = split.answer
+          await answerCheckGate?.complete(result.text)
+          logger.info({
+            action: 'guest-chat.answer-check',
+            tenantId: venue.tenantId,
+            venueId: venue.id,
+            turnId: reservation.turnId,
+            ...summarizeGuestAnswerCheck(split),
+          })
+        }
+        const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(providerAnswer)
+        // Brevity belongs in generation guidance. Do not discard later sentences:
+        // a restriction or exception may change the meaning of an earlier answer.
+        // The model may only name approved action IDs; the server enforces the venue's
+        // presentation switches and resolves every destination itself.
+        const actionProjection = applyGuestActionMarkers({
+          text: guestPlainDashes(strippedResponse).trim(),
+          actions: guestActions,
+          settings: guestActionSettings,
+        })
+        assistantResponse = actionProjection.text || 'Here is the official option.'
+        guestActionPlacements = actionProjection.text ? actionProjection.placements : []
+        if (recommendationDecision) {
+          // The venue disclosure is guaranteed server-side whenever the featured item is surfaced.
+          const disclosure = enforceRecommendationDisclosure(
+            assistantResponse,
+            recommendationDecision,
+          )
+          if (disclosure.disclosureAppended && streamProjection) {
+            await streamProjection.push(disclosure.response.slice(assistantResponse.length), {
+              providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
+              requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+            })
+          }
+          assistantResponse = disclosure.response
+          recommendationShownInResponse = disclosure.shownInResponse
+          recommendationDisclosureAppended = disclosure.disclosureAppended
+        }
+        engagementAskedThisTurn =
+          markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       }
-      engagementAskedThisTurn =
-        markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       await observeGuestChatProviderOperationAction({
         client: ctx.db,
         operation: {
@@ -2319,12 +3203,16 @@ const chatReadRouter = router({
 
     // 7. Commit the entire visible turn and engagement/session transition atomically.
     const persistenceStartedAt = performance.now()
+    const answerPlaces = deterministicAnswerCompleted ? directQuery!.places : relevantPlaces
+    const answerKnowledge = deterministicAnswerCompleted
+      ? directQuery!.knowledge
+      : relevantKnowledgeEntries
     let mentionedPlaces = buildGuestPlaceCards({
       assistantResponse,
       locationAware: guideMode === 'location_aware',
       hasLiveLocation,
-      places: relevantPlaces,
-    })
+      places: answerPlaces,
+    }).slice(0, NEAREST_PLACES_LIMIT)
     if (venue.chatShowPhotos && mentionedPlaces.length > 0) {
       try {
         const approvedMedia = await readApprovedGuestPlaceMedia({
@@ -2342,7 +3230,10 @@ const chatReadRouter = router({
         }))
       } catch {
         // Optional media failure must not lose an already generated, grounded answer.
-        logger.warn({ action: 'guest-place-media-unavailable', venueId: venue.id })
+        logger.warn({
+          action: 'guest-place-media-unavailable',
+          venueId: venue.id,
+        })
       }
     }
     mentionedPlaces = selectDisplayableGuestPlaceCards(
@@ -2352,7 +3243,7 @@ const chatReadRouter = router({
     const citations = buildGuestCitations({
       assistantResponse,
       candidates: [
-        ...relevantPlaces.map((place) => ({
+        ...answerPlaces.map((place) => ({
           entityId: place.id,
           entityLabel: place.name,
           entityKind: 'place' as const,
@@ -2360,7 +3251,7 @@ const chatReadRouter = router({
           sourceName: place.sourceName,
           sourceUrl: place.sourceUrl,
         })),
-        ...relevantKnowledgeEntries.map((entry) => ({
+        ...answerKnowledge.map((entry) => ({
           entityId: entry.id,
           entityLabel: entry.title,
           entityKind: 'knowledge' as const,
@@ -2375,7 +3266,7 @@ const chatReadRouter = router({
     // Source snapshots and system metadata were frozen and validated before the paid call.
     // Only the answer hash depends on completion; it is not part of evidenceSetHash.
     const answerEvidence =
-      responseGenerationDispatched && preflightEvidence
+      (responseGenerationDispatched || deterministicAnswerCompleted) && preflightEvidence
         ? {
             ...preflightEvidence,
             answerHash: createHash('sha256').update(assistantResponse).digest('hex'),
@@ -2398,6 +3289,7 @@ const chatReadRouter = router({
               ? { actionPlacements: guestActionPlacements }
               : {}),
             ...(!fallbackFailureCode &&
+            !deterministicAnswerCompleted &&
             !placeIdentityDiscoveryIncomplete &&
             placeIdentity.ambiguity &&
             placeIdentity.ambiguity.candidates.length > 0
@@ -2406,7 +3298,12 @@ const chatReadRouter = router({
                     version: 'guest-place-identity-pending-v1' as const,
                     requestedName: placeIdentity.ambiguity.requestedName,
                     candidates: placeIdentity.ambiguity.candidates.map(
-                      ({ id, name, floor, location }) => ({ id, name, floor, location }),
+                      ({ id, name, floor, location }) => ({
+                        id,
+                        name,
+                        floor,
+                        location,
+                      }),
                     ),
                   },
                 }
@@ -2601,7 +3498,10 @@ const chatReadRouter = router({
         if (decision.declinedNow) {
           ledger.push({
             eventType: 'recommendation.declined',
-            metadata: { policyId: decision.policyId, policyVersion: decision.policyVersion },
+            metadata: {
+              policyId: decision.policyId,
+              policyVersion: decision.policyVersion,
+            },
           })
         }
         for (const entry of ledger) {
@@ -2745,8 +3645,10 @@ const chatReadRouter = router({
       citations: finalized.citations,
     })
     const responseBlocks =
-      guestActionResponseBlocks(guestActionState, { ...finalized, citations: visibleCitations }) ??
-      guestCitationBlocks(visibleCitations)
+      guestActionResponseBlocks(guestActionState, {
+        ...finalized,
+        citations: visibleCitations,
+      }) ?? guestCitationBlocks(visibleCitations)
     return {
       response: finalized.response,
       replyKind: finalized.replyKind,
@@ -2785,7 +3687,10 @@ const chatReadRouter = router({
       },
     ])
     if (deniedLimit !== 0) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many history requests.',
+      })
     }
 
     // Resolve venue ownership before consulting the caller's retired token. The
@@ -2872,7 +3777,9 @@ const chatReadRouter = router({
           content: true,
           createdAt: true,
           sessionSequence: true,
-          guestChatTurn: { select: { replayMetadata: true, fallbackCode: true } },
+          guestChatTurn: {
+            select: { replayMetadata: true, fallbackCode: true },
+          },
         },
       }),
       ctx.db.voiceTranscriptSegment.findMany({
@@ -2924,7 +3831,10 @@ const chatReadRouter = router({
       ...(input.operationId
         ? {
             turn: requestedTurn
-              ? { operationId: requestedTurn.requestId, status: requestedTurn.status }
+              ? {
+                  operationId: requestedTurn.requestId,
+                  status: requestedTurn.status,
+                }
               : null,
           }
         : {}),
@@ -2950,7 +3860,9 @@ const chatReadRouter = router({
           role: entry.row.role as 'user' | 'assistant',
           content: entry.row.content,
           ...(entry.row.role === 'assistant'
-            ? { replyKind: guestReplyKindFromFallbackCode(entry.row.guestChatTurn?.fallbackCode) }
+            ? {
+                replyKind: guestReplyKindFromFallbackCode(entry.row.guestChatTurn?.fallbackCode),
+              }
             : {}),
           ...(replay?.success && replay.data.places.length ? { places: replay.data.places } : {}),
           ...(() => {
@@ -2984,7 +3896,7 @@ export type ChatStreamEvent =
   | {
       type: 'delta'
       delta: string
-      providerFirstTextMs: number
+      providerFirstTextMs: number | null
       requestFirstTextMs: number
     }
   | { type: 'complete'; result: ChatSendResult }

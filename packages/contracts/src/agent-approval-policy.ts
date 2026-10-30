@@ -560,7 +560,7 @@ export const SupportCompletionContentFulfillmentV2 = z
         ]),
       )
       .max(100),
-    guestRead: SupportCompletionContentFulfillment.innerType().shape.guestRead,
+    guestRead: SupportCompletionContentFulfillment.shape.guestRead,
     verifiedAt: z.string().datetime(),
     digest: z.string().regex(/^[a-f0-9]{64}$/),
   })
@@ -1018,7 +1018,7 @@ export const SupportPackageDraftApplyParameters = z
     expectedVersion: z.number().int().positive(),
     fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
     draftKey: z.string().uuid(),
-    payload: z.record(z.unknown()),
+    payload: z.record(z.string(), z.unknown()),
     proposalPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
     operationCounts: SupportPackageDraftOperationCounts,
   })
@@ -1035,7 +1035,7 @@ export const SupportPackageDraftProposalApprovalSnapshot = z
     expectedVersion: z.number().int().positive(),
     fromStatus: z.enum(['OPEN', 'IN_REVIEW']),
     draftKey: z.string().uuid(),
-    payload: z.record(z.unknown()),
+    payload: z.record(z.string(), z.unknown()),
     proposalPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
     operationCounts: SupportPackageDraftOperationCounts,
     missingInformationCount: z.literal(0),

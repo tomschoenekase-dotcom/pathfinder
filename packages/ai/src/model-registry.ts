@@ -10,7 +10,10 @@ export const AI_MODEL_KEYS = {
   GUEST_CHAT_DEEPSEEK_FLASH: 'guest-chat-deepseek-flash',
   GUEST_CHAT_DEEPSEEK_PRO: 'guest-chat-deepseek-pro',
   GUEST_CHAT_LUNA: 'guest-chat-luna',
+  GUEST_CHAT_LUNA_REASONING: 'guest-chat-luna-reasoning',
   GUEST_CHAT_SOL: 'guest-chat-sol',
+  GUEST_CHAT_SOL_FAST: 'guest-chat-sol-fast',
+  GUEST_CHAT_TERRA_FAST: 'guest-chat-terra-fast',
   GUEST_CHAT_OPENAI: 'guest-chat-openai',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -25,6 +28,10 @@ export type AiModelSpec = {
   model: string
   costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   maxOutputTokens: number
+  /** OpenAI reasoning effort when the route pins one; otherwise the model's default effort. */
+  reasoningEffort?: 'none' | 'minimal' | 'low'
+  /** OpenAI processing tier the route requests; omitted means the project default (standard). */
+  serviceTier?: 'fast'
   timeoutMs: number
   maxAttempts: number
   maxInputUtf8Bytes: number
@@ -80,7 +87,7 @@ function openAiLunaSpec(maxOutputTokens: number): AiModelSpec {
 
 // A stronger visitor-chat route: in a blind 186-turn test it was the only model with no factual
 // errors, including opening-time reasoning ("11 AM, opens at noon") that Luna gets wrong.
-// Pricing is the public list price; cache writes are billed at the input rate.
+// Standard public pricing with the adapter's default 30-minute cache-write lifetime.
 function openAiSolSpec(maxOutputTokens: number): AiModelSpec {
   return {
     provider: 'openai',
@@ -91,12 +98,12 @@ function openAiSolSpec(maxOutputTokens: number): AiModelSpec {
     maxAttempts: 2,
     maxInputUtf8Bytes: 180_000,
     maxBillableInputTokens: 200_000,
-    pricingVersion: 'openai-standard-public-2026-10-10',
+    pricingVersion: 'openai-standard-public-2026-10-22',
     pricingUsdPerMillionTokens: {
       input: 2,
       output: 10,
-      cacheWrite: 2,
-      cacheRead: 0.2,
+      cacheWrite: 2.5,
+      cacheRead: 0.1,
     },
   }
 }
@@ -215,8 +222,36 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   // A ranking across a large venue (a reason per ride) can exceed 512 tokens; an incomplete
   // response becomes a fallback reply, so the guest route leaves room. Billing is per token used.
   [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaSpec(1_024),
+  // Luna that reasons briefly before answering: the same model and prices, with reasoning tokens
+  // (billed as output) checking conditions and arithmetic first. Reasoning shares the output cap,
+  // so it gets 2048 tokens, and a longer timeout. First text arrives after the reasoning.
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING]: {
+    ...openAiLunaSpec(2_048),
+    reasoningEffort: 'low',
+    timeoutMs: 20_000,
+  },
   // Reasoning tokens count against the output cap, so Sol gets more room than Luna.
   [AI_MODEL_KEYS.GUEST_CHAT_SOL]: openAiSolSpec(2_048),
+  // The same Sol route on OpenAI Fast mode (service_tier "fast"): billed at twice the standard
+  // rates. A 2026-10-26 replay of captured guest requests gave the same graded accuracy as
+  // standard Sol with a much lower and steadier time to first text.
+  [AI_MODEL_KEYS.GUEST_CHAT_SOL_FAST]: {
+    ...openAiSolSpec(2_048),
+    serviceTier: 'fast',
+    pricingVersion: 'openai-fast-public-2026-10-26',
+    pricingUsdPerMillionTokens: { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
+  },
+  // A faster, cheaper option on gpt-6.1-terra with Fast mode (2x the $1/$5 standard rates).
+  // Effort is pinned to low: Terra does not accept "minimal". In the 2026-10-26 replay it was about
+  // twice as fast as Sol but omitted more needed conditions, so it is not the default.
+  [AI_MODEL_KEYS.GUEST_CHAT_TERRA_FAST]: {
+    ...openAiSolSpec(2_048),
+    model: 'gpt-6.1-terra',
+    reasoningEffort: 'low',
+    serviceTier: 'fast',
+    pricingVersion: 'openai-fast-public-2026-10-26',
+    pricingUsdPerMillionTokens: { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1 },
+  },
   [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),

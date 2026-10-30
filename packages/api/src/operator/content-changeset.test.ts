@@ -341,6 +341,7 @@ function scoped<T extends { tenantId: string; venueId?: string }>(
     if (where.id !== undefined && typeof where.id === 'string' && value.id !== where.id)
       return false
     if (where.id?.in && !where.id.in.includes(value.id)) return false
+    if (where.kind?.in && !where.kind.in.includes(value.kind)) return false
     if (where.isEnabled !== undefined && value.isEnabled !== where.isEnabled) return false
     if (where.isActive !== undefined && value.isActive !== where.isActive) return false
     if (
@@ -801,6 +802,48 @@ describe('content changeset: audiences', () => {
     expect(changesetProblems(retired)[0]).toContain('already retired')
   })
 
+  it.each(['valid', 'missing', 'wrong-kind', 'foreign-tenant', 'foreign-place'])(
+    'checks %s applicability before a typed changeset can be proposed',
+    async (scenario) => {
+      const subject = store.modules.get('m_tours') as Module
+      if (scenario === 'missing') store.modules.delete('m_tours')
+      if (scenario === 'wrong-kind') store.modules.set('m_tours', { ...subject, kind: 'POLICY' })
+      if (scenario === 'foreign-tenant')
+        store.modules.set('m_tours', { ...subject, tenantId: 'other-tenant' })
+      if (scenario === 'foreign-place')
+        store.places.set('p_lions', {
+          ...(store.places.get('p_lions') as PlaceRow),
+          venueId: 'other-venue',
+        })
+      const result = await resolveChangeset(
+        database,
+        scope([
+          {
+            op: 'create',
+            representation: 'TYPED_REVISION',
+            draft: {
+              audience: 'PUBLIC',
+              payload: {
+                kind: 'OPERATIONAL_FACT',
+                label: 'Tours',
+                value: 'Leaves at noon.',
+                applicability: {
+                  scope: 'SUBJECTS',
+                  subjectModuleIds: ['m_tours'],
+                  placeIds: ['p_lions'],
+                },
+              },
+            },
+          },
+        ]),
+        NOW,
+      )
+      if (scenario === 'valid') expect(changesetProblems(result)).toEqual([])
+      else expect(changesetProblems(result).join(' ')).toContain('Fact applicability targets')
+      expect(store.calls).toEqual([])
+    },
+  )
+
   it('does not let a correction widen a typed audience, and creates non-public typed drafts unpublished', async () => {
     const widen = await resolveChangeset(
       database,
@@ -935,6 +978,70 @@ describe('content changeset: typed revisions', () => {
     ])
     expect(store.calls.map((entry) => entry.action)).toEqual(['updateTyped'])
   })
+
+  it.each([null, 'VENUE', 'SUBJECTS'])(
+    'shows the removal of %s applicability when retiring a fact',
+    async (applicabilityScope) => {
+      const original = store.modules.get('m_tours') as Module
+      const subjectModuleIds = applicabilityScope === 'SUBJECTS' ? ['subject-1'] : []
+      const placeIds = applicabilityScope === 'SUBJECTS' ? ['p_lions'] : []
+      store.modules.set('m_tours', {
+        ...original,
+        kind: 'OPERATIONAL_FACT',
+        revisions: [
+          {
+            ...original.revisions[0],
+            service: null,
+            operationalFact: {
+              label: 'Entry',
+              value: 'North door',
+              expiresAt: null,
+              applicabilityScope,
+              applicabilitySubjectModuleIds: subjectModuleIds,
+              applicabilityPlaceIds: placeIds,
+            },
+          },
+        ],
+      })
+      const args = scope([
+        {
+          op: 'retire',
+          representation: 'TYPED_REVISION',
+          id: 'm_tours',
+          expectedRevision: '1',
+          effectiveUntil: '2026-12-01T00:00:00.000Z',
+        },
+      ])
+      const resolved = await resolveChangeset(database, args, NOW)
+      expect(changesetProblems(resolved)).toEqual([])
+      const removal = resolved.ops[0]!.changes.filter((entry) => entry.field === 'applicability')
+      const declaration =
+        applicabilityScope === 'VENUE'
+          ? { scope: 'VENUE' }
+          : { scope: 'SUBJECTS', subjectModuleIds, placeIds }
+      expect(removal).toEqual(
+        applicabilityScope === null
+          ? []
+          : [
+              {
+                field: 'applicability',
+                before: JSON.stringify(declaration),
+                after: null,
+              },
+            ],
+      )
+      expect(resolved.ops[0]!.changes.map((entry) => entry.field)).toEqual(
+        applicabilityScope === null
+          ? ['effectiveUntil', 'publication']
+          : ['effectiveUntil', 'applicability', 'publication'],
+      )
+      const approval = await pendingChangesetChanges(database, args, NOW)
+      expect(approval.some((entry) => entry.field.endsWith(' · applicability'))).toBe(
+        applicabilityScope !== null,
+      )
+      expect(store.calls).toEqual([])
+    },
+  )
 
   it('rejects evidence that is not a captured input of this venue', async () => {
     const resolved = await resolveChangeset(

@@ -216,7 +216,7 @@ const createPreviewFeedbackRequestActionInput = z
     venueId: scopedId,
     packageId: scopedId,
     body: z.string().trim().min(1).max(20_000),
-    context: PreviewFeedbackContext.default({ kind: 'GENERAL' }),
+    context: PreviewFeedbackContext.prefault({ kind: 'GENERAL' }),
     attachments: SupportAttachmentReferences,
     actor: z
       .object({

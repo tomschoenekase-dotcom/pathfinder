@@ -159,6 +159,28 @@ describe('operator CRM projection', () => {
 })
 
 describe('operator.get_manual', () => {
+  it('requires receipt reconciliation before replacing a failed import operation', () => {
+    const packageDocs = readFileSync(
+      path.resolve(__dirname, '../../../../../docs/venue-package-format.md'),
+      'utf8',
+    )
+    for (const guidance of [OPERATOR_MANUAL_TEXT, packageDocs]) {
+      expect(guidance).toContain('operator.get_operation')
+      expect(guidance).toContain('package receipt')
+      expect(guidance).toContain(
+        'Never start a second import while the outcome is unknown or partial.',
+      )
+      expect(guidance).toContain('`NOT_RECORDED` permits retrying the same ID and content')
+      expect(guidance).toContain('`FAILED_NO_EFFECT`')
+      expect(guidance).toContain(
+        'Changed content requires a new UUID only after the earlier attempt is',
+      )
+      expect(guidance).not.toContain('A failed import changes nothing')
+      expect(guidance).not.toContain('Retry with a new `operationId`')
+      expect(guidance).not.toContain('never the failed one')
+    }
+  })
+
   it('equals docs/operator/manual.md and parses with the output contract', async () => {
     const docs = readFileSync(
       path.resolve(__dirname, '../../../../../docs/operator/manual.md'),
@@ -178,6 +200,7 @@ describe('OPERATOR_READ_TOOLS', () => {
     expect(names).toEqual(
       [
         'crm.search_organizations',
+        'crm.get_outreach_history',
         'crm.get_organization',
         'crm.list_candidates',
         'crm.get_contact_history',
@@ -203,6 +226,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'venues.get_release_preflight',
         'venues.get_preview_link',
         'venues.get_guest_link',
+        'venues.get_guest_model',
         'support.list',
         'operator.get_manual',
         'customers.list',

@@ -242,6 +242,19 @@ function normalize(
         sizeBytes: Math.max(0, attachment.sizeBytes),
         downloadPolicy: 'METADATA_ONLY' as const,
       })),
+    ...((message.headers['auto-submitted'] &&
+      message.headers['auto-submitted']?.toLowerCase() !== 'no') ||
+    message.headers['x-autoreply'] ||
+    message.headers['x-autorespond']
+      ? {
+          automatedReplyKind:
+            /\b(?:out of (?:the )?office|automatic reply|auto(?:matic)?[- ]?reply|vacation reply)\b/iu.test(
+              message.headers.subject ?? '',
+            )
+              ? ('outOfOffice' as const)
+              : ('automated' as const),
+        }
+      : {}),
     ...(isDeliveryStatusNotice(message) ? { deliveryStatusNotice: true as const } : {}),
   }
 }

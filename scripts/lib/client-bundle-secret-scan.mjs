@@ -6,15 +6,15 @@ const canary = (key) => `PFCLIENTBUNDLECANARY_${key}_8F4C2D91`
 export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
   DATABASE_URL: {
     marker: canary('DATABASE_URL'),
-    value: `postgresql://bundle_scan:${canary('DATABASE_URL')}@127.0.0.1:5432/pathfinder_bundle_scan`,
+    value: `postgresql://bundle_scan:${canary('DATABASE_URL')}@127.0.0.1:1/pathfinder_bundle_scan`,
   },
   DIRECT_DATABASE_URL: {
     marker: canary('DIRECT_DATABASE_URL'),
-    value: `postgresql://bundle_scan:${canary('DIRECT_DATABASE_URL')}@127.0.0.1:5432/pathfinder_bundle_scan`,
+    value: `postgresql://bundle_scan:${canary('DIRECT_DATABASE_URL')}@127.0.0.1:1/pathfinder_bundle_scan`,
   },
   REDIS_URL: {
     marker: canary('REDIS_URL'),
-    value: `redis://:${canary('REDIS_URL')}@127.0.0.1:6379`,
+    value: `redis://:${canary('REDIS_URL')}@127.0.0.1:1`,
   },
   INTERNAL_POLICY_TOKEN: {
     marker: canary('INTERNAL_POLICY_TOKEN'),

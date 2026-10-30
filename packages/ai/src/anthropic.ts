@@ -1,3 +1,4 @@
+import { assertLocalLunaPlannerProfile, localLunaPricingVersion, LocalLunaPlannerExecutionError, type LocalLunaPlannerProfile, type LocalLunaTierReceipt } from './local-luna-planner-profile'
 import Anthropic, {
   APIConnectionError,
   APIConnectionTimeoutError,
@@ -65,6 +66,7 @@ export type AiTokenUsage = {
 }
 
 export type AiTextResult<TParsed = string> = {
+  serviceTier?: LocalLunaTierReceipt
   text: string
   parsed: TParsed
   provider: AiTextProviderId
@@ -77,6 +79,9 @@ export type AiTextResult<TParsed = string> = {
 }
 
 export type AiUsageRecord = {
+  serviceTier?: LocalLunaTierReceipt
+  providerResponseId?: string
+  costObservationStatus?: 'OBSERVED' | 'UNKNOWN'
   provider: AiTextProviderId | 'google'
   model: string
   pricingVersion: string
@@ -187,8 +192,9 @@ async function createProviderResponse(params: {
   maxOutputTokens: number
   timeoutMs: number
   onTextDelta?: (delta: string) => void | Promise<void>
+  invocationProfile?: LocalLunaPlannerProfile
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean }> {
+}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean; serviceTier?: LocalLunaTierReceipt }> {
   const options = { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) }
   switch (params.spec.provider) {
     case 'openai':
@@ -282,8 +288,7 @@ async function createProviderResponse(params: {
   }
 }
 
-function estimateCostUsd(modelKey: AiModelKey, usage: AiTokenUsage): number {
-  const pricing = getAiModelSpec(modelKey).pricingUsdPerMillionTokens
+function estimateCostUsd(modelKey: AiModelKey, usage: AiTokenUsage, pricing = getAiModelSpec(modelKey).pricingUsdPerMillionTokens): number {
   return (
     (usage.inputTokens * pricing.input +
       usage.outputTokens * pricing.output +
@@ -336,6 +341,7 @@ async function recordUsageBestEffort(sink: AiUsageSink, record: AiUsageRecord): 
 }
 
 export async function generateText<TParsed = string>(params: {
+  invocationProfile?: LocalLunaPlannerProfile
   modelKey: AiModelKey
   system: AiSystemBlock[]
   messages: AiMessage[]
@@ -354,7 +360,11 @@ export async function generateText<TParsed = string>(params: {
   onTextDelta?: (delta: string) => void | Promise<void>
   signal?: AbortSignal
 }): Promise<AiTextResult<TParsed>> {
-  const spec = getAiModelSpec(params.modelKey)
+  const profile = params.invocationProfile
+  const modelKey = params.modelKey
+  const spec = profile ? structuredClone(getAiModelSpec(modelKey)) : getAiModelSpec(modelKey)
+  const system = profile ? structuredClone(params.system) : params.system
+  const messages = profile ? structuredClone(params.messages) : params.messages
   const maxAttempts = params.maxAttempts ?? spec.maxAttempts
   const timeoutMs = params.timeoutMs ?? spec.timeoutMs
   const startedAt = performance.now()
@@ -372,11 +382,20 @@ export async function generateText<TParsed = string>(params: {
     throw new Error('budgetAttemptNumberOffset must be a nonnegative integer')
   }
   const maxOutputTokens = params.maxOutputTokens ?? spec.maxOutputTokens
+  if (profile !== undefined) assertLocalLunaPlannerProfile(profile, spec, { maxAttempts, maxOutputTokens, streaming: Boolean(params.onTextDelta), explicitCache: system.some(block => block.cache_control?.type === 'ephemeral') })
+  const attemptPricingVersion = profile ? localLunaPricingVersion(spec.pricingVersion, profile) : spec.pricingVersion
+  let profileUsageAttempted = false
+  const recordUsage = async (record: AiUsageRecord) => {
+    if (!profile) return recordUsageBestEffort(params.usageSink, record)
+    profileUsageAttempted = true
+    try { await params.usageSink(record) } catch { throw new LocalLunaPlannerExecutionError('PLANNER_ACCOUNTING_FAILED') }
+  }
   const reservedUnits = textAttemptCostCeilingUnits({
     spec,
-    system: params.system,
-    messages: params.messages,
+    system,
+    messages,
     maxOutputTokens,
+    ...(profile ? { invocationProfile: profile } : {}),
   })
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (params.signal?.aborted) throw abortReason(params.signal)
@@ -384,11 +403,11 @@ export async function generateText<TParsed = string>(params: {
       await params.admissionGuard()
     } catch (admissionError) {
       if (lastError !== undefined) {
-        await recordUsageBestEffort(params.usageSink, {
+        await recordUsage({
           usageObservationStatus: 'NOT_DISPATCHED',
           provider: spec.provider,
           model: spec.model,
-          pricingVersion: spec.pricingVersion,
+          pricingVersion: attemptPricingVersion,
           usage: {
             inputTokens: 0,
             outputTokens: 0,
@@ -438,11 +457,11 @@ export async function generateText<TParsed = string>(params: {
               })
             : error
         if (!(providerError instanceof AiGatewayError)) throw providerError
-        await recordUsageBestEffort(params.usageSink, {
+        await recordUsage({
           usageObservationStatus: 'NOT_DISPATCHED',
           provider: spec.provider,
           model: spec.model,
-          pricingVersion: spec.pricingVersion,
+          pricingVersion: attemptPricingVersion,
           usage: {
             inputTokens: 0,
             outputTokens: 0,
@@ -468,7 +487,7 @@ export async function generateText<TParsed = string>(params: {
       attemptNumber: budgetAttemptNumberOffset + attempt,
       provider: spec.provider,
       model: spec.model,
-      pricingVersion: spec.pricingVersion,
+      pricingVersion: attemptPricingVersion,
       reservedUnits,
     })
     try {
@@ -502,8 +521,9 @@ export async function generateText<TParsed = string>(params: {
     try {
       const response = await createProviderResponse({
         spec,
-        system: params.system,
-        messages: params.messages,
+        ...(profile ? { invocationProfile: profile } : {}),
+        system,
+        messages,
         maxOutputTokens,
         timeoutMs,
         ...(params.onTextDelta
@@ -519,17 +539,41 @@ export async function generateText<TParsed = string>(params: {
       })
       if (params.signal?.aborted) throw abortReason(params.signal)
       const usage = response.usage
+      const tier = response.serviceTier ? Object.freeze(structuredClone(response.serviceTier)) : undefined
+      if (profile && (!tier || tier.rateMultiplier === null)) {
+        await recordUsage({ usageObservationStatus: 'OBSERVED', costObservationStatus: 'UNKNOWN',
+          provider: spec.provider, model: spec.model, pricingVersion: localLunaPricingVersion(spec.pricingVersion, profile, 'tier-unknown'),
+          usage, estimatedCostUsd: 0, latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), attempts: attempt,
+          success: false, errorCode: 'UNKNOWN_SERVICE_TIER', ...(tier ? { serviceTier: tier } : {}),
+          ...(tier?.providerResponseId ? { providerResponseId: tier.providerResponseId } : {}),
+        })
+        throw new LocalLunaPlannerExecutionError('UNKNOWN_SERVICE_TIER')
+      }
+      const observedCost = estimateCostUsd(modelKey, usage, profile ? spec.pricingUsdPerMillionTokens : undefined) * (profile ? tier!.rateMultiplier! : 1)
+      const observedPricingVersion = profile ? localLunaPricingVersion(spec.pricingVersion, profile, tier!.observedTier!) : spec.pricingVersion
+      const observation = profile ? { serviceTier: tier!, costObservationStatus: 'OBSERVED' as const, ...(tier!.providerResponseId ? { providerResponseId: tier!.providerResponseId } : {}) } : {}
       observedReservation = reservation
       if (reservation) {
         try {
           await budgetGate.settleExact(
             reservation,
-            observedAiCostUnits(estimateCostUsd(params.modelKey, usage)),
+            observedAiCostUnits(observedCost),
           )
         } catch {
+          if (profile) {
+            await recordUsage({ ...observation, usageObservationStatus: 'OBSERVED', provider: spec.provider, model: spec.model,
+              pricingVersion: observedPricingVersion, usage, estimatedCostUsd: observedCost, latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), attempts: attempt, success: false, errorCode: 'PLANNER_ACCOUNTING_FAILED' })
+            throw new LocalLunaPlannerExecutionError('PLANNER_ACCOUNTING_FAILED')
+          }
           // The durable reservation remains fully held. A settlement outage
           // must not turn one provider response into another provider attempt.
         }
+      }
+      if (profile && (!tier!.providerResponseId || tier!.outcome === 'UNEXPECTED_FAST_TIER')) {
+        const code = !tier!.providerResponseId ? 'MISSING_PROVIDER_RESPONSE_ID' as const : 'UNEXPECTED_FAST_TIER' as const
+        await recordUsage({ ...observation, usageObservationStatus: 'OBSERVED', provider: spec.provider, model: spec.model,
+          pricingVersion: observedPricingVersion, usage, estimatedCostUsd: observedCost, latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), attempts: attempt, success: false, errorCode: code })
+        throw new LocalLunaPlannerExecutionError(code)
       }
       const text = response.text
       if (response.incomplete || !text) {
@@ -543,13 +587,14 @@ export async function generateText<TParsed = string>(params: {
             usageRecorded: true,
           },
         )
-        await recordUsageBestEffort(params.usageSink, {
+        await recordUsage({
+          ...observation,
           usageObservationStatus: 'OBSERVED',
           provider: spec.provider,
           model: spec.model,
-          pricingVersion: spec.pricingVersion,
+          pricingVersion: observedPricingVersion,
           usage,
-          estimatedCostUsd: estimateCostUsd(params.modelKey, usage),
+          estimatedCostUsd: observedCost,
           latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
           attempts: attempt,
           success: false,
@@ -571,13 +616,14 @@ export async function generateText<TParsed = string>(params: {
             usageRecorded: true,
           },
         )
-        await recordUsageBestEffort(params.usageSink, {
+        await recordUsage({
+          ...observation,
           usageObservationStatus: 'OBSERVED',
           provider: spec.provider,
           model: spec.model,
-          pricingVersion: spec.pricingVersion,
+          pricingVersion: observedPricingVersion,
           usage,
-          estimatedCostUsd: estimateCostUsd(params.modelKey, usage),
+          estimatedCostUsd: observedCost,
           latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
           attempts: attempt,
           success: false,
@@ -586,17 +632,19 @@ export async function generateText<TParsed = string>(params: {
         throw gatewayError
       }
       const result: AiTextResult<TParsed> = {
+        ...(profile ? { serviceTier: tier! } : {}),
         text,
         parsed,
         provider: spec.provider,
         model: spec.model,
-        pricingVersion: spec.pricingVersion,
+        pricingVersion: observedPricingVersion,
         usage,
-        estimatedCostUsd: estimateCostUsd(params.modelKey, usage),
+        estimatedCostUsd: observedCost,
         latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
         attempts: attempt,
       }
-      await recordUsageBestEffort(params.usageSink, {
+      await recordUsage({
+        ...observation,
         usageObservationStatus: 'OBSERVED',
         provider: result.provider,
         model: result.model,
@@ -617,6 +665,15 @@ export async function generateText<TParsed = string>(params: {
           // full ceiling and remains recoverable without another dispatch.
         }
       }
+      if (profile) {
+        if (!profileUsageAttempted) await recordUsage({ usageObservationStatus: 'UNKNOWN', costObservationStatus: 'UNKNOWN',
+          provider: spec.provider, model: spec.model, pricingVersion: localLunaPricingVersion(spec.pricingVersion, profile, 'usage-unknown'),
+          usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, estimatedCostUsd: 0,
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), attempts: attempt, success: false,
+          errorCode: error instanceof LocalLunaPlannerExecutionError ? error.code : 'PLANNER_OPERATION_FAILED' })
+        if (error instanceof LocalLunaPlannerExecutionError) throw error
+        throw new LocalLunaPlannerExecutionError('PLANNER_OPERATION_FAILED')
+      }
       lastError = error
       if (params.signal?.aborted) throw abortReason(params.signal)
       if (attempt >= maxAttempts || !isRetryable(error)) {
@@ -630,11 +687,11 @@ export async function generateText<TParsed = string>(params: {
           },
         )
         if (!(error instanceof AiGatewayError && error.usageRecorded)) {
-          await recordUsageBestEffort(params.usageSink, {
+          await recordUsage({
             usageObservationStatus: 'UNKNOWN',
             provider: spec.provider,
             model: spec.model,
-            pricingVersion: spec.pricingVersion,
+            pricingVersion: attemptPricingVersion,
             usage: {
               inputTokens: 0,
               outputTokens: 0,
@@ -661,11 +718,11 @@ export async function generateText<TParsed = string>(params: {
           },
         )
         if (!(error instanceof AiGatewayError && error.usageRecorded)) {
-          await recordUsageBestEffort(params.usageSink, {
+          await recordUsage({
             usageObservationStatus: 'UNKNOWN',
             provider: spec.provider,
             model: spec.model,
-            pricingVersion: spec.pricingVersion,
+            pricingVersion: attemptPricingVersion,
             usage: {
               inputTokens: 0,
               outputTokens: 0,
@@ -682,11 +739,11 @@ export async function generateText<TParsed = string>(params: {
         throw gatewayError
       }
       if (!(error instanceof AiGatewayError && error.usageRecorded)) {
-        await recordUsageBestEffort(params.usageSink, {
+        await recordUsage({
           usageObservationStatus: 'UNKNOWN',
           provider: spec.provider,
           model: spec.model,
-          pricingVersion: spec.pricingVersion,
+          pricingVersion: attemptPricingVersion,
           usage: {
             inputTokens: 0,
             outputTokens: 0,

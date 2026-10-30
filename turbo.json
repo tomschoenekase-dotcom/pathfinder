@@ -1,6 +1,15 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": [".env", ".env.local", "**/.env.local"],
+  "globalPassThroughEnv": [
+    "NODE_OPTIONS",
+    "VITEST_MAX_FORKS",
+    "VITEST_MIN_FORKS",
+    "VITEST_MAX_THREADS",
+    "VITEST_MIN_THREADS",
+    "TORCHIKO_BATCH_REAL_PREVIEW",
+    "TORCHIKO_SCRIPT_TEST_CONCURRENCY"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

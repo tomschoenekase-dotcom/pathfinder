@@ -1,3 +1,7 @@
+vi.mock('./prospect-outreach-history', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./prospect-outreach-history')>()),
+  requireProspectOutreachHistory: vi.fn().mockResolvedValue({ eligibility: 'eligible' }),
+}))
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { launchAttachmentsSha256 } from '@pathfinder/contracts/venue-launch-asset-node'

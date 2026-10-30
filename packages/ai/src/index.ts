@@ -155,3 +155,5 @@ export {
   type AiProviderId,
   type AiWorkloadId,
 } from './workload-configuration'
+
+export { LocalLunaPlannerExecutionError, type LocalLunaPlannerProfile, type LocalLunaTierReceipt } from './local-luna-planner-profile'

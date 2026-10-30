@@ -34,7 +34,7 @@ export const adminPublicInterestRouter = router({
           limit: z.number().int().min(1).max(100).default(50),
         })
         .strict()
-        .default({ limit: 50 }),
+        .prefault({ limit: 50 }),
     )
     .query(({ input }) =>
       withTenantIsolationBypass(async () => {

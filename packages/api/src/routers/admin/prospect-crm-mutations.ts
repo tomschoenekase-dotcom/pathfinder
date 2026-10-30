@@ -252,7 +252,7 @@ export const adminProspectCrmMutationsRouter = router({
           prospectVenueId: z.string().min(1).max(191).optional(),
           tenantId: z.string().min(1).max(191),
           venueId: z.string().min(1).max(191).optional(),
-          evidence: z.record(z.unknown()).optional(),
+          evidence: z.record(z.string(), z.unknown()).optional(),
         })
         .strict(),
     )

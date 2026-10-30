@@ -1,3 +1,4 @@
+import { prospectOutreachViews } from './prospect-crm-outreach-views'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
@@ -50,10 +51,30 @@ export const adminProspectCrmSavedViewsRouter = router({
                 view.ownerId === ctx.session.userId && view.name === prospectGoodFitSavedView.name,
             )
           ) {
-            return views
+            return [
+              ...Object.entries(prospectOutreachViews).map(([outreachView, name]) => ({
+                id: `builtin:outreach:${outreachView}`,
+                ownerId: ctx.session.userId,
+                name,
+                filters: { outreachView },
+                columns: ['canonicalName', 'outreachHistory', 'nextAction'],
+                sort: { updatedAt: 'desc' },
+                isShared: false,
+              })),
+              ...views,
+            ]
           }
           return [
             { id: 'builtin:good-fit', ownerId: ctx.session.userId, ...prospectGoodFitSavedView },
+            ...Object.entries(prospectOutreachViews).map(([outreachView, name]) => ({
+              id: `builtin:outreach:${outreachView}`,
+              ownerId: ctx.session.userId,
+              name,
+              filters: { outreachView },
+              columns: ['canonicalName', 'outreachHistory', 'nextAction'],
+              sort: { updatedAt: 'desc' },
+              isShared: false,
+            })),
             ...views,
           ]
         }),
@@ -65,9 +86,9 @@ export const adminProspectCrmSavedViewsRouter = router({
       z
         .object({
           name: prospectBoundedText(191),
-          filters: z.record(z.unknown()),
+          filters: z.record(z.string(), z.unknown()),
           columns: z.array(z.string().trim().min(1).max(100)).max(20),
-          sort: z.record(z.unknown()).default({}),
+          sort: z.record(z.string(), z.unknown()).prefault({}),
           isShared: z.boolean().default(false),
         })
         .strict(),

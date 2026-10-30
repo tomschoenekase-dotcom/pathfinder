@@ -1,3 +1,4 @@
+import type { ProspectOutreachHistoryProjection } from '@pathfinder/db'
 import { createHash } from 'node:crypto'
 
 import { PROSPECT_ELIGIBILITY_REASON_TEXT, type ProspectEligibilityReason } from '@pathfinder/db'
@@ -62,6 +63,7 @@ export type OutreachEligibility = {
 }
 
 export type OutreachContextInput = {
+  outreachHistory?: ProspectOutreachHistoryProjection
   now: Date
   organization: {
     id: string
@@ -327,6 +329,14 @@ export function buildOutreachContext(input: OutreachContextInput) {
       })
     }
   }
+  if (input.outreachHistory && input.outreachHistory.eligibility !== 'eligible') {
+    blockers.push({
+      code: 'outreach_history_hold',
+      scope: 'account',
+      contactId: null,
+      text: input.outreachHistory.eligibilityReason.slice(0, 300),
+    })
+  }
   const allowed = blockers.length === 0
 
   const correspondenceIn = input.correspondence
@@ -425,10 +435,34 @@ export function buildOutreachContext(input: OutreachContextInput) {
           unsubscribed: chosen.row.unsubscribedAt !== null,
           complained: chosen.row.complainedAt !== null,
         },
-        draftEligible: chosen.draft.eligible,
-        draftReasons: [...chosen.draft.reasons],
-        releaseEligible: chosen.release.eligible,
-        releaseReasons: [...chosen.release.reasons],
+        addressDraftEligible: chosen.draft.eligible,
+        addressReleaseEligible: chosen.release.eligible,
+        draftEligible:
+          chosen.draft.eligible &&
+          (input.outreachHistory?.eligibility === 'eligible' || !input.outreachHistory),
+        draftReasons: [
+          ...new Set([
+            ...chosen.draft.reasons,
+            ...(input.outreachHistory?.eligibility !== 'eligible' && input.outreachHistory
+              ? input.outreachHistory.reasons.length
+                ? input.outreachHistory.reasons
+                : [input.outreachHistory.eligibilityReason]
+              : []),
+          ]),
+        ].slice(0, 15),
+        releaseEligible:
+          chosen.release.eligible &&
+          (input.outreachHistory?.eligibility === 'eligible' || !input.outreachHistory),
+        releaseReasons: [
+          ...new Set([
+            ...chosen.release.reasons,
+            ...(input.outreachHistory?.eligibility !== 'eligible' && input.outreachHistory
+              ? input.outreachHistory.reasons.length
+                ? input.outreachHistory.reasons
+                : [input.outreachHistory.eligibilityReason]
+              : []),
+          ]),
+        ].slice(0, 15),
         suppressionReason: plain(
           chosen.row.suppressionReason === null ? null : chosen.row.suppressionReason,
           60,
@@ -447,7 +481,10 @@ export function buildOutreachContext(input: OutreachContextInput) {
     contactId: other.id,
     displayName: plain(other.fullName, 200),
     role: plain(other.title, 200),
-    draftEligible: other.draftEligible,
+    addressDraftEligible: other.draftEligible,
+    draftEligible:
+      other.draftEligible &&
+      (input.outreachHistory?.eligibility === 'eligible' || !input.outreachHistory),
   }))
   const otherTotal = Math.max(0, input.contact.liveTotal - (chosen ? 1 : 0))
 
@@ -632,6 +669,7 @@ export function buildOutreachContext(input: OutreachContextInput) {
     .update(
       stableJson({
         v: OUTREACH_CONTEXT_PACK_VERSION,
+        ...(input.outreachHistory ? { outreachHistory: input.outreachHistory } : {}),
         org: [org.id, org.updatedAt.toISOString(), org.stage, org.archived],
         venue: input.venue ? [input.venue.row.id, input.venue.row.updatedAt.toISOString()] : null,
         contact: chosen

@@ -22,6 +22,7 @@ const ItemTypeInput = z
   ])
   .optional()
   .transform((value) => (value === '' ? undefined : value))
+  .optional()
 
 export const PlaceInput = z
   .object({
@@ -39,7 +40,8 @@ export const PlaceInput = z
     photoUrl: z
       .union([z.string().url().max(2000), z.literal('')])
       .optional()
-      .transform((value) => (value === '' ? undefined : value)),
+      .transform((value) => (value === '' ? undefined : value))
+      .optional(),
   })
   .strict()
 
@@ -72,7 +74,7 @@ export const VenuePackagePayloadV1 = VenuePackagePayloadV1Object.superRefine((pa
     context.addIssue({
       code: z.ZodIssueCode.too_big,
       maximum: VENUE_PACKAGE_ITEM_LIMIT,
-      type: 'array',
+      origin: 'array',
       inclusive: true,
       message: `A venue package can contain at most ${VENUE_PACKAGE_ITEM_LIMIT} total items`,
     })

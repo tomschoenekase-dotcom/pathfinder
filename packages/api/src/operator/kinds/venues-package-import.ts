@@ -136,14 +136,12 @@ async function step<T>(
     if (error && typeof error === 'object' && !('summary' in error)) {
       const message = error instanceof Error ? error.message : String(error)
       const code = 'code' in error ? String((error as { code: unknown }).code) : 'ERROR'
-      const retry =
-        code === 'CONFLICT'
-          ? ' Nothing was applied. Retry with a new operationId; the saved draft stays unapplied.'
-          : code === 'P2028'
-            ? ' The database transaction ran out of time and rolled back; nothing was applied. Retry with a new operationId.'
-            : ''
       Object.assign(error, {
-        summary: `The ${name} step failed (${code}): ${message}.${retry}`.slice(0, 500),
+        summary:
+          `The ${name} step failed (${code}). Retain the original operationId and exact content; inspect operator.get_operation and the package receipt. Do not use a new operationId without no-effect proof. Reason: ${message}`.slice(
+            0,
+            500,
+          ),
       })
     }
     throw error

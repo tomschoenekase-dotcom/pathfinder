@@ -80,6 +80,16 @@ test('the build environment replaces server credentials and removes build-servic
   assert.equal(environment.NEXT_TELEMETRY_DISABLED, '1')
 })
 
+test('synthetic service canaries use closed loopback port 1 and retain their markers', () => {
+  const environment = buildSecretCanaryEnvironment({})
+  for (const key of ['DATABASE_URL', 'DIRECT_DATABASE_URL', 'REDIS_URL']) {
+    const url = new URL(environment[key])
+    assert.equal(url.hostname, '127.0.0.1')
+    assert.equal(url.port, '1')
+    assert.ok(environment[key].includes(CLIENT_BUNDLE_SECRET_CANARIES[key].marker))
+  }
+})
+
 test('clean static, public, and prerender outputs pass without scanning server JavaScript', async () => {
   const root = await fixtureRoot()
   const staticRoot = join(root, '.next', 'static')

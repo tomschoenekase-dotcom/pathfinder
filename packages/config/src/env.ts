@@ -178,7 +178,14 @@ const rawEnvSchema = z
     // Required for RAG / semantic place search
     OPENAI_API_KEY: z.string().min(1).optional(),
     GUEST_CHAT_DEFAULT_MODEL_KEY: z
-      .enum(['guest-chat', 'guest-chat-luna', 'guest-chat-sol'])
+      .enum([
+        'guest-chat',
+        'guest-chat-luna',
+        'guest-chat-luna-reasoning',
+        'guest-chat-sol',
+        'guest-chat-sol-fast',
+        'guest-chat-terra-fast',
+      ])
       .optional(),
     // Direct, fixed-endpoint DeepSeek visitor-chat routes. This remains
     // server-only; model and endpoint selection stay in @pathfinder/ai.

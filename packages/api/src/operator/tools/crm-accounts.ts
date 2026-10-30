@@ -5,6 +5,7 @@ import {
   normalizeProspectDomain,
   normalizeProspectEmail,
   normalizeProspectName,
+  readProspectNoteLifecycle,
 } from '@pathfinder/db'
 
 import {
@@ -767,12 +768,21 @@ const listNotes: OperatorReadTool = {
       select: { id: true, occurredAt: true, summary: true, detail: true },
     })
     const page = rows.slice(0, input.limit)
+    const projected = await Promise.all(
+      page.map(async (entry) => {
+        const lifecycle = await readProspectNoteLifecycle(database, input.organizationId, entry.id)
+        return {
+          noteId: entry.id,
+          occurredAt: entry.occurredAt.toISOString(),
+          text: operatorUntrustedText(redactAddresses(lifecycle.text)),
+          revision: lifecycle.revision,
+          archived: lifecycle.archived,
+          corrected: lifecycle.corrected,
+        }
+      }),
+    )
     return pageResult(
-      page.map((entry) => ({
-        noteId: entry.id,
-        occurredAt: entry.occurredAt.toISOString(),
-        text: operatorUntrustedText(redactAddresses(entry.detail ?? entry.summary)),
-      })),
+      projected.filter((entry) => input.includeArchived || !entry.archived),
       rows.length > input.limit
         ? encodeKeysetCursor(page.at(-1)!.occurredAt, page.at(-1)!.id)
         : null,
@@ -810,13 +820,18 @@ const getNote: OperatorReadTool = {
         select: { id: true, occurredAt: true, detail: true, summary: true },
       })
       if (!note) throw new OperatorNotFoundError()
-      const body = full(note.detail ?? note.summary)
+      const lifecycle = await readProspectNoteLifecycle(database, input.organizationId, note.id)
+      const body = full(lifecycle.text)
       return {
         organizationId: input.organizationId,
         source: 'activity' as const,
         noteId: note.id,
         contactId: null,
         occurredAt: note.occurredAt.toISOString(),
+        revision: lifecycle.revision,
+        archived: lifecycle.archived,
+        corrected: lifecycle.corrected,
+        originalText: full(lifecycle.originalText).text,
         ...body,
       }
     }
@@ -837,6 +852,10 @@ const getNote: OperatorReadTool = {
         noteId: null,
         contactId: contact.id,
         occurredAt: null,
+        revision: null,
+        archived: false,
+        corrected: false,
+        originalText: null,
         ...(readable ? full(contact.notes!) : { text: null, length: 0 }),
       }
     }
@@ -846,6 +865,10 @@ const getNote: OperatorReadTool = {
       noteId: null,
       contactId: null,
       occurredAt: null,
+      revision: null,
+      archived: false,
+      corrected: false,
+      originalText: null,
       ...(org.notes && org.notes.trim() ? full(org.notes) : { text: null, length: 0 }),
     }
   },

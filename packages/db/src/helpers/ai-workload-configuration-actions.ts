@@ -346,6 +346,27 @@ function conflict(): never {
   )
 }
 
+const GUEST_CHAT_DEPLOYMENT_DEFAULT_KEYS = [
+  'guest-chat-luna',
+  'guest-chat-luna-reasoning',
+  'guest-chat-sol',
+  'guest-chat-sol-fast',
+  'guest-chat-terra-fast',
+] as const satisfies readonly AiWorkloadId[]
+
+/**
+ * The deployment's guest-chat default (GUEST_CHAT_DEFAULT_MODEL_KEY) when it names an accepted
+ * route; anything else is ignored and the registry default applies.
+ */
+export function guestChatDeploymentDefaultModelKey(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): (typeof GUEST_CHAT_DEPLOYMENT_DEFAULT_KEYS)[number] | undefined {
+  const value = environment.GUEST_CHAT_DEFAULT_MODEL_KEY
+  return (GUEST_CHAT_DEPLOYMENT_DEFAULT_KEYS as readonly string[]).includes(value ?? '')
+    ? (value as (typeof GUEST_CHAT_DEPLOYMENT_DEFAULT_KEYS)[number])
+    : undefined
+}
+
 /** Reads the effective platform -> tenant -> venue runtime configuration. */
 export async function resolveRuntimeAiWorkloadConfiguration(
   input: { workloadId: AiWorkloadId; tenantId?: string; venueId?: string },
@@ -358,11 +379,7 @@ export async function resolveRuntimeAiWorkloadConfiguration(
     )
   }
   const defaultPrimaryModelKey =
-    input.workloadId === 'guest-chat' &&
-    (process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-luna' ||
-      process.env.GUEST_CHAT_DEFAULT_MODEL_KEY === 'guest-chat-sol')
-      ? process.env.GUEST_CHAT_DEFAULT_MODEL_KEY
-      : undefined
+    input.workloadId === 'guest-chat' ? guestChatDeploymentDefaultModelKey() : undefined
   // Preserve the built-in registry during rolling deploys and in narrow test
   // doubles that predate the configuration delegates. An unavailable override
   // store must not invent or broaden a route.

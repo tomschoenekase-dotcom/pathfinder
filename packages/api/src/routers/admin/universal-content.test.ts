@@ -6,10 +6,11 @@ import { adminUniversalContentRouter } from './universal-content'
 
 const venueFindFirst = vi.fn()
 const placeFindFirst = vi.fn()
+const placeFindMany = vi.fn()
 const identityFindMany = vi.fn()
 const db = {
   venue: { findFirst: venueFindFirst },
-  place: { findFirst: placeFindFirst },
+  place: { findFirst: placeFindFirst, findMany: placeFindMany },
   contentModuleIdentity: { findMany: identityFindMany },
 } as unknown as TRPCContext['db']
 
@@ -93,6 +94,22 @@ describe('admin universal content reads', () => {
     })
   })
 
+  it('exposes the stored declaration when reviewing an operational fact revision', async () => {
+    await testRouter
+      .createCaller(context())
+      .content.listUniversalContent({ tenantId: 't1', venueId: 'v1', kind: 'OPERATIONAL_FACT' })
+    expect(identityFindMany.mock.calls[0]?.[0].select.revisions.select.operationalFact).toEqual({
+      select: {
+        label: true,
+        value: true,
+        expiresAt: true,
+        applicabilityScope: true,
+        applicabilitySubjectModuleIds: true,
+        applicabilityPlaceIds: true,
+      },
+    })
+  })
+
   it('derives ITEM guest support from the server capability and keeps explicit publication', async () => {
     process.env.GENERALIZED_CONTENT_CAPABILITIES_ENABLED = 'true'
     const result = await testRouter
@@ -137,6 +154,71 @@ describe('admin universal content reads', () => {
       },
     })
   })
+
+  it.each(['valid', 'missing', 'wrong-kind', 'foreign-tenant', 'foreign-venue', 'foreign-place'])(
+    'checks %s fact applicability targets before declaring a preview valid',
+    async (scenario) => {
+      const subject = {
+        id: 'subject-1',
+        tenantId: scenario === 'foreign-tenant' ? 't2' : 't1',
+        venueId: scenario === 'foreign-venue' ? 'v2' : 'v1',
+        kind: scenario === 'wrong-kind' ? 'POLICY' : 'SERVICE',
+      }
+      identityFindMany.mockImplementation(async ({ where }) =>
+        scenario !== 'missing' &&
+        where.tenantId === subject.tenantId &&
+        where.venueId === subject.venueId &&
+        where.id.in.includes(subject.id) &&
+        where.kind.in.includes(subject.kind)
+          ? [{ id: subject.id }]
+          : [],
+      )
+      placeFindMany.mockImplementation(async ({ where }) =>
+        where.tenantId === 't1' &&
+        where.venueId === (scenario === 'foreign-place' ? 'v2' : 'v1') &&
+        where.id.in.includes('place-1')
+          ? [{ id: 'place-1' }]
+          : [],
+      )
+      const result = testRouter.createCaller(context()).content.previewUniversalContent({
+        tenantId: 't1',
+        venueId: 'v1',
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'OPERATIONAL_FACT',
+            label: 'Entry',
+            value: 'North door',
+            applicability: {
+              scope: 'SUBJECTS',
+              subjectModuleIds: ['subject-1'],
+              placeIds: ['place-1'],
+            },
+          },
+        },
+      })
+      if (scenario === 'valid') await expect(result).resolves.toMatchObject({ valid: true })
+      else await expect(result).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(identityFindMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: 't1',
+          venueId: 'v1',
+          id: { in: ['subject-1'] },
+          kind: { in: ['SERVICE', 'ITEM', 'EVENT'] },
+        },
+        select: { id: true },
+      })
+      expect(placeFindMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: 't1',
+          venueId: 'v1',
+          id: { in: ['place-1'] },
+        },
+        select: { id: true },
+      })
+    },
+  )
 
   it('validates ITEM authoring while keeping guest publication explicit', async () => {
     placeFindFirst.mockResolvedValue({ id: 'place-1' })

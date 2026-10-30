@@ -1,3 +1,4 @@
+import { assertLocalLunaPlannerProfile, type LocalLunaPlannerProfile } from './local-luna-planner-profile'
 import { randomUUID } from 'node:crypto'
 
 import type { AiMessage, AiSystemBlock } from './anthropic'
@@ -125,7 +126,10 @@ export function textAttemptCostCeilingUnits(params: {
   system: AiSystemBlock[]
   messages: AiMessage[]
   maxOutputTokens: number
+  invocationProfile?: LocalLunaPlannerProfile
 }): bigint {
+  const profile = params.invocationProfile
+  if (profile !== undefined) assertLocalLunaPlannerProfile(profile, params.spec, { maxAttempts: 1, maxOutputTokens: params.maxOutputTokens, streaming: false, explicitCache: params.system.some(block => block.cache_control?.type === 'ephemeral') })
   const inputBytes = Buffer.byteLength(
     JSON.stringify({ system: params.system, messages: params.messages }),
     'utf8',
@@ -145,11 +149,12 @@ export function textAttemptCostCeilingUnits(params: {
     params.spec.pricingUsdPerMillionTokens.cacheWrite,
     params.spec.pricingUsdPerMillionTokens.cacheRead,
   )
-  return (
+  const ordinary = (
     BigInt(params.spec.maxBillableInputTokens) * ceilingPriceUnitsPerToken(inputRate) +
     BigInt(params.maxOutputTokens) *
       ceilingPriceUnitsPerToken(params.spec.pricingUsdPerMillionTokens.output)
   )
+  return profile ? ordinary * 2n : ordinary
 }
 
 export function embeddingAttemptCostCeilingUnits(params: {

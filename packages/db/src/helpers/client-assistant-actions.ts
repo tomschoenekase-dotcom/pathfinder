@@ -49,7 +49,7 @@ const completeTurnInput = z
     expectedRevision: z.number().int().positive(),
     assistantMessage: z.string().trim().min(1).max(1_200),
     questionCategory: z.string().trim().min(1).max(100),
-    safeActions: z.array(z.record(z.unknown())).max(3),
+    safeActions: z.array(z.record(z.string(), z.unknown())).max(3),
     outcome: z.discriminatedUnion('status', [
       z.object({ status: z.literal('COMPLETED') }).strict(),
       z

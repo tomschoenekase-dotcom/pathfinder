@@ -53,6 +53,10 @@ it('fits the full declared tool catalog in context while rejecting an oversized 
 
 const EXPECTED_TOOLS = [
   'crm.search_organizations',
+  'crm.get_outreach_history',
+  'crm.propose_outreach_history_review',
+  'crm.propose_outreach_history_retract',
+  'crm.propose_record_update',
   'crm.get_organization',
   'crm.list_candidates',
   'crm.get_contact_history',
@@ -77,6 +81,7 @@ const EXPECTED_TOOLS = [
   'venues.get_release_preflight',
   'venues.get_preview_link',
   'venues.get_guest_link',
+  'venues.get_guest_model',
   'appearance.get',
   'support.list',
   'operator.get_manual',
@@ -179,6 +184,8 @@ const EXPECTED_TOOLS = [
   'venues.propose_package_import',
   'venues.propose_content_changeset',
   'venues.propose_publish',
+  'venues.propose_guest_model',
+  'venues.propose_guest_model_reset',
   'venues.propose_operational_update',
   'venues.propose_operational_update_schedule',
   'venues.propose_operational_update_end',
@@ -217,9 +224,7 @@ function schemaKeys(schema: unknown, into = new Set<string>()): Set<string> {
 }
 
 function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let current = schema
-  while (current instanceof z.ZodEffects) current = current.innerType()
-  return current
+  return schema
 }
 
 describe('operator MCP catalog', () => {
@@ -281,7 +286,7 @@ describe('operator MCP catalog', () => {
     for (const tool of OPERATOR_MCP_TOOLS) {
       const json = tool.inputSchema as { required: string[]; properties: Record<string, unknown> }
       const zodSchema = OPERATOR_MCP_INPUTS[tool.name]
-      const shape = (unwrap(zodSchema) as z.AnyZodObject).shape as Record<string, z.ZodTypeAny>
+      const shape = (unwrap(zodSchema) as z.ZodObject).shape as Record<string, z.ZodTypeAny>
       expect(Object.keys(json.properties).sort(), `${tool.name} keys`).toEqual(
         Object.keys(shape).sort(),
       )
@@ -291,7 +296,11 @@ describe('operator MCP catalog', () => {
       const missing = result.success
         ? []
         : result.error.issues
-            .filter((issue) => issue.code === 'invalid_type' && issue.path.length === 1)
+            .filter(
+              (issue) =>
+                (issue.code === 'invalid_type' || issue.code === 'invalid_value') &&
+                issue.path.length === 1,
+            )
             .map((issue) => String(issue.path[0]))
       expect([...missing].sort(), `${tool.name} required`).toEqual([...json.required].sort())
     }

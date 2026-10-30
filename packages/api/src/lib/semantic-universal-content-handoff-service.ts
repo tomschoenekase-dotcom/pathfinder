@@ -28,7 +28,7 @@ type Input = {
   expectedProposalUpdatedAt: string
   expectedPreviewHash: string
   relation: 'NEW_FACT' | 'CORRECTS' | 'SUPERSEDES'
-  desired: typeof SemanticUpdaterDesiredKnowledge._type
+  desired: typeof SemanticUpdaterDesiredKnowledge._output
   draft: GeneralizedContentRevisionDraft
 }
 

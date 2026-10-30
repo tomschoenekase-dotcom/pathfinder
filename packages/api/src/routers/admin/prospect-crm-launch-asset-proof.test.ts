@@ -1,3 +1,4 @@
+import { ProspectOutreachHistoryError } from '@pathfinder/db'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 
@@ -15,6 +16,7 @@ vi.mock('@pathfinder/db', () => ({
   saveProspectOutreachDraftAction: mocks.saveDraft,
   PROSPECT_OUTREACH_RELEASE_POLICY: { maxRecipients: 50 },
   ProspectOutreachError: class ProspectOutreachError extends Error {},
+  ProspectOutreachHistoryError: class ProspectOutreachHistoryError extends Error {},
 }))
 vi.mock('@pathfinder/jobs', () => ({
   enqueueProspectImportCommit: vi.fn(),
@@ -108,5 +110,21 @@ describe('CRM launch attachment API trust boundary', () => {
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(mocks.saveDraft).not.toHaveBeenCalled()
     expect(mocks.selectAsset).not.toHaveBeenCalled()
+  })
+  it('returns a readable bad request for history holds', async () => {
+    mocks.saveDraft.mockRejectedValueOnce(
+      new ProspectOutreachHistoryError('OUTREACH_HISTORY_HOLD: history_incomplete'),
+    )
+    await expect(
+      caller.crm.saveProspectOutreachDraft({
+        memberId: 'member-1',
+        subject: 'Visit',
+        textBody: 'Hello',
+        groundingSnapshot: { outreachKind: 'cold' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'Outreach is on hold: history incomplete',
+    })
   })
 })

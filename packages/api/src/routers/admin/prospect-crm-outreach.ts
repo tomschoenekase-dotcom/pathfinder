@@ -11,6 +11,7 @@ import {
   emergencyStopProspectDeliveryAction,
   evaluateProspectFollowupReadinessAction,
   ProspectOutreachError,
+  ProspectOutreachHistoryError,
   PROSPECT_OUTREACH_RELEASE_POLICY,
   type VerifiedCurrentProspectPrintAsset,
   publishCrmOperationalSignal,
@@ -41,6 +42,13 @@ import {
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
+  if (error instanceof ProspectOutreachHistoryError) {
+    const reason = error.message
+      .replace(/^OUTREACH_HISTORY_HOLD:\s*/u, '')
+      .replace(/_/gu, ' ')
+      .replace(/([a-z])([A-Z])/gu, '$1 $2')
+    throw new TRPCError({ code: 'BAD_REQUEST', message: `Outreach is on hold: ${reason}` })
+  }
   if (!(error instanceof ProspectOutreachError)) throw error
   const code =
     error.code === 'NOT_FOUND'
@@ -86,7 +94,7 @@ const adminProspectCrmOutreachActionsRouter = router({
           name: prospectBoundedText(191),
           description: z.string().trim().max(2000).optional(),
           organizationIds: z.array(id).min(1).max(5000),
-          cohortSnapshot: z.record(z.unknown()),
+          cohortSnapshot: z.record(z.string(), z.unknown()),
         })
         .strict(),
     )
@@ -111,7 +119,7 @@ const adminProspectCrmOutreachActionsRouter = router({
           subject: prospectBoundedText(998),
           textBody: prospectBoundedText(50_000),
           htmlBody: z.string().max(100_000).optional(),
-          groundingSnapshot: z.record(z.unknown()),
+          groundingSnapshot: z.record(z.string(), z.unknown()),
           launchAssetSelection: AnyVenueLaunchAssetSelectionSchema.optional(),
         })
         .strict(),

@@ -1,5 +1,21 @@
 # Torchiko State of System
 
+Local candidate addendum, 2026-10-23: this repository now contains 269 migrations.
+The pending local suffix contains `20261022001000_deterministic_event_search_projection`
+and `20261023001000_add_fact_applicability`. The hosted migration runner remains frozen
+to its reviewed 267-file manifest and approval. The separate 269 contract validates local
+inventory and read-only ledger evidence; it does not authorize hosted migration writes.
+Current target ledgers must be inspected before a separately approved release. Retained
+release readbacks below describe their recorded revisions, not current hosted state.
+
+## Historical local candidate addenda and release readbacks
+
+Local candidate addendum, 2026-10-21: this repository now contains 268 migrations.
+The additional `20261022001000_deterministic_event_search_projection` migration is pending
+local EVENT projection work. The approved staging endpoint remains 267 migrations with its
+existing frozen manifest and approval; no deployment or broader migration admission is claimed.
+Repository counts in the retained release readbacks below describe their recorded revisions.
+
 September 30, 2026 release readback: staging web and dashboard are active at
 `d2f5be28407837a7a040c4c45eaca1caf7fd85cd`. Web health reports that exact revision and the
 approved staging database, Redis, and storage identities. Six hosted visitor browser sizes passed

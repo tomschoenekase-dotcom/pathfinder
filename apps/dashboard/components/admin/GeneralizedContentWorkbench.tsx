@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { runBoundedClientRequest } from '../../lib/bounded-client-request'
+import { FactApplicabilityReview, factApplicabilitySummary } from './FactApplicabilityReview'
 
 const CONTENT_PREVIEW_TIMEOUT_MS = 15_000
 
@@ -96,6 +97,16 @@ export function GeneralizedContentWorkbench({
   const [effectiveFrom, setEffectiveFrom] = useState('')
   const [effectiveUntil, setEffectiveUntil] = useState('')
   const [payloadJson, setPayloadJson] = useState(JSON.stringify(templates.SERVICE, null, 2))
+  const draftPayload = useMemo(() => {
+    try {
+      const parsed: unknown = JSON.parse(payloadJson)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null
+    } catch {
+      return null
+    }
+  }, [payloadJson])
   const [evidenceJson, setEvidenceJson] = useState('[]')
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -194,7 +205,10 @@ export function GeneralizedContentWorkbench({
     setAudience(module?.audience ?? 'OPERATOR')
     setEffectiveFrom(dateInput(module?.effectiveFrom ?? null))
     setEffectiveUntil(dateInput(module?.effectiveUntil ?? null))
-    setPayloadJson(JSON.stringify(module?.payload ?? templates[nextKind], null, 2))
+    const nextPayload = { ...(module?.payload ?? templates[nextKind]) }
+    // A declaration belongs to the reviewed revision, never to its editable successor.
+    if (nextKind === 'OPERATIONAL_FACT') delete nextPayload.applicability
+    setPayloadJson(JSON.stringify(nextPayload, null, 2))
     setEvidenceJson('[]')
     setNotice(null)
     setError(null)
@@ -331,10 +345,13 @@ export function GeneralizedContentWorkbench({
     }
   }
 
-  async function changePublication(module: EditableModule) {
+  async function changePublication(module: EditableModule, publishing: boolean) {
     if (
       !authoringEnabled ||
-      module.audience !== 'PUBLIC' ||
+      (publishing &&
+        (module.audience !== 'PUBLIC' || module.publishedRevisionId === module.revisionId)) ||
+      (!publishing && !module.publishedRevisionId) ||
+      module.publishedRevisionId !== selected?.publishedRevisionId ||
       module.id !== selected?.id ||
       module.revisionId !== selected.revisionId ||
       module.version !== selected.version ||
@@ -343,16 +360,15 @@ export function GeneralizedContentWorkbench({
       panelInFlight.current
     )
       return
-    const publishing = module.publishedRevisionId !== module.revisionId
     const confirmed = window.confirm(
       publishing
-        ? `Publish ${module.kind} version ${module.version} to the guest guide? This changes live guest context when the server capability flag is enabled.`
-        : `Withdraw ${module.kind} version ${module.version} from the guest guide?`,
+        ? `Publish ${module.kind} version ${module.version} to the guest guide? Module ${module.id}; revision ${module.revisionId}.${module.kind === 'OPERATIONAL_FACT' ? ` Applicability: ${factApplicabilitySummary(module.payload)} This is a human whole-body assertion; independent review is not enforced by this screen.` : ''} This changes live guest context when the server capability flag is enabled.`
+        : `Withdraw the current published ${module.kind} revision from the guest guide?`,
     )
     if (!confirmed) return
     const started = begin()
     if (!started) return
-    const actionIdentity = `${publishing ? 'PUBLISH' : 'WITHDRAW'}:${module.id}:${module.revisionId}:${module.version}`
+    const actionIdentity = `${publishing ? 'PUBLISH' : 'WITHDRAW'}:${module.id}:${publishing ? module.revisionId : module.publishedRevisionId}:${module.version}`
     try {
       const requestId = publicationRequestKeys.current.get(actionIdentity) ?? crypto.randomUUID()
       publicationRequestKeys.current.set(actionIdentity, requestId)
@@ -369,14 +385,14 @@ export function GeneralizedContentWorkbench({
             tenantId,
             venueId,
             moduleId: module.id,
-            expectedPublishedRevisionId: module.revisionId,
+            expectedPublishedRevisionId: module.publishedRevisionId!,
             requestId,
           })
       if (!isCurrent(started.generation, started.scope)) return
       setNotice(
         result.action === 'PUBLISH'
           ? `Version ${module.version} is explicitly published for effective guest resolution.`
-          : `Version ${module.version} is withdrawn from guest resolution.`,
+          : 'The current published revision is withdrawn from guest resolution.',
       )
       publicationRequestKeys.current.delete(actionIdentity)
       setRequiresReview(true)
@@ -399,7 +415,7 @@ export function GeneralizedContentWorkbench({
       aria-busy={busy}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-pf-primary">
             Human operator action
           </p>
@@ -444,20 +460,29 @@ export function GeneralizedContentWorkbench({
             <div className="mt-3 space-y-2">
               <button
                 type="button"
-                onClick={() => changePublication(selected)}
+                onClick={() => changePublication(selected, true)}
                 disabled={
                   !scopeReady ||
                   !authoringEnabled ||
                   busy ||
                   requiresReview ||
-                  selected.audience !== 'PUBLIC'
+                  selected.audience !== 'PUBLIC' ||
+                  selected.publishedRevisionId === selected.revisionId
                 }
                 className="min-h-10 w-full rounded-xl border border-pf-primary px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
               >
-                {selected.publishedRevisionId === selected.revisionId
-                  ? 'Withdraw from guest guide'
-                  : 'Publish this version to guests'}
+                Publish this version to guests
               </button>
+              {selected.publishedRevisionId ? (
+                <button
+                  type="button"
+                  onClick={() => changePublication(selected, false)}
+                  disabled={!scopeReady || !authoringEnabled || busy || requiresReview}
+                  className="min-h-10 w-full rounded-xl border border-pf-primary px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                >
+                  Withdraw from guest guide
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -485,6 +510,9 @@ export function GeneralizedContentWorkbench({
                   </label>
                   <p className="mt-2 text-xs text-rose-900">
                     This appends a revision. It does not delete history.
+                    {selected.kind === 'OPERATIONAL_FACT'
+                      ? ' The retirement revision has unknown applicability; it does not inherit the current declaration. The currently published revision stays published until separately withdrawn or replaced.'
+                      : null}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
@@ -513,7 +541,7 @@ export function GeneralizedContentWorkbench({
           ) : null}
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid min-w-0 items-start gap-4 sm:grid-cols-3">
           <label className="text-sm font-semibold text-pf-deep">
             Type
             <select
@@ -575,6 +603,7 @@ export function GeneralizedContentWorkbench({
         <label className="text-sm font-semibold text-pf-deep">
           Typed payload JSON
           <textarea
+            aria-describedby={kind === 'OPERATIONAL_FACT' ? 'fact-applicability-help' : undefined}
             value={payloadJson}
             disabled={!scopeReady || busy || requiresReview}
             onChange={(event) => setPayloadJson(event.target.value)}
@@ -599,6 +628,34 @@ export function GeneralizedContentWorkbench({
           </span>
         </label>
       </div>
+
+      {kind === 'OPERATIONAL_FACT' ? (
+        <div className="mt-3 space-y-3">
+          {selected ? (
+            <FactApplicabilityReview
+              payload={selected.payload}
+              revisionLabel={`Stored module ${selected.id} · v${selected.version} · revision ${selected.revisionId}`}
+            />
+          ) : null}
+          {draftPayload ? (
+            <FactApplicabilityReview
+              payload={draftPayload}
+              revisionLabel="Unsaved successor draft applicability"
+            />
+          ) : (
+            <p className="text-sm text-rose-900">
+              Draft JSON is invalid. Correct it before validation.
+            </p>
+          )}
+          <p id="fact-applicability-help" className="text-sm text-pf-deep/70">
+            Applicability: VENUE means venue-wide; SUBJECTS limits every sentence to the listed
+            same-venue SERVICE, ITEM or EVENT module IDs and visible place IDs. Omitted means
+            unknown. A new revision never inherits the previous declaration. Any label or value
+            change needs a fresh declaration checked by an independent reviewer; do not copy the old
+            one. Keep mixed or uncertain scope VENUE or unknown.
+          </p>
+        </div>
+      ) : null}
 
       {error || notice ? (
         <div

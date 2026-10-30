@@ -6,6 +6,7 @@
  * records").
  */
 
+import { classifyGuestDatedEventWithReason } from './guest-event-dates'
 import { hiddenGuideSentences } from './guest-facing-text'
 
 export type GuideQualityRecord =
@@ -100,12 +101,28 @@ function textOf(record: GuideQualityRecord): Array<{ field: string; text: string
 
 export function guideQualityWarnings(
   records: readonly GuideQualityRecord[],
+  options: { today?: string } = {},
 ): GuideQualityWarning[] {
+  const today = options.today ?? new Date().toISOString().slice(0, 10)
   const warnings: GuideQualityWarning[] = []
   let hiddenSentenceWarnings = 0
   for (const record of records) {
     const label = record.kind === 'place' ? record.name : record.title
     const fields = textOf(record)
+
+    // A passed year in the title while the text points at a newer run: the guide can only show it
+    // with a "check its dates" marker and leave the decision to the model, so the author fixes it.
+    // The New Year grace and season-span markers are about today's date, not the record, and stay quiet.
+    if (
+      record.kind === 'knowledge' &&
+      classifyGuestDatedEventWithReason(record, today).reason === 'NEAR_YEAR'
+    ) {
+      warnings.push({
+        code: 'GUIDE_QUALITY_PAST_TITLE_YEAR',
+        path: `${record.path}.title`,
+        message: `“${clip(label, LABEL_CHARS)}” has a past year in its title, but its text names this year or a later one: “${clip(record.content, QUOTE_CHARS)}”. If it runs again, retitle it without the old year and give each date with its year; if that year is only a note (a source check, an update date), remove the note. Visitors are otherwise told to check the dates themselves. ${MANUAL}`,
+      })
+    }
 
     const research = fields.map((f) => ({ ...f, m: f.text.match(RESEARCH_TEXT) })).find((f) => f.m)
     if (research?.m) {
@@ -141,7 +158,8 @@ export function guideQualityWarnings(
         })
       }
     }
-    // The exact sentences the visitor guide leaves out, so no fact disappears without notice.
+    // Sentences that read as research notes. The guide shows them to visitors as written (it no
+    // longer drops sentences, so no fact disappears), so the author restates them as plain facts.
     for (const field of fields) {
       for (const sentence of hiddenGuideSentences(field.text).slice(
         0,
@@ -153,7 +171,7 @@ export function guideQualityWarnings(
         warnings.push({
           code: 'GUIDE_QUALITY_HIDDEN_SENTENCE',
           path: `${record.path}.${field.field}`,
-          message: `“${clip(label, LABEL_CHARS)}”: the full venue guide leaves this sentence out, because it drops whole sentences that read as research notes or source lists: “${quote}”. Any fact in it is lost too. Restate the fact in its own sentence, as staff would say it. ${MANUAL}`,
+          message: `“${clip(label, LABEL_CHARS)}”: this sentence reads as research notes or a source list, and the visitor guide reads it as written and may repeat it: “${quote}”. Restate any fact in it as its own plain sentence, as staff would say it, and drop the note. ${MANUAL}`,
         })
       }
     }
@@ -301,7 +319,10 @@ function knowledgeRecord(path: string, v: Record<string, unknown>): GuideQuality
 }
 
 /** Guide-quality warnings for every place and knowledge record a venue package creates or updates. */
-export function venuePackageGuideQualityWarnings(payload: PayloadLike): GuideQualityWarning[] {
+export function venuePackageGuideQualityWarnings(
+  payload: PayloadLike,
+  options: { today?: string } = {},
+): GuideQualityWarning[] {
   const records: GuideQualityRecord[] =
     payload.schemaVersion === 3
       ? [
@@ -318,5 +339,5 @@ export function venuePackageGuideQualityWarnings(payload: PayloadLike): GuideQua
           ...payload.places.map((p, i) => placeRecord(`places.${i}`, p)),
           ...payload.knowledgeEntries.map((k, i) => knowledgeRecord(`knowledgeEntries.${i}`, k)),
         ]
-  return guideQualityWarnings(records)
+  return guideQualityWarnings(records, options)
 }

@@ -59,7 +59,7 @@ export const ProductEntitlementDecision = z
     ]),
     sourceId: z.string().min(1).nullable(),
     planTier: z.string().min(1),
-    settings: z.record(z.unknown()),
+    settings: z.record(z.string(), z.unknown()),
     validUntil: z.string().datetime({ offset: true }).nullable(),
   })
   .strict()

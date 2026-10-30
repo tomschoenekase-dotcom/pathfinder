@@ -144,7 +144,7 @@ export const adminProductEntitlementsRouter = router({
           kind: z.enum(['EXPLICIT', 'TRIAL', 'PROMOTION', 'ADMIN']).default('ADMIN'),
           startsAt: z.string().datetime({ offset: true }).optional(),
           endsAt: z.string().datetime({ offset: true }).nullable().default(null),
-          settings: settings.default({}),
+          settings: settings.prefault({}),
           reason: z.string().trim().min(3).max(500),
         })
         .strict(),
@@ -223,7 +223,7 @@ export const adminProductEntitlementsRouter = router({
             .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u),
           capability: ProductCapabilityId,
           enabled: z.boolean(),
-          settings: settings.default({}),
+          settings: settings.prefault({}),
         })
         .strict(),
     )

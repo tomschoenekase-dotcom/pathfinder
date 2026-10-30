@@ -99,7 +99,11 @@ export const crmOutreachDraftKind: OperatorProposalKind<DraftArgs> = {
         memberId: args.campaignMemberId,
         subject: args.subject,
         textBody: args.textBody,
-        groundingSnapshot: { source: 'operator', proposalId: context.proposalId },
+        groundingSnapshot: {
+          source: 'operator',
+          proposalId: context.proposalId,
+          outreachKind: 'cold',
+        },
         actor: context.actor,
       },
       context.database,

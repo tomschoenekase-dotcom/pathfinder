@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "profile": "garden",
+  "rows": [
+    {
+      "category": "hours-season",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information.",
+      "recheckBy": "2026-11-01"
+    },
+    {
+      "category": "closures",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information.",
+      "recheckBy": "2026-11-01"
+    },
+    {
+      "category": "admission-prices",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information.",
+      "recheckBy": "2026-11-01"
+    },
+    {
+      "category": "tickets-booking",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information."
+    },
+    {
+      "category": "address-parking",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information."
+    },
+    {
+      "category": "contact",
+      "status": "KNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [
+        {
+          "sourceId": "S001",
+          "start": 0,
+          "end": 26,
+          "text": "Fictional Moonbeam Garden "
+        }
+      ],
+      "observedAt": "2026-10-23",
+      "publishImpact": "NONE",
+      "rationale": "Fictional fixture explicitly discloses missing information."
+    },
+    {
+      "category": "accessibility",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information."
+    },
+    {
+      "category": "food-allergen-policy",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information."
+    },
+    {
+      "category": "pets-service-animals",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information."
+    },
+    {
+      "category": "weather-policy",
+      "status": "UNKNOWN",
+      "records": ["/knowledgeEntries/create/0"],
+      "sources": [],
+      "observedAt": "2026-10-23",
+      "publishImpact": "DISCLOSE",
+      "rationale": "Fictional fixture explicitly discloses missing information."
+    }
+  ]
+}

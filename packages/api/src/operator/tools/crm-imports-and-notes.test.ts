@@ -5,6 +5,7 @@ import { OPERATOR_MCP_OUTPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { operatorContactView, type SnapshotContactInput } from '../crm-projection'
 import { OperatorNotFoundError } from '../grants'
+import { createOperatorRegistry } from '../registry'
 import { crmAccountReadTools } from './crm-accounts'
 import { crmImportReadTools } from './crm-imports'
 import { OperatorInvalidCursorError } from './page'
@@ -114,6 +115,60 @@ describe('crm.get_import', () => {
     row(6, 'QUARANTINED'),
     row(7, 'VALID'),
   ]
+
+  it('round-trips nested row cursors through the registry without changing import metadata', async () => {
+    const database = importFake(rows)
+    const registry = createOperatorRegistry({ reads: [getImport] })
+    const context = { database, grant: { capabilities: ['crm:read'] }, now: at(3) } as any
+    const first = (await registry.callTool(
+      'crm.get_import',
+      { importId: 'import-1', limit: 2 },
+      context,
+    )) as any
+    expect(first.rows).toMatchObject({ complete: false })
+    expect(first.rows.nextCursor).not.toBe('row-002')
+    const second = (await registry.callTool(
+      'crm.get_import',
+      { importId: 'import-1', limit: 2, cursor: first.rows.nextCursor },
+      context,
+    )) as any
+    expect(second.rows.items.map((entry: any) => entry.rowId)).toEqual(['row-003', 'row-004'])
+    expect(second.import).toEqual(first.import)
+    expect(second.dispositions).toEqual(first.dispositions)
+    const third = (await registry.callTool(
+      'crm.get_import',
+      { importId: 'import-1', limit: 25, cursor: second.rows.nextCursor },
+      context,
+    )) as any
+    expect(third.rows).toMatchObject({ complete: true, nextCursor: null })
+    expect(third.rows.items.map((entry: any) => entry.rowId)).toEqual([
+      'row-005',
+      'row-006',
+      'row-007',
+    ])
+  })
+
+  it('rejects changed import or row filters and raw foreign positions before the handler runs', async () => {
+    const database = importFake(rows)
+    const registry = createOperatorRegistry({ reads: [getImport] })
+    const context = { database, grant: { capabilities: ['crm:read'] }, now: at(3) } as any
+    const first = (await registry.callTool(
+      'crm.get_import',
+      { importId: 'import-1', limit: 2 },
+      context,
+    )) as any
+    database.prospectImport.findUnique.mockClear()
+    for (const args of [
+      { importId: 'import-2', cursor: first.rows.nextCursor },
+      { importId: 'import-1', rowStatus: 'FAILED', cursor: first.rows.nextCursor },
+      { importId: 'import-1', cursor: 'row-from-another-import' },
+    ]) {
+      await expect(registry.callTool('crm.get_import', args, context)).rejects.toMatchObject({
+        code: 'INVALID_CURSOR',
+      })
+    }
+    expect(database.prospectImport.findUnique).not.toHaveBeenCalled()
+  })
 
   it('reconciles every disposition to the recorded total and matches its own output contract', async () => {
     const out = await run(getImport, { importId: 'import-1' }, importFake(rows))
@@ -264,7 +319,10 @@ describe('crm.get_note', () => {
       prospectOrganization: {
         findUnique: vi.fn().mockResolvedValue({ id: 'org-1', notes: long, ...overrides }),
       },
-      prospectActivity: { findFirst: vi.fn().mockResolvedValue(null) },
+      prospectActivity: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       prospectContact: {
         findFirst: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
@@ -300,6 +358,7 @@ describe('crm.get_note', () => {
     const db = database()
     db.prospectActivity.findFirst.mockResolvedValue({
       id: 'note-1',
+      organizationId: 'org-1',
       occurredAt: at(3),
       detail: 'y'.repeat(900),
       summary: 'Operator note added',
@@ -307,6 +366,13 @@ describe('crm.get_note', () => {
     const out = await run(getNote, { organizationId: 'org-1', noteId: 'note-1' }, db)
     expect(out.source).toBe('activity')
     expect(out.length).toBe(900)
+    expect(out).toMatchObject({
+      archived: false,
+      corrected: false,
+      originalText: { text: 'y'.repeat(900), untrusted: true },
+    })
+    expect(out.revision).toMatch(/^[a-f0-9]{64}$/u)
+    expect(OPERATOR_MCP_OUTPUTS['crm.get_note'].safeParse(out).success).toBe(true)
     expect(db.prospectActivity.findFirst.mock.calls[0]![0].where).toMatchObject({
       id: 'note-1',
       organizationId: 'org-1',
@@ -321,6 +387,44 @@ describe('crm.get_note', () => {
     await expect(
       run(getNote, { organizationId: 'org-1', noteId: 'n', contactId: 'c' }, database()),
     ).rejects.toThrow()
+  })
+
+  it('projects a corrected archived note while retaining its original words', async () => {
+    const db = database()
+    const original = {
+      id: 'note-1',
+      organizationId: 'org-1',
+      occurredAt: at(1),
+      detail: 'Original owner words',
+      summary: 'Operator note added',
+    }
+    db.prospectActivity.findFirst.mockResolvedValue(original)
+    db.prospectActivity.findMany.mockResolvedValue([
+      {
+        id: 'correction',
+        occurredAt: at(2),
+        evidence: {
+          schema: 'crm-note-lifecycle/v1',
+          noteId: 'note-1',
+          action: 'correct',
+          text: 'Corrected observation',
+        },
+      },
+      {
+        id: 'archive',
+        occurredAt: at(3),
+        evidence: { schema: 'crm-note-lifecycle/v1', noteId: 'note-1', action: 'archive' },
+      },
+    ])
+    const out = await run(getNote, { organizationId: 'org-1', noteId: 'note-1' }, db)
+    expect(out).toMatchObject({
+      archived: true,
+      corrected: true,
+      text: { text: 'Corrected observation', untrusted: true },
+      originalText: { text: 'Original owner words', untrusted: true },
+    })
+    expect(original.detail).toBe('Original owner words')
+    expect(OPERATOR_MCP_OUTPUTS['crm.get_note'].safeParse(out).success).toBe(true)
   })
 
   it('keeps a suppressed contact note private', async () => {

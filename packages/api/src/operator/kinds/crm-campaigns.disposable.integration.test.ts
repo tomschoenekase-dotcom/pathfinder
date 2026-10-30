@@ -19,6 +19,10 @@ import { resolveOperatorConfig } from '../config'
 import type { VerifiedOperatorGrant } from '../oauth'
 import { approveAndApplyProposal, createKindRegistry, createProposal } from '../proposals'
 import { createOperatorRegistry, defaultVenueRead } from '../registry'
+import {
+  closeFictionalOutreachHistorySource,
+  reviewEmptyFictionalOutreachHistory,
+} from '../outreach-complete.disposable.fixture'
 import { OPERATOR_PROPOSAL_KINDS } from './index'
 
 /**
@@ -88,7 +92,7 @@ async function read(name: OperatorReadToolName, args: Record<string, unknown>) {
 }
 
 /** An account with one contact: verified for sending, only unverified, or suppressed. */
-async function prospect(kind: 'verified' | 'unverified' | 'suppressed') {
+async function prospect(kind: 'verified' | 'unverified' | 'suppressed', reviewHistory = true) {
   const tag = `${kind}-${randomUUID().slice(0, 8)}`
   const created = await withTenantIsolationBypass(() =>
     createProspectAction({
@@ -120,6 +124,10 @@ async function prospect(kind: 'verified' | 'unverified' | 'suppressed') {
       data: { suppressedAt: new Date() },
     })
   }
+  if (reviewHistory)
+    expect(
+      (await reviewEmptyFictionalOutreachHistory(created.organization.id)).historyComplete,
+    ).toBe(true)
   return {
     organizationId: created.organization.id,
     contactId: created.contact!.id,
@@ -173,6 +181,7 @@ describe.skipIf(!enabled)(
     })
 
     afterAll(async () => {
+      await closeFictionalOutreachHistorySource()
       if (crmPolicySnapshotTaken) {
         if (originalCrmPolicy) {
           await db.operatorAutonomyPolicy.upsert({
@@ -237,14 +246,18 @@ describe.skipIf(!enabled)(
         members.items.map((item: any) => [item.organizationId, item]),
       )
       expect(byOrg[verified.organizationId]).toMatchObject({
+        addressEligibleToDraft: true,
+        addressEligibleToEmail: true,
         eligibleToDraft: true,
         eligibleToEmail: true,
       })
-      // Drafting is fine before verification; emailing is not.
+      // The address may be drafted to, but unverified contact health still holds cold outreach.
       expect(byOrg[unverified.organizationId]).toMatchObject({
-        eligibleToDraft: true,
+        addressEligibleToDraft: true,
+        addressEligibleToEmail: false,
+        eligibleToDraft: false,
         eligibleToEmail: false,
-        eligibilityReasons: ['not_verified'],
+        eligibilityReasons: expect.arrayContaining(['not_verified']),
       })
       expect(byOrg[suppressed.organizationId]).toMatchObject({
         eligibleToDraft: false,
@@ -252,6 +265,39 @@ describe.skipIf(!enabled)(
       })
       // Canonical campaign creation selects no contact when none may be written to.
       expect(byOrg[suppressed.organizationId].eligibilityReasons).toEqual(['no_contact_selected'])
+    })
+
+    it('does not draft a cold message when a reachable verified address has incomplete history', async () => {
+      const incomplete = await prospect('verified', false)
+      const campaign = await propose('crm.propose_campaign_create', {
+        name: `Unknown history ${suffix}`,
+        organizationIds: [incomplete.organizationId],
+      })
+      expect((await approve(campaign)).status).toBe('APPLIED')
+      const incompleteCampaignId = ((await row(campaign.proposalId)).result as any).campaignId
+      const member = await db.prospectCampaignMember.findFirstOrThrow({
+        where: { campaignId: incompleteCampaignId, organizationId: incomplete.organizationId },
+      })
+      const permission = await read('crm.check_can_contact', {
+        email: incomplete.email,
+        purpose: 'draft',
+      })
+      expect(permission).toMatchObject({
+        addressAllowed: true,
+        allowed: false,
+        coldOutreachAllowed: false,
+        outreachHistory: { historyComplete: false, coldEmailCount: null },
+      })
+      const draft = await propose('crm.propose_outreach_draft', {
+        campaignMemberId: member.id,
+        subject: 'Fictional draft hold',
+        textBody: 'This fictional draft must stay blocked until history is reviewed.',
+      })
+      expect((await approve(draft)).status).toBe('FAILED')
+      expect(await db.prospectOutreachDraft.count({ where: { memberId: member.id } })).toBe(0)
+      expect(
+        await db.prospectSendBatch.count({ where: { campaignId: incompleteCampaignId } }),
+      ).toBe(0)
     })
 
     it('adds a member to an existing campaign: a named contact stays selected, and a replay returns the same member', async () => {
@@ -379,6 +425,18 @@ describe.skipIf(!enabled)(
     })
 
     it('a newer draft version makes an old review stale instead of approving changed content', async () => {
+      // Use a reviewed contact for the positive editing path, then explicitly lower readiness
+      // for the following staging-refusal case. No history or address gate is bypassed.
+      await reviewProspectContactReadinessAction({
+        contactId: unverified.contactId,
+        emailReadiness: 'VALID',
+        permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+        evidence: {
+          reviewReason: 'Fictional versioning fixture is verified for this bounded positive case',
+          source: 'disposable-test',
+        },
+        actor: admin,
+      })
       const member = await db.prospectCampaignMember.findFirstOrThrow({
         where: { campaignId, organizationId: unverified.organizationId },
       })
@@ -406,6 +464,10 @@ describe.skipIf(!enabled)(
         (await db.prospectOutreachDraft.findUniqueOrThrow({ where: { id: oldDraft.draftId } }))
           .status,
       ).toBe('SUPERSEDED')
+      await db.prospectContact.update({
+        where: { id: unverified.contactId },
+        data: { emailReadiness: 'UNKNOWN', permissionState: 'UNKNOWN' },
+      })
     })
 
     let batchId = ''
@@ -427,8 +489,17 @@ describe.skipIf(!enabled)(
         ],
       })
       const refusedResult = await approve(refused)
-      expect(refusedResult).toMatchObject({ status: 'FAILED', failureCode: 'SUPPRESSED' })
-      expect(refusedResult.applyStartedAt).toBeNull()
+      // The canonical history/health preflight now refuses before the older address-only gate.
+      // Entering that preflight records operation progress, but creates no frozen batch or send.
+      expect(refusedResult).toMatchObject({ status: 'FAILED', failureCode: 'APPLY_FAILED' })
+      expect(
+        await read('crm.check_can_contact', { email: unverified.email, purpose: 'send' }),
+      ).toMatchObject({
+        allowed: false,
+        addressAllowed: false,
+        coldOutreachAllowed: false,
+        reason: 'not_verified',
+      })
       expect(await db.prospectSendBatch.count({ where: { campaignId } })).toBe(0)
 
       const stage = await propose('crm.propose_batch_stage', {
@@ -539,6 +610,7 @@ describe.skipIf(!enabled)(
               createdBy: 'seed',
             },
           })
+      await reviewEmptyFictionalOutreachHistory(verified.organizationId)
       const real = { ...args, providerAccountId: account.id }
       await db.prospectDeliveryControl.upsert({
         where: { id: 'global' },

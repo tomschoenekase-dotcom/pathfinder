@@ -236,6 +236,9 @@ export function resolveAiWorkloadConfiguration(params: {
   }
   const parsed = (params.overrides ?? []).map((value) => AiConfigurationOverrideSchema.parse(value))
   parsed.sort((left, right) => rank[left.scope.level] - rank[right.scope.level])
+  // Defaults belong to the selected model. Explicit policy limits still inherit field by field,
+  // including PLATFORM limits, whose source label alone cannot distinguish them from defaults.
+  const explicitlySetLimits = new Set<'timeoutMs' | 'maxAttempts' | 'maxOutputTokens'>()
 
   for (const override of parsed) {
     assertScopeMatches(override, params.workloadId, params.clientId, params.venueId)
@@ -268,6 +271,18 @@ export function resolveAiWorkloadConfiguration(params: {
       effective.primaryModelKey = next.primaryModelKey
       effective.model = selected
       effective.sources.primaryModelKey = level
+      if (!explicitlySetLimits.has('timeoutMs')) {
+        effective.timeoutMs = selected.limits.timeoutMs
+        effective.sources.timeoutMs = level
+      }
+      if (!explicitlySetLimits.has('maxAttempts')) {
+        effective.maxAttempts = selected.limits.maxAttempts
+        effective.sources.maxAttempts = level
+      }
+      if (!explicitlySetLimits.has('maxOutputTokens')) {
+        effective.maxOutputTokens = selected.limits.maxOutputTokens ?? null
+        effective.sources.maxOutputTokens = level
+      }
     }
     if (next.fallback !== undefined) {
       effective.fallback = { ...next.fallback, modelKeys: [...next.fallback.modelKeys] }
@@ -276,14 +291,17 @@ export function resolveAiWorkloadConfiguration(params: {
     if (next.timeoutMs !== undefined) {
       effective.timeoutMs = next.timeoutMs
       effective.sources.timeoutMs = level
+      explicitlySetLimits.add('timeoutMs')
     }
     if (next.maxAttempts !== undefined) {
       effective.maxAttempts = next.maxAttempts
       effective.sources.maxAttempts = level
+      explicitlySetLimits.add('maxAttempts')
     }
     if (next.maxOutputTokens !== undefined) {
       effective.maxOutputTokens = next.maxOutputTokens
       effective.sources.maxOutputTokens = level
+      explicitlySetLimits.add('maxOutputTokens')
     }
     if (next.requestBudgetCeilingE8Usd !== undefined) {
       effective.requestBudgetCeilingE8Usd = next.requestBudgetCeilingE8Usd

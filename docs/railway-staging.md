@@ -254,7 +254,7 @@ build or public web health response is not proof that all three service variable
 Railway's pre-deploy runtime does not inherit Docker image `ENV`. Before starting this exact web
 rollout, set the non-secret Railway **web service variable**
 `PATHFINDER_STAGING_MIGRATION_APPROVAL` to the exact source pin in
-`Dockerfile.web.staging` and `scripts/run-staging-migration-predeploy.mjs`. The pin must
+`Dockerfile.web.staging` and `scripts/lib/release269-runtime-admission.mjs`. The pin must
 match both the checked-in pre-deploy contract and the staging image pin; either mismatch stops before
 Prisma when migrations are pending. A pending `preserve-existing` migration also requires
 `PATHFINDER_STAGING_MIGRATION_ONLY_HOLD=1`. Capture the final owner SHA, pause application autodeploy
@@ -293,7 +293,26 @@ The measured V1 processing predecessor `701c47e4a75353922ae18a886dde2ea44caf5190
 
 The measured V1 submission predecessor `1e84eee2bb99912ca7aa44382ed17eb9f4f68a88` retains 224 migrations, 251 public tables, and normalized manifest SHA-256 `8ce5fbb7e14ea3c57d6b68895d742b59e455dbc68316db7bb101bb7858fd1532`. Its earlier fixture proof remains preserved and the 224-row state is explicitly admitted as a predecessor.
 
-The October 3 source endpoint is exactly 267 migrations and 297 public tables, ending with
+The October 25–26 candidate endpoint is exactly 269 migrations and 297 public tables. Its dedicated
+runtime uses the [overnight release exception](production-cutover-20261026.md), the frozen
+267 prefix and only the complete reviewed two-migration suffix. It requires zero affected event
+projection rows before any write, full original-data preservation, fresh release-bound backup and
+restore proof, and the existing held-web sequence. Positive or unknown affected counts stop release.
+Historical 267 admission remains frozen separately. No inventory validation alone admits a hosted write.
+The 269 staging runner reads the complete queue registry from the pinned existing Redis service
+inside predeploy, then repeats that read after the final database snapshot. Do not preload a static
+queue JSON attestation before a build. The reader requires every pending state to be zero and never
+constructs queues or changes their contents. The existing `REDIS_RESOURCE_ID` and private endpoint
+must match the reviewed staging resource; no extra resource variable is required. Staging database
+drain remains zero other client sessions, with all application instances stopped.
+
+The October 26 evening exception in `production-cutover-20261026.md` additionally
+permits the explicit `--preserve-dormant-queues` CLI option. This uses the separate,
+versioned read-only preservation proof, with two unchanged snapshots at least 30 seconds
+apart and mandatory `EVAL_RO`/`CLIENT LIST` permissions. All stopped-service, database,
+backup and freshness checks remain required; no queue or worker flag is changed.
+
+The historical October 3 source endpoint is exactly 267 migrations and 297 public tables, ending with
 `20261002121000_prospect_organization_merge`, with LF-normalized manifest SHA-256
 `cbad930003f17d1953495a8d477a64b138b55db29022632aa20b93b2b8af2e00`. The 255/280 endpoint below
 is retained as the frozen `operator-foundations-predecessor`; every earlier prefix remains frozen.

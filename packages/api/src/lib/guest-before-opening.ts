@@ -74,21 +74,29 @@ export function guestBeforeOpeningCue(params: {
   if (!subject || !schedule || !/^[\p{L}\p{N}][\p{L}\p{N} &'().-]{0,79}$/u.test(subject))
     return null
 
+  const normalize = (value: string) =>
+    value.normalize('NFKC').trim().toLowerCase().replace(/\s+/gu, ' ')
+  const name = normalize(subject)
   const subjectSchedules = hoursTopic.content
     .split(/\r?\n/u)
     .filter((line) => /^Hours:\s*[^,]+,/iu.test(line))
-    .filter((line) => /^Hours:\s*([^,]+),/iu.exec(line)?.[1]?.trim() === subject)
+    .filter((line) => normalize(/^Hours:\s*([^,]+),/iu.exec(line)?.[1] ?? '') === name)
   if (subjectSchedules.length !== 1) return null
 
-  const namedSubjects = hoursTopic.content.split(/\r?\n/u).flatMap((line) => {
-    const match = /^Hours:\s*([^,]+),/iu.exec(line)
-    return match?.[1] ? [match[1].trim()] : []
-  })
-  const mentionedSubjects = namedSubjects.filter((name) =>
-    params.question.toLowerCase().includes(name.toLowerCase()),
-  )
-  if (new Set(namedSubjects).size > 1 && new Set(mentionedSubjects).size !== 1) return null
-  if (mentionedSubjects.length && !mentionedSubjects.includes(subject)) return null
+  // A name occurring inside an outlet name or a multi-subject question does not establish
+  // whose hours were requested. Even a sole posted schedule cannot supply another subject's
+  // missing hours. Only simple, explicit questions get this deterministic cue; the ordinary
+  // guide handles pronouns, descriptive requests and more complex questions.
+  const question = normalize(params.question)
+    .replace(/[?!.]+$/u, '')
+    .trim()
+  const explicitQuestions = new Set<string>()
+  for (const target of [name, `the ${name}`])
+    for (const verb of ['is', 'are'])
+      for (const state of ['open', 'closed'])
+        for (const time of ['now', 'right now', 'currently', 'yet', 'today', 'at the moment'])
+          explicitQuestions.add(`${verb} ${target} ${state} ${time}`)
+  if (!explicitQuestions.has(question)) return null
 
   const todaySegments = schedule
     .split(';')

@@ -24,6 +24,17 @@ const base: CursorQuery = {
 }
 
 describe('bound cursors', () => {
+  it('wraps only the declared nested page without mutating the handler result', async () => {
+    const original = { rows: pageResult([1], 'row-1'), metadata: { nextCursor: 'not-a-page' } }
+    const result = await withBoundCursor(base, {}, async () => original, ['rows'])
+    expect(result).toMatchObject({ rows: { complete: false }, metadata: original.metadata })
+    expect((result as typeof original).rows.nextCursor).not.toBe('row-1')
+    expect(original.rows.nextCursor).toBe('row-1')
+    expect(
+      await withBoundCursor(base, {}, async () => ({ rows: pageResult([], null) }), ['rows']),
+    ).toEqual({ rows: { items: [], nextCursor: null, complete: true } })
+  })
+
   it('round-trips the position for the same query, ignoring limit, case and padding', () => {
     const cursor = issueBoundCursor(base, 'org_42')
     expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/u)

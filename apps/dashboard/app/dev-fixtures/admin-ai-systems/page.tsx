@@ -9,13 +9,27 @@ export default function AdminAiSystemsFixture() {
     customerChat: {
       workloadId: 'guest-chat',
       effective: {
-        primaryModelKey: 'guest-chat',
-        provider: 'anthropic',
-        model: 'claude-haiku-4-5-20251001',
+        primaryModelKey: 'guest-chat-luna-reasoning',
+        provider: 'openai',
+        model: 'gpt-6-luna',
         source: 'PLATFORM',
       },
       workloadOverride: null,
       modelOptions: [
+        {
+          key: 'guest-chat-luna',
+          provider: 'openai',
+          model: 'gpt-6-luna',
+          costTier: 'ECONOMY',
+          available: true,
+        },
+        {
+          key: 'guest-chat-luna-reasoning',
+          provider: 'openai',
+          model: 'gpt-6-luna',
+          costTier: 'ECONOMY',
+          available: true,
+        },
         {
           key: 'guest-chat',
           provider: 'anthropic',
@@ -28,7 +42,7 @@ export default function AdminAiSystemsFixture() {
           provider: 'openai',
           model: 'gpt-5-mini-2025-08-07',
           costTier: 'ECONOMY',
-          available: false,
+          available: true,
         },
         {
           key: 'guest-chat-deepseek-flash',
@@ -45,7 +59,7 @@ export default function AdminAiSystemsFixture() {
           available: false,
         },
       ],
-      providerKeyAvailability: { anthropic: true, openai: false, deepseek: false },
+      providerKeyAvailability: { anthropic: true, openai: true, deepseek: false },
       providerConnections: [
         {
           id: 'anthropic',
@@ -56,7 +70,7 @@ export default function AdminAiSystemsFixture() {
         {
           id: 'openai',
           name: 'OpenAI',
-          configured: false,
+          configured: true,
           environmentVariable: 'OPENAI_API_KEY',
         },
         {

@@ -13,6 +13,7 @@ import {
   readProspectLaunchLinks,
   requireCurrentProspectLaunchAttachments,
   requireSameLaunchAttachments,
+  requireSameProspectOutreachIntent,
 } from './prospect-launch-attachments'
 
 const publicUrl = 'https://guide.example.com/venue/chat?source=qr'
@@ -173,5 +174,29 @@ describe('prospect launch attachment authority', () => {
       ),
     ).toThrow(/changed after review/u)
     expect(() => requireSameLaunchAttachments({}, {})).not.toThrow()
+  })
+})
+
+describe('outreach approval intent binding', () => {
+  it('binds cold/warm intent and exact reply anchor without changing legacy text-only hashes', () => {
+    const args = ['recipient@example.test', 'Subject', 'Body', ''] as const
+    const cold = prospectOperationalContentHash(...args, { outreachKind: 'cold' })
+    const warm = prospectOperationalContentHash(...args, {
+      outreachKind: 'warm',
+      warmReplyAnchor: { messageId: 'reply-A', fingerprint: 'a'.repeat(64) },
+    })
+    expect(cold).not.toBe(warm)
+    expect(warm).not.toBe(
+      prospectOperationalContentHash(...args, {
+        outreachKind: 'warm',
+        warmReplyAnchor: { messageId: 'reply-B', fingerprint: 'b'.repeat(64) },
+      }),
+    )
+    expect(prospectOperationalContentHash(...args, {})).toBe(
+      createHash('sha256').update(args.join('\n')).digest('hex'),
+    )
+    expect(() =>
+      requireSameProspectOutreachIntent({ outreachKind: 'cold' }, { outreachKind: 'warm' }),
+    ).toThrow('changed after approval')
   })
 })

@@ -52,6 +52,8 @@ export type VenueReadService = (
 export type OperatorReadTool = Readonly<{
   name: OperatorToolName
   capability: OperatorCapability
+  /** Location of the paginated output; omitted for a top-level page. */
+  pagePath?: readonly string[]
   handler: (args: unknown, context: OperatorCallContext) => Promise<unknown>
 }>
 
@@ -223,6 +225,7 @@ export function createOperatorRegistry(
           },
           record,
           (inner) => read.handler(inner, context),
+          read.pagePath,
         )
         return validateOutput(name, result)
       }
@@ -251,9 +254,9 @@ export function createOperatorRegistry(
 export const OperatorToolCallParams = z
   .object({
     name: z.string().trim().min(1).max(191),
-    arguments: z.record(z.unknown()).default({}),
+    arguments: z.record(z.string(), z.unknown()).prefault({}),
     // Accepted for protocol compatibility and ignored: approval is never a caller claim here.
-    _meta: z.record(z.unknown()).optional(),
+    _meta: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
 

@@ -52,7 +52,7 @@ export const FounderDecisionPacketDecision = z
     decision: z.string().trim().min(1).max(20_000),
     rationale: z.string().trim().min(1).max(10_000),
     affectedSystems: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
-    scope: z.record(z.string().trim().min(1).max(100), FounderDecisionScopeValue).default({}),
+    scope: z.record(z.string().trim().min(1).max(100), FounderDecisionScopeValue).prefault({}),
   })
   .strict()
 

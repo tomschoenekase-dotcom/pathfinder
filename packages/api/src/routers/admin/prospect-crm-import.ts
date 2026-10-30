@@ -123,7 +123,7 @@ export const adminProspectCrmImportRouter = router({
         .object({
           importId: z.string().min(1).max(191),
           mappingHash: sha256,
-          mapping: z.record(z.unknown()),
+          mapping: z.record(z.string(), z.unknown()),
           selectedSheets: z.array(prospectBoundedText(300)).min(1).max(100),
         })
         .strict(),
@@ -158,7 +158,7 @@ export const adminProspectCrmImportRouter = router({
             .optional(),
           fileHash: sha256,
           mappingHash: sha256,
-          mapping: z.record(z.unknown()),
+          mapping: z.record(z.string(), z.unknown()),
           sheets: z
             .array(
               z
@@ -205,7 +205,7 @@ export const adminProspectCrmImportRouter = router({
                 .object({
                   sheetName: prospectBoundedText(300),
                   originalRowNumber: z.number().int().min(2),
-                  sourceValues: z.record(z.unknown()),
+                  sourceValues: z.record(z.string(), z.unknown()),
                   normalizedValues: normalizedProspectImportRow,
                 })
                 .strict(),

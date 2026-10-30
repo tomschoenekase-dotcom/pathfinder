@@ -30,7 +30,7 @@ export const attentionConsoleInput = z
     eventsCursor: cursor.optional(),
     platformEventsCursor: cursor.optional(),
   })
-  .default({ limit: 10 })
+  .prefault({ limit: 10 })
 
 export type AttentionConsoleInput = z.infer<typeof attentionConsoleInput>
 

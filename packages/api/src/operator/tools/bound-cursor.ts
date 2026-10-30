@@ -90,26 +90,32 @@ export function readBoundCursor(query: CursorQuery, cursor: string): string {
 
 /**
  * Applies bound cursors around a list handler: unwraps the incoming cursor into the handler's own
- * position and wraps the outgoing `nextCursor`. A page that has a next cursor is never complete,
+ * position and wraps the outgoing `nextCursor` at the declared page path (root by default).
+ * A page that has a next cursor is never complete,
  * and a page without one is complete.
  */
 export async function withBoundCursor(
   query: CursorQuery,
   args: Record<string, unknown>,
   run: (args: Record<string, unknown>) => Promise<unknown>,
+  pagePath: readonly string[] = [],
 ): Promise<unknown> {
   const incoming = typeof args.cursor === 'string' ? args.cursor : undefined
   const inner =
     incoming === undefined ? args : { ...args, cursor: readBoundCursor(query, incoming) }
   const result = await run(inner)
-  if (!result || typeof result !== 'object' || !('nextCursor' in result)) return result
-  const page = result as { nextCursor: unknown }
-  if (typeof page.nextCursor === 'string') {
-    return {
-      ...page,
-      nextCursor: issueBoundCursor(query, page.nextCursor),
-      complete: false,
+  function wrapPage(value: unknown, depth: number): unknown {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+    const record = value as Record<string, unknown>
+    if (depth < pagePath.length) {
+      const key = pagePath[depth]!
+      if (!Object.hasOwn(record, key)) return value
+      return { ...record, [key]: wrapPage(record[key], depth + 1) }
     }
+    if (typeof record.nextCursor === 'string') {
+      return { ...record, nextCursor: issueBoundCursor(query, record.nextCursor), complete: false }
+    }
+    return record.nextCursor === null ? { ...record, complete: true } : value
   }
-  return page.nextCursor === null ? { ...page, complete: true } : result
+  return wrapPage(result, 0)
 }

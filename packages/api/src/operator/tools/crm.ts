@@ -1,10 +1,16 @@
+import { readableOutreachReason, requireOutreachGroupScope } from '../outreach-history'
+import {
+  matchesProspectOutreachView,
+  outreachCompleteCandidateWhere,
+  type prospectOutreachViews,
+} from '../../routers/admin/prospect-crm-outreach-views'
+import { loadProspectOutreachHistory } from '@pathfinder/db'
 import type { Prisma } from '@prisma/client'
 
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import {
   blockedAddressSet,
-  isUncontactedOrganization,
   operatorContactView,
   operatorOrganizationView,
   operatorUntrustedText,
@@ -28,7 +34,7 @@ const MAX_NOTES = 20
 const UNCONTACTED_BATCH = 100
 const CAN_CONTACT_BATCH = 500
 /** Bounds the work of one uncontacted scan; the caller continues from `nextCursor`. */
-const UNCONTACTED_SCAN_CAP = 1_000
+const UNCONTACTED_SCAN_CAP = 100
 
 type OrganizationFilters = {
   city?: string | undefined
@@ -129,16 +135,21 @@ async function pageUncontacted(
     where: Prisma.ProspectOrganizationWhereInput
     limit: number
     cursor: string | undefined
+    outreachView?: keyof typeof prospectOutreachViews
   },
 ) {
   const items: ReturnType<typeof operatorOrganizationView>[] = []
+  const needsComplete =
+    !input.outreachView ||
+    ['neverContacted', 'firstFollowupDue', 'finalFollowupDue'].includes(input.outreachView)
+  const coarse = needsComplete ? await outreachCompleteCandidateWhere(database) : null
   let scanned = 0
   let cursor = input.cursor
   let lastScannedId: string | null = null
   let exhausted = false
   outer: while (scanned < UNCONTACTED_SCAN_CAP) {
     const rows = await database.prospectOrganization.findMany({
-      where: input.where,
+      where: coarse ? { AND: [input.where, coarse] } : input.where,
       orderBy: [{ id: 'asc' }],
       take: UNCONTACTED_BATCH,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -152,7 +163,9 @@ async function pageUncontacted(
     for (const { record, view } of views) {
       scanned += 1
       lastScannedId = record.id
-      if (isUncontactedOrganization(record)) items.push(view)
+      const outreachHistory = await loadProspectOutreachHistory(database, record.id)
+      if (matchesProspectOutreachView(outreachHistory, input.outreachView ?? 'neverContacted'))
+        items.push({ ...view, outreachHistory } as typeof view)
       if (items.length >= input.limit) {
         exhausted = false
         break outer
@@ -191,15 +204,43 @@ const listCandidates: OperatorReadTool = {
   async handler(raw, context) {
     const input = OPERATOR_MCP_INPUTS['crm.list_candidates'].parse(raw)
     const where = organizationWhere(input)
-    if (input.uncontacted) {
-      return pageUncontacted(context.database, { where, limit: input.limit, cursor: input.cursor })
+    if (input.uncontacted || input.outreachView) {
+      const page = await pageUncontacted(context.database, {
+        where,
+        limit: input.limit,
+        cursor: input.cursor,
+        ...(input.outreachView ? { outreachView: input.outreachView } : {}),
+      })
+      for (const item of page.items) {
+        const history = (item as typeof item & { outreachHistory?: { organizationIds: string[] } })
+          .outreachHistory
+        if (history) await requireOutreachGroupScope(history.organizationIds, context)
+      }
+      return page
     }
-    return pageOrganizations(context.database, {
+    const page = await pageOrganizations(context.database, {
       where,
       orderBy: [{ id: 'asc' }],
       limit: input.limit,
       cursor: input.cursor,
     })
+    return {
+      ...page,
+      items: await Promise.all(
+        page.items.map(async (item) => ({
+          ...item,
+          outreachHistory: await (async () => {
+            const history = await loadProspectOutreachHistory(
+              context.database,
+              item.organizationId,
+              { now: context.now },
+            )
+            await requireOutreachGroupScope(history.organizationIds, context)
+            return history
+          })(),
+        })),
+      ),
+    }
   },
 }
 
@@ -382,8 +423,13 @@ const getContactHistory: OperatorReadTool = {
         (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
     )
     const page = events.slice(0, limit)
+    const outreachHistory = await loadProspectOutreachHistory(database, organizationId, {
+      now: context.now,
+    })
+    await requireOutreachGroupScope(outreachHistory.organizationIds, context)
     return {
       organizationId,
+      outreachHistory,
       events: page.map((event) => ({
         type: event.type,
         occurredAt: event.occurredAt.toISOString(),
@@ -437,10 +483,40 @@ const checkCanContact: OperatorReadTool = {
       cursor = batch.at(-1)!.id
     }
     const answer = evaluateAddress(rows, purpose)
+    const histories = await Promise.all(
+      rows.map(async (row) => {
+        const history = await loadProspectOutreachHistory(context.database, row.organizationId, {
+          now: context.now,
+          contactId: row.id,
+        })
+        await requireOutreachGroupScope(history.organizationIds, context)
+        return history
+      }),
+    )
+    const selected = rows.findIndex((row) => row.id === answer.contactId)
+    const history = selected >= 0 ? histories[selected]! : null
+    const blockedHealth = histories.find((item) =>
+      ['bounced', 'suppressed', 'policyBlocked'].includes(item.contactHealth),
+    )
+    const coldAllowed = answer.allowed && history?.eligibility === 'eligible' && !blockedHealth
+    const hold = history?.eligibility !== 'eligible' || Boolean(blockedHealth)
     return {
-      allowed: answer.allowed,
-      reason: answer.reason,
-      reasons: [...answer.reasons],
+      allowed: Boolean(coldAllowed),
+      addressAllowed: answer.allowed,
+      coldOutreachAllowed: Boolean(coldAllowed),
+      outreachHistory: history,
+      reason: answer.allowed && hold ? ('outreach_history_hold' as const) : answer.reason,
+      reasons: [
+        ...answer.reasons,
+        ...(hold
+          ? [blockedHealth?.eligibilityReason ?? history?.eligibilityReason ?? 'history_incomplete']
+          : []),
+      ].slice(0, 15),
+      explanation: !answer.allowed
+        ? readableOutreachReason(answer.reason)
+        : readableOutreachReason(
+            blockedHealth?.eligibilityReason ?? history?.eligibilityReason ?? 'history_incomplete',
+          ),
       purpose: answer.purpose,
       organizationId: answer.organizationId,
       contactId: answer.contactId,

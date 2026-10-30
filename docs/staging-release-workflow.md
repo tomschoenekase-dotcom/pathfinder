@@ -48,6 +48,14 @@ schema or migration change. The final documentation-bearing SHA still requires e
 three-service staging admission, and protected production promotion. It authorizes no hosted
 database migration or data repair; the production incident remains ACTIVE.
 
+The [October 25–26 overnight exception](production-cutover-20261026.md) conditionally covers the
+reviewed 267-to-269 transition and application candidate. Its dedicated admission preserves the
+historical 267 contract and admits no partial 268 ledger. The bounded runner requires zero affected
+event-projection rows; otherwise stop. Measured candidate-versus-production improvement, independent
+fresh staging and production backups/restoration, original-data preservation, exact-head CI and
+three-service staging admission remain mandatory. Use the protected promotion path above. The
+incident remains ACTIVE and only the stated-dates production variable change is admitted.
+
 The later [guest source-link correction exception](production-guide-source-links-20261010.md) binds
 the reviewed code-only follow-up to the current production application. The active incident is
 not resolved, and the final docs-bearing source still needs every exact-head gate.

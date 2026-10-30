@@ -271,9 +271,16 @@ venue answer well", "Check before you import"). The loop:
 2. Run `venues.check_package` with the file or payload. It saves nothing and calls no model. Fix
    every `errors` entry, every `guideQuality` finding and every `DUPLICATE_IN_PACKAGE` warning, then
    check again until `ready` is true.
-3. Import once with `venues.propose_package_import` and a fresh `operationId`. A failed import
-   applies nothing; its receipt `result.summary` names the step and the reason. Retry with a new
-   `operationId`, never the failed one, because the same operation replays its saved draft.
+3. Import once with `venues.propose_package_import` and a fresh `operationId`. On failure or an
+   interrupted response, retain the original ID and exact content. Read `result.summary`, then
+   inspect `operator.get_operation` with that ID and the package receipt. A failed status alone
+   does not prove no effect. Never start a second import while the outcome is unknown or partial.
+   `NOT_RECORDED` permits retrying the same ID and content; `APPLIED` means the import landed.
+   `operator.recover_operation` with `originalOperationId` can resume interrupted `APPROVED` work;
+   it cannot approve work or guarantee resolution of terminal `FAILED / OUTCOME_UNKNOWN` work.
+   Keep unresolved outcomes held for receipt review. A reconciled terminal `FAILED_NO_EFFECT`
+   permits a new UUID. Changed content requires a new UUID only after the earlier attempt is
+   proved to have no effect; retain its receipt.
 4. Refresh the venue's embeddings while the background dispatcher is off:
    `pnpm embedding:refresh-venue --tenant-id <id> --venue-id <id>` in the target environment
    prints the stale count without writing; add `--apply yes --max <count> --receipts <new file>`

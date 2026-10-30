@@ -378,7 +378,7 @@ describe.skipIf(!enabled)(
       const request = { operationId, tenantId, venueId: venue.id, payload }
       const dependencies = {
         config,
-        database: delayed as typeof db,
+        database: delayed as unknown as typeof db,
         grant,
         kinds,
         now: new Date(),
@@ -530,7 +530,7 @@ describe.skipIf(!enabled)(
         },
         {
           config,
-          database: delayed as typeof db,
+          database: delayed as unknown as typeof db,
           grant,
           kinds,
           now: new Date(),

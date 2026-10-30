@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   publishUniversalContentAction,
   resolveEffectivePublishedUniversalContent,
+  resolveEffectivePublishedUniversalContentSnapshot,
   UniversalContentActionError,
   UniversalContentResolverError,
   withdrawUniversalContentAction,
@@ -266,11 +267,339 @@ describe('effective published universal content resolver', () => {
       operationalFact: {
         label: 'Entry',
         value: 'North door',
+        applicabilityScope: null as string | null,
+        applicabilitySubjectModuleIds: [] as string[],
+        applicabilityPlaceIds: [] as string[],
         expiresAt: new Date('2026-08-11T19:00:00.000Z'),
       },
       relationship: null,
     }
   }
+
+  function snapshotRevision(id = 'revision-1', moduleId = 'module-1') {
+    return {
+      ...operationalRevision(id, moduleId),
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      evidence: [
+        {
+          id: `evidence-${id}`,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          revisionId: id,
+          moduleKind: 'OPERATIONAL_FACT',
+          sourceId: 'official-source',
+          locator: 'policy section',
+          capturedAt: new Date('2026-08-10T18:00:00.000Z'),
+          excerptHash: 'a'.repeat(64),
+        },
+      ],
+    }
+  }
+  function snapshotDb(revision = snapshotRevision()) {
+    const db = resolverDb([], [])
+    db.$queryRaw.mockResolvedValue([
+      {
+        moduleId: revision.moduleId,
+        revisionId: revision.id,
+        publicationId: 'publication-1',
+        publicationOrder: '9007199254740993',
+      },
+    ])
+    db.contentModuleRevision.findMany.mockResolvedValue([revision])
+    return db
+  }
+  const snapshotScope = {
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    asOf: new Date('2026-08-11T18:00:00.000Z'),
+  }
+
+  it.each([
+    [null, [], [], undefined],
+    ['VENUE', [], [], { scope: 'VENUE' }],
+    [
+      'SUBJECTS',
+      ['service-1'],
+      ['place-1'],
+      {
+        scope: 'SUBJECTS',
+        subjectModuleIds: ['service-1'],
+        placeIds: ['place-1'],
+      },
+    ],
+    [
+      'SUBJECTS',
+      [],
+      ['place-1'],
+      {
+        scope: 'SUBJECTS',
+        subjectModuleIds: [],
+        placeIds: ['place-1'],
+      },
+    ],
+  ] as const)(
+    'maps stored %s applicability in both published readers',
+    async (scope, subjects, places, expected) => {
+      const revision = snapshotRevision()
+      Object.assign(revision.operationalFact, {
+        applicabilityScope: scope,
+        applicabilitySubjectModuleIds: [...subjects],
+        applicabilityPlaceIds: [...places],
+      })
+      for (const resolve of [
+        resolveEffectivePublishedUniversalContent,
+        resolveEffectivePublishedUniversalContentSnapshot,
+      ]) {
+        const result = await resolve({ db: snapshotDb(revision), ...snapshotScope })
+        expect(result[0]!.payload).toEqual({
+          kind: 'OPERATIONAL_FACT',
+          label: 'Entry',
+          value: 'North door',
+          expiresAt: '2026-08-11T19:00:00.000Z',
+          ...(expected === undefined ? {} : { applicability: expected }),
+        })
+        expect(Object.hasOwn(result[0]!.payload, 'applicability')).toBe(expected !== undefined)
+      }
+    },
+  )
+
+  it('returns exact current publication and revision-scoped evidence without BigInt loss', async () => {
+    const db = snapshotDb()
+    const result = await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope })
+    expect(result).toEqual([
+      {
+        moduleId: 'module-1',
+        revisionId: 'revision-1',
+        kind: 'OPERATIONAL_FACT',
+        version: 2,
+        payload: {
+          kind: 'OPERATIONAL_FACT',
+          label: 'Entry',
+          value: 'North door',
+          expiresAt: '2026-08-11T19:00:00.000Z',
+        },
+        publicationId: 'publication-1',
+        publicationOrder: '9007199254740993',
+        audience: 'PUBLIC',
+        effectiveFrom: '2026-08-11T17:00:00.000Z',
+        effectiveUntil: '2026-08-11T19:00:00.000Z',
+        evidence: [
+          {
+            sourceId: 'official-source',
+            locator: 'policy section',
+            capturedAt: '2026-08-10T18:00:00.000Z',
+            excerptHash: 'a'.repeat(64),
+          },
+        ],
+      },
+    ])
+    expect(db.contentModuleRevision.findMany.mock.calls[0]![0]).toMatchObject({
+      where: { tenantId: 'tenant-1', venueId: 'venue-1', id: { in: ['revision-1'] } },
+      select: {
+        tenantId: true,
+        venueId: true,
+        evidence: { select: { revisionId: true, moduleKind: true } },
+      },
+    })
+  })
+
+  it('preserves legacy result keys and expired-operational-fact behavior', async () => {
+    const revision = snapshotRevision()
+    revision.operationalFact!.expiresAt = snapshotScope.asOf
+    const db = snapshotDb(revision)
+    expect(
+      await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+    ).toEqual([])
+    const legacy = await resolveEffectivePublishedUniversalContent({ db, ...snapshotScope })
+    expect(legacy).toHaveLength(1)
+    expect(Object.keys(legacy[0]!).sort()).toEqual([
+      'kind',
+      'moduleId',
+      'payload',
+      'revisionId',
+      'version',
+    ])
+    expect(db.contentModuleRevision.findMany.mock.calls[1]![0].select).not.toHaveProperty(
+      'evidence',
+    )
+  })
+
+  it('keeps null evidence locators/hashes and supports an explicitly empty evidence array', async () => {
+    const revision = snapshotRevision()
+    revision.evidence[0]!.locator = null as never
+    revision.evidence[0]!.excerptHash = null as never
+    const db = snapshotDb(revision)
+    expect(
+      (await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }))[0]!
+        .evidence[0],
+    ).toMatchObject({ locator: null, excerptHash: null })
+    revision.evidence = []
+    expect(
+      (await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }))[0]!
+        .evidence,
+    ).toEqual([])
+  })
+
+  it('supports 10000 detailed heads with scoped batches and exact publication identities', async () => {
+    const heads = Array.from({ length: 10000 }, (_, i) => ({
+      moduleId: `m-${String(i).padStart(5, '0')}`,
+      revisionId: `r-${i}`,
+      publicationId: `p-${i}`,
+      publicationOrder: String(i + 1),
+    }))
+    const db = resolverDb([], [])
+    db.$queryRaw.mockResolvedValue(heads)
+    db.contentModuleRevision.findMany.mockImplementation(async (args) =>
+      args.where.id.in.map((id: string) => {
+        const i = Number(id.slice(2))
+        return { ...snapshotRevision(id, heads[i]!.moduleId), evidence: [] }
+      }),
+    )
+    const result = await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope })
+    expect(result).toHaveLength(10000)
+    expect(result[9999]!.publicationId).toBe('p-9999')
+    expect(db.$queryRaw).toHaveBeenCalledOnce()
+    expect(db.contentModuleRevision.findMany).toHaveBeenCalledTimes(20)
+  })
+
+  it('rejects evidence overflow rather than truncating a revision proof', async () => {
+    const revision = snapshotRevision()
+    revision.evidence = Array.from({ length: 101 }, (_, index) => ({
+      ...revision.evidence[0]!,
+      id: `e-${index}`,
+      locator: `section-${index}`,
+    }))
+    await expect(
+      resolveEffectivePublishedUniversalContentSnapshot({
+        db: snapshotDb(revision),
+        ...snapshotScope,
+      }),
+    ).rejects.toThrow('revision evidence is invalid')
+  })
+
+  it('preserves effective date boundaries and rejects malformed operational expiry', async () => {
+    const revision = snapshotRevision()
+    revision.effectiveFrom = snapshotScope.asOf
+    expect(
+      await resolveEffectivePublishedUniversalContentSnapshot({
+        db: snapshotDb(revision),
+        ...snapshotScope,
+      }),
+    ).toHaveLength(1)
+    revision.effectiveFrom = new Date('2026-08-11T17:00:00.000Z')
+    revision.effectiveUntil = snapshotScope.asOf
+    expect(
+      await resolveEffectivePublishedUniversalContentSnapshot({
+        db: snapshotDb(revision),
+        ...snapshotScope,
+      }),
+    ).toEqual([])
+    revision.effectiveUntil = new Date('2026-08-11T19:00:00.000Z')
+    revision.operationalFact!.expiresAt = new Date('invalid')
+    await expect(
+      resolveEffectivePublishedUniversalContentSnapshot({
+        db: snapshotDb(revision),
+        ...snapshotScope,
+      }),
+    ).rejects.toBeInstanceOf(UniversalContentResolverError)
+  })
+
+  it.each([
+    ['missing publication', { publicationId: undefined }],
+    ['invalid publication order', { publicationOrder: '1.5' }],
+    ['zero publication order', { publicationOrder: '0' }],
+    ['numeric publication order', { publicationOrder: 123 }],
+  ])('fails closed for %s in detailed heads', async (_label, patch) => {
+    const db = snapshotDb()
+    db.$queryRaw.mockResolvedValue([
+      {
+        moduleId: 'module-1',
+        revisionId: 'revision-1',
+        publicationId: 'p-1',
+        publicationOrder: '1',
+        ...patch,
+      },
+    ])
+    await expect(
+      resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+    ).rejects.toBeInstanceOf(UniversalContentResolverError)
+    expect(db.contentModuleRevision.findMany).not.toHaveBeenCalled()
+  })
+
+  it.each(['publicationId', 'publicationOrder'])(
+    'rejects duplicate %s across detailed heads',
+    async (field) => {
+      const db = snapshotDb()
+      db.$queryRaw.mockResolvedValue([
+        { moduleId: 'm-1', revisionId: 'r-1', publicationId: 'p-1', publicationOrder: '1' },
+        {
+          moduleId: 'm-2',
+          revisionId: 'r-2',
+          publicationId: field === 'publicationId' ? 'p-1' : 'p-2',
+          publicationOrder: field === 'publicationOrder' ? '1' : '2',
+        },
+      ])
+      await expect(
+        resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+      ).rejects.toBeInstanceOf(UniversalContentResolverError)
+    },
+  )
+
+  it.each([
+    'missing',
+    'duplicate',
+    'scope',
+    'version',
+    'date',
+    'payload',
+    'evidence-missing',
+    'evidence-scope',
+    'evidence-revision',
+    'evidence-kind',
+    'evidence-date',
+    'evidence-hash',
+    'evidence-duplicate',
+    'evidence-id-duplicate',
+  ])('rejects malformed detailed %s', async (change) => {
+    const revision = snapshotRevision()
+    const db = snapshotDb(revision)
+    if (change === 'missing') db.contentModuleRevision.findMany.mockResolvedValue([])
+    if (change === 'duplicate')
+      db.contentModuleRevision.findMany.mockResolvedValue([revision, revision])
+    if (change === 'scope') revision.tenantId = 'other-tenant'
+    if (change === 'version') revision.version = 0
+    if (change === 'date') revision.effectiveUntil = new Date('invalid')
+    if (change === 'payload') revision.operationalFact!.value = ''
+    if (change === 'evidence-missing') revision.evidence = undefined as never
+    if (change === 'evidence-scope') revision.evidence[0]!.venueId = 'other-venue'
+    if (change === 'evidence-revision') revision.evidence[0]!.revisionId = 'other-revision'
+    if (change === 'evidence-kind') revision.evidence[0]!.moduleKind = 'POLICY'
+    if (change === 'evidence-date') revision.evidence[0]!.capturedAt = new Date('invalid')
+    if (change === 'evidence-hash') revision.evidence[0]!.excerptHash = 'invalid'
+    if (change === 'evidence-duplicate')
+      revision.evidence.push({ ...revision.evidence[0]!, id: 'another-id' })
+    if (change === 'evidence-id-duplicate')
+      revision.evidence.push({ ...revision.evidence[0]!, locator: 'another-locator' })
+    await expect(
+      resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+    ).rejects.toBeInstanceOf(UniversalContentResolverError)
+  })
+
+  it('selects latest events before filtering publication and never hydrates withdrawn predecessors', async () => {
+    const db = resolverDb([], [])
+    expect(
+      await resolveEffectivePublishedUniversalContentSnapshot({ db, ...snapshotScope }),
+    ).toEqual([])
+    expect(db.contentModuleRevision.findMany).not.toHaveBeenCalled()
+    const sql = (db.$queryRaw.mock.calls[0]![0] as TemplateStringsArray).join('?')
+    const split = sql.indexOf(') AS latest')
+    expect(sql.slice(0, split)).toContain('publication."event_order" DESC')
+    expect(sql.slice(0, split)).not.toContain("'PUBLISH'")
+    expect(sql.slice(split)).toContain('WHERE latest."action"')
+    expect(sql).toContain('AS "publicationId"')
+    expect(sql).toContain('::text AS "publicationOrder"')
+  })
 
   it.each([
     ['missing input', undefined],
@@ -399,7 +728,117 @@ describe('effective published universal content resolver', () => {
     expect(sql).toContain('WHERE latest."action" = \'PUBLISH\'')
     expect(sql).toContain('ORDER BY latest."module_id" ASC')
     expect(sql).toContain('LIMIT ?')
-    expect(db.$queryRaw.mock.calls[0]?.slice(1)).toEqual(['tenant-1', 'venue-1', 101])
+    expect(db.$queryRaw.mock.calls[0]?.slice(1)).toEqual(['tenant-1', 'venue-1', 10001])
+  })
+
+  it('resolves 10000 current modules from one head snapshot with bounded revision batches', async () => {
+    const heads = Array.from({ length: 10_000 }, (_, index) => ({
+      moduleId: `module-${String(index).padStart(5, '0')}`,
+      revisionId: `revision-${index}`,
+    }))
+    const revisions = new Map(
+      heads.map((head) => [head.revisionId, operationalRevision(head.revisionId, head.moduleId)]),
+    )
+    const db = resolverDb(heads, [])
+    db.contentModuleRevision.findMany.mockImplementation(async (args) =>
+      args.where.id.in.map((id: string) => revisions.get(id)),
+    )
+    const result = await resolveEffectivePublishedUniversalContent({
+      db,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      asOf: new Date('2026-08-11T18:00:00.000Z'),
+    })
+    expect(result.map((row) => row.moduleId)).toEqual(heads.map((head) => head.moduleId))
+    expect(db.$queryRaw).toHaveBeenCalledOnce()
+    expect(db.contentModuleRevision.findMany).toHaveBeenCalledTimes(20)
+    for (const [args] of db.contentModuleRevision.findMany.mock.calls) {
+      expect(args.where).toEqual({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        id: { in: expect.any(Array) },
+      })
+      expect(args.where.id.in).toHaveLength(500)
+    }
+  })
+
+  it('suppresses an older publication when the newest event withdraws it', async () => {
+    // The database returns only current PUBLISH heads. Keep the older revision
+    // available to prove hydration cannot accidentally revive it.
+    const db = resolverDb(
+      [{ moduleId: 'active', revisionId: 'active-r2' }],
+      [operationalRevision('active-r2', 'active')],
+    )
+    const retired = operationalRevision('withdrawn-r1', 'withdrawn')
+    db.contentModuleRevision.findMany.mockImplementation(async (args) =>
+      [operationalRevision('active-r2', 'active'), retired].filter((revision) =>
+        args.where.id.in.includes(revision.id),
+      ),
+    )
+    const result = await resolveEffectivePublishedUniversalContent({
+      db,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      asOf: new Date('2026-08-11T18:00:00.000Z'),
+    })
+    expect(result.map((row) => row.moduleId)).toEqual(['active'])
+    const sql = (db.$queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join('?')
+    const latestSelectionEnd = sql.indexOf(') AS latest')
+    expect(latestSelectionEnd).toBeGreaterThan(0)
+    expect(sql.slice(0, latestSelectionEnd)).toContain('publication."event_order" DESC')
+    expect(sql.slice(0, latestSelectionEnd)).not.toContain("'PUBLISH'")
+    expect(sql.slice(latestSelectionEnd)).toContain('WHERE latest."action" = \'PUBLISH\'')
+  })
+
+  it('rejects the whole read if a later revision batch fails', async () => {
+    const heads = Array.from({ length: 501 }, (_, index) => ({
+      moduleId: `module-${index}`,
+      revisionId: `revision-${index}`,
+    }))
+    const db = resolverDb(heads, [])
+    db.contentModuleRevision.findMany
+      .mockResolvedValueOnce(
+        heads.slice(0, 500).map((head) => operationalRevision(head.revisionId, head.moduleId)),
+      )
+      .mockRejectedValueOnce(new Error('revision read failed'))
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      }),
+    ).rejects.toThrow('revision read failed')
+  })
+
+  it.each([0, 10001, 1.5])('rejects invalid maximum %s before querying', async (maximumModules) => {
+    const db = resolverDb([], [])
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        maximumModules,
+      }),
+    ).rejects.toBeInstanceOf(UniversalContentResolverError)
+    expect(db.$queryRaw).not.toHaveBeenCalled()
+  })
+
+  it('rejects overflow at the hard bound before hydrating revisions', async () => {
+    const db = resolverDb(
+      Array.from({ length: 10_001 }, (_, index) => ({
+        moduleId: `module-${index}`,
+        revisionId: `revision-${index}`,
+      })),
+      [],
+    )
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      }),
+    ).rejects.toThrow('Published content module count exceeds safe bounds.')
+    expect(db.contentModuleRevision.findMany).not.toHaveBeenCalled()
   })
 
   it('does not load revisions for latest WITHDRAW heads or noisy withdrawn history', async () => {
@@ -506,5 +945,241 @@ describe('effective published universal content resolver', () => {
         venueId: 'venue-1',
       }),
     ).rejects.toThrow('Published content heads are inconsistent.')
+  })
+})
+
+describe('governed relationship publication authority', () => {
+  const input = {
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    moduleId: 'edge',
+    revisionId: 'edge-r1',
+    expectedLatestVersion: 1,
+    requestId: '1c11ddeb-7e31-43d5-a1a8-3f832bbf88aa',
+    actor,
+  }
+  function relationshipTx(type = 'OFFERS_PRODUCT_V1', subtype = 'PRODUCT') {
+    const tx = transactionClient({
+      relationshipContent: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue({ fromModuleId: 'from', toModuleId: 'to', relationshipType: type }),
+      },
+    })
+    tx.contentModuleRevision.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: 'edge-r1',
+        kind: 'RELATIONSHIP',
+        version: 1,
+        audience: 'PUBLIC',
+      })
+      .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+      .mockResolvedValueOnce({
+        kind: type === 'EXCEPTION_TO_V1' ? 'POLICY' : 'SERVICE',
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: null,
+      })
+      .mockResolvedValueOnce({
+        kind: type === 'EXCEPTION_TO_V1' ? 'POLICY' : 'ITEM',
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: null,
+        item: { itemType: subtype },
+      })
+    tx.contentModulePublication.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ action: 'PUBLISH', revisionId: 'from-published' })
+      .mockResolvedValueOnce({ action: 'PUBLISH', revisionId: 'to-published' })
+    return tx
+  }
+  it.each(['OFFERS_PRODUCT_V1', 'EXCEPTION_TO_V1'])(
+    'publishes valid %s against exact scoped published endpoints',
+    async (type) => {
+      const tx = relationshipTx(type)
+      await expect(
+        publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+      ).resolves.toMatchObject({ action: 'PUBLISH' })
+      expect(tx.contentModuleRevision.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'to-published', tenantId: 'tenant-1', venueId: 'venue-1', moduleId: 'to' },
+        }),
+      )
+    },
+  )
+  it('rejects the published non-PRODUCT subtype even when a newer draft could be PRODUCT', async () => {
+    const tx = relationshipTx('OFFERS_PRODUCT_V1', 'MENU_ITEM')
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+  })
+  it('rejects withdrawn endpoint publication', async () => {
+    const tx = relationshipTx()
+    tx.contentModulePublication.findFirst
+      .mockReset()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ action: 'WITHDRAW', revisionId: 'from-published' })
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+  })
+  it.each([
+    { kind: 'ITEM', audience: 'PUBLIC', effectiveFrom: null, effectiveUntil: null },
+    { kind: 'SERVICE', audience: 'CLIENT', effectiveFrom: null, effectiveUntil: null },
+    {
+      kind: 'SERVICE',
+      audience: 'PUBLIC',
+      effectiveFrom: new Date('2999-01-01'),
+      effectiveUntil: null,
+    },
+    {
+      kind: 'SERVICE',
+      audience: 'PUBLIC',
+      effectiveFrom: null,
+      effectiveUntil: new Date('2000-01-01'),
+    },
+    null,
+  ])(
+    'rejects incompatible, private, ineffective, or absent scoped endpoints: %j',
+    async (endpoint) => {
+      const tx = relationshipTx()
+      tx.contentModuleRevision.findFirst
+        .mockReset()
+        .mockResolvedValueOnce({
+          id: 'edge-r1',
+          kind: 'RELATIONSHIP',
+          version: 1,
+          audience: 'PUBLIC',
+        })
+        .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+        .mockResolvedValueOnce(endpoint)
+        .mockResolvedValueOnce({
+          kind: 'ITEM',
+          audience: 'PUBLIC',
+          effectiveFrom: null,
+          effectiveUntil: null,
+          item: { itemType: 'PRODUCT' },
+        })
+      await expect(
+        publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+    },
+  )
+  it.each([
+    ['future edge and endpoints', new Date('2999-01-01'), new Date('2999-01-01'), null, true],
+    ['active edge and future endpoints', null, new Date('2999-01-01'), null, false],
+    [
+      'endpoints ended before edge starts',
+      new Date('2999-01-02'),
+      null,
+      new Date('2999-01-01'),
+      false,
+    ],
+    [
+      'endpoints need not cover full edge interval',
+      new Date('2999-01-01'),
+      null,
+      new Date('2999-01-02'),
+      true,
+    ],
+  ] as const)(
+    'scheduled authority: %s',
+    async (_label, effectiveFrom, endpointStart, endpointEnd, valid) => {
+      const tx = relationshipTx()
+      tx.contentModuleRevision.findFirst
+        .mockReset()
+        .mockResolvedValueOnce({
+          id: 'edge-r1',
+          kind: 'RELATIONSHIP',
+          version: 1,
+          audience: 'PUBLIC',
+          effectiveFrom,
+          effectiveUntil: null,
+        })
+        .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+        .mockResolvedValueOnce({
+          kind: 'SERVICE',
+          audience: 'PUBLIC',
+          effectiveFrom: endpointStart,
+          effectiveUntil: endpointEnd,
+        })
+        .mockResolvedValueOnce({
+          kind: 'ITEM',
+          audience: 'PUBLIC',
+          effectiveFrom: endpointStart,
+          effectiveUntil: endpointEnd,
+          item: { itemType: 'PRODUCT' },
+        })
+      const action = publishUniversalContentAction({ ...input, db: actionClient(tx) as never })
+      if (valid) await expect(action).resolves.toMatchObject({ action: 'PUBLISH' })
+      else {
+        await expect(action).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+        expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+      }
+    },
+  )
+  it('publishes an ended retirement revision after endpoint withdrawal, retaining scoped kinds', async () => {
+    const tx = relationshipTx()
+    Object.assign(tx, {
+      contentModuleIdentity: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'from', kind: 'SERVICE' },
+          { id: 'to', kind: 'ITEM' },
+        ]),
+      },
+    })
+    tx.contentModuleRevision.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: 'edge-r1',
+        kind: 'RELATIONSHIP',
+        version: 1,
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: new Date('2000-01-01'),
+      })
+      .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+    tx.contentModulePublication.findFirst
+      .mockReset()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ action: 'WITHDRAW', revisionId: 'from-published' })
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).resolves.toMatchObject({ action: 'PUBLISH' })
+    expect(tx.contentModulePublication.findFirst).toHaveBeenCalledTimes(1)
+  })
+  it('does not bypass scoped kind validation for ended retirement revisions', async () => {
+    const tx = relationshipTx()
+    Object.assign(tx, {
+      contentModuleIdentity: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'from', kind: 'POLICY' }]),
+      },
+    })
+    tx.contentModuleRevision.findFirst
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: 'edge-r1',
+        kind: 'RELATIONSHIP',
+        version: 1,
+        audience: 'PUBLIC',
+        effectiveFrom: null,
+        effectiveUntil: new Date('2000-01-01'),
+      })
+      .mockResolvedValueOnce({ id: 'edge-r1', version: 1 })
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.contentModulePublication.create).not.toHaveBeenCalled()
+  })
+  it('preserves unknown vocabulary without requiring published endpoints', async () => {
+    const tx = relationshipTx('CUSTOM_RELATIONSHIP')
+    await expect(
+      publishUniversalContentAction({ ...input, db: actionClient(tx) as never }),
+    ).resolves.toMatchObject({ action: 'PUBLISH' })
+    expect(tx.contentModulePublication.findFirst).toHaveBeenCalledTimes(1)
   })
 })

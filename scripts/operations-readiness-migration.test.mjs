@@ -1,5 +1,7 @@
+import { historicalStagingFixture } from './test-support/historical-staging-manifest.mjs'
+import { readMigrationManifest } from './run-staging-migration-predeploy.mjs'
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,10 +18,8 @@ const operationalHealthPath = path.join(
 )
 
 test('operations readiness pins the reviewed 267 migration endpoint', async () => {
-  const migrations = (await readdir(migrationsPath, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right))
+  const current = await readMigrationManifest(path.dirname(migrationsPath))
+  const migrations = historicalStagingFixture(current).names
   assert.ok(migrations.length > 0)
 
   const source = await readFile(operationalHealthPath, 'utf8')
@@ -28,6 +28,10 @@ test('operations readiness pins the reviewed 267 migration endpoint', async () =
   )
   assert.ok(match, 'operational readiness exports one literal reviewed migration identity')
   assert.equal(match[1], '20261002121000_prospect_organization_merge')
+  // The runtime's exact latest-name parity comparison must reject the actual local tail.
+  assert.match(source, /parity: latest\?\.migration_name === EXPECTED_LATEST_MIGRATION/u)
+  assert.notEqual(current.names.at(-1), match[1])
+  assert.equal(current.names.at(-1) === match[1], false)
   assert.equal(migrations.length, 267)
   assert.equal(migrations.at(-1), match[1])
   assert.deepEqual(migrations.slice(255), [

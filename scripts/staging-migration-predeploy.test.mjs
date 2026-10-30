@@ -1,8 +1,13 @@
+import {
+  historicalStagingFixture,
+  PENDING_LOCAL_EVENT,
+} from './test-support/historical-staging-manifest.mjs'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { RELEASE269_APPROVAL } from './lib/release269-runtime-admission.mjs'
 
 import {
   EXPECTED,
@@ -425,11 +430,35 @@ const REVIEWED_236_TO_267 = [...REVIEWED_236_TO_255, ...REVIEWED_255_TO_267]
 const REVIEWED_234_TO_267 = [...REVIEWED_234_TO_255, ...REVIEWED_255_TO_267]
 
 async function readMigrationManifest(directory) {
-  const current = await readCurrentMigrationManifest(directory)
-  assert.equal(current.names.length, EXPECTED.migrationCount)
-  assertFrozenManifest(current)
-  return current
+  return historicalStagingFixture(await readCurrentMigrationManifest(directory))
 }
+
+test('pending local EVENT SQL does not reopen the approved 267 staging endpoint', async () => {
+  const current = await readCurrentMigrationManifest('packages/db/prisma')
+  const historical = historicalStagingFixture(current)
+  assert.equal(historical.names.length, 267)
+  assert.throws(() => assertFrozenManifest(current), /migration count changed/u)
+  assert.throws(() =>
+    historicalStagingFixture({ ...current, names: [...current.names, 'unknown_extra'] }),
+  )
+  assert.throws(() =>
+    historicalStagingFixture({
+      ...current,
+      names: [...current.names.slice(0, -1), 'unknown_tail'],
+    }),
+  )
+  const changedTail = new Map(current.checksums)
+  changedTail.set(PENDING_LOCAL_EVENT.name, '0'.repeat(64))
+  assert.throws(() => historicalStagingFixture({ ...current, checksums: changedTail }))
+  const changedPrefix = new Map(current.checksums)
+  changedPrefix.set(current.names[0], '0'.repeat(64))
+  assert.throws(() => historicalStagingFixture({ ...current, checksums: changedPrefix }))
+  for (const field of ['ledgerChecksums', 'crlfLedgerChecksums']) {
+    const changed = new Map(current[field])
+    changed.set(current.names[0], 'invalid')
+    assert.throws(() => historicalStagingFixture({ ...current, [field]: changed }))
+  }
+})
 
 test('MCP appearance and operator OAuth are the exact admitted 252-to-255 suffix', async () => {
   const source = await readMigrationManifest('packages/db/prisma')
@@ -450,7 +479,7 @@ test('MCP appearance and operator OAuth are the exact admitted 252-to-255 suffix
 })
 
 test('the admitted 255 endpoint preserves the 252 predecessor and rejects a 253-row ledger', async () => {
-  const current = await readCurrentMigrationManifest('packages/db/prisma')
+  const current = await readMigrationManifest('packages/db/prisma')
   assert.equal(current.names.length, EXPECTED.migrationCount)
   assert.deepEqual(current.names.slice(252, 255), REVIEWED_252_TO_255)
   assert.throws(
@@ -735,7 +764,7 @@ test('staging image pins the same exact migration approval as the predeploy', as
   const dockerfile = await readFile('Dockerfile.web.staging', 'utf8')
   assert.match(
     dockerfile,
-    new RegExp(`^ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=${EXPECTED.approval}$`, 'mu'),
+    new RegExp(`^ENV PATHFINDER_STAGING_MIGRATION_APPROVAL=${RELEASE269_APPROVAL}$`, 'mu'),
   )
 })
 
@@ -762,7 +791,7 @@ test('staging runbook requires the exact Railway service-level predeploy approva
   assert.match(runbook, /does not inherit Docker image `ENV`/u)
   assert.match(runbook, /PATHFINDER_STAGING_MIGRATION_APPROVAL/u)
   assert.match(runbook, /Dockerfile\.web\.staging/u)
-  assert.match(runbook, /scripts\/run-staging-migration-predeploy\.mjs/u)
+  assert.match(runbook, /scripts\/lib\/release269-runtime-admission\.mjs/u)
 })
 
 test('preserved-data backup evidence must match the live migration ledger boundary', () => {

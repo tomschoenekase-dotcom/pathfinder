@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Venue coverage v1 (presence only, no truth inference)",
+  "$comment": "Character spans use JavaScript UTF-16 indices with exclusive end. Ledger requires sources[].sourceId; retained text is sources/<sourceId>.txt. All date comparisons use explicit --as-of. Semantic constraints and required profile categories are also enforced by check.mjs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "profile", "rows"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "profile": {
+      "enum": ["amusement", "zoo-wildlife", "museum", "garden", "other"]
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "status",
+          "records",
+          "sources",
+          "observedAt",
+          "publishImpact",
+          "rationale"
+        ],
+        "properties": {
+          "category": {
+            "enum": [
+              "hours-season",
+              "closures",
+              "admission-prices",
+              "tickets-booking",
+              "address-parking",
+              "contact",
+              "accessibility",
+              "food-allergen-policy",
+              "pets-service-animals",
+              "weather-policy",
+              "rider-height-safety",
+              "animal-encounter-rules",
+              "events"
+            ]
+          },
+          "status": {
+            "enum": ["KNOWN", "UNKNOWN", "CONFLICTED", "NOT_APPLICABLE", "NEEDS_HUMAN"]
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^/(places|knowledgeEntries)/(create|update)/(0|[1-9]\\d*)(/value(/[A-Za-z]+)?)?$",
+              "description": "Authored guest record wrapper/value or guest-facing text field. Metadata, container and inactive/disabled record pointers are rejected."
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sourceId", "start", "end", "text"],
+              "properties": {
+                "sourceId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "start": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date"
+          },
+          "recheckBy": {
+            "type": "string",
+            "format": "date"
+          },
+          "humanDecision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "publishImpact": {
+            "enum": ["BLOCKS", "DISCLOSE", "NONE"]
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "category": {
+                  "enum": ["hours-season", "closures", "admission-prices", "events"]
+                }
+              }
+            },
+            "then": {
+              "required": ["recheckBy"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": ["NEEDS_HUMAN", "CONFLICTED"]
+                }
+              }
+            },
+            "then": {
+              "required": ["humanDecision"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "KNOWN"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "records": {
+                  "minItems": 1
+                },
+                "sources": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
