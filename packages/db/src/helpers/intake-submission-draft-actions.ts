@@ -38,7 +38,7 @@ export const intakeSubmissionDraftContent = z
         role: interviewRole,
         consent: z.boolean(),
         draftsByRole: z
-          .record(
+          .partialRecord(
             interviewRole,
             z
               .record(z.string().min(1).max(191), answerDraft)

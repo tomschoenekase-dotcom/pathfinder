@@ -217,9 +217,7 @@ function schemaKeys(schema: unknown, into = new Set<string>()): Set<string> {
 }
 
 function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let current = schema
-  while (current instanceof z.ZodEffects) current = current.innerType()
-  return current
+  return schema
 }
 
 describe('operator MCP catalog', () => {
@@ -281,7 +279,7 @@ describe('operator MCP catalog', () => {
     for (const tool of OPERATOR_MCP_TOOLS) {
       const json = tool.inputSchema as { required: string[]; properties: Record<string, unknown> }
       const zodSchema = OPERATOR_MCP_INPUTS[tool.name]
-      const shape = (unwrap(zodSchema) as z.AnyZodObject).shape as Record<string, z.ZodTypeAny>
+      const shape = (unwrap(zodSchema) as z.ZodObject).shape as Record<string, z.ZodTypeAny>
       expect(Object.keys(json.properties).sort(), `${tool.name} keys`).toEqual(
         Object.keys(shape).sort(),
       )
@@ -291,7 +289,11 @@ describe('operator MCP catalog', () => {
       const missing = result.success
         ? []
         : result.error.issues
-            .filter((issue) => issue.code === 'invalid_type' && issue.path.length === 1)
+            .filter(
+              (issue) =>
+                (issue.code === 'invalid_type' || issue.code === 'invalid_value') &&
+                issue.path.length === 1,
+            )
             .map((issue) => String(issue.path[0]))
       expect([...missing].sort(), `${tool.name} required`).toEqual([...json.required].sort())
     }

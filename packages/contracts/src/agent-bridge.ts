@@ -71,7 +71,7 @@ export const AgentBridgeTask = z
     leaseToken: z.string().uuid(),
     leaseExpiresAt: z.string().datetime(),
     attemptNumber: z.number().int().positive(),
-    scope: z.record(z.unknown()),
+    scope: z.record(z.string(), z.unknown()),
     initiator: z
       .object({
         type: z.enum(['HUMAN', 'AGENT', 'SYSTEM', 'INTEGRATION']),

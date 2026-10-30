@@ -102,7 +102,7 @@ const PRONOUN_SUBJECTS = new Set(['', 'we', 'it'])
 const SCHEDULE_TOKEN = new RegExp(
   [
     `\\b${DAY_RE}s?\\b`,
-    '\\b(?:january|february|march|april|may\s+\d{1,2}|\d{1,2}\s+may|\d{4}-\d{2}-\d{2}|june|july|august|september|october|november|december)\\b',
+    '\\b(?:january|february|march|april|june|july|august|september|october|november|december)\\b',
     '\\bmay\\s+\\d|\\d\\s+may\\b',
     '\\b(?:jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\\.?\\s+\\d',
     '\\d\\s*(?:am|pm)\\b',

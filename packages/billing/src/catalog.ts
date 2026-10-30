@@ -20,7 +20,7 @@ export const BillingPlan = z
     maximumVenueCount: z.number().int().positive().nullable().default(null),
     newSalesEnabled: z.boolean().default(false),
     portalChangesEnabled: z.boolean().default(false),
-    metadata: z.record(z.string(), z.string()).default({}),
+    metadata: z.record(z.string(), z.string()).prefault({}),
     // Explicit, recorded owner approval. Required before any live plan can be sold.
     liveApproval: z
       .object({

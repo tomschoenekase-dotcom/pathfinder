@@ -166,7 +166,7 @@ const finishResearchInput = z
     claimToken: z.string().uuid(),
     outcome: z.enum(['RESEARCHED', 'NEEDS_REVIEW', 'BLOCKED', 'CAP_REACHED', 'SKIPPED']),
     reason: z.string().trim().min(1).max(2_000),
-    usage: z.record(z.unknown()).default({}),
+    usage: z.record(z.string(), z.unknown()).prefault({}),
     costUsd: z.number().min(0).max(10_000).optional(),
   })
   .strict()

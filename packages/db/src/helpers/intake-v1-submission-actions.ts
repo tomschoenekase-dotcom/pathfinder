@@ -23,11 +23,11 @@ export const intakeV1SubmissionSelection = z
     operationId: uuid,
     partialAcknowledged: z.boolean(),
     drafts: z
-      .record(
+      .partialRecord(
         sourceKind,
         z.object({ include: z.boolean(), expectedRevision: z.number().int().min(1) }),
       )
-      .default({}),
+      .prefault({}),
     intakeRunIds: z.array(z.string().min(1).max(191)).max(50).default([]),
     intakeUploadIds: z.array(z.string().min(1).max(191)).max(50).default([]),
   })

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 import type { AnthropicMessagesClient } from '@pathfinder/ai'
+import { resolveRuntimeAiWorkloadConfiguration } from '@pathfinder/db'
 
 // Mock config so env validation doesn't fail in the test environment.
 vi.mock('@pathfinder/config', () => ({
@@ -227,6 +228,31 @@ describe('chat.send low-confidence flag', () => {
     await caller.chat.send(sendInput)
 
     expect(lowConfidenceCalls()).toHaveLength(0)
+  })
+
+  it('does not dispatch cues to a changed primary model during a Luna-scoped turn', async () => {
+    setup([place(0.1)], 'This response must never be generated.')
+    vi.stubEnv('GUEST_CHAT_DATE_CUES_MODEL_SCOPE', 'luna')
+    vi.stubEnv('GUEST_CHAT_TODAY_STATUS', 'on')
+    vi.stubEnv('GUEST_CHAT_STATED_DATES', 'on')
+    const resolveConfiguration = vi.mocked(resolveRuntimeAiWorkloadConfiguration)
+    const original = await resolveConfiguration({ workloadId: 'guest-chat' }, mockDb)
+    resolveConfiguration.mockResolvedValueOnce({
+      ...original,
+      primaryModelKey: 'guest-chat-luna-reasoning-high-fast',
+    })
+    try {
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(
+        guestTurnActions.dispatch.mock.calls.some(
+          ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+        ),
+      ).toBe(false)
+    } finally {
+      vi.unstubAllEnvs()
+      anthropicCreate.mockReset()
+    }
   })
 
   it('flags when the best place is semantically far, with the distance as score', async () => {

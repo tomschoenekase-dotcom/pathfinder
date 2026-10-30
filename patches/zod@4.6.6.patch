@@ -1,0 +1,107 @@
+diff --git a/src/v4/core/checks.ts b/src/v4/core/checks.ts
+--- a/src/v4/core/checks.ts
++++ b/src/v4/core/checks.ts
+@@ -570,3 +570,2 @@
+-      const units = input.length;
+-      // Strings are measured in Unicode code points, not UTF-16 units. A code point is at most two units, so a string that already fits in units fits in code points; only an overflow has to be counted.
+-      const length = typeof input === "string" && units > def.maximum ? util.codePointLength(input) : units;
++      // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+@@ -615,6 +614,2 @@
+-      const units = input.length;
+-      // A code point is one or two UTF-16 units, so fewer units than the floor can never reach it and twice the floor always clears it. Only in between is the exact count in doubt.
+-      const length =
+-        typeof input === "string" && units >= def.minimum && units < def.minimum * 2
+-          ? util.codePointLength(input)
+-          : units;
++      // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+@@ -664,6 +659,2 @@
+-      const units = input.length;
+-      // A code point is one or two UTF-16 units, so outside `[length, length * 2]` units the target is missed either way — and missed in the same direction in both measures.
+-      const length =
+-        typeof input === "string" && units >= def.length && units <= def.length * 2
+-          ? util.codePointLength(input)
+-          : units;
++      // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+diff --git a/src/v4/core/compile.ts b/src/v4/core/compile.ts
+--- a/src/v4/core/compile.ts
++++ b/src/v4/core/compile.ts
+@@ -479,4 +479,2 @@
+-  const cpLen = addConstant(ctx, util.codePointLength);
+-  const v = newVar(ctx);
+-  doc.write(`const ${v} = typeof ${accessor} === "string" && ${inDoubt} ? ${cpLen}(${accessor}) : ${accessor}.length;`);
+-  return v;
++    // Match the interpreter and existing UTF-16 field limits.
++    return `${accessor}.length`;
+diff --git a/v4/core/checks.js b/v4/core/checks.js
+--- a/v4/core/checks.js
++++ b/v4/core/checks.js
+@@ -271,3 +271,2 @@
+-        const units = input.length;
+-        // Strings are measured in Unicode code points, not UTF-16 units. A code point is at most two units, so a string that already fits in units fits in code points; only an overflow has to be counted.
+-        const length = typeof input === "string" && units > def.maximum ? util.codePointLength(input) : units;
++        // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+@@ -294,5 +293,2 @@
+-        const units = input.length;
+-        // A code point is one or two UTF-16 units, so fewer units than the floor can never reach it and twice the floor always clears it. Only in between is the exact count in doubt.
+-        const length = typeof input === "string" && units >= def.minimum && units < def.minimum * 2
+-            ? util.codePointLength(input)
+-            : units;
++        // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+@@ -319,5 +315,2 @@
+-        const units = input.length;
+-        // A code point is one or two UTF-16 units, so outside `[length, length * 2]` units the target is missed either way — and missed in the same direction in both measures.
+-        const length = typeof input === "string" && units >= def.length && units <= def.length * 2
+-            ? util.codePointLength(input)
+-            : units;
++        // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+diff --git a/v4/core/compile.js b/v4/core/compile.js
+--- a/v4/core/compile.js
++++ b/v4/core/compile.js
+@@ -352,4 +352,2 @@
+-    const cpLen = addConstant(ctx, util.codePointLength);
+-    const v = newVar(ctx);
+-    doc.write(`const ${v} = typeof ${accessor} === "string" && ${inDoubt} ? ${cpLen}(${accessor}) : ${accessor}.length;`);
+-    return v;
++    // Match the interpreter and existing UTF-16 field limits.
++    return `${accessor}.length`;
+diff --git a/v4/core/checks.cjs b/v4/core/checks.cjs
+--- a/v4/core/checks.cjs
++++ b/v4/core/checks.cjs
+@@ -297,3 +297,2 @@
+-        const units = input.length;
+-        // Strings are measured in Unicode code points, not UTF-16 units. A code point is at most two units, so a string that already fits in units fits in code points; only an overflow has to be counted.
+-        const length = typeof input === "string" && units > def.maximum ? util.codePointLength(input) : units;
++        // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+@@ -320,5 +319,2 @@
+-        const units = input.length;
+-        // A code point is one or two UTF-16 units, so fewer units than the floor can never reach it and twice the floor always clears it. Only in between is the exact count in doubt.
+-        const length = typeof input === "string" && units >= def.minimum && units < def.minimum * 2
+-            ? util.codePointLength(input)
+-            : units;
++        // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+@@ -345,5 +341,2 @@
+-        const units = input.length;
+-        // A code point is one or two UTF-16 units, so outside `[length, length * 2]` units the target is missed either way — and missed in the same direction in both measures.
+-        const length = typeof input === "string" && units >= def.length && units <= def.length * 2
+-            ? util.codePointLength(input)
+-            : units;
++        // Preserve Torchiko/Zod 3 UTF-16 validation bounds.
++        const length = input.length;
+diff --git a/v4/core/compile.cjs b/v4/core/compile.cjs
+--- a/v4/core/compile.cjs
++++ b/v4/core/compile.cjs
+@@ -383,4 +383,2 @@
+-    const cpLen = addConstant(ctx, util.codePointLength);
+-    const v = newVar(ctx);
+-    doc.write(`const ${v} = typeof ${accessor} === "string" && ${inDoubt} ? ${cpLen}(${accessor}) : ${accessor}.length;`);
+-    return v;
++    // Match the interpreter and existing UTF-16 field limits.
++    return `${accessor}.length`;

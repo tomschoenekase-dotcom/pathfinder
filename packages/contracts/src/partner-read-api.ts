@@ -11,7 +11,7 @@ const JsonValue: z.ZodType<PartnerJsonValue> = z.lazy(() =>
     z.number().finite(),
     z.string(),
     z.array(JsonValue),
-    z.record(JsonValue),
+    z.record(z.string(), JsonValue),
   ]),
 )
 

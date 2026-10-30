@@ -64,7 +64,7 @@ const importedSpecSchema = z
           .array(z.string().regex(/^[a-z][a-zA-Z0-9]{0,63}$/u))
           .min(1)
           .max(32),
-        stateControls: z.record(
+        stateControls: z.partialRecord(
           z.enum(FACTORY_STATES),
           z.array(z.string().regex(/^[a-z][a-zA-Z0-9]{0,63}$/u)).max(16),
         ),

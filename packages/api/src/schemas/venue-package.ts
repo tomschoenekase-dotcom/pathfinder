@@ -235,7 +235,7 @@ function validateVersionThreeOperations(
     ctx.addIssue({
       code: z.ZodIssueCode.too_big,
       maximum: VENUE_PACKAGE_ITEM_LIMIT,
-      type: 'array',
+      origin: 'array',
       inclusive: true,
       message: `A venue package can contain at most ${VENUE_PACKAGE_ITEM_LIMIT} total item operations`,
     })
@@ -295,7 +295,7 @@ function validatePayloadOperations(
     ctx.addIssue({
       code: z.ZodIssueCode.too_big,
       maximum: VENUE_PACKAGE_ITEM_LIMIT,
-      type: 'array',
+      origin: 'array',
       inclusive: true,
       message: `A venue package can contain at most ${VENUE_PACKAGE_ITEM_LIMIT} total items`,
     })
@@ -725,8 +725,8 @@ export const VenuePackageAppliedEffectV3 = z
     operation: z.enum(['CREATE', 'UPDATE', 'DELETE']),
     applyVersionId: VersionId,
     snapshotSchemaVersion: z.number().int().positive(),
-    beforeState: z.record(z.unknown()).nullable(),
-    afterState: z.record(z.unknown()).nullable(),
+    beforeState: z.record(z.string(), z.unknown()).nullable(),
+    afterState: z.record(z.string(), z.unknown()).nullable(),
   })
   .strict()
 

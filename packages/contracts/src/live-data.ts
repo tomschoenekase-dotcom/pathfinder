@@ -615,6 +615,7 @@ export function buildLiveDataResult(input: {
       : null
   const parsedValues = z
     .record(
+      z.string(),
       z.object({
         type: z.enum(['integer', 'number', 'text', 'boolean', 'status']),
         value: z.union([z.number(), z.string(), z.boolean(), z.null()]),

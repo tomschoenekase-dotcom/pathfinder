@@ -137,19 +137,19 @@ const getDailyStatsInput = z
   .object({
     days: z.number().int().min(7).max(90).default(30),
   })
-  .default({ days: 30 })
+  .prefault({ days: 30 })
 
 const getTopQuestionsInput = z
   .object({
     days: z.number().int().min(1).max(90).default(7),
   })
-  .default({ days: 7 })
+  .prefault({ days: 7 })
 
 const getWindowInput = z
   .object({
     days: z.number().int().min(1).max(90).default(30),
   })
-  .default({ days: 30 })
+  .prefault({ days: 30 })
 
 const getPlaceInterestInput = z
   .object({
@@ -163,7 +163,7 @@ const getPlaceInterestOverviewInput = z
     days: z.number().int().min(1).max(90).default(30),
     limitPerVenue: z.number().int().min(1).max(25).default(10),
   })
-  .default({ days: 30, limitPerVenue: 10 })
+  .prefault({ days: 30, limitPerVenue: 10 })
 
 function startOfUtcDay(date: Date): Date {
   const result = new Date(date)

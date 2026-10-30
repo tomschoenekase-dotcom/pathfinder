@@ -251,9 +251,9 @@ export function createOperatorRegistry(
 export const OperatorToolCallParams = z
   .object({
     name: z.string().trim().min(1).max(191),
-    arguments: z.record(z.unknown()).default({}),
+    arguments: z.record(z.string(), z.unknown()).prefault({}),
     // Accepted for protocol compatibility and ignored: approval is never a caller claim here.
-    _meta: z.record(z.unknown()).optional(),
+    _meta: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
 

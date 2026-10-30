@@ -114,6 +114,7 @@ export const OffboardingExportManifestPreview = z
     revisions: z.array(RevisionReference),
     evidence: z.array(EvidenceReference),
     truncation: z.record(
+      z.string(),
       z
         .object({
           returned: z.number().int().nonnegative(),

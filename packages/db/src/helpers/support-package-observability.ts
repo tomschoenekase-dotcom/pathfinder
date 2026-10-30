@@ -41,8 +41,8 @@ const AppliedEffect = z
     operation: z.enum(['CREATE', 'UPDATE', 'DELETE']),
     applyVersionId: z.string().uuid(),
     snapshotSchemaVersion: z.number().int().positive(),
-    beforeState: z.record(z.unknown()).nullable(),
-    afterState: z.record(z.unknown()).nullable(),
+    beforeState: z.record(z.string(), z.unknown()).nullable(),
+    afterState: z.record(z.string(), z.unknown()).nullable(),
   })
   .strict()
 const AppliedManifestV3 = z

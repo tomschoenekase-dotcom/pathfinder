@@ -86,7 +86,7 @@ const adminProspectCrmOutreachActionsRouter = router({
           name: prospectBoundedText(191),
           description: z.string().trim().max(2000).optional(),
           organizationIds: z.array(id).min(1).max(5000),
-          cohortSnapshot: z.record(z.unknown()),
+          cohortSnapshot: z.record(z.string(), z.unknown()),
         })
         .strict(),
     )
@@ -111,7 +111,7 @@ const adminProspectCrmOutreachActionsRouter = router({
           subject: prospectBoundedText(998),
           textBody: prospectBoundedText(50_000),
           htmlBody: z.string().max(100_000).optional(),
-          groundingSnapshot: z.record(z.unknown()),
+          groundingSnapshot: z.record(z.string(), z.unknown()),
           launchAssetSelection: AnyVenueLaunchAssetSelectionSchema.optional(),
         })
         .strict(),

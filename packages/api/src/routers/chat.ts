@@ -78,6 +78,7 @@ import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-pla
 import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
 import { guestTodayStatusCue, guestTodayStatusEnabled } from '../lib/guest-today-status'
 import { guestStatedDatesEnabled } from '../lib/guest-stated-dates'
+import { guestDateCueLunaScope, guestDateCuesForModel } from '../lib/guest-date-cue-scope'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -1543,8 +1544,15 @@ const chatReadRouter = router({
       directory: guestDirectory,
       currentDate,
     })
-    const statedDatesEnabled = guestStatedDatesEnabled()
-    const todayStatusEnabled = guestTodayStatusEnabled()
+    const dateCueConfiguration = guestDateCueLunaScope()
+      ? await resolveRuntimeAiWorkloadConfiguration(
+          { workloadId: 'guest-chat', tenantId: venue.tenantId, venueId: input.venueId },
+          ctx.db,
+        )
+      : null
+    const dateCuesAllowed = guestDateCuesForModel(dateCueConfiguration?.primaryModelKey)
+    const statedDatesEnabled = dateCuesAllowed && guestStatedDatesEnabled()
+    const todayStatusEnabled = dateCuesAllowed && guestTodayStatusEnabled()
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
       currentDate,
       ...(statedDatesEnabled ? { statedDates: true } : {}),
@@ -2029,6 +2037,12 @@ const chatReadRouter = router({
         ctx.db,
       )
       configurationMs = elapsedMilliseconds(configurationStartedAt)
+      if (
+        dateCueConfiguration &&
+        JSON.stringify(configuration) !== JSON.stringify(dateCueConfiguration)
+      ) {
+        throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
+      }
       const route = routeAiCapability({
         capability: 'STANDARD',
         workloadId: 'guest-chat',

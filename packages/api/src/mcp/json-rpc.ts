@@ -83,7 +83,7 @@ export async function dispatchMcpJsonRpc(
         const params = z
           .object({
             name: z.string().trim().min(1).max(191),
-            arguments: z.record(z.unknown()).default({}),
+            arguments: z.record(z.string(), z.unknown()).prefault({}),
             _meta: z
               .object({ approvalGrantId: z.string().trim().min(1).max(120).optional() })
               .passthrough()

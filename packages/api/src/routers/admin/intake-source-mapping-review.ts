@@ -14,7 +14,7 @@ import {
 // revalidates the complete command, including the notes range refinement.
 const reviewInput = z.union([
   WebsiteSourceMappingReviewInput.omit({ reviewedBy: true }),
-  OptionalNotesSourceMappingReviewInput.innerType().omit({ reviewedBy: true }),
+  z.strictObject(OptionalNotesSourceMappingReviewInput.shape).omit({ reviewedBy: true }),
 ])
 
 export const adminIntakeSourceMappingReviewRouter = router({

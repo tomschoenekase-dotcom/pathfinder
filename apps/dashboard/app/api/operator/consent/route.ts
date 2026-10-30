@@ -11,7 +11,9 @@ import { guardOperatorMutation, operatorJson } from '../../../../lib/operator-se
 
 const Body = z
   .object({
-    params: z.record(z.string().max(2_048)).refine((value) => Object.keys(value).length <= 20),
+    params: z
+      .record(z.string(), z.string().max(2_048))
+      .refine((value) => Object.keys(value).length <= 20),
     decision: ConsentDecision,
   })
   .strict()

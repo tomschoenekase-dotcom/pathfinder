@@ -91,7 +91,7 @@ export const CreateAgentRoutineInput = z
     maxRunsPerDay: z.number().int().min(1).max(1_440).default(24),
     requiredWorkerRoles: z.array(Id).max(50).default([]),
     requiredWorkerCapabilities: z.array(Id).max(100).default([]),
-    stopRules: RoutineStopRules.default({}),
+    stopRules: RoutineStopRules.prefault({}),
     budget: RoutineBudget.nullable().default(null),
   })
   .strict()

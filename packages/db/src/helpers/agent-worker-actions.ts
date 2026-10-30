@@ -18,7 +18,7 @@ const workerRegistration = z
     agentRoles: z.array(z.string().trim().min(1).max(191)).max(50),
     modelProvider: z.string().trim().min(1).max(100).optional(),
     modelName: z.string().trim().min(1).max(191).optional(),
-    safeHealth: z.record(z.unknown()).default({}),
+    safeHealth: z.record(z.string(), z.unknown()).prefault({}),
   })
   .strict()
 
