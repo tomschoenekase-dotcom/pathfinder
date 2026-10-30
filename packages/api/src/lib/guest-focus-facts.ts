@@ -34,6 +34,14 @@ export function guestFocusFactsForModel(
   return mode === 'luna' && /^guest-chat-luna(?:-|$)/u.test(primaryModelKey ?? '')
 }
 
+/** GUEST_CHAT_FOCUS_FACTS_RETRIEVED: 1-4 top retrieved records when nothing is named; else 0. */
+export function guestFocusRetrievedSubjects(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const value = Number(env.GUEST_CHAT_FOCUS_FACTS_RETRIEVED?.trim())
+  return Number.isInteger(value) && value >= 1 && value <= 4 ? value : 0
+}
+
 export type GuestFocusKnowledge = {
   id?: string
   title: string
@@ -245,6 +253,32 @@ function namedSubjects(
   )
 }
 
+// The top retrieved records, best first, grouped by name with any same-name place. Overview and
+// generic one-word topics are skipped: an overview spans many subjects, which is the binding risk.
+function retrievedSubjects(
+  retrieved: ReadonlyArray<GuestFocusKnowledge>,
+  knowledge: ReadonlyArray<GuestFocusKnowledge>,
+  places: ReadonlyArray<GuestFocusPlace>,
+  limit: number,
+): FocusSubject[] {
+  const subjects: FocusSubject[] = []
+  for (const entry of retrieved) {
+    if (subjects.length >= limit) break
+    const key = guestPlaceIdentityKey(entry.title)
+    if (!key || !isSpecificName(key) || /\b(?:overview|guide to|all )\b/u.test(key)) continue
+    if (subjects.some((subject) => subject.key === key)) continue
+    const records = [
+      ...knowledge
+        .filter((row) => guestPlaceIdentityKey(row.title) === key)
+        .map((row) => row.content),
+      ...places.filter((row) => guestPlaceIdentityKey(row.name) === key).map(placeText),
+    ].filter((record, index, all) => record.trim() && all.indexOf(record) === index)
+    if (!records.length) records.push(entry.content)
+    subjects.push({ key, name: entry.title, records })
+  }
+  return subjects
+}
+
 export type GuestFocusFacts = {
   /** Instruction text; belongs outside the untrusted data fence. */
   rule: string
@@ -252,12 +286,16 @@ export type GuestFocusFacts = {
   data: string
   subjects: string[]
   fromPreviousQuestion: boolean
+  fromRetrieval: boolean
   askedAttributes: GuestFocusAttribute[]
   truncated: boolean
 }
 
 export const GUEST_FOCUS_FACTS_RULE =
   'FOCUS FACTS: Each <focus_subject> block below repeats, from the VENUE GUIDE, the complete records of a place or topic the visitor named. Everything inside a block is about that subject only. A status, rule, price, date or qualifier stated for one subject, or in a record about other things, never transfers to another subject unless a record says it applies to it. "Not stated in its records" means unknown: answer what is known, say plainly what is not listed, and never fill the gap from a neighbour or call it absent, free, closed, not required or not applicable. A qualifier applies only to the requirements it names. Answer the visitor\'s question first; add claims about other places, products or dates only when their own records state them.'
+
+export const GUEST_FOCUS_RETRIEVED_RULE =
+  "FOCUS FACTS: The visitor named no specific place. Each <focus_subject> block below repeats, from the VENUE GUIDE, the complete records of a place or topic most relevant to the question. Everything inside a block is about that subject only. A status, rule, price, date or qualifier stated for one subject, or for the venue's rides, season or another area, never transfers to another subject unless a record says it applies to it; when a subject's own records do not state its hours or status, say that plainly instead of calling it open or closed. Answer the visitor's question first; add claims about other places, products or dates only when their own records state them."
 
 export const GUEST_FOCUS_BOUNDARY_RULE =
   'DATE BOUNDARIES: The computed_date_boundaries lines below restate closure and last-open dates that records state. Each applies only to what its quoted sentence names, never to the rest of that record. Use them instead of re-deriving those boundaries; never describe a closure date as an open day.'
@@ -272,8 +310,13 @@ export function buildGuestFocusFacts(input: {
   previousQuestion?: string | null
   knowledge: ReadonlyArray<GuestFocusKnowledge>
   places: ReadonlyArray<GuestFocusPlace>
-  /** Records retrieval chose for this message; only their date boundaries are added. */
+  /** Records retrieval chose for this message, best first; their date boundaries are added. */
   retrieved?: ReadonlyArray<GuestFocusKnowledge>
+  /**
+   * When the visitor names nothing, fence this many of the top retrieved records instead
+   * (GUEST_CHAT_FOCUS_FACTS_RETRIEVED). Omitted or 0 keeps named-subject behavior only.
+   */
+  retrievedSubjects?: number
   escape: (value: string) => string
   maxSubjects?: number
   maxChars?: number
@@ -285,6 +328,16 @@ export function buildGuestFocusFacts(input: {
   if (!subjects.length && input.previousQuestion) {
     subjects = namedSubjects(input.previousQuestion, input.knowledge, input.places)
     fromPreviousQuestion = subjects.length > 0
+  }
+  let fromRetrieval = false
+  if (!subjects.length && input.retrievedSubjects) {
+    subjects = retrievedSubjects(
+      input.retrieved ?? [],
+      input.knowledge,
+      input.places,
+      input.retrievedSubjects,
+    )
+    fromRetrieval = subjects.length > 0
   }
   const askedAttributes = guestFocusAskedAttributes(input.question)
   const blocks: string[] = []
@@ -328,12 +381,15 @@ export function buildGuestFocusFacts(input: {
     : []
   return {
     rule: [
-      ...(blocks.length ? [GUEST_FOCUS_FACTS_RULE] : []),
+      ...(blocks.length
+        ? [fromRetrieval ? GUEST_FOCUS_RETRIEVED_RULE : GUEST_FOCUS_FACTS_RULE]
+        : []),
       ...(boundaries.length ? [GUEST_FOCUS_BOUNDARY_RULE] : []),
     ].join('\n\n'),
     data: [...blocks, ...boundaryBlock].join('\n'),
     subjects: focused.map((subject) => subject.name),
     fromPreviousQuestion,
+    fromRetrieval,
     askedAttributes,
     truncated,
   }

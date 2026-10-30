@@ -82,6 +82,7 @@ import {
   buildGuestFocusFacts,
   guestFocusFactsForModel,
   guestFocusFactsMode,
+  guestFocusRetrievedSubjects,
 } from '../lib/guest-focus-facts'
 import { guestDateCueLunaScope, guestDateCuesForModel } from '../lib/guest-date-cue-scope'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
@@ -1874,6 +1875,7 @@ const chatReadRouter = router({
                 ),
               ],
               retrieved: relevantKnowledgeEntries,
+              retrievedSubjects: guestFocusRetrievedSubjects(),
               escape: escapeUntrustedPromptData,
             })
           : null

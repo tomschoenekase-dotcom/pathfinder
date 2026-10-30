@@ -6,6 +6,7 @@ import {
   guestFocusDateBoundaryNotes,
   guestFocusFactsForModel,
   guestFocusFactsMode,
+  guestFocusRetrievedSubjects,
 } from './guest-focus-facts'
 import { buildVenueSystemPromptParts, escapeUntrustedPromptData } from './venue-context'
 
@@ -266,6 +267,57 @@ describe('guest focus facts', () => {
       escape: escapeUntrustedPromptData,
     })!
     expect(focus.data).not.toContain('</untrusted_venue_data>')
+  })
+})
+
+describe('retrieved focus subjects for questions that name nothing', () => {
+  const dining = [
+    {
+      id: 'k-overview',
+      title: 'Dining overview',
+      category: 'Dining',
+      content: 'Harbor Galley and Dockside Grill serve meals.',
+    },
+    knowledge.find((entry) => entry.id === 'k-galley')!,
+    knowledge.find((entry) => entry.id === 'k-grill')!,
+    knowledge.find((entry) => entry.id === 'k-rooftop')!,
+  ]
+
+  it('reads the retrieved-subject count conservatively', () => {
+    expect(guestFocusRetrievedSubjects({})).toBe(0)
+    expect(guestFocusRetrievedSubjects({ GUEST_CHAT_FOCUS_FACTS_RETRIEVED: '3' })).toBe(3)
+    expect(guestFocusRetrievedSubjects({ GUEST_CHAT_FOCUS_FACTS_RETRIEVED: '9' })).toBe(0)
+    expect(guestFocusRetrievedSubjects({ GUEST_CHAT_FOCUS_FACTS_RETRIEVED: 'on' })).toBe(0)
+  })
+
+  it('stays off unless enabled: a category question gets boundaries only', () => {
+    const focus = build('where can I eat?', { retrieved: dining })!
+    expect(focus.subjects).toEqual([])
+    expect(focus.fromRetrieval).toBe(false)
+  })
+
+  it('fences the top retrieved records, skipping overviews, with the retrieved rule', () => {
+    const focus = build('where can I eat?', { retrieved: dining, retrievedSubjects: 2 })!
+    expect(focus.fromRetrieval).toBe(true)
+    expect(focus.subjects).toEqual(['Harbor Galley', 'Dockside Grill'])
+    expect(focus.rule).toMatch(/^FOCUS FACTS: The visitor named no specific place\./u)
+    expect(focus.data).toContain('<focus_subject name="Harbor Galley">')
+    expect(focus.data).not.toContain('<focus_subject name="Dining overview">')
+    // The third retrieved record is not fenced but keeps its computed boundary.
+    expect(focus.data).toContain('In the "Gull Deck Bar" record')
+  })
+
+  it('counterexample: an explicitly closed restaurant keeps its closure when fenced', () => {
+    const focus = build('where can I eat?', { retrieved: dining, retrievedSubjects: 2 })!
+    expect(focus.data).toContain('Closed for the 2026 season after October 25, 2026.')
+    expect(focus.data).toContain('closed from Monday, October 26, 2026')
+  })
+
+  it('a named subject still wins over retrieval', () => {
+    const focus = build('is Harbor Galley open?', { retrieved: dining, retrievedSubjects: 3 })!
+    expect(focus.fromRetrieval).toBe(false)
+    expect(focus.subjects).toEqual(['Harbor Galley'])
+    expect(focus.rule).toMatch(/visitor named\. Everything/u)
   })
 })
 
