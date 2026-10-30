@@ -4312,7 +4312,11 @@ describe('chat router', () => {
         input_tokens_details: { cached_tokens: 0 },
       }
       function routeTo(
-        primaryModelKey: 'guest-chat-luna' | 'guest-chat-luna-reasoning' | 'guest-chat-sol',
+        primaryModelKey:
+          | 'guest-chat-luna'
+          | 'guest-chat-luna-reasoning'
+          | 'guest-chat-luna-reasoning-high-fast'
+          | 'guest-chat-sol',
         maxOutputTokens: number | null = 1024,
       ) {
         aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue({
@@ -4346,6 +4350,179 @@ describe('chat router', () => {
       type CapturedWire = { input: Array<{ role: string; content: Array<{ text: string }> }> }
       const lastDeveloperText = (request: CapturedWire) =>
         request.input.filter((item) => item.role === 'developer').at(-1)!.content[0]!.text
+
+      describe('binding audit (GUEST_CHAT_BINDING_AUDIT)', () => {
+        const pass = JSON.stringify({ verdict: 'PASS', problems: [] })
+        const fix = JSON.stringify({
+          verdict: 'FIX',
+          problems: [
+            {
+              claim: 'The elephants are in the Elephant House.',
+              kind: 'not_in_records',
+              recordQuote: '',
+              fix: 'PRIVATE_AUDIT_SENTINEL: acknowledge that the location is unknown.',
+            },
+          ],
+        })
+        const reply = (text: string) => ({
+          status: 'completed',
+          output_text: text,
+          usage: openAiUsage,
+        })
+        function setup() {
+          aiUsageEventCreate.mockClear()
+          setupHappyPath('unused anthropic text')
+          routeTo('guest-chat-luna-reasoning-high-fast', 2048)
+          vi.stubEnv('GUEST_CHAT_ANSWER_CHECK', 'economy')
+        }
+        it('off gives a byte-identical L2 request, and Sol ignores the audit flag', async () => {
+          setup()
+          const create = vi.fn().mockResolvedValue(reply(checkedReply))
+          setOpenAiResponsesClientForTesting({ responses: { create } })
+          await caller.chat.send(sendInput)
+          const baseline = JSON.stringify(create.mock.calls[0]?.[0])
+          setup()
+          vi.stubEnv('GUEST_CHAT_BINDING_AUDIT', 'off')
+          await caller.chat.send(sendInput)
+          expect(JSON.stringify(create.mock.calls[1]?.[0])).toBe(baseline)
+          setup()
+          routeTo('guest-chat-sol')
+          vi.stubEnv('GUEST_CHAT_BINDING_AUDIT', 'on')
+          create.mockResolvedValue(reply('The visitor answer.'))
+          await caller.chat.send(sendInput)
+          expect(create).toHaveBeenCalledTimes(3)
+        })
+        it.each([
+          'not json',
+          JSON.stringify({ verdict: 'FIX', problems: [] }),
+          JSON.stringify({
+            verdict: 'FIX',
+            problems: [
+              { claim: 'claim', kind: 'wrong_date', recordQuote: 'INVENTED_QUOTE', fix: 'fix' },
+            ],
+          }),
+        ])('fails open for malformed or unsupported audit: %s', async (audit) => {
+          setup()
+          vi.stubEnv('GUEST_CHAT_BINDING_AUDIT', 'on')
+          const create = vi
+            .fn()
+            .mockResolvedValueOnce(reply(checkedReply))
+            .mockResolvedValueOnce(reply(audit))
+          setOpenAiResponsesClientForTesting({ responses: { create } })
+          expect(await caller.chat.send(sendInput)).toMatchObject({ response: checkedAnswer })
+          expect(create).toHaveBeenCalledTimes(2)
+          expect(
+            guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.answerEvidence
+              .bindingAudit.status,
+          ).toBe('AUDIT_FAILED_OPEN')
+        })
+        it('uses schema output capped at 600 tokens and 6 seconds, preserving every call in accounting', async () => {
+          setup()
+          vi.stubEnv('GUEST_CHAT_BINDING_AUDIT', 'on')
+          const create = vi
+            .fn()
+            .mockResolvedValueOnce(reply(checkedReply))
+            .mockResolvedValueOnce(reply(pass))
+          setOpenAiResponsesClientForTesting({ responses: { create } })
+          const result = await caller.chat.send(sendInput)
+          expect(result.response).toBe(checkedAnswer)
+          expect(create.mock.calls[1]?.[0]).toMatchObject({
+            max_output_tokens: 600,
+            text: { format: { type: 'json_schema', strict: true, name: 'guest_binding_audit' } },
+          })
+          expect(create.mock.calls[1]?.[1]).toMatchObject({ timeout: 6000 })
+          expect(create.mock.calls[1]?.[0].model).toBe(create.mock.calls[0]?.[0].model)
+          expect(create.mock.calls[1]?.[0].service_tier).toBe(
+            create.mock.calls[0]?.[0].service_tier,
+          )
+          expect(JSON.stringify(create.mock.calls[1]?.[0])).not.toContain('TRUSTED ANSWER CHECK')
+          expect(
+            aiUsageEventCreate.mock.calls.filter(
+              ([arg]) => arg.data.provider === 'openai' && arg.data.feature === 'guest-chat',
+            ),
+          ).toHaveLength(2)
+        })
+        it('buffers the draft, rewrites once, and releases only sanitized final text in both transports', async () => {
+          for (const streaming of [false, true]) {
+            setup()
+            vi.stubEnv('GUEST_CHAT_BINDING_AUDIT', 'on')
+            const revised = 'The location is unknown, ask a member of staff.'
+            const repaired = `<answer_check>${answerCheckBody}</answer_check>The location is unknown \u2014 ask a member of staff.`
+            const create = vi
+              .fn()
+              .mockResolvedValueOnce(reply(checkedReply))
+              .mockResolvedValueOnce(reply(fix))
+              .mockResolvedValueOnce(reply(repaired))
+            setOpenAiResponsesClientForTesting({ responses: { create } })
+            if (streaming) {
+              const events = []
+              for await (const event of streamChatTurn(ctx, sendInput)) {
+                if (event.type === 'delta') expect(create).toHaveBeenCalledTimes(3)
+                events.push(event)
+              }
+              expect(events.at(-1)).toMatchObject({
+                type: 'complete',
+                result: { response: revised },
+              })
+              expect(JSON.stringify(events)).not.toContain('PRIVATE_AUDIT_SENTINEL')
+              expect(JSON.stringify(events)).not.toContain(checkedAnswer)
+              expect(JSON.stringify(events)).not.toContain('answer_check')
+            } else expect(await caller.chat.send(sendInput)).toMatchObject({ response: revised })
+            expect(create).toHaveBeenCalledTimes(3)
+            expect(create.mock.calls.every(([wire]) => !wire.stream)).toBe(true)
+            const finalized = guestTurnActions.finalize.mock.calls.at(-1)?.[0].input
+            expect(finalized.assistantResponse).toBe(revised)
+            expect(JSON.stringify(finalized.replayMetadata.citations)).not.toContain(
+              'PRIVATE_AUDIT_SENTINEL',
+            )
+            expect(finalized.replayMetadata.answerEvidence.bindingAudit).toMatchObject({
+              verdict: 'FIX',
+              status: 'FIX',
+            })
+            expect(
+              verifyGuestAnswerEvidenceBundle({
+                assistantResponse: revised,
+                evidence: finalized.replayMetadata.answerEvidence,
+              }),
+            ).toBe(true)
+            expect(
+              aiUsageEventCreate.mock.calls.filter(
+                ([arg]) => arg.data.provider === 'openai' && arg.data.feature === 'guest-chat',
+              ),
+            ).toHaveLength(3)
+          }
+        })
+        it('does not retry or expose private data when the single rewrite fails', async () => {
+          setup()
+          vi.stubEnv('GUEST_CHAT_BINDING_AUDIT', 'on')
+          const create = vi
+            .fn()
+            .mockResolvedValueOnce(reply(checkedReply))
+            .mockResolvedValueOnce(reply(fix))
+            .mockResolvedValueOnce(reply(fix))
+          setOpenAiResponsesClientForTesting({ responses: { create } })
+          expect(await caller.chat.send(sendInput)).toMatchObject({ response: checkedAnswer })
+          expect(create).toHaveBeenCalledTimes(3)
+          expect(
+            guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.answerEvidence
+              .bindingAudit.status,
+          ).toBe('REWRITE_FAILED_OPEN')
+        })
+        it('fails open on an audit timeout without another request', async () => {
+          setup()
+          vi.stubEnv('GUEST_CHAT_BINDING_AUDIT', 'on')
+          const timeout = Object.assign(new Error('audit timed out'), {
+            name: 'APIConnectionTimeoutError',
+          })
+          const create = vi
+            .fn()
+            .mockResolvedValueOnce(reply(checkedReply))
+            .mockRejectedValueOnce(timeout)
+          setOpenAiResponsesClientForTesting({ responses: { create } })
+          expect(await caller.chat.send(sendInput)).toMatchObject({ response: checkedAnswer })
+          expect(create).toHaveBeenCalledTimes(2)
+        })
+      })
 
       describe('stated dates (GUEST_CHAT_STATED_DATES=luna)', () => {
         const endedEvent = {

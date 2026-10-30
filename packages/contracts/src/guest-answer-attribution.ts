@@ -9,22 +9,24 @@ const sha256 = z.string().regex(/^[0-9a-f]{64}$/u)
 const sourceId = z.string().trim().min(1).max(240)
 
 // Observations of the actual guide projection; never instructions or a completeness verdict.
-export const GuestGuideCoverageSchema = z.object({
-  schemaVersion: z.literal('guest-guide-coverage-v1'),
-  mode: z.enum(['FULL', 'DIRECTORY', 'NONE']),
-  loadStatus: z.enum(['READY', 'LOAD_FAILED', 'PROJECTION_MISMATCH']),
-  projectionPath: z.enum(['LEGACY', 'DARK', 'NATIVE']),
-  incomplete: z.boolean(),
-  // Present only when the rendered directory was cut at its size bound although the loader
-  // returned every record; incomplete keeps its original meaning (a load bound was reached).
-  rendererTruncated: z.literal(true).optional(),
-  placeCount: z.number().int().min(0).max(1_000_000),
-  knowledgeCount: z.number().int().min(0).max(1_000_000),
-  includedDetailCount: z.number().int().min(0).max(1_000_000),
-  promptChars: z.number().int().min(0).max(1_000_000),
-  promptSha256: sha256,
-  detailIdSetSha256: sha256,
-}).strict()
+export const GuestGuideCoverageSchema = z
+  .object({
+    schemaVersion: z.literal('guest-guide-coverage-v1'),
+    mode: z.enum(['FULL', 'DIRECTORY', 'NONE']),
+    loadStatus: z.enum(['READY', 'LOAD_FAILED', 'PROJECTION_MISMATCH']),
+    projectionPath: z.enum(['LEGACY', 'DARK', 'NATIVE']),
+    incomplete: z.boolean(),
+    // Present only when the rendered directory was cut at its size bound although the loader
+    // returned every record; incomplete keeps its original meaning (a load bound was reached).
+    rendererTruncated: z.literal(true).optional(),
+    placeCount: z.number().int().min(0).max(1_000_000),
+    knowledgeCount: z.number().int().min(0).max(1_000_000),
+    includedDetailCount: z.number().int().min(0).max(1_000_000),
+    promptChars: z.number().int().min(0).max(1_000_000),
+    promptSha256: sha256,
+    detailIdSetSha256: sha256,
+  })
+  .strict()
 export type GuestGuideCoverage = z.infer<typeof GuestGuideCoverageSchema>
 
 // Evidence was introduced with v5. Retained answers keep their original prompt
@@ -57,6 +59,36 @@ export const GuestAnswerEvidenceSourceSchema = z
   })
   .strict()
 
+export const GuestBindingAuditEvidenceSchema = z
+  .object({
+    instructionSha256: sha256,
+    status: z.enum(['PASS', 'FIX', 'AUDIT_FAILED_OPEN', 'REWRITE_FAILED_OPEN']),
+    verdict: z.enum(['PASS', 'FIX']).nullable(),
+    problems: z
+      .array(
+        z
+          .object({
+            claim: z.string().min(1).max(1200),
+            kind: z.enum([
+              'wrong_subject',
+              'wrong_date',
+              'wrong_visitor',
+              'not_in_records',
+              'condition_dropped',
+              'ranking_from_partial',
+            ]),
+            recordQuote: z.string().max(1800),
+            fix: z.string().min(1).max(1800),
+          })
+          .strict(),
+      )
+      .max(8),
+    auditInvocationId: z.string().min(1).max(240),
+    rewriteInvocationId: z.string().min(1).max(240).nullable(),
+    elapsedMs: z.number().int().nonnegative(),
+  })
+  .strict()
+
 export const GuestAnswerEvidenceBundleSchema = z
   .object({
     schemaVersion: z.literal(GUEST_ANSWER_EVIDENCE_VERSION),
@@ -72,6 +104,7 @@ export const GuestAnswerEvidenceBundleSchema = z
       })
       .strict(),
     sources: z.array(GuestAnswerEvidenceSourceSchema).min(1).max(100),
+    bindingAudit: GuestBindingAuditEvidenceSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {

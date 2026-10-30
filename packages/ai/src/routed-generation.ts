@@ -1,4 +1,7 @@
-import { assertLocalLunaPlannerProfile, type LocalLunaPlannerProfile } from './local-luna-planner-profile'
+import {
+  assertLocalLunaPlannerProfile,
+  type LocalLunaPlannerProfile,
+} from './local-luna-planner-profile'
 import {
   AiGatewayError,
   generateText,
@@ -45,6 +48,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
   route: AiRoutePlan
   system: AiSystemBlock[]
   messages: AiMessage[]
+  responseJsonSchema?: { name: string; schema: Record<string, unknown> }
   maxOutputTokens?: number
   timeoutMs?: number
   maxAttempts?: number
@@ -60,11 +64,18 @@ export async function generateTextForCapability<TParsed = string>(params: {
   signal?: AbortSignal
 }): Promise<RoutedAiTextResult<TParsed>> {
   const profile = params.invocationProfile
-  const candidates = profile !== undefined ? structuredClone(params.route.candidates) : params.route.candidates
+  const candidates =
+    profile !== undefined ? structuredClone(params.route.candidates) : params.route.candidates
   if (profile !== undefined) {
-    if (candidates.length !== 1 || candidates[0]!.fallback) throw new Error('Local planner profile requires one primary route candidate')
+    if (candidates.length !== 1 || candidates[0]!.fallback)
+      throw new Error('Local planner profile requires one primary route candidate')
     const spec = AI_MODEL_REGISTRY[textModelKey(candidates[0]!)]
-    assertLocalLunaPlannerProfile(profile, spec, { maxAttempts: params.maxAttempts ?? spec.maxAttempts, maxOutputTokens: params.maxOutputTokens ?? spec.maxOutputTokens, streaming: Boolean(params.onTextDelta), explicitCache: params.system.some(block => block.cache_control?.type === 'ephemeral') })
+    assertLocalLunaPlannerProfile(profile, spec, {
+      maxAttempts: params.maxAttempts ?? spec.maxAttempts,
+      maxOutputTokens: params.maxOutputTokens ?? spec.maxOutputTokens,
+      streaming: Boolean(params.onTextDelta),
+      explicitCache: params.system.some((block) => block.cache_control?.type === 'ephemeral'),
+    })
   }
   const budgetGate =
     params.requestBudgetCeilingE8Usd === undefined || params.requestBudgetCeilingE8Usd === null
@@ -79,6 +90,7 @@ export async function generateTextForCapability<TParsed = string>(params: {
       const result = await generateText({
         modelKey,
         ...(profile ? { invocationProfile: profile } : {}),
+        ...(params.responseJsonSchema ? { responseJsonSchema: params.responseJsonSchema } : {}),
         system: params.system,
         messages: params.messages,
         usageSink: async (usage) =>

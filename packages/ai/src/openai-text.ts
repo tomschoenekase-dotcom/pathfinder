@@ -132,6 +132,14 @@ export type OpenAiResponsesClient = {
         max_output_tokens: number
         reasoning: { effort: 'none' | 'minimal' | 'low' | 'medium' | 'high' }
         store: false
+        text?: {
+          format: {
+            type: 'json_schema'
+            name: string
+            strict: true
+            schema: Record<string, unknown>
+          }
+        }
         stream?: boolean
       },
       options?: { timeout?: number; signal?: AbortSignal },
@@ -218,6 +226,7 @@ const localSolInputs = (params: {
   spec: AiModelSpec
   system: AiSystemBlock[]
   messages: AiMessage[]
+  responseJsonSchema?: { name: string; schema: Record<string, unknown> }
   maxOutputTokens: number
   timeoutMs: number
 }) => ({
@@ -420,6 +429,7 @@ export async function createOpenAiTextResponse(params: {
   spec: AiModelSpec
   system: AiSystemBlock[]
   messages: AiMessage[]
+  responseJsonSchema?: { name: string; schema: Record<string, unknown> }
   maxOutputTokens: number
   timeoutMs: number
   invocationProfile?: LocalLunaPlannerProfile
@@ -497,6 +507,18 @@ export async function createOpenAiTextResponse(params: {
   )
   const request = {
     model: params.spec.model,
+    ...(params.responseJsonSchema
+      ? {
+          text: {
+            format: {
+              type: 'json_schema' as const,
+              name: params.responseJsonSchema.name,
+              strict: true as const,
+              schema: params.responseJsonSchema.schema,
+            },
+          },
+        }
+      : {}),
     ...prompt,
     max_output_tokens: params.maxOutputTokens,
     reasoning: { effort: params.spec.reasoningEffort ?? reasoningEffort(params.spec.model) },

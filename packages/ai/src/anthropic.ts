@@ -1,4 +1,10 @@
-import { assertLocalLunaPlannerProfile, localLunaPricingVersion, LocalLunaPlannerExecutionError, type LocalLunaPlannerProfile, type LocalLunaTierReceipt } from './local-luna-planner-profile'
+import {
+  assertLocalLunaPlannerProfile,
+  localLunaPricingVersion,
+  LocalLunaPlannerExecutionError,
+  type LocalLunaPlannerProfile,
+  type LocalLunaTierReceipt,
+} from './local-luna-planner-profile'
 import Anthropic, {
   APIConnectionError,
   APIConnectionTimeoutError,
@@ -189,12 +195,18 @@ async function createProviderResponse(params: {
   spec: ReturnType<typeof getAiModelSpec>
   system: AiSystemBlock[]
   messages: AiMessage[]
+  responseJsonSchema?: { name: string; schema: Record<string, unknown> }
   maxOutputTokens: number
   timeoutMs: number
   onTextDelta?: (delta: string) => void | Promise<void>
   invocationProfile?: LocalLunaPlannerProfile
   signal?: AbortSignal
-}): Promise<{ text: string; usage: AiTokenUsage; incomplete?: boolean; serviceTier?: LocalLunaTierReceipt }> {
+}): Promise<{
+  text: string
+  usage: AiTokenUsage
+  incomplete?: boolean
+  serviceTier?: LocalLunaTierReceipt
+}> {
   const options = { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) }
   switch (params.spec.provider) {
     case 'openai':
@@ -288,7 +300,11 @@ async function createProviderResponse(params: {
   }
 }
 
-function estimateCostUsd(modelKey: AiModelKey, usage: AiTokenUsage, pricing = getAiModelSpec(modelKey).pricingUsdPerMillionTokens): number {
+function estimateCostUsd(
+  modelKey: AiModelKey,
+  usage: AiTokenUsage,
+  pricing = getAiModelSpec(modelKey).pricingUsdPerMillionTokens,
+): number {
   return (
     (usage.inputTokens * pricing.input +
       usage.outputTokens * pricing.output +
@@ -345,6 +361,7 @@ export async function generateText<TParsed = string>(params: {
   modelKey: AiModelKey
   system: AiSystemBlock[]
   messages: AiMessage[]
+  responseJsonSchema?: { name: string; schema: Record<string, unknown> }
   maxOutputTokens?: number
   timeoutMs?: number
   maxAttempts?: number
@@ -381,14 +398,28 @@ export async function generateText<TParsed = string>(params: {
   if (!Number.isInteger(budgetAttemptNumberOffset) || budgetAttemptNumberOffset < 0) {
     throw new Error('budgetAttemptNumberOffset must be a nonnegative integer')
   }
+  if (params.responseJsonSchema && (spec.provider !== 'openai' || params.onTextDelta || profile))
+    throw new Error('JSON-schema output requires a non-streaming OpenAI route')
   const maxOutputTokens = params.maxOutputTokens ?? spec.maxOutputTokens
-  if (profile !== undefined) assertLocalLunaPlannerProfile(profile, spec, { maxAttempts, maxOutputTokens, streaming: Boolean(params.onTextDelta), explicitCache: system.some(block => block.cache_control?.type === 'ephemeral') })
-  const attemptPricingVersion = profile ? localLunaPricingVersion(spec.pricingVersion, profile) : spec.pricingVersion
+  if (profile !== undefined)
+    assertLocalLunaPlannerProfile(profile, spec, {
+      maxAttempts,
+      maxOutputTokens,
+      streaming: Boolean(params.onTextDelta),
+      explicitCache: system.some((block) => block.cache_control?.type === 'ephemeral'),
+    })
+  const attemptPricingVersion = profile
+    ? localLunaPricingVersion(spec.pricingVersion, profile)
+    : spec.pricingVersion
   let profileUsageAttempted = false
   const recordUsage = async (record: AiUsageRecord) => {
     if (!profile) return recordUsageBestEffort(params.usageSink, record)
     profileUsageAttempted = true
-    try { await params.usageSink(record) } catch { throw new LocalLunaPlannerExecutionError('PLANNER_ACCOUNTING_FAILED') }
+    try {
+      await params.usageSink(record)
+    } catch {
+      throw new LocalLunaPlannerExecutionError('PLANNER_ACCOUNTING_FAILED')
+    }
   }
   const reservedUnits = textAttemptCostCeilingUnits({
     spec,
@@ -521,6 +552,7 @@ export async function generateText<TParsed = string>(params: {
     try {
       const response = await createProviderResponse({
         spec,
+        ...(params.responseJsonSchema ? { responseJsonSchema: params.responseJsonSchema } : {}),
         ...(profile ? { invocationProfile: profile } : {}),
         system,
         messages,
@@ -539,30 +571,59 @@ export async function generateText<TParsed = string>(params: {
       })
       if (params.signal?.aborted) throw abortReason(params.signal)
       const usage = response.usage
-      const tier = response.serviceTier ? Object.freeze(structuredClone(response.serviceTier)) : undefined
+      const tier = response.serviceTier
+        ? Object.freeze(structuredClone(response.serviceTier))
+        : undefined
       if (profile && (!tier || tier.rateMultiplier === null)) {
-        await recordUsage({ usageObservationStatus: 'OBSERVED', costObservationStatus: 'UNKNOWN',
-          provider: spec.provider, model: spec.model, pricingVersion: localLunaPricingVersion(spec.pricingVersion, profile, 'tier-unknown'),
-          usage, estimatedCostUsd: 0, latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), attempts: attempt,
-          success: false, errorCode: 'UNKNOWN_SERVICE_TIER', ...(tier ? { serviceTier: tier } : {}),
+        await recordUsage({
+          usageObservationStatus: 'OBSERVED',
+          costObservationStatus: 'UNKNOWN',
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: localLunaPricingVersion(spec.pricingVersion, profile, 'tier-unknown'),
+          usage,
+          estimatedCostUsd: 0,
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt,
+          success: false,
+          errorCode: 'UNKNOWN_SERVICE_TIER',
+          ...(tier ? { serviceTier: tier } : {}),
           ...(tier?.providerResponseId ? { providerResponseId: tier.providerResponseId } : {}),
         })
         throw new LocalLunaPlannerExecutionError('UNKNOWN_SERVICE_TIER')
       }
-      const observedCost = estimateCostUsd(modelKey, usage, profile ? spec.pricingUsdPerMillionTokens : undefined) * (profile ? tier!.rateMultiplier! : 1)
-      const observedPricingVersion = profile ? localLunaPricingVersion(spec.pricingVersion, profile, tier!.observedTier!) : spec.pricingVersion
-      const observation = profile ? { serviceTier: tier!, costObservationStatus: 'OBSERVED' as const, ...(tier!.providerResponseId ? { providerResponseId: tier!.providerResponseId } : {}) } : {}
+      const observedCost =
+        estimateCostUsd(modelKey, usage, profile ? spec.pricingUsdPerMillionTokens : undefined) *
+        (profile ? tier!.rateMultiplier! : 1)
+      const observedPricingVersion = profile
+        ? localLunaPricingVersion(spec.pricingVersion, profile, tier!.observedTier!)
+        : spec.pricingVersion
+      const observation = profile
+        ? {
+            serviceTier: tier!,
+            costObservationStatus: 'OBSERVED' as const,
+            ...(tier!.providerResponseId ? { providerResponseId: tier!.providerResponseId } : {}),
+          }
+        : {}
       observedReservation = reservation
       if (reservation) {
         try {
-          await budgetGate.settleExact(
-            reservation,
-            observedAiCostUnits(observedCost),
-          )
+          await budgetGate.settleExact(reservation, observedAiCostUnits(observedCost))
         } catch {
           if (profile) {
-            await recordUsage({ ...observation, usageObservationStatus: 'OBSERVED', provider: spec.provider, model: spec.model,
-              pricingVersion: observedPricingVersion, usage, estimatedCostUsd: observedCost, latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), attempts: attempt, success: false, errorCode: 'PLANNER_ACCOUNTING_FAILED' })
+            await recordUsage({
+              ...observation,
+              usageObservationStatus: 'OBSERVED',
+              provider: spec.provider,
+              model: spec.model,
+              pricingVersion: observedPricingVersion,
+              usage,
+              estimatedCostUsd: observedCost,
+              latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+              attempts: attempt,
+              success: false,
+              errorCode: 'PLANNER_ACCOUNTING_FAILED',
+            })
             throw new LocalLunaPlannerExecutionError('PLANNER_ACCOUNTING_FAILED')
           }
           // The durable reservation remains fully held. A settlement outage
@@ -570,9 +631,22 @@ export async function generateText<TParsed = string>(params: {
         }
       }
       if (profile && (!tier!.providerResponseId || tier!.outcome === 'UNEXPECTED_FAST_TIER')) {
-        const code = !tier!.providerResponseId ? 'MISSING_PROVIDER_RESPONSE_ID' as const : 'UNEXPECTED_FAST_TIER' as const
-        await recordUsage({ ...observation, usageObservationStatus: 'OBSERVED', provider: spec.provider, model: spec.model,
-          pricingVersion: observedPricingVersion, usage, estimatedCostUsd: observedCost, latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), attempts: attempt, success: false, errorCode: code })
+        const code = !tier!.providerResponseId
+          ? ('MISSING_PROVIDER_RESPONSE_ID' as const)
+          : ('UNEXPECTED_FAST_TIER' as const)
+        await recordUsage({
+          ...observation,
+          usageObservationStatus: 'OBSERVED',
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: observedPricingVersion,
+          usage,
+          estimatedCostUsd: observedCost,
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt,
+          success: false,
+          errorCode: code,
+        })
         throw new LocalLunaPlannerExecutionError(code)
       }
       const text = response.text
@@ -666,11 +740,28 @@ export async function generateText<TParsed = string>(params: {
         }
       }
       if (profile) {
-        if (!profileUsageAttempted) await recordUsage({ usageObservationStatus: 'UNKNOWN', costObservationStatus: 'UNKNOWN',
-          provider: spec.provider, model: spec.model, pricingVersion: localLunaPricingVersion(spec.pricingVersion, profile, 'usage-unknown'),
-          usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, estimatedCostUsd: 0,
-          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)), attempts: attempt, success: false,
-          errorCode: error instanceof LocalLunaPlannerExecutionError ? error.code : 'PLANNER_OPERATION_FAILED' })
+        if (!profileUsageAttempted)
+          await recordUsage({
+            usageObservationStatus: 'UNKNOWN',
+            costObservationStatus: 'UNKNOWN',
+            provider: spec.provider,
+            model: spec.model,
+            pricingVersion: localLunaPricingVersion(spec.pricingVersion, profile, 'usage-unknown'),
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheCreationInputTokens: 0,
+              cacheReadInputTokens: 0,
+            },
+            estimatedCostUsd: 0,
+            latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            attempts: attempt,
+            success: false,
+            errorCode:
+              error instanceof LocalLunaPlannerExecutionError
+                ? error.code
+                : 'PLANNER_OPERATION_FAILED',
+          })
         if (error instanceof LocalLunaPlannerExecutionError) throw error
         throw new LocalLunaPlannerExecutionError('PLANNER_OPERATION_FAILED')
       }

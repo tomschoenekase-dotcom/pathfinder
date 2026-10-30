@@ -1,3 +1,9 @@
+import {
+  guestBindingAuditEnabled,
+  guestBindingAuditRecords,
+  runGuestBindingAudit,
+  type GuestBindingAuditEvidence,
+} from '../lib/guest-binding-audit'
 import { guestQueryTiming, guestQueryTimingAsync } from '../lib/guest-query-timing'
 import type { LocalLunaTierReceipt } from '@pathfinder/ai'
 import { localGuestLunaPlannerProfile } from '../lib/guest-query-local-planner-profile'
@@ -2498,6 +2504,7 @@ const chatReadRouter = router({
           Boolean(structuredQuery?.partial) ||
           Boolean(facetCollection && !facetCollection.selection.selectionComplete),
       })
+    let bindingAuditEvidence: GuestBindingAuditEvidence | undefined
     let generationEvidence: ReturnType<typeof captureEvidence> | null = null
     let responseGenerationDispatched = false
     let preflightEvidence: ReturnType<typeof buildGuestAnswerEvidenceBundle> | null = null
@@ -3040,6 +3047,7 @@ const chatReadRouter = router({
           route.candidates[0]?.modelKey,
           configuration.maxOutputTokens,
         )
+        const bindingAuditEnabled = guestBindingAuditEnabled(route.candidates[0]?.modelKey)
         if (answerCheckEnabled) dynamicPart = appendGuestAnswerCheckInstruction(dynamicPart)
         // Decision-first prose is the streaming alternative to the check; never both at once.
         const answerShapeEnabled =
@@ -3068,7 +3076,7 @@ const chatReadRouter = router({
               })
           : null
         const answerCheckGate =
-          answerCheckEnabled && pushVisibleDelta
+          answerCheckEnabled && !bindingAuditEnabled && pushVisibleDelta
             ? createGuestAnswerCheckStreamGate(pushVisibleDelta)
             : null
         // Markers on retrieved entries alone (no guide, or the guide left them out) are logged too.
@@ -3086,7 +3094,7 @@ const chatReadRouter = router({
         generationEvidence = captureEvidence()
         // Validate the exact retained text and source snapshots before any answer provider dispatch.
         preflightEvidence = buildAnswerEvidence('Evidence preflight.', generationEvidence)
-        const result = await generateTextForCapability({
+        const generationRequest: Parameters<typeof generateTextForCapability>[0] = {
           route,
           timeoutMs: configuration.timeoutMs,
           maxAttempts: configuration.maxAttempts,
@@ -3108,7 +3116,9 @@ const chatReadRouter = router({
           invocationId: generationInvocationId,
           // Missing checks, invalid decision JSON or unsupported answer grammar fail closed.
           ...(answerCheckEnabled ? { parseResponse: splitGuestAnswerCheck } : {}),
-          ...(pushVisibleDelta ? { onTextDelta: answerCheckGate ?? pushVisibleDelta } : {}),
+          ...(pushVisibleDelta && !bindingAuditEnabled
+            ? { onTextDelta: answerCheckGate ?? pushVisibleDelta }
+            : {}),
           onBeforeFirstDispatch: async () => {
             if (generationDispatched) {
               responseGenerationDispatched = true
@@ -3125,7 +3135,8 @@ const chatReadRouter = router({
               guestChatTurnError(error)
             }
           },
-        })
+        }
+        const result = await generateTextForCapability(generationRequest)
 
         let providerAnswer = result.text
         if (answerCheckEnabled) {
@@ -3139,6 +3150,38 @@ const chatReadRouter = router({
             venueId: venue.id,
             turnId: reservation.turnId,
             ...summarizeGuestAnswerCheck(split),
+          })
+        }
+        if (bindingAuditEnabled) {
+          const audited = await runGuestBindingAudit({
+            draft: providerAnswer,
+            question: trimmedInput,
+            clock: JSON.stringify(venueClock),
+            records: guestBindingAuditRecords(generationEvidence.system),
+            request: {
+              ...generationRequest,
+              route: {
+                ...route,
+                candidates: route.candidates.filter(
+                  (candidate) => candidate.modelKey === result.route.modelKey,
+                ),
+              },
+            },
+            sanitizeRewrite: (raw) =>
+              answerCheckEnabled ? splitGuestAnswerCheck(raw).answer : raw,
+          })
+          providerAnswer = audited.answer
+          bindingAuditEvidence = audited.evidence
+          logger.info({
+            action: 'guest-chat.binding-audit',
+            tenantId: venue.tenantId,
+            venueId: venue.id,
+            turnId: reservation.turnId,
+            status: audited.evidence.status,
+            verdict: audited.evidence.verdict,
+            instructionSha256: audited.evidence.instructionSha256,
+            problemCount: audited.evidence.problems.length,
+            elapsedMs: audited.evidence.elapsedMs,
           })
         }
         const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(providerAnswer)
@@ -3159,7 +3202,7 @@ const chatReadRouter = router({
             assistantResponse,
             recommendationDecision,
           )
-          if (disclosure.disclosureAppended && streamProjection) {
+          if (disclosure.disclosureAppended && streamProjection && !bindingAuditEnabled) {
             await streamProjection.push(disclosure.response.slice(assistantResponse.length), {
               providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
               requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
@@ -3169,6 +3212,7 @@ const chatReadRouter = router({
           recommendationShownInResponse = disclosure.shownInResponse
           recommendationDisclosureAppended = disclosure.disclosureAppended
         }
+        if (bindingAuditEnabled && pushVisibleDelta) await pushVisibleDelta(assistantResponse)
         engagementAskedThisTurn =
           markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       }
@@ -3305,6 +3349,7 @@ const chatReadRouter = router({
         ? {
             ...preflightEvidence,
             answerHash: createHash('sha256').update(assistantResponse).digest('hex'),
+            ...(bindingAuditEvidence ? { bindingAudit: bindingAuditEvidence } : {}),
           }
         : undefined
     let finalized: Awaited<ReturnType<typeof finalizeGuestChatTurnAction>>
