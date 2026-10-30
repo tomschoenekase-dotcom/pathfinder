@@ -453,6 +453,11 @@ describe('canonical outreach history hold', () => {
       }),
     )
     expect(pack.drafting.allowed).toBe(false)
+    expect(pack.contact.chosen).toMatchObject({
+      addressDraftEligible: true,
+      draftEligible: false,
+      releaseEligible: false,
+    })
     expect(pack.drafting.blockers).toContainEqual(
       expect.objectContaining({ code: 'outreach_history_hold' }),
     )

@@ -2230,6 +2230,9 @@ const OperatorDraftView = z
     /** The recipient address, only while the contact may still be written to. */
     recipient: z.string().max(320).nullable(),
     eligibleToEmail: z.boolean(),
+    addressEligibleToEmail: z.boolean().optional(),
+    outreachHistory: OperatorOutreachHistory.optional(),
+    outreachKind: z.enum(['cold', 'warm', 'unknown']).optional(),
     eligibilityReasons: z.array(z.string().max(60)).max(15),
     hasAttachments: z.boolean(),
     reviewedAt: IsoDateTime.nullable(),
@@ -2325,6 +2328,9 @@ const OperatorSendBatchView = z
             status: z.string().max(30),
             /** Still eligible to send right now under the shared rule, not as of staging. */
             eligibleNow: z.boolean(),
+            addressEligibleToEmail: z.boolean().optional(),
+            outreachHistory: OperatorOutreachHistory.optional(),
+            outreachKind: z.enum(['cold', 'warm', 'unknown']).optional(),
             reasons: z.array(z.string().max(60)).max(15),
           })
           .strict(),
@@ -3076,6 +3082,8 @@ const OperatorOutreachContext = z
             /** Present only when drafting to this person is allowed. */
             email: z.string().max(320).nullable(),
             flags: ContactFlags,
+            addressDraftEligible: z.boolean().optional(),
+            addressReleaseEligible: z.boolean().optional(),
             draftEligible: z.boolean(),
             draftReasons: z.array(z.string().max(60)).max(15),
             releaseEligible: z.boolean(),
@@ -3100,6 +3108,7 @@ const OperatorOutreachContext = z
                 contactId: Identifier,
                 displayName: z.string().max(200).nullable(),
                 role: z.string().max(200).nullable(),
+                addressDraftEligible: z.boolean().optional(),
                 draftEligible: z.boolean(),
               })
               .strict(),
@@ -3905,6 +3914,9 @@ export const OPERATOR_MCP_OUTPUTS = {
         draftCount: z.number().int().nonnegative(),
         /** The selected contact may be drafted to under the shared eligibility rule. */
         eligibleToDraft: z.boolean(),
+        addressEligibleToDraft: z.boolean().optional(),
+        addressEligibleToEmail: z.boolean().optional(),
+        outreachHistory: OperatorOutreachHistory.optional(),
         /** ...and may be sent to (verified, unblocked everywhere). Drafting never implies this. */
         eligibleToEmail: z.boolean(),
         eligibilityReasons: z.array(z.string().max(60)).max(15),

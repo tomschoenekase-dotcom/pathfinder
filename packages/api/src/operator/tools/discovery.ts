@@ -4,7 +4,7 @@ import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 
 import { OperatorNotFoundError } from '../grants'
 import type { OperatorReadTool } from '../registry'
-import { eligibilityForContacts } from './crm-eligibility'
+import { eligibilityForContacts, outreachEligibilityForRead } from './crm-eligibility'
 import { pageResult, requireCursorInScope } from './page'
 
 /**
@@ -144,6 +144,7 @@ const crmListCampaignMembers: OperatorReadTool = {
         status: true,
         updatedAt: true,
         organization: { select: { canonicalName: true } },
+        drafts: { orderBy: { version: 'desc' }, take: 1, select: { id: true, status: true } },
         _count: { select: { drafts: true } },
       },
     })
@@ -153,23 +154,41 @@ const crmListCampaignMembers: OperatorReadTool = {
       page.map((row) => row.contactId),
     )
     return pageResult(
-      page.map((row) => {
-        const eligible = row.contactId ? eligibility.get(row.contactId) : undefined
-        return {
-          eligibleToDraft: eligible?.draft.eligible ?? false,
-          eligibleToEmail: eligible?.send.eligible ?? false,
-          eligibilityReasons: [...(eligible?.send.reasons ?? ['no_contact_selected'])],
-          campaignMemberId: row.id,
-          campaignId: row.campaignId,
-          organizationId: row.organizationId,
-          organizationName: row.organization.canonicalName.slice(0, 200),
-          venueId: row.venueId,
-          contactId: row.contactId,
-          status: row.status,
-          draftCount: row._count.drafts,
-          updatedAt: row.updatedAt.toISOString(),
-        }
-      }),
+      await Promise.all(
+        page.map(async (row) => {
+          const eligible = row.contactId ? eligibility.get(row.contactId) : undefined
+          const latest = row.drafts[0]
+          const outreach = await outreachEligibilityForRead(context, {
+            organizationId: row.organizationId,
+            contactId: row.contactId,
+            ...(latest && ['NEEDS_REVIEW', 'APPROVED'].includes(latest.status)
+              ? { excludeDraftId: latest.id }
+              : {}),
+          })
+          return {
+            addressEligibleToDraft: eligible?.draft.eligible ?? false,
+            addressEligibleToEmail: eligible?.send.eligible ?? false,
+            outreachHistory: outreach.history,
+            eligibleToDraft: Boolean(eligible?.draft.eligible && outreach.allowed),
+            eligibleToEmail: Boolean(eligible?.send.eligible && outreach.allowed),
+            eligibilityReasons: [
+              ...new Set([
+                ...(eligible?.send.reasons ?? ['no_contact_selected']),
+                ...outreach.reasons,
+              ]),
+            ].slice(0, 15),
+            campaignMemberId: row.id,
+            campaignId: row.campaignId,
+            organizationId: row.organizationId,
+            organizationName: row.organization.canonicalName.slice(0, 200),
+            venueId: row.venueId,
+            contactId: row.contactId,
+            status: row.status,
+            draftCount: row._count.drafts,
+            updatedAt: row.updatedAt.toISOString(),
+          }
+        }),
+      ),
       rows.length > input.limit ? page.at(-1)!.id : null,
     )
   },

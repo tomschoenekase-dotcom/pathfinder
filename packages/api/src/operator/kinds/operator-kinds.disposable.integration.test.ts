@@ -6,6 +6,7 @@ import {
   createVenueAction,
   db,
   updateProspectPipelineAction,
+  reviewProspectContactReadinessAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -20,6 +21,7 @@ import {
   createKindRegistry,
 } from '../proposals'
 import { OPERATOR_PROPOSAL_KINDS } from './index'
+import { reviewEmptyFictionalOutreachHistory } from '../outreach-complete.disposable.fixture'
 
 /**
  * Per-kind proposal tests on a real disposable PostgreSQL. Invented names and example domains only.
@@ -205,19 +207,6 @@ describe.skipIf(!enabled)(
         },
       })
       contactId = contact.id
-      const campaign = await db.prospectOutreachCampaign.create({
-        data: {
-          name: 'Example campaign',
-          cohortSnapshot: {},
-          playbookVersion: 'test',
-          createdBy: 'seed',
-          updatedBy: 'seed',
-        },
-      })
-      const member = await db.prospectCampaignMember.create({
-        data: { campaignId: campaign.id, organizationId, contactId, status: 'SELECTED' },
-      })
-      memberId = member.id
       originalAutonomyPolicies = await db.operatorAutonomyPolicy.findMany({
         where: { capability: { in: [...askFixtureCapabilities] } },
       })
@@ -291,6 +280,9 @@ describe.skipIf(!enabled)(
           'support.propose_information_request',
           'support.propose_internal_note',
           'crm.propose_outreach_draft',
+          'crm.propose_record_update',
+          'crm.propose_outreach_history_review',
+          'crm.propose_outreach_history_retract',
           'crm.propose_stage_change',
           'venues.propose_create',
           'venues.propose_knowledge',
@@ -653,6 +645,76 @@ describe.skipIf(!enabled)(
     })
 
     describe('crm.propose_outreach_draft', () => {
+      async function newDraftFixture(completeHistory: boolean) {
+        const draftOrganizationId = await newOrganization('RESEARCHED')
+        const address = `draft-${randomUUID().slice(0, 8)}@example.test`
+        const draftContact = await db.prospectContact.create({
+          data: {
+            organizationId: draftOrganizationId,
+            fullName: 'Harper Fictional',
+            email: address,
+            normalizedEmail: address,
+            createdBy: 'seed',
+            updatedBy: 'seed',
+          },
+        })
+        await reviewProspectContactReadinessAction({
+          contactId: draftContact.id,
+          emailReadiness: 'VALID',
+          permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+          evidence: {
+            reviewReason: 'Fictional recipient human-reviewed for disposable workflow proof',
+            source: 'closed-disposable-fixture',
+          },
+          actor: { type: 'HUMAN', id: 'user_owner', role: 'PLATFORM_ADMIN' },
+        })
+        const campaign = await db.prospectOutreachCampaign.create({
+          data: {
+            name: 'Fictional draft workflow campaign',
+            cohortSnapshot: { source: 'closed-disposable-fixture' },
+            playbookVersion: 'test',
+            createdBy: 'seed',
+            updatedBy: 'seed',
+          },
+        })
+        const member = await db.prospectCampaignMember.create({
+          data: {
+            campaignId: campaign.id,
+            organizationId: draftOrganizationId,
+            contactId: draftContact.id,
+            status: 'SELECTED',
+          },
+        })
+        if (completeHistory) {
+          const history = await reviewEmptyFictionalOutreachHistory(draftOrganizationId)
+          expect(history).toMatchObject({
+            coldEmailCount: 0,
+            historyComplete: true,
+            eligibility: 'eligible',
+          })
+        }
+        return member.id
+      }
+      beforeAll(async () => {
+        memberId = await newDraftFixture(true)
+      })
+
+      it('holds a verified fictional contact when complete source history has not been established', async () => {
+        const heldMemberId = await newDraftFixture(false)
+        const view = await propose('crm.propose_outreach_draft', {
+          campaignMemberId: heldMemberId,
+          subject: 'Fictional history hold',
+          textBody: 'A verified address alone does not establish zero prior cold emails.',
+        })
+        const applied = await approve(view)
+        expect(applied.status).toBe('FAILED')
+        expect(await db.prospectOutreachDraft.count({ where: { memberId: heldMemberId } })).toBe(0)
+        expect(
+          (await db.operatorProposal.findUniqueOrThrow({ where: { id: view.proposalId } }))
+            .failureCode,
+        ).toBe('APPLY_FAILED')
+      })
+
       it('ask path saves a draft for review, applies once, and revert discards it', async () => {
         const args = {
           campaignMemberId: memberId,

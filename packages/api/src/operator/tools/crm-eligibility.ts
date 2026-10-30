@@ -1,4 +1,12 @@
 import {
+  loadProspectOutreachHistory,
+  requireProspectOutreachHistory,
+  ProspectOutreachHistoryError,
+  prospectDraftOutreachKind,
+} from '@pathfinder/db'
+import { requireOutreachGroupScope } from '../outreach-history'
+import type { OperatorCallContext } from '../registry'
+import {
   evaluateProspectContactEligibility,
   isAddressBlockedOnAnotherRow,
   type ProspectEligibility,
@@ -113,7 +121,11 @@ export function evaluateAddress(
   }
 }
 
-export type ContactEligibility = Readonly<{ draft: ProspectEligibility; send: ProspectEligibility }>
+export type ContactEligibility = Readonly<{
+  draft: ProspectEligibility
+  send: ProspectEligibility
+  normalizedEmail: string | null
+}>
 
 /**
  * Eligibility of specific contact records, evaluated now under the shared rule for both purposes.
@@ -151,6 +163,7 @@ export async function eligibilityForContacts(
       blockedElsewhere,
     }
     out.set(row.id, {
+      normalizedEmail: row.normalizedEmail?.trim().toLowerCase() ?? null,
       draft: evaluateProspectContactEligibility(row, 'draft', context),
       send: evaluateProspectContactEligibility(row, 'send', context),
     })
@@ -169,7 +182,59 @@ export async function eligibilityForContacts(
     'send',
   )
   for (const id of ids) {
-    if (!out.has(id)) out.set(id, { draft: { ...missing, purpose: 'draft' }, send: missing })
+    if (!out.has(id))
+      out.set(id, { normalizedEmail: null, draft: { ...missing, purpose: 'draft' }, send: missing })
   }
   return out
+}
+
+/** Address readiness alone is never a cold or warm outreach clearance. */
+export async function outreachEligibilityForRead(
+  context: Pick<OperatorCallContext, 'database' | 'grant' | 'now'>,
+  input: {
+    organizationId: string
+    contactId: string | null
+    excludeDraftId?: string
+    snapshot?: unknown
+  },
+) {
+  const options = {
+    now: context.now,
+    ...(input.contactId ? { contactId: input.contactId } : {}),
+    ...(input.excludeDraftId ? { excludeDraftId: input.excludeDraftId } : {}),
+  }
+  const history = await loadProspectOutreachHistory(context.database, input.organizationId, options)
+  await requireOutreachGroupScope(history.organizationIds, context)
+  if (!input.contactId)
+    return { allowed: false, history, kind: 'unknown' as const, reasons: ['no_contact_selected'] }
+  if (input.snapshot === undefined)
+    return {
+      allowed: history.eligibility === 'eligible',
+      history,
+      kind: 'cold' as const,
+      reasons: history.reasons,
+    }
+  const kind = prospectDraftOutreachKind(input.snapshot)
+  if (kind === 'cold')
+    return { allowed: history.eligibility === 'eligible', history, kind, reasons: history.reasons }
+  try {
+    const checkedHistory = await requireProspectOutreachHistory(
+      context.database,
+      input.organizationId,
+      input.snapshot,
+      options,
+    )
+    await requireOutreachGroupScope(checkedHistory.organizationIds, context)
+    return { allowed: true, history: checkedHistory, kind, reasons: [] as string[] }
+  } catch (error) {
+    if (!(error instanceof ProspectOutreachHistoryError)) throw error
+    return {
+      allowed: false,
+      history,
+      kind,
+      reasons: history.reasons.length
+        ? history.reasons
+        : [kind === 'unknown' ? 'outreach_intent_unknown' : 'warm_reply_anchor_required'],
+    }
+  }
 }

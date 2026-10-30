@@ -13,6 +13,10 @@ import { resolveOperatorConfig } from '../config'
 import { OperatorCapabilityError, OperatorNotFoundError } from '../grants'
 import type { VerifiedOperatorGrant } from '../oauth'
 import { createOperatorRegistry, defaultVenueRead } from '../registry'
+import {
+  closeFictionalOutreachHistorySource,
+  reviewEmptyFictionalOutreachHistory,
+} from '../outreach-complete.disposable.fixture'
 
 /**
  * Operator read tools on a real disposable PostgreSQL. Invented names and example domains only.
@@ -209,6 +213,7 @@ describe.skipIf(!enabled)(
     })
 
     afterAll(async () => {
+      await closeFictionalOutreachHistorySource()
       // Leave no embedding work behind: later CI steps lease any pending dispatch in this database.
       await withTenantIsolationBypass(() =>
         db.embeddingDispatch.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } }),
@@ -273,9 +278,20 @@ describe.skipIf(!enabled)(
       expect(filtered.items).toEqual([])
     })
 
-    it('crm.list_candidates excludes contacted (including logged sends), suppressed-contact and settled organizations', async () => {
+    it('crm.list_candidates holds unknown history, then pages reviewed fictional zero-cold accounts', async () => {
       const all = await call('crm.list_candidates', { city })
       expect(all.items).toHaveLength(5)
+      expect((await call('crm.list_candidates', { city, uncontacted: true })).items).toEqual([])
+      const needsReview = await call('crm.list_candidates', {
+        city,
+        outreachView: 'historyNeedsReview',
+      })
+      expect(needsReview.items.map((item: any) => item.organizationId)).toEqual(
+        expect.arrayContaining([orgIds.Fresh, orgIds.Plain]),
+      )
+      // Only the explicitly fictional, closed empty provider sources are reviewed as complete.
+      for (const id of [orgIds.Fresh!, orgIds.Plain!])
+        expect((await reviewEmptyFictionalOutreachHistory(id)).historyComplete).toBe(true)
       const uncontacted = await call('crm.list_candidates', { city, uncontacted: true })
       const names = uncontacted.items.map((item: any) => item.name).sort()
       expect(names).toEqual([`Example Fresh ${suffix}`, `Example Plain ${suffix}`])
@@ -308,15 +324,19 @@ describe.skipIf(!enabled)(
     })
 
     it('crm.check_can_contact answers from the same rules', async () => {
-      // Drafting may start before an address is verified; sending may not.
+      // Address eligibility stays independent of the cold outreach history gate.
+      // These fixtures have no complete mailbox review, so a reachable address does not authorize cold outreach.
       expect(
         await call('crm.check_can_contact', {
           email: `Reachable-${suffix}@Example.com`,
           purpose: 'draft',
         }),
       ).toMatchObject({
-        allowed: true,
-        reason: 'ok',
+        allowed: false,
+        addressAllowed: true,
+        coldOutreachAllowed: false,
+        reason: 'outreach_history_hold',
+        outreachHistory: { historyComplete: false, coldEmailCount: null },
         purpose: 'draft',
         organizationId: orgIds.Open,
       })
@@ -324,13 +344,21 @@ describe.skipIf(!enabled)(
         await call('crm.check_can_contact', { email: `Reachable-${suffix}@Example.com` }),
       ).toMatchObject({
         allowed: false,
+        addressAllowed: false,
         reason: 'not_verified',
         purpose: 'send',
         organizationId: orgIds.Open,
       })
       expect(
         await call('crm.check_can_contact', { email: `Verified-${suffix}@Example.com` }),
-      ).toMatchObject({ allowed: true, reason: 'ok', purpose: 'send' })
+      ).toMatchObject({
+        allowed: false,
+        addressAllowed: true,
+        coldOutreachAllowed: false,
+        reason: 'outreach_history_hold',
+        purpose: 'send',
+        outreachHistory: { historyComplete: false, coldEmailCount: null },
+      })
       const expected: Record<string, string> = {
         [`gone-${suffix}@example.com`]: 'do_not_contact',
         [`quiet-${suffix}@example.com`]: 'suppressed',
@@ -345,10 +373,13 @@ describe.skipIf(!enabled)(
       }
       expect(
         await call('crm.check_can_contact', { email: `nobody-${suffix}@example.com` }),
-      ).toEqual({
+      ).toMatchObject({
         allowed: false,
+        addressAllowed: false,
+        coldOutreachAllowed: false,
+        outreachHistory: null,
         reason: 'unknown_address',
-        reasons: ['unknown_address'],
+        reasons: expect.arrayContaining(['unknown_address']),
         purpose: 'send',
         organizationId: null,
         contactId: null,
