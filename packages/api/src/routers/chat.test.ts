@@ -5240,8 +5240,27 @@ describe('chat router', () => {
       const text = 'You can [[link:burger-order|order ahead]] now. [[button:season-pass]]'
       for (const chunk of text.match(/.{1,3}/gsu)!)
         await projection.push(chunk, { providerFirstTextMs: 1, requestFirstTextMs: 1 })
-      expect(deltas.join('')).toBe('You can order ahead now. ')
+      expect(deltas.join('')).toBe('You can order ahead now.')
       for (const delta of deltas) expect(delta).not.toMatch(/\[|\]|burger-order|season-pass/u)
+    })
+
+    it('keeps normalized streamed, final and stored text identical', async () => {
+      const raw = 'Visit 10\u201312, then rest\u2014inside. [[ENGAGEMENT_ASKED]]'
+      setupActions(raw, { links: false, buttons: false })
+      const result = await caller.chat.send(actionInput)
+      const stored = guestTurnActions.finalize.mock.calls[0]?.[0]?.input?.assistantResponse
+      const deltas: string[] = []
+      const projection = createGuestStreamingProjection({
+        onTextDelta: (delta) => {
+          deltas.push(delta)
+        },
+      })
+      for (const chunk of raw)
+        await projection.push(chunk, { providerFirstTextMs: 1, requestFirstTextMs: 1 })
+      expect(result.response).toBe('Visit 10-12, then rest, inside.')
+      expect(stored).toBe(result.response)
+      expect(deltas.join('').trim()).toBe(result.response)
+      expect(deltas.join('')).not.toMatch(/[\u2012-\u2015]|ENGAGEMENT_ASKED/)
     })
 
     it('answers an unrelated question with no action', async () => {

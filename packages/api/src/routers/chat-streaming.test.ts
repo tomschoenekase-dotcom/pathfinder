@@ -22,12 +22,22 @@ describe('guest chat streaming projection', () => {
         providerFirstTextMs: 20,
         requestFirstTextMs: 30,
       })
-      expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('Go left. ')
+      expect(
+        onTextDelta.mock.calls
+          .map(([delta]) => delta)
+          .join('')
+          .trimEnd(),
+      ).toBe('Go left.')
       await projection.push(marker.slice(split), {
         providerFirstTextMs: 40,
         requestFirstTextMs: 50,
       })
-      expect(onTextDelta.mock.calls.map(([delta]) => delta).join('')).toBe('Go left. ')
+      expect(
+        onTextDelta.mock.calls
+          .map(([delta]) => delta)
+          .join('')
+          .trimEnd(),
+      ).toBe('Go left.')
     }
     const onTextDelta = vi.fn()
     const projection = createGuestStreamingProjection({ onTextDelta })

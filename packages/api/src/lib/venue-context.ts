@@ -1,6 +1,7 @@
 import type { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { projectGuestVisitContext } from './guest-visit-context'
 import { safeGuestSourceUrl } from './guest-citations'
+import { GUEST_STATED_DATES_RULE, guestStatedDatesPassed } from './guest-stated-dates'
 /**
  * Durable version of the production guest-chat system prompt contract.
  * Increment when prompt behavior changes in a way that invalidates evaluation baselines.
@@ -301,6 +302,8 @@ export function buildVenueSystemPromptParts(params: {
   currentDate?: string
   /** The venue's local day and time ("Tuesday, October 6, 2026 at 6:42 PM") when its time zone is known. */
   currentLocalTime?: string
+  todayStatusCue?: string | null
+  statedDates?: boolean
   /** A conservative server calculation that a posted regular opening time is still ahead. */
   beforeOpeningStatusCue?: string | null
   /**
@@ -428,17 +431,23 @@ export function buildVenueSystemPromptParts(params: {
     Boolean(entry.id && params.venueGuideRecordIds?.has(`knowledge:${entry.id}`))
   const guideTopics = knowledgeEntries.filter(inGuide)
   const detailedEntries = knowledgeEntries.filter((entry) => !inGuide(entry))
+  const statedLatest = new Map<KnowledgeEntry, string>()
+  if (params.statedDates && params.currentDate)
+    for (const entry of detailedEntries) {
+      const latest = guestStatedDatesPassed(entry, params.currentDate)
+      if (latest) statedLatest.set(entry, latest)
+    }
   const knowledgeSection = `${
     guideTopics.length
       ? `\n\nMOST RELEVANT GUIDE TOPICS (full text is in the VENUE GUIDE): ${guideTopics.map((entry) => escapeUntrustedPromptData(entry.title)).join('; ')}`
       : ''
   }${
     detailedEntries.length
-      ? `\n\nKNOWLEDGE BASE:\n${detailedEntries
+      ? `\n\nKNOWLEDGE BASE:${statedLatest.size ? ` ${GUEST_STATED_DATES_RULE}` : ''}\n${detailedEntries
           .map((entry) => {
             const sourceUrl = safeGuestSourceUrl(entry.sourceUrl)
             return escapeUntrustedPromptData(
-              `[${entry.category}] ${entry.title}\n${
+              `[${entry.category}] ${entry.title}\n${statedLatest.has(entry) ? `stated_dates_passed="${statedLatest.get(entry)}"\n` : ''}${
                 entry.id && params.venueGuideUpdatedRecordIds?.has(`knowledge:${entry.id}`)
                   ? `${UPDATED_GUIDE_RECORD}\n`
                   : ''
@@ -582,7 +591,10 @@ DATE: ${params.currentLocalTime ? `At the venue it is ${params.currentLocalTime}
   const heightRule = params.heightOrAgeRideQuestion
     ? 'HEIGHT QUESTION: Begin with the child\'s actual measured height or stated age compared with a verified matching ride condition, then the verdict only when the needed facts are known. Never infer height or height eligibility from age. Ask for a missing measured height when a known height rule requires it; if the needed ride rule is unknown, say so and suggest checking with staff. Never begin with "Yes" or "No".\n\n'
     : ''
-  const dynamicPart = `${heightRule}${writingRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
+  const todayStatusCue = params.todayStatusCue
+    ? `\n\n${escapeUntrustedPromptData(params.todayStatusCue)}`
+    : ''
+  const dynamicPart = `${heightRule}${writingRule}${identityEvidenceRule}${dateRule}${beforeOpeningStatusCue}${todayStatusCue}${adjacentIdentityContext}\n\n${engagementQuestionSection}${visitSection}${recommendationRule}${identityClarificationRule ? `\n\n${identityClarificationRule}` : ''}
 
 ${dynamicVenueData}
 

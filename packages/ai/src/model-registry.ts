@@ -10,7 +10,9 @@ export const AI_MODEL_KEYS = {
   GUEST_CHAT_DEEPSEEK_FLASH: 'guest-chat-deepseek-flash',
   GUEST_CHAT_DEEPSEEK_PRO: 'guest-chat-deepseek-pro',
   GUEST_CHAT_LUNA: 'guest-chat-luna',
+  GUEST_CHAT_LUNA_REASONING_HIGH_FAST: 'guest-chat-luna-reasoning-high-fast',
   GUEST_CHAT_SOL: 'guest-chat-sol',
+  GUEST_CHAT_SOL_FAST: 'guest-chat-sol-fast',
   GUEST_CHAT_OPENAI: 'guest-chat-openai',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -25,6 +27,8 @@ export type AiModelSpec = {
   model: string
   costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   maxOutputTokens: number
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'high'
+  serviceTier?: 'fast'
   timeoutMs: number
   maxAttempts: number
   maxInputUtf8Bytes: number
@@ -215,8 +219,23 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   // A ranking across a large venue (a reason per ride) can exceed 512 tokens; an incomplete
   // response becomes a fallback reply, so the guest route leaves room. Billing is per token used.
   [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaSpec(1_024),
+  // Explicit, default-off route: reasoning shares the output cap; Fast doubles token rates.
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING_HIGH_FAST]: {
+    ...openAiLunaSpec(2_048),
+    reasoningEffort: 'high',
+    serviceTier: 'fast',
+    timeoutMs: 20_000,
+    pricingVersion: 'openai-fast-public-2026-10-26',
+    pricingUsdPerMillionTokens: { input: 0.2, output: 1, cacheWrite: 0.25, cacheRead: 0.02 },
+  },
   // Reasoning tokens count against the output cap, so Sol gets more room than Luna.
   [AI_MODEL_KEYS.GUEST_CHAT_SOL]: openAiSolSpec(2_048),
+  [AI_MODEL_KEYS.GUEST_CHAT_SOL_FAST]: {
+    ...openAiSolSpec(2_048),
+    serviceTier: 'fast',
+    pricingVersion: 'openai-fast-public-2026-10-26',
+    pricingUsdPerMillionTokens: { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 },
+  },
   [AI_MODEL_KEYS.GUEST_CHAT_OPENAI]: openAiMiniSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),

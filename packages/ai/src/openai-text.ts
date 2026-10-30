@@ -68,7 +68,8 @@ export type OpenAiResponsesClient = {
         >
         prompt_cache_options?: { mode: 'explicit' }
         max_output_tokens: number
-        reasoning: { effort: 'none' | 'minimal' | 'low' }
+        reasoning: { effort: 'none' | 'minimal' | 'low' | 'high' }
+        service_tier?: 'fast'
         store: false
         stream?: boolean
       },
@@ -282,7 +283,8 @@ export async function createOpenAiTextResponse(params: {
       model: params.spec.model,
       ...prompt,
       max_output_tokens: params.maxOutputTokens,
-      reasoning: { effort: reasoningEffort(params.spec.model) },
+      reasoning: { effort: params.spec.reasoningEffort ?? reasoningEffort(params.spec.model) },
+      ...(params.spec.serviceTier ? { service_tier: params.spec.serviceTier } : {}),
       store: false,
     },
     { timeout: params.timeoutMs, ...(params.signal ? { signal: params.signal } : {}) },
@@ -332,7 +334,8 @@ export async function createOpenAiTextStream(params: {
       model: params.spec.model,
       ...prompt,
       max_output_tokens: params.maxOutputTokens,
-      reasoning: { effort: reasoningEffort(params.spec.model) },
+      reasoning: { effort: params.spec.reasoningEffort ?? reasoningEffort(params.spec.model) },
+      ...(params.spec.serviceTier ? { service_tier: params.spec.serviceTier } : {}),
       store: false,
       stream: true,
     },

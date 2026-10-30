@@ -74,7 +74,10 @@ import { resolveSystemCharacterProjection } from '../lib/character-registry'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
+import { guestPlainDashes, guestPlainDashesStablePrefix } from '../lib/guest-plain-dashes'
 import { guestBeforeOpeningCue } from '../lib/guest-before-opening'
+import { guestTodayStatusCue, guestTodayStatusEnabled } from '../lib/guest-today-status'
+import { guestStatedDatesEnabled } from '../lib/guest-stated-dates'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -263,7 +266,9 @@ export function createGuestStreamingProjection(options: {
       providerText += delta
       // Guest action markers stream as their visible link text; a marker still being
       // written is held back, so the guest never sees action syntax or an action ID.
-      const visibleText = projectGuestActionStreamText(providerText)
+      const visibleText = guestPlainDashes(
+        guestPlainDashesStablePrefix(projectGuestActionStreamText(providerText)),
+      )
       const markerIndex = visibleText.indexOf(ENGAGEMENT_ASKED_MARKER)
       let markerSafeLength = markerIndex >= 0 ? markerIndex : visibleText.length
       if (markerIndex < 0) {
@@ -1538,7 +1543,12 @@ const chatReadRouter = router({
       directory: guestDirectory,
       currentDate,
     })
-    const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, { currentDate })
+    const statedDatesEnabled = guestStatedDatesEnabled()
+    const todayStatusEnabled = guestTodayStatusEnabled()
+    const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
+      currentDate,
+      ...(statedDatesEnabled ? { statedDates: true } : {}),
+    })
     const directoryPrompt = venueGuide.prompt
     const guideCoverage = buildGuestGuideCoverage({
       guide: venueGuide,
@@ -1836,6 +1846,22 @@ const chatReadRouter = router({
           ? new Set([...venueGuide.recordIds].filter((id) => !updatedGuideRecordIds.has(id)))
           : venueGuide.recordIds,
         venueGuideUpdatedRecordIds: updatedGuideRecordIds,
+        ...(statedDatesEnabled ? { statedDates: true } : {}),
+        ...(todayStatusEnabled &&
+        guideLoadStatus === 'READY' &&
+        !guestDirectory.incomplete &&
+        updatedGuideRecordIds.size === 0
+          ? {
+              todayStatusCue: guestTodayStatusCue({
+                question: trimmedInput,
+                now: operationalNow,
+                timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
+                knowledge: guestDirectory.knowledge,
+                activeUpdates,
+                venueName: venue.name,
+              }),
+            }
+          : {}),
         ...(generalWebProjection ? { generalWebContext: generalWebProjection.prompt } : {}),
         ...(liveDataPrompt ? { liveDataContext: liveDataPrompt } : {}),
         venue: {
@@ -2229,7 +2255,7 @@ const chatReadRouter = router({
       // The model may only name approved action IDs; the server enforces the venue's
       // presentation switches and resolves every destination itself.
       const actionProjection = applyGuestActionMarkers({
-        text: strippedResponse.trim(),
+        text: guestPlainDashes(strippedResponse).trim(),
         actions: guestActions,
         settings: guestActionSettings,
       })
