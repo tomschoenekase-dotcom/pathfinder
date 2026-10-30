@@ -131,8 +131,8 @@ describe('operator outreach history workflow', () => {
     expect(result.evidence.nextCursor).toBe('evidence-1')
     expect(result.reviewPlan.messages).toHaveLength(1)
     expect(result.reviewPlan.messageNextCursor).toBe('message-1')
-    expect(result.reviewPlan.messages[0].review.operationId).toMatch(/^[0-9a-f-]{36}$/)
-    expect(result.reviewPlan.messages[0].review.expectedRevision).toBe(result.revision)
+    expect(result.reviewPlan.messages[0]!.review.operationId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(result.reviewPlan.messages[0]!.review.expectedRevision).toBe(result.revision)
     expect(JSON.stringify(result)).not.toContain('recipient@example.test')
     expect(JSON.stringify(result)).not.toContain('textBody')
     await expect(

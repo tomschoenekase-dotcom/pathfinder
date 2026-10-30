@@ -319,7 +319,10 @@ describe('crm.get_note', () => {
       prospectOrganization: {
         findUnique: vi.fn().mockResolvedValue({ id: 'org-1', notes: long, ...overrides }),
       },
-      prospectActivity: { findFirst: vi.fn().mockResolvedValue(null) },
+      prospectActivity: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       prospectContact: {
         findFirst: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
@@ -355,6 +358,7 @@ describe('crm.get_note', () => {
     const db = database()
     db.prospectActivity.findFirst.mockResolvedValue({
       id: 'note-1',
+      organizationId: 'org-1',
       occurredAt: at(3),
       detail: 'y'.repeat(900),
       summary: 'Operator note added',
@@ -362,6 +366,13 @@ describe('crm.get_note', () => {
     const out = await run(getNote, { organizationId: 'org-1', noteId: 'note-1' }, db)
     expect(out.source).toBe('activity')
     expect(out.length).toBe(900)
+    expect(out).toMatchObject({
+      archived: false,
+      corrected: false,
+      originalText: { text: 'y'.repeat(900), untrusted: true },
+    })
+    expect(out.revision).toMatch(/^[a-f0-9]{64}$/u)
+    expect(OPERATOR_MCP_OUTPUTS['crm.get_note'].safeParse(out).success).toBe(true)
     expect(db.prospectActivity.findFirst.mock.calls[0]![0].where).toMatchObject({
       id: 'note-1',
       organizationId: 'org-1',
@@ -376,6 +387,44 @@ describe('crm.get_note', () => {
     await expect(
       run(getNote, { organizationId: 'org-1', noteId: 'n', contactId: 'c' }, database()),
     ).rejects.toThrow()
+  })
+
+  it('projects a corrected archived note while retaining its original words', async () => {
+    const db = database()
+    const original = {
+      id: 'note-1',
+      organizationId: 'org-1',
+      occurredAt: at(1),
+      detail: 'Original owner words',
+      summary: 'Operator note added',
+    }
+    db.prospectActivity.findFirst.mockResolvedValue(original)
+    db.prospectActivity.findMany.mockResolvedValue([
+      {
+        id: 'correction',
+        occurredAt: at(2),
+        evidence: {
+          schema: 'crm-note-lifecycle/v1',
+          noteId: 'note-1',
+          action: 'correct',
+          text: 'Corrected observation',
+        },
+      },
+      {
+        id: 'archive',
+        occurredAt: at(3),
+        evidence: { schema: 'crm-note-lifecycle/v1', noteId: 'note-1', action: 'archive' },
+      },
+    ])
+    const out = await run(getNote, { organizationId: 'org-1', noteId: 'note-1' }, db)
+    expect(out).toMatchObject({
+      archived: true,
+      corrected: true,
+      text: { text: 'Corrected observation', untrusted: true },
+      originalText: { text: 'Original owner words', untrusted: true },
+    })
+    expect(original.detail).toBe('Original owner words')
+    expect(OPERATOR_MCP_OUTPUTS['crm.get_note'].safeParse(out).success).toBe(true)
   })
 
   it('keeps a suppressed contact note private', async () => {
