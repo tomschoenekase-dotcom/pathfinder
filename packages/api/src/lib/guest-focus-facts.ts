@@ -15,7 +15,7 @@
 import { guestPlaceIdentityKey } from './guest-place-identity'
 import { guestStatedDates } from './guest-knowledge-retrieval'
 
-export const GUEST_FOCUS_FACTS_VERSION = 'guest-focus-facts-v5'
+export const GUEST_FOCUS_FACTS_VERSION = 'guest-focus-facts-v4'
 
 export type GuestFocusFactsMode = 'off' | 'on' | 'luna'
 
@@ -326,38 +326,19 @@ function hasProductNameContext(
       input.question,
     )
   if (!currentIntent && !priorIntent) return false
-  const productNouns = [
-    'plan',
-    'plans',
-    'offer',
-    'offers',
-    'product',
-    'products',
-    'package',
-    'packages',
-    'wristband',
-    'wristbands',
-    'pass',
-    'passes',
-    'ticket',
-    'tickets',
-    'admission',
-  ]
+  const productClause =
+    /\b(?:plans?|offers?|products?|packages?|wristbands?|passes?|tickets?|price|cost)\b/iu
   return focused.some((subject) =>
     (input.retrieved ?? []).some(
       (entry) =>
         guestPlaceIdentityKey(entry.title) !== subject.key &&
         !subject.records.includes(entry.content) &&
-        entry.content.split(/[\n;.!?]/u).some((clause) => {
-          const normalized = guestPlaceIdentityKey(clause)
-          // A pass covering a named event is not a same-name product. Require the name
-          // itself next to a product noun, as in "Little Comet wristbands".
-          return productNouns.some(
-            (noun) =>
-              phraseAt(normalized, `${subject.key} ${noun}`) ||
-              phraseAt(normalized, `${noun} ${subject.key}`),
-          )
-        }),
+        entry.content
+          .split(/[\n;.!?]/u)
+          .some(
+            (clause) =>
+              productClause.test(clause) && namesPhrase(guestPlaceIdentityKey(clause), subject.key),
+          ),
     ),
   )
 }

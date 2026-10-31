@@ -521,32 +521,3 @@ describe('conditional same-name product context', () => {
     expect(contextual.rule).not.toContain('36 inches')
   })
 })
-
-describe('product name adjacency excludes event coverage mentions', () => {
-  it('does not treat a season pass covering Moon Festival rides as a Moon Festival product', () => {
-    const festival = {
-      title: 'Moon Festival',
-      content: 'Moon Festival is a fall event with rides.',
-    }
-    const pass = {
-      title: 'Season Pass',
-      content: 'Season Pass includes Moon Festival rides on operating days.',
-    }
-    const focus = buildGuestFocusFacts({
-      question: 'Are tickets needed for Moon Festival?',
-      knowledge: [festival, pass],
-      retrieved: [festival, pass],
-      places: [],
-      escape: escapeUntrustedPromptData,
-    })!
-    expect(focus.rule).not.toContain('NAME CONTEXT:')
-    const normal = buildGuestFocusFacts({
-      question: 'Are tickets needed for Moon Festival?',
-      knowledge: [festival, pass],
-      retrieved: [festival],
-      places: [],
-      escape: escapeUntrustedPromptData,
-    })!
-    expect(focus).toEqual(normal)
-  })
-})
