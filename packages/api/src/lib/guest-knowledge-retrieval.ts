@@ -459,6 +459,8 @@ const UNRESOLVED_DATE_FORM = new RegExp(
 const DATE_RELATION_BEFORE =
   /\b(?:after|before|following|prior to|until|till|through|thru|from|since|except|not|instead of|other than|than)\s*$/iu
 const RANGE_DAYS_LIMIT = 14
+const CHOICE_BETWEEN =
+  /\b(?:decid\w*|choos\w*|chose|pick\w*|either|torn|which (?:day|date|one)|better day)\b/iu
 const FULL_DATE_IN_RECORD = new RegExp(
   `\\b(?:${MONTHS.join('|')}) \\d{1,2},? 20\\d{2}\\b|\\b20\\d{2}-\\d{2}-\\d{2}\\b`,
   'u',
@@ -585,6 +587,11 @@ export function guestStatedDates(text: string, clock?: Date | null): GuestStated
     if (!start || !end) return null
     const span = (dateUtc(end) - dateUtc(start)) / DAY_MS
     if (span < 1 || span >= RANGE_DAYS_LIMIT) return null
+    // "Deciding between Sunday and Saturday" names two candidate days, not an interval.
+    if (CHOICE_BETWEEN.test(text)) {
+      const dates = [start, end]
+      return { kind: 'list', dates, terms: termsFor(dates), spans: mentions.map((m) => m.text) }
+    }
     const dates = Array.from({ length: span + 1 }, (_, offset) =>
       dateFromUtc(dateUtc(start!) + offset * DAY_MS),
     )

@@ -55,6 +55,16 @@ describe('stated visitor dates (shared helper)', () => {
     )
   })
 
+  it('reads "deciding between X and Y" as two candidate days, not an interval', () => {
+    const choice = guestStatedDates(
+      "We're deciding between Sunday, October 25 and Saturday, October 31, 2026. Which day is better?",
+      CLOCK,
+    )
+    expect(choice?.kind).toBe('list')
+    expect(choice?.terms).toEqual(expect.arrayContaining(['october 25, 2026', 'october 31, 2026']))
+    expect(choice?.terms).not.toContain('october 28, 2026')
+  })
+
   it('rolls a "between" interval across the year end', () => {
     const range = guestStatedDates('Open between December 30, 2026 and January 2?', CLOCK)
     expect(range?.terms).toEqual(
