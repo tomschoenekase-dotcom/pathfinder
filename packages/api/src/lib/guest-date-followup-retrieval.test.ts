@@ -77,6 +77,49 @@ describe('explicit prior visitor date in lexical retrieval', () => {
       )
     }
   })
+  it.each([
+    ['What about rides on that date?', 'Can we visit on November 2?', ['november', 'rides']],
+    [
+      'Which shows run that day?',
+      'Is the water park open on Saturday, November 7?',
+      ['water', 'park', 'shows'],
+    ],
+    ['Is parking free that night?', 'When does the comet show start Saturday?', ['comet']],
+  ])(
+    'keeps the ordinary follow-up topic when no exact prior date exists: %s',
+    (query, previous, expected) => {
+      expect(guestPriorDateConcept(query, previous)).toBeNull()
+      const flat = guestRetrievalConcepts(query, previous).concepts.flat()
+      for (const term of expected) expect(flat).toContain(term)
+    },
+  )
+  it.each([
+    ['Does that day pass include parking?', 'How much is a day pass on November 2, 2026?', 'day'],
+    ['Can I buy same day tickets?', 'Are tickets cheaper online for November 2, 2026?', 'day'],
+    ['Is that night parking rate the same?', 'Can we park late on November 2, 2026?', 'night'],
+  ])('treats a product phrase as a product, not a date reference: %s', (query, previous, kept) => {
+    expect(guestPriorDateConcept(query, previous)).toBeNull()
+    const flat = guestRetrievalConcepts(query, previous).concepts.flat()
+    expect(flat).toContain(kept)
+    expect(flat).not.toContain('november 2, 2026')
+  })
+  it.each([
+    'Is it open that day?',
+    'What time does it close that night?',
+    'Is it busy that day too?',
+  ])(
+    'keeps the earlier subject and the exact date when the follow-up names no subject: %s',
+    (query) => {
+      const flat = guestRetrievalConcepts(
+        query,
+        'Can we visit Moon Arcade on Monday November 2, 2026?',
+      ).concepts.flat()
+      expect(flat).toContain('november 2, 2026')
+      expect(flat).toContain('arcade')
+      expect(flat).not.toContain('monday')
+      expect(flat).not.toContain('november')
+    },
+  )
   it('validates leap day and normalizes ISO dates without guessing a year', () => {
     expect(guestPriorDateConcept('Rides that day?', '2028-02-29?')).toContain('february 29, 2028')
     expect(guestPriorDateConcept('Rides that day?', 'February 29?')).toBeNull()

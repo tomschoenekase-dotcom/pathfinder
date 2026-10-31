@@ -319,7 +319,32 @@ export function guestQueryConcepts(query: string): string[][] {
   return groups.slice(0, 5)
 }
 
-const REFERRED_DATE = /\b(?:that|same) (?:date|day|night)\b/iu
+// "that day pass" or "same day tickets" names a product, not an earlier date.
+const REFERRED_DATE =
+  /\b(?:that|same) (?:date|day|night)\b(?![ -]?(?:pass|passes|ticket|tickets|admission|rate|rates|price|prices|pricing|parking|entry|trip|trips|camp|use|only)\b)/iu
+// Words that say when or whether, not what. A follow-up made only of these keeps its subject.
+const GENERIC_FOLLOWUP_TOKENS = new Set([
+  'date',
+  'day',
+  'night',
+  'time',
+  'times',
+  'still',
+  'then',
+  'too',
+  'also',
+  'well',
+  'go',
+  'going',
+  'visit',
+  'come',
+  'busy',
+  'crowded',
+  'late',
+  'early',
+])
+const DATE_WORD =
+  /^(?:\d+|january|february|march|april|may|june|july|august|september|october|november|december|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays)$/u
 const DATE_MONTH =
   '(?:January|February|March|April|May|June|July|August|September|October|November|December)'
 const EXPLICIT_DATE = new RegExp(
@@ -408,17 +433,32 @@ export function guestRetrievalConcepts(
   previousQuery?: string | null,
 ): { ownConcepts: string[][]; concepts: string[][]; broad: boolean } {
   const priorDate = guestPriorDateConcept(query, previousQuery)
-  const ownConcepts = guestQueryConcepts(priorDate ? query.replace(REFERRED_DATE, '') : query)
+  const ownConcepts = guestQueryConcepts(priorDate ? query.replace(REFERRED_DATE, ' ') : query)
+  // With an exact prior date, a newly named subject replaces the old one ("what about rides
+  // that day?"); a follow-up that names none ("is it open that day?") keeps the old subject.
+  // Without one, the ordinary follow-up rule applies unchanged.
+  const keepsPreviousSubject = priorDate
+    ? ownConcepts.every(
+        (group) =>
+          group.includes('hours') || group.every((term) => GENERIC_FOLLOWUP_TOKENS.has(term)),
+      )
+    : true
   const followupConcepts =
-    !REFERRED_DATE.test(query) && previousQuery && guestQueryIsFollowup(query)
+    keepsPreviousSubject && previousQuery && guestQueryIsFollowup(query)
       ? guestQueryConcepts(previousQuery).filter(
-          (group) => !ownConcepts.some((existing) => existing.join('|') === group.join('|')),
+          (group) =>
+            !ownConcepts.some((existing) => existing.join('|') === group.join('|')) &&
+            // The exact date replaces loose month or weekday words from the earlier message.
+            !(
+              priorDate &&
+              group.every((term) => DATE_WORD.test(term) || GENERIC_FOLLOWUP_TOKENS.has(term))
+            ),
         )
       : []
   return {
     ownConcepts,
     concepts: priorDate
-      ? [...ownConcepts.slice(0, 5), priorDate]
+      ? [...[...ownConcepts, ...followupConcepts].slice(0, 5), priorDate]
       : [...ownConcepts, ...followupConcepts].slice(0, 6),
     broad:
       guestQueryIsBroad(query) ||
