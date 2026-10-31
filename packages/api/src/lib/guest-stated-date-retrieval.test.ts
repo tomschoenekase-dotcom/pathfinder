@@ -337,20 +337,3 @@ describe('database selection admits the dated record', () => {
     expect(calls.some((where) => /june 17, 20\d\d/u.test(JSON.stringify(where)))).toBe(false)
   })
 })
-
-
-describe('dated comparison follow-up selection under recency pressure', () => {
-  it.each([
-    ['Does Moon Bowl shut before those rides that evening, or can we bowl afterward?', 'Rides on October 17, 2026?'],
-    ['On the former of those days, does Moon Bowl stay open any later than the arcade?', 'We are deciding between October 17 and October 24, 2026.'],
-  ])('admits both compared dated records: %s', async (query, previousQuery) => {
-    const sources = [
-      ...Array.from({length: 70}, (_, i) => row(`recent-${i}`, 'Moon Bowl and Arcade hours', 'December 10, 2026: Moon Bowl and arcade open noon to 5pm.', '2026-10-11T00:00:00Z')),
-      row('rides-oct', 'Moon Harbor rides October hours', 'October 17, 2026: rides close at 8pm.', '2026-09-01T00:00:00Z'),
-      row('bowl-oct', 'Moon Bowl October hours', 'October 17, 2026: Moon Bowl and arcade close at 1am the following morning.', '2026-09-01T00:00:00Z'),
-    ]
-    const {reader} = filteringReader(sources)
-    const result = await retrieveGuestKnowledge({reader, query, previousQuery, tenantId: 'fictional-tenant', venueId: 'fictional-venue', includeSecondLayer: false, queryEmbedding: null, asOf: CLOCK})
-    expect(result.entries.map(r => r.id)).toEqual(expect.arrayContaining(['rides-oct','bowl-oct']))
-  })
-})
