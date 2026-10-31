@@ -319,6 +319,86 @@ export function guestQueryConcepts(query: string): string[][] {
   return groups.slice(0, 5)
 }
 
+const REFERRED_DATE = /\b(?:that|same) (?:date|day|night)\b/iu
+const DATE_MONTH =
+  '(?:January|February|March|April|May|June|July|August|September|October|November|December)'
+const EXPLICIT_DATE = new RegExp(
+  `\\b${DATE_MONTH}\\b|\\b\\d{1,2}(?:st|nd|rd|th)\\b|\\b(?:Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?|\\b\\d{4}-\\d{2}-\\d{2}\\b|\\b\\d{1,2}/\\d{1,2}|\\b(?:today|tomorrow|yesterday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\b`,
+  'iu',
+)
+
+/** One explicit date in the immediately preceding visitor query, for lexical retrieval only.
+ * No assistant text or older conversation search is accepted. Ambiguity fails closed.
+ */
+export function guestPriorDateConcept(
+  query: string,
+  previousQuery?: string | null,
+): string[] | null {
+  if (!previousQuery || !REFERRED_DATE.test(query) || EXPLICIT_DATE.test(query)) return null
+  // An offset or rejection changes the referent; never reuse its exact calendar date.
+  if (
+    /\b(?:not|never|instead|different|another|after|before|following|next|previous|later|earlier|week|month|year)\b|n['’]t\b/iu.test(
+      query,
+    )
+  )
+    return null
+  if (
+    /\b(?:not|never|instead|actually|correction|corrected|changed|cancelled|canceled|forget|ignore|previously|last|ago|was|were)\b|\bno longer\b|n['’]t\b/iu.test(
+      previousQuery,
+    )
+  )
+    return null
+  const pattern = new RegExp(
+    `\\b(${DATE_MONTH})\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(20\\d{2})\\b|\\b(20\\d{2})-(\\d{2})-(\\d{2})\\b`,
+    'giu',
+  )
+  const dates = [...previousQuery.matchAll(pattern)]
+  if (dates.length !== 1) return null
+  const match = dates[0]!
+  const months = [
+    'january',
+    'february',
+    'march',
+    'april',
+    'may',
+    'june',
+    'july',
+    'august',
+    'september',
+    'october',
+    'november',
+    'december',
+  ]
+  const month = match[1] ? months.indexOf(match[1].toLowerCase()) + 1 : Number(match[5])
+  const day = Number(match[2] ?? match[6])
+  const year = Number(match[3] ?? match[4])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  )
+    return null
+  const remaining = previousQuery
+    .replace(match[0], '')
+    .replace(/\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/giu, '')
+  // Partial dates, ranges and alternatives must never select one date silently.
+  if (
+    EXPLICIT_DATE.test(remaining) ||
+    new RegExp(
+      `\\b${DATE_MONTH}\\b|\\b\\d{1,2}/\\d{1,2}|\\b(?:or|through|until|between)\\b|\\bto\\s+\\d|[-–—]\\s*\\d`,
+      'iu',
+    ).test(remaining)
+  )
+    return null
+  const name = months[month - 1]!
+  return [
+    `${name} ${day}, ${year}`,
+    `${name} ${day} ${year}`,
+    `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+  ]
+}
+
 /**
  * Lexical concept groups for this turn. A short referential follow-up borrows the previous
  * visitor message's concepts so "which one is scariest?" keeps the earlier topic.
@@ -327,16 +407,19 @@ export function guestRetrievalConcepts(
   query: string,
   previousQuery?: string | null,
 ): { ownConcepts: string[][]; concepts: string[][]; broad: boolean } {
-  const ownConcepts = guestQueryConcepts(query)
+  const priorDate = guestPriorDateConcept(query, previousQuery)
+  const ownConcepts = guestQueryConcepts(priorDate ? query.replace(REFERRED_DATE, '') : query)
   const followupConcepts =
-    previousQuery && guestQueryIsFollowup(query)
+    !REFERRED_DATE.test(query) && previousQuery && guestQueryIsFollowup(query)
       ? guestQueryConcepts(previousQuery).filter(
           (group) => !ownConcepts.some((existing) => existing.join('|') === group.join('|')),
         )
       : []
   return {
     ownConcepts,
-    concepts: [...ownConcepts, ...followupConcepts].slice(0, 6),
+    concepts: priorDate
+      ? [...ownConcepts.slice(0, 5), priorDate]
+      : [...ownConcepts, ...followupConcepts].slice(0, 6),
     broad:
       guestQueryIsBroad(query) ||
       (followupConcepts.length > 0 && Boolean(previousQuery) && guestQueryIsBroad(previousQuery!)),

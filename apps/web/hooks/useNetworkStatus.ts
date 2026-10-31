@@ -6,13 +6,9 @@ export type NetworkConnectionState = 'online' | 'offline' | 'reconnected'
 
 const RECONNECTED_NOTICE_MS = 5_000
 
-function initialConnectionState(): NetworkConnectionState {
-  return typeof navigator === 'undefined' || navigator.onLine ? 'online' : 'offline'
-}
-
 export function useNetworkStatus(): NetworkConnectionState {
-  const [connectionState, setConnectionState] =
-    useState<NetworkConnectionState>(initialConnectionState)
+  // Server and first client render must agree; read browser state after hydration.
+  const [connectionState, setConnectionState] = useState<NetworkConnectionState>('online')
   const reconnectTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -39,6 +35,7 @@ export function useNetworkStatus(): NetworkConnectionState {
 
     window.addEventListener('offline', handleOffline)
     window.addEventListener('online', handleOnline)
+    if (window.navigator.onLine === false) handleOffline()
 
     return () => {
       clearReconnectTimer()
