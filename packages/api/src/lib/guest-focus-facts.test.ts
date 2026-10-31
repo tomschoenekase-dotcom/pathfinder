@@ -390,6 +390,11 @@ describe('explicit date schedule focus', () => {
     expect(result.data).toContain('Tickets are separate.')
     expect(schedule.content).toContain('9:30pm')
     expect(result.rule).toContain('not live status')
+    expect(result.rule).toContain('These highlighted lines are not an exhaustive schedule.')
+    expect(result.rule).toContain(
+      'also include other events whose own full records explicitly cover that date, including matching weekday rules within dated periods.',
+    )
+    expect(result.rule).toContain("Keep each event's own time and conditions; do not infer that anything else runs.")
   })
   it.each([
     'What is scheduled on November 21?',
