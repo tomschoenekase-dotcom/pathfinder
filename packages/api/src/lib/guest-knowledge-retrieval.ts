@@ -673,10 +673,9 @@ export function guestOffsetDateConcept(
 const PRIOR_DATE_CORRECTION =
   /\b(?:not|never|instead|actually|correction|corrected|changed|cancelled|canceled|forget|ignore|previously|last|ago|was|were)\b|\bno longer\b|n['’]t\b/iu
 
-/** Ordinals refer to exactly two visitor-stated alternatives, never an interval. */
+/** An ordinal chooses one of exactly two visitor-stated alternatives, never an interval. */
 function selectedPriorDate(query: string, previousQuery: string, clock?: Date | null): string[] | null {
-  const selectors = [...query.matchAll(new RegExp(SELECTED_PRIOR_DATE.source, 'giu'))]
-  const selector = selectors[0]
+  const selector = query.match(SELECTED_PRIOR_DATE)
   if (!selector) return null
   let dates = guestStatedDates(previousQuery, clock)
   if (!dates && listedPriorDates(previousQuery)) {
@@ -697,8 +696,6 @@ function selectedPriorDate(query: string, previousQuery: string, clock?: Date | 
   }
   if (!dates || dates.kind !== 'list' || dates.dates.length !== 2) return null
   if (dateUtc(dates.dates[0]!) === dateUtc(dates.dates[1]!)) return null
-  // Multiple explicit selectors request evidence for both alternatives, not the first match.
-  if (selectors.length > 1) return dates.terms
   return termsFor([dates.dates[selector[1]!.toLowerCase() === 'former' ? 0 : 1]!])
 }
 
@@ -790,7 +787,7 @@ export function guestRetrievalConcepts(
     // An introductory plan is context, not a third comparison subject. Keep the explicit
     // question after "so does ...", then make room for both compared names.
     subjectText = subjectText.replace(/^.*?\bso\s+(?=(?:does|do|is|are|can|will)\b)/iu, '')
-      .replace(new RegExp(SELECTED_PRIOR_DATE.source, 'giu'), ' ')
+      .replace(SELECTED_PRIOR_DATE, ' ')
       .replace(/\b(?:we|would|probably|head|indoors|once|stay|any|later|earlier|than|before|after|then)\b/giu, ' ')
   }
   for (const span of [...(ownDates?.spans ?? []), ...(offsetDate?.spans ?? [])])

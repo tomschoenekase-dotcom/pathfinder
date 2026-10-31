@@ -286,23 +286,3 @@ describe('former/latter selects exactly two earlier visitor alternatives', () =>
     expect(guestPriorDateConcept('The latter of those days, November 7, 2026?', prior, clock)).toBeNull()
   })
 })
-
-
-describe('multiple explicit ordinal references', () => {
-  it.each([
-    'October 17, 2026 and October 24, 2026?',
-    'We are deciding between October 17 and October 24, 2026.',
-  ])('retains both dates and comparison subjects from %s', (previous) => {
-    const result = guestRetrievalConcepts(
-      'Compare Moon Arcade on the former of those days with Comet Bowl on the latter of those days.',
-      previous, new Date('2026-10-01T12:00:00Z'),
-    )
-    expect(result.dateConcept).toEqual(expect.arrayContaining(['october 17, 2026','october 24, 2026']))
-    expect(result.concepts.flat()).toEqual(expect.arrayContaining(['moon','arcade','comet','bowl']))
-    expect(result.concepts.flat()).not.toContain('former')
-    expect(result.concepts.flat()).not.toContain('latter')
-  })
-  it('still rejects a third prior alternative', () => {
-    expect(guestPriorDateConcept('The former of those days and the latter of those days?', 'October 17, 2026 and October 24, 2026 and October 31, 2026?')).toBeNull()
-  })
-})
