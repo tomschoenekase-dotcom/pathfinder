@@ -265,6 +265,15 @@ export function guestQueryIsBroad(query: string): boolean {
   return contentTokens.length <= 2 && tokens.some((token) => dining.includes(token))
 }
 
+// Longer continuations must explicitly act on the previous referent, not merely contain "it".
+function boundedReferentContinuation(query: string): boolean {
+  const text = normalize(query)
+  const tokens = text.match(/[\p{L}\p{N}]+/gu) ?? []
+  return tokens.length <= 24 &&
+    /\b(?:take|bring|use|redeem|buy)\s+(?:it|them|that (?:offer|pass|ticket|product)|those (?:passes|tickets))\b/u.test(text) &&
+    !/\b(?:instead|switch|forget|ignore|different|another|new topic)\b/u.test(text)
+}
+
 export function guestQueryIsFollowup(query: string): boolean {
   const tokens = normalize(query).match(/[\p{L}\p{N}]+/gu) ?? []
   return tokens.length > 0 && tokens.length <= 8 && FOLLOWUP_QUERY.test(normalize(query))
@@ -756,8 +765,9 @@ export function guestRetrievalConcepts(
           group.includes('hours') || group.every((term) => GENERIC_FOLLOWUP_TOKENS.has(term)),
       )
     : true
+  const referentContinuation = !priorDate && boundedReferentContinuation(query)
   const followupConcepts =
-    keepsPreviousSubject && previousQuery && guestQueryIsFollowup(query)
+    keepsPreviousSubject && previousQuery && (guestQueryIsFollowup(query) || referentContinuation)
       ? guestQueryConcepts(previousQuery).filter(
           (group) =>
             !ownConcepts.some((existing) => existing.join('|') === group.join('|')) &&
@@ -772,7 +782,14 @@ export function guestRetrievalConcepts(
     ownConcepts,
     concepts: priorDate
       ? [...[...ownConcepts, ...followupConcepts].slice(0, 5), priorDate]
-      : [...ownConcepts, ...followupConcepts].slice(0, 6),
+      : referentContinuation && followupConcepts.length
+        ? [
+            // Reserve two positions for the referred subject before new contextual constraints.
+            ...followupConcepts.filter((group) => !group.every((term) => DATE_WORD.test(term))).slice(0, 2),
+            ...ownConcepts,
+            ...followupConcepts,
+          ].filter((group, index, all) => all.findIndex((other) => other.join('|') === group.join('|')) === index).slice(0, 6)
+        : [...ownConcepts, ...followupConcepts].slice(0, 6),
     dateConcept: priorDate,
     broad:
       guestQueryIsBroad(query) ||

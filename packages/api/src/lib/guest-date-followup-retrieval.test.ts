@@ -208,3 +208,28 @@ describe('explicit prior visitor date in lexical retrieval', () => {
     expect(result.entries.length).toBeLessThanOrEqual(8)
   })
 })
+
+
+describe('bounded longer referent continuations', () => {
+  it.each([
+    ['Can we take it into a covered dining area?', 'Can my leashed pet walk outside with us?', 'pet'],
+    ['Could I use that offer on an October Halloween weekend?', 'What was the 2026 Twilight price?', 'twilight'],
+  ])('retains the earlier subject for %s', (query, previous, subject) => {
+    const result = guestRetrievalConcepts(query, previous)
+    expect(result.concepts.flat()).toContain(subject)
+    expect(result.concepts.length).toBeLessThanOrEqual(6)
+  })
+  it.each([
+    'Instead can we take it into a covered dining area?',
+    'Switch to another subject: can we use that offer for a meal?',
+    'Does the new restaurant have good seating, and is it covered?',
+    'Can we take it '+ 'very far '.repeat(20)+'away?',
+  ])('does not widen unrelated or unbounded questions: %s', (query) => {
+    expect(guestRetrievalConcepts(query, 'What was the Twilight price?').concepts.flat()).not.toContain('twilight')
+  })
+  it('does not borrow an earlier date into a new explicit date or date-reference subject switch', () => {
+    const result = guestRetrievalConcepts('Can we take it to Moon Arcade on November 9, 2026?', 'Twilight offer on November 2, 2026?')
+    expect(result.concepts.flat()).not.toContain('november 2, 2026')
+    expect(result.concepts.flat()).not.toContain('twilight')
+  })
+})
