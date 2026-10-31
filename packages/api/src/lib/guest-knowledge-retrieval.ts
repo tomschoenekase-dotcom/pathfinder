@@ -1093,11 +1093,11 @@ export async function retrieveGuestKnowledge(params: {
   const weights = conceptWeights(lexicalPool, concepts)
   // A schedule that names other full dates but not the visitor's date answers a different day:
   // it ranks below the dated record. Records without full dates are ranked as before.
-  const offDate = (row: GuestKnowledgeRow) =>
+  const offDate = (row: Pick<GuestKnowledgeRow, 'title' | 'category' | 'content'>) =>
     dateConcept !== null &&
     FULL_DATE_IN_RECORD.test(normalize(`${row.title} ${row.content}`)) &&
-    !conceptFieldMatches(row, dateConcept).content &&
-    !conceptFieldMatches(row, dateConcept).title
+    !conceptFieldMatches(row as GuestKnowledgeRow, dateConcept).content &&
+    !conceptFieldMatches(row as GuestKnowledgeRow, dateConcept).title
   const scoredLexical = lexicalPool.map((row) => ({
     row,
     score: lexicalScore(row, concepts, weights) * (offDate(row) ? 0.5 : 1),
@@ -1158,11 +1158,15 @@ export async function retrieveGuestKnowledge(params: {
       order: fused.size,
     })
   })
+  // A stated date also outranks vector similarity: off-date schedules lose half their fused
+  // score and their guaranteed slot, so they cannot use the budget the dated record needs.
   const candidates = [...fused.values()]
+    .map((item) => ({ ...item, score: item.score * (offDate(item.entry) ? 0.5 : 1) }))
     .sort((a, b) => b.score - a.score || a.order - b.order)
     .map(({ entry }) => entry)
   const guaranteed = new Set(
     candidates
+      .filter((entry) => !offDate(entry))
       .filter((entry) =>
         semanticCandidates
           .slice(0, SEMANTIC_UNCORROBORATED_LIMIT)
