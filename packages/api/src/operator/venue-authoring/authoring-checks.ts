@@ -17,6 +17,7 @@ type AuthoringRecord = {
   path: string
   kind: 'place' | 'knowledge'
   title: string
+  placeType?: string
   fields: Field[]
   hours: string | null
   area: string | null
@@ -118,6 +119,7 @@ function placeFields(path: string, value: Record<string, unknown>): AuthoringRec
     path,
     kind: 'place',
     title: String(value.name ?? ''),
+    placeType: String(value.type ?? ''),
     fields,
     hours: typeof value.hours === 'string' && value.hours ? value.hours : null,
     area: typeof value.areaName === 'string' ? value.areaName : null,
@@ -575,6 +577,103 @@ function overviewChecks(records: readonly AuthoringRecord[]): AuthoringFinding[]
   return findings
 }
 
+// Conservative scope advisories: review the source rather than automatically changing a rule.
+function requirementScopeCheck(field: Field): AuthoringFinding[] {
+  const parts = sentences(field.text)
+  const requirement =
+    /\b(?:height|age|weight|supervision|adult accompaniment|casts?|limbs?|transfers?)\b/giu
+  const typesIn = (text: string) =>
+    new Set(
+      [...text.matchAll(requirement)].map((match) =>
+        match[0]
+          .toLowerCase()
+          .replace(/^(casts|limbs|transfers)$/u, (plural) => plural.slice(0, -1)),
+      ),
+    )
+  for (const [index, part] of parts.entries()) {
+    const types = typesIn(part)
+    const qualifier =
+      /\b(?:specified|listed|shown|valid|applies|apply|requirements?)\b[^.!?\n]{0,65}\b(?:for\s+20\d{2}|below|only|when|if)\b|\b(?:below|for\s+20\d{2})\b[^.!?\n]{0,65}\brequirements?\b/iu
+    if (types.size < 2 || !qualifier.test(part)) continue
+    const later = parts.slice(index + 1).join(' ')
+    // Repeating only the qualified types is consistent scope. Warn only when another
+    // requirement type follows, which a reader might incorrectly include in the qualifier.
+    if (![...typesIn(later)].some((type) => !types.has(type))) continue
+    if (
+      !/\b(?:Height|Age|Weight|Supervision|Casts?|Limbs?|Transfers?)\s*:|\b(?:must|minimum|maximum|at least|with an adult)\b/iu.test(
+        later,
+      )
+    )
+      continue
+    return [
+      {
+        code: 'AMBIGUOUS_REQUIREMENT_SCOPE',
+        path: field.path,
+        message: `"${clip(part)}" qualifies several requirement types before a different requirement in the same record. The qualifier may attach to the wrong rule.`,
+        fix: 'Verify the source and put each date or condition on the exact requirement it qualifies. Keep an actual height restriction and its qualifier together; do not remove safety rules merely to clear this advice.',
+      },
+    ]
+  }
+  return []
+}
+
+function copiedStatusScopeCheck(records: readonly AuthoringRecord[]): AuthoringFinding[] {
+  // Only explicit rides/waterpark closure wording triggers this comparison. A whole-park
+  // closure or a normal shared timetable alone is not evidence of a scope problem.
+  const topic = records.find(
+    (record) =>
+      record.kind === 'knowledge' &&
+      record.fields.some(
+        ({ text }) =>
+          /\b(?:rides?(?:\s+and\s+(?:the\s+)?waterpark)?|waterpark)\s+(?:are\s+|is\s+)?closed\b/iu.test(
+            text,
+          ) &&
+          !/\b(?:whole|entire)\s+park\b|\ball\s+(?:outlets|facilities|restaurants)\b/iu.test(text),
+      ),
+  )
+  if (!topic) return []
+  if (
+    records.some(
+      (record) =>
+        record.kind === 'knowledge' &&
+        record.fields.some(({ text }) =>
+          /\b(?:whole|entire)\s+(?:venue|park)\s+(?:is\s+)?closed\b|\ball\s+(?:outlets|facilities|restaurants)\s+(?:are\s+)?closed\b/iu.test(
+            text,
+          ),
+        ),
+    )
+  )
+    return []
+  const groups = new Map<string, AuthoringRecord[]>()
+  for (const record of records) {
+    if (
+      record.kind !== 'place' ||
+      !record.hours ||
+      !/\b(?:closed|closure|ended|not operating)\b/iu.test(record.hours)
+    )
+      continue
+    // A copied value already distinguishing rides from dining has explicit scope.
+    if (/\b(?:rides?|waterpark)\s+(?:are\s+|is\s+)?closed\b/iu.test(record.hours)) continue
+    groups.set(record.hours, [...(groups.get(record.hours) ?? []), record])
+  }
+  return [...groups.values()].flatMap((group) => {
+    if (group.length < 3) return []
+    return group
+      .filter((record) =>
+        /\b(?:restaurant|cafe|café|grill|pizzeria|pizza|dining|food|shop|store|gift)(?=$|[^\p{L}\p{N}_])/iu.test(
+          // Nearby food/shop mentions in directions do not classify the place itself.
+          [record.title, record.placeType].join(' '),
+        ),
+      )
+      .map((record) => ({
+        code: 'COPIED_STATUS_SCOPE',
+        path: `${record.path}.hours`,
+        message: `The same status is copied onto ${group.length} places including "${record.title}", while ${topic.path} scopes a closure to rides or the waterpark.`,
+        fix: 'Verify opening status for each food/shop location. Keep only its supported hours; remove a copied status if unsupported and state any uncertainty in its own description. Do not infer either open or closed from a missing schedule.',
+      }))
+  })
+}
+
 function venueNotesCheck(payload: VenuePackagePayload): AuthoringFinding[] {
   if (payload.schemaVersion === 1) return []
   const notes = payload.venue?.aiBehavior?.aiGuideNotes
@@ -601,6 +700,7 @@ export function venuePackageAuthoringFindings(
         ...dateChecks(field, now),
         ...expiryCheck(field, now),
         ...lineChecks(record, field),
+        ...requirementScopeCheck(field),
       ]),
       ...(record.hours
         ? dateChecks({ path: `${record.path}.hours`, text: record.hours }, now)
@@ -610,6 +710,7 @@ export function venuePackageAuthoringFindings(
     ...repeatedText(records),
     ...nearDuplicateTopics(records),
     ...overviewChecks(records),
+    ...copiedStatusScopeCheck(records),
     ...venueNotesCheck(payload),
   ]
   // The sentence and whole-record date checks can both find one stale field; report it once.

@@ -173,6 +173,19 @@ separate excessive disclaimers from useful instructions in the evaluated corpus.
 
 ## Unknown, conflicting, seasonal and incomplete information
 
+Two additional authoring advisories help keep qualifiers on the right subject:
+
+- `AMBIGUOUS_REQUIREMENT_SCOPE` flags a date or condition naming several requirement
+  types when a different requirement follows. Put each qualifier on its own rule.
+  A year explicitly attached to a height restriction must stay with that restriction.
+- `COPIED_STATUS_SCOPE` flags identical broad closure hours on three or more places,
+  including a food/shop place, when a topic scopes closure to rides or the waterpark.
+  Verify each outlet's status; missing hours establish neither open nor closed.
+
+These are nonblocking, conservative text checks, not source verification. They can miss
+paraphrases or places whose names/types do not identify food or retail. A separate explicit
+whole-venue closure suppresses the copied-status advice; check its date and scope manually.
+
 - **Unknown.** Leave the fact out. Never fill a required field or a labeled line with a guess or a
   placeholder (`Price: TBD`). If visitors need to know something is unconfirmed, say it once in
   visitor terms: "Ask at the grill counter about nut cross-contact before ordering."
