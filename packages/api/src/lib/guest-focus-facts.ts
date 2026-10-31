@@ -15,7 +15,7 @@
 import { guestPlaceIdentityKey } from './guest-place-identity'
 import { guestStatedDates } from './guest-knowledge-retrieval'
 
-export const GUEST_FOCUS_FACTS_VERSION = 'guest-focus-facts-v5'
+export const GUEST_FOCUS_FACTS_VERSION = 'guest-focus-facts-v6'
 
 export type GuestFocusFactsMode = 'off' | 'on' | 'luna'
 
@@ -308,14 +308,15 @@ export const GUEST_FOCUS_NAME_CONTEXT_RULE =
   'NAME CONTEXT: A highlighted place name may also occur in another supplied record as an offer or product. Resolve which use the visitor asks about from their current and immediately preceding question. A place-name focus block is not exhaustive evidence about every use of that name. Use the matching product record for its own prices and conditions; do not substitute ride requirements or infer that a product is absent.'
 
 /** A same-name product mention matters only for an explicit product/group question. */
-function hasProductNameContext(
+function productNameContextBlocks(
   input: {
     question: string
     previousQuestion?: string | null
     retrieved?: ReadonlyArray<GuestFocusKnowledge>
+    escape: (value: string) => string
   },
   focused: FocusSubject[],
-): boolean {
+): string[] {
   const productIntent =
     /\b(?:groups?|outings?|plans?|offers?|products?|packages?|wristbands?|passes?|tickets?|prices?|cost)\b/iu
   const currentIntent = productIntent.test(input.question)
@@ -325,7 +326,7 @@ function hasProductNameContext(
     /\b(?:that|same|this)\s+(?:plan|offer|product|package|pass|ticket|option)\b/iu.test(
       input.question,
     )
-  if (!currentIntent && !priorIntent) return false
+  if (!currentIntent && !priorIntent) return []
   const productNouns = [
     'plan',
     'plans',
@@ -343,15 +344,14 @@ function hasProductNameContext(
     'tickets',
     'admission',
   ]
-  return focused.some((subject) =>
-    (input.retrieved ?? []).some(
-      (entry) =>
+  const matching = (input.retrieved ?? []).filter((entry) =>
+    focused.some(
+      (subject) =>
         guestPlaceIdentityKey(entry.title) !== subject.key &&
         !subject.records.includes(entry.content) &&
         entry.content.split(/[\n;.!?]/u).some((clause) => {
           const normalized = guestPlaceIdentityKey(clause)
-          // A pass covering a named event is not a same-name product. Require the name
-          // itself next to a product noun, as in "Little Comet wristbands".
+          // Coverage of an event does not make that event a same-name admission product.
           return productNouns.some(
             (noun) =>
               phraseAt(normalized, `${subject.key} ${noun}`) ||
@@ -360,6 +360,18 @@ function hasProductNameContext(
         }),
     ),
   )
+  const unique = new Map<string, GuestFocusKnowledge>()
+  for (const entry of matching) {
+    const key = entry.id ?? `${entry.title}\n${entry.content}`
+    if (!unique.has(key)) unique.set(key, entry)
+  }
+  if (unique.size > 3) return []
+  const blocks = [...unique.values()].map(
+    (entry) =>
+      `<contextual_name_record>\n${input.escape(`${entry.title}\n${entry.content}`)}\n</contextual_name_record>`,
+  )
+  // Never cut away a minimum, exception or booking condition to make a product fit.
+  return blocks.join('\n').length <= 6_000 ? blocks : []
 }
 
 /** Only self-contained, fully dated lines are highlighted; source records stay unchanged. */
@@ -481,6 +493,7 @@ export function buildGuestFocusFacts(input: {
   }
   const boundaries = [...boundaryLines].slice(0, 8)
   const schedules = datedScheduleBlocks(input)
+  const nameContexts = productNameContextBlocks(input, focused)
   if (!blocks.length && !boundaries.length && !schedules.length) return null
   const boundaryBlock = boundaries.length
     ? [
@@ -494,9 +507,9 @@ export function buildGuestFocusFacts(input: {
         : []),
       ...(boundaries.length ? [GUEST_FOCUS_BOUNDARY_RULE] : []),
       ...(schedules.length ? [GUEST_FOCUS_SCHEDULE_RULE] : []),
-      ...(hasProductNameContext(input, focused) ? [GUEST_FOCUS_NAME_CONTEXT_RULE] : []),
+      ...(nameContexts.length ? [GUEST_FOCUS_NAME_CONTEXT_RULE] : []),
     ].join('\n\n'),
-    data: [...blocks, ...boundaryBlock, ...schedules].join('\n'),
+    data: [...blocks, ...boundaryBlock, ...schedules, ...nameContexts].join('\n'),
     subjects: focused.map((subject) => subject.name),
     fromPreviousQuestion,
     fromRetrieval,
