@@ -64,13 +64,17 @@ describe('guest chat prompt provenance', () => {
     expect(prompt).toContain('Names or summaries do not prove omitted facts')
   })
 
-  it('requires disambiguation when a date follow-up has multiple possible anchors', () => {
+  it('requires one clarification before date-dependent facts when earlier dates remain alternatives', () => {
     const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
-    expect(prompt).toContain('If a date reference has multiple possible anchors')
     expect(prompt).toContain(
-      'answer both readings briefly when supported, or ask one short clarifying question',
+      'If the visitor previously named two or more possible dates, a follow-up such as "the next day" is ambiguous unless they chose one.',
     )
-    expect(prompt).toContain('Never silently pick a date')
+    expect(prompt).toContain(
+      "Do not use the last-mentioned date or the assistant's last sentence to choose for them.",
+    )
+    expect(prompt).toContain(
+      'Ask one short question clarifying which original date they mean before giving date-dependent hours, prices or availability.',
+    )
   })
 
   it.each(['English', 'Spanish', 'Chinese', 'Arabic', null])(
@@ -94,7 +98,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v36')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v37')
   })
 
   it('matches the broad production prompt contract manifest', () => {
