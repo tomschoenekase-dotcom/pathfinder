@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 
 import {
+  evaluateProductionAudit,
   isTransientRegistryFailure,
   runProductionDependencyAudit,
 } from './lib/production-dependency-audit.mjs'
@@ -61,10 +62,21 @@ if (!pnpmEntry || !/pnpm(?:\.c?js)?$/iu.test(pnpmEntry)) {
 
   process.stdout.write(result.stdout)
   process.stderr.write(result.stderr)
-  if (result.code !== 0) {
+  const verdict = evaluateProductionAudit(result)
+  for (const advisory of verdict.advisories) {
+    process.stderr.write(
+      `${advisory.severity} ${advisory.module} ${advisory.id ?? ''}: ${advisory.title ?? ''}\n`,
+    )
+  }
+  if (!verdict.ok) {
     if (isTransientRegistryFailure(result)) {
       process.stderr.write(`Dependency audit exhausted ${result.attempts} transient attempts.\n`)
     }
-    process.exitCode = result.code
+    process.stderr.write(`Production dependency audit failed: ${verdict.reason}.\n`)
+    process.exitCode = 1
+  } else if (verdict.reason === 'below-threshold-advisories') {
+    process.stderr.write(
+      'Advisories above are below the high-severity gate; review them separately.\n',
+    )
   }
 }

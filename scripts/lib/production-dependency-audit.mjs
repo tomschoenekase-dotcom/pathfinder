@@ -36,3 +36,64 @@ export async function runProductionDependencyAudit({
 
   throw new Error('unreachable-audit-state')
 }
+
+const BLOCKING_SEVERITIES = new Set(['high', 'critical'])
+const KNOWN_SEVERITIES = new Set(['info', 'low', 'moderate', 'high', 'critical'])
+
+/**
+ * pnpm 9 `audit --json` exits 1 when any advisory exists and ignores `--audit-level`, so the exit
+ * code alone cannot enforce the high-severity threshold. Decide from the report itself. Anything
+ * that is not a complete, self-consistent report fails closed.
+ */
+export function evaluateProductionAudit(result) {
+  let report
+  try {
+    report = JSON.parse(result?.stdout ?? '')
+  } catch {
+    return { ok: false, reason: 'unparseable-audit-report', advisories: [] }
+  }
+  const counts = report?.metadata?.vulnerabilities
+  const advisoryMap = report?.advisories
+  if (
+    !report ||
+    typeof report !== 'object' ||
+    'error' in report ||
+    !counts ||
+    typeof counts !== 'object' ||
+    !advisoryMap ||
+    typeof advisoryMap !== 'object' ||
+    Array.isArray(advisoryMap)
+  ) {
+    return { ok: false, reason: 'incomplete-audit-report', advisories: [] }
+  }
+  for (const severity of KNOWN_SEVERITIES) {
+    if (!Number.isInteger(counts[severity] ?? 0) || (counts[severity] ?? 0) < 0) {
+      return { ok: false, reason: 'invalid-severity-count', advisories: [] }
+    }
+  }
+  const advisories = Object.values(advisoryMap).map((advisory) => ({
+    id: advisory?.github_advisory_id ?? null,
+    module: advisory?.module_name ?? null,
+    severity: advisory?.severity ?? null,
+    title: advisory?.title ?? null,
+  }))
+  if (advisories.some(({ severity }) => !KNOWN_SEVERITIES.has(severity))) {
+    return { ok: false, reason: 'unknown-advisory-severity', advisories }
+  }
+  const total = [...KNOWN_SEVERITIES].reduce((sum, severity) => sum + (counts[severity] ?? 0), 0)
+  if (Object.keys(counts).some((severity) => !KNOWN_SEVERITIES.has(severity))) {
+    return { ok: false, reason: 'unknown-severity-count', advisories }
+  }
+  // A nonzero exit must be explained by advisories in the report; otherwise pnpm failed.
+  if (result.code !== 0 && total === 0) {
+    return { ok: false, reason: 'audit-command-failed', advisories }
+  }
+  if (advisories.length === 0 && total > 0) {
+    return { ok: false, reason: 'advisory-count-mismatch', advisories }
+  }
+  const blocking =
+    [...BLOCKING_SEVERITIES].some((severity) => (counts[severity] ?? 0) > 0) ||
+    advisories.some(({ severity }) => BLOCKING_SEVERITIES.has(severity))
+  if (blocking) return { ok: false, reason: 'blocking-advisories', advisories }
+  return { ok: true, reason: total ? 'below-threshold-advisories' : 'clean', advisories }
+}
