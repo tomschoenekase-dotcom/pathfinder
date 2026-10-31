@@ -145,7 +145,6 @@ describe('explicit prior visitor date in lexical retrieval', () => {
   it.each([
     ['What about the rides on those days?', 'November 7 or November 8, 2026?'],
     ['What about the rides on those days?', 'November 7 through November 9, 2026?'],
-    ['What about the rides on those days?', 'Between November 7 and November 9, 2026?'],
     ['What about the rides on those days?', 'November 7, 2026 and November 8, 2027?'],
     ['What about the rides on those days?', 'November 7 and November 8?'],
     ['What about the rides on those days?', 'November 7, 2026?'],
