@@ -15,7 +15,7 @@
 import { guestPlaceIdentityKey } from './guest-place-identity'
 import { guestStatedDates } from './guest-knowledge-retrieval'
 
-export const GUEST_FOCUS_FACTS_VERSION = 'guest-focus-facts-v4'
+export const GUEST_FOCUS_FACTS_VERSION = 'guest-focus-facts-v3'
 
 export type GuestFocusFactsMode = 'off' | 'on' | 'luna'
 
@@ -304,45 +304,6 @@ export const GUEST_FOCUS_BOUNDARY_RULE =
 export const GUEST_FOCUS_SCHEDULE_RULE =
   "DATE SCHEDULE: The dated_schedule blocks repeat complete schedule lines for the visitor's explicit date, with their record's qualifiers and closures. Keep each activity, date and time together; never borrow times from another date. These are posted schedules, not live status. Qualifiers and closures still apply; use the complete records for anything else. These highlighted lines are not an exhaustive schedule. For a broad question about what is scheduled on a date, also include other events whose own full records explicitly cover that date, including matching weekday rules within dated periods. Keep each event's own time and conditions; do not infer that anything else runs."
 
-export const GUEST_FOCUS_NAME_CONTEXT_RULE =
-  'NAME CONTEXT: A highlighted place name may also occur in another supplied record as an offer or product. Resolve which use the visitor asks about from their current and immediately preceding question. A place-name focus block is not exhaustive evidence about every use of that name. Use the matching product record for its own prices and conditions; do not substitute ride requirements or infer that a product is absent.'
-
-/** A same-name product mention matters only for an explicit product/group question. */
-function hasProductNameContext(
-  input: {
-    question: string
-    previousQuestion?: string | null
-    retrieved?: ReadonlyArray<GuestFocusKnowledge>
-  },
-  focused: FocusSubject[],
-): boolean {
-  const productIntent =
-    /\b(?:groups?|outings?|plans?|offers?|products?|packages?|wristbands?|passes?|tickets?|prices?|cost)\b/iu
-  const currentIntent = productIntent.test(input.question)
-  const priorIntent =
-    input.previousQuestion &&
-    productIntent.test(input.previousQuestion) &&
-    /\b(?:that|same|this)\s+(?:plan|offer|product|package|pass|ticket|option)\b/iu.test(
-      input.question,
-    )
-  if (!currentIntent && !priorIntent) return false
-  const productClause =
-    /\b(?:plans?|offers?|products?|packages?|wristbands?|passes?|tickets?|price|cost)\b/iu
-  return focused.some((subject) =>
-    (input.retrieved ?? []).some(
-      (entry) =>
-        guestPlaceIdentityKey(entry.title) !== subject.key &&
-        !subject.records.includes(entry.content) &&
-        entry.content
-          .split(/[\n;.!?]/u)
-          .some(
-            (clause) =>
-              productClause.test(clause) && namesPhrase(guestPlaceIdentityKey(clause), subject.key),
-          ),
-    ),
-  )
-}
-
 /** Only self-contained, fully dated lines are highlighted; source records stay unchanged. */
 function datedScheduleBlocks(input: {
   question: string
@@ -475,7 +436,6 @@ export function buildGuestFocusFacts(input: {
         : []),
       ...(boundaries.length ? [GUEST_FOCUS_BOUNDARY_RULE] : []),
       ...(schedules.length ? [GUEST_FOCUS_SCHEDULE_RULE] : []),
-      ...(hasProductNameContext(input, focused) ? [GUEST_FOCUS_NAME_CONTEXT_RULE] : []),
     ].join('\n\n'),
     data: [...blocks, ...boundaryBlock, ...schedules].join('\n'),
     subjects: focused.map((subject) => subject.name),

@@ -394,9 +394,7 @@ describe('explicit date schedule focus', () => {
     expect(result.rule).toContain(
       'also include other events whose own full records explicitly cover that date, including matching weekday rules within dated periods.',
     )
-    expect(result.rule).toContain(
-      "Keep each event's own time and conditions; do not infer that anything else runs.",
-    )
+    expect(result.rule).toContain("Keep each event's own time and conditions; do not infer that anything else runs.")
   })
   it.each([
     'What is scheduled on November 21?',
@@ -440,84 +438,5 @@ describe('explicit date schedule focus', () => {
         Array.from({ length: 5 }, (_, i) => ({ ...schedule, title: `Hours ${i}` })),
       ),
     ).toBeNull()
-  })
-})
-
-describe('conditional same-name product context', () => {
-  const ride = {
-    id: 'ride-comet',
-    title: 'Little Comet',
-    content: 'Little Comet is a family coaster. Height: 36 inches to ride alone.',
-  }
-  const product = {
-    id: 'group-prices',
-    title: '2027 group outings',
-    content:
-      'Weekday group bookings are arranged with Group Sales.\nPrice: Little Comet wristbands: $29 weekdays; obtain a quote for weekends.\nMinimums and eligible dates require confirmation.',
-  }
-  const make = (
-    question: string,
-    previousQuestion: string | null = null,
-    retrieved = [ride, product],
-  ) =>
-    buildGuestFocusFacts({
-      question,
-      previousQuestion,
-      knowledge: [ride, product],
-      retrieved,
-      places: [],
-      escape: escapeUntrustedPromptData,
-    })!
-  it('adds the exact tested rule only for a supplied same-name product clause and product intent', () => {
-    const focus = make(
-      'Four dropped out. Could we use that plan, or is Little Comet a separate option?',
-      'For a weekday group outing, can 52 people use Captain Plan?',
-    )
-    expect(focus.rule).toContain(
-      'NAME CONTEXT: A highlighted place name may also occur in another supplied record as an offer or product.',
-    )
-    expect(focus.rule).toContain(
-      'Use the matching product record for its own prices and conditions; do not substitute ride requirements or infer that a product is absent.',
-    )
-    expect(focus.data).toContain(ride.content)
-    expect(focus.data).not.toContain('$29') // Full product stays in its original authorized record.
-    const prompt = buildVenueSystemPromptParts({
-      venue: { name: 'Moon Park', description: null, category: 'park' },
-      relevantPlaces: [],
-      userLat: null,
-      userLng: null,
-      focusFacts: focus,
-    })
-    expect(prompt.dynamicPart.indexOf('NAME CONTEXT:')).toBeLessThan(
-      prompt.dynamicPart.indexOf('<untrusted_venue_data>'),
-    )
-  })
-  it.each([
-    'How tall must my child be to ride Little Comet?',
-    'When did Little Comet first open?',
-    'Can my 40-inch child ride Little Comet?',
-  ])('does not alter ordinary ride questions: %s', (question) => {
-    const withProduct = make(question, 'We are planning a group outing.')
-    const withoutProduct = make(question, 'We are planning a group outing.', [ride])
-    expect(withProduct).toEqual(withoutProduct)
-    expect(withProduct.rule).not.toContain('NAME CONTEXT:')
-  })
-  it('requires the other matching product record to be currently retrieved', () => {
-    expect(make('What is the Little Comet group price?', null, [ride]).rule).not.toContain(
-      'NAME CONTEXT:',
-    )
-  })
-  it('does not treat an unrelated product or separated name mention as a collision', () => {
-    const unrelated = { ...product, content: 'Price: Moon Pass $29.\nLittle Comet is a coaster.' }
-    expect(
-      make('What is the Little Comet group price?', null, [ride, unrelated]).rule,
-    ).not.toContain('NAME CONTEXT:')
-  })
-  it('adds no fact and never transfers a product price into the ride focus block', () => {
-    const baseline = make('Little Comet group price?', null, [ride])
-    const contextual = make('Little Comet group price?')
-    expect(contextual.data).toBe(baseline.data)
-    expect(contextual.rule).not.toContain('$29')
-    expect(contextual.rule).not.toContain('36 inches')
   })
 })
