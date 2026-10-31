@@ -142,6 +142,21 @@ describe('one-step offsets from exactly one earlier visitor date', () => {
     expect(flat).not.toContain('october 17, 2026')
   })
 
+  it('keeps a next-day date when earlier compares opening hours', () => {
+    const query =
+      'Actually we pushed the trip back to the next day. Does the arcade open earlier then, and what about rides?'
+    expect(
+      guestOffsetDateConcept(query, 'We will visit November 13, 2026.', CLOCK)?.terms,
+    ).toContain('november 14, 2026')
+  })
+
+  it.each(['The next day but earlier than that?', 'The next day, or an earlier day?'])(
+    'rejects conflicting date direction: %s',
+    (query) => {
+      expect(guestOffsetDateConcept(query, previous, CLOCK)).toBeNull()
+    },
+  )
+
   it('crosses month and year ends', () => {
     expect(guestOffsetDateConcept('The next day?', 'Open December 31, 2026?', CLOCK)?.terms).toContain(
       'january 1, 2027',

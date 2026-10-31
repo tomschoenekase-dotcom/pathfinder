@@ -635,7 +635,14 @@ export function guestOffsetDateConcept(
   if (offsets.length !== 1) return null
   const rest = query.replace(offsets[0]![0], ' ')
   if (statedDateMentions(rest, clock).length || UNRESOLVED_DATE_FORM.test(rest)) return null
-  if (/\b(?:week|weeks|month|months|year|years|before|previous|earlier)\b/iu.test(rest)) return null
+  // An opening/closing-time comparison does not reverse the visit date. Other uses of
+  // "earlier" still make the offset unclear ("the next day, but earlier than that").
+  const dateDirection = rest.replace(
+    /\b(?:open|opens|opening|close|closes|closing)\s+earlier\b/giu,
+    ' ',
+  )
+  if (/\b(?:week|weeks|month|months|year|years|before|previous|earlier)\b/iu.test(dateDirection))
+    return null
   if (PRIOR_DATE_CORRECTION.test(previousQuery)) return null
   const prior = guestStatedDates(previousQuery, clock)
   if (!prior || prior.kind !== 'single') return null
