@@ -120,6 +120,43 @@ describe('explicit prior visitor date in lexical retrieval', () => {
       expect(flat).not.toContain('november')
     },
   )
+  it('carries both listed dates for "the latter of those days" and keeps the late second subject', () => {
+    const { concepts } = guestRetrievalConcepts(
+      'Now Moon Bowling on the latter of those days: does it open at the same time as the arcade?',
+      'For Ember Arcade, compare the opening times on November 9 and November 12, 2026.',
+    )
+    const flat = concepts.flat()
+    expect(flat).toEqual(expect.arrayContaining(['november 9, 2026', 'november 12, 2026']))
+    expect(flat).toEqual(expect.arrayContaining(['bowling', 'arcade', 'hours']))
+    expect(flat).not.toContain('now')
+    expect(flat).not.toContain('latter')
+  })
+  it.each([
+    [
+      'What about the rides on those days?',
+      'Is Ember Arcade open Saturday, November 7 and Sunday, November 8, 2026?',
+    ],
+    ['Are shows on both days?', 'We come November 7, 2026 and November 8, 2026.'],
+    ['Which is cheaper on either of those days?', 'Tickets for 2026-11-07 and 2026-11-08?'],
+  ])('carries an "and" list of dates for %s', (query, previous) => {
+    const terms = guestPriorDateConcept(query, previous)
+    expect(terms).toEqual(expect.arrayContaining(['november 7, 2026', 'november 8, 2026']))
+  })
+  it.each([
+    ['What about the rides on those days?', 'November 7 or November 8, 2026?'],
+    ['What about the rides on those days?', 'November 7 through November 9, 2026?'],
+    ['What about the rides on those days?', 'Between November 7 and November 9, 2026?'],
+    ['What about the rides on those days?', 'November 7, 2026 and November 8, 2027?'],
+    ['What about the rides on those days?', 'November 7 and November 8?'],
+    ['What about the rides on those days?', 'November 7, 2026?'],
+    ['What about the rides on those days?', 'November 7, 8, 9 and 10, 2026?'],
+    ['What about the rides on those days?', 'Not November 7 and November 8, 2026.'],
+    ['What about the rides the week after those days?', 'November 7 and November 8, 2026?'],
+    ['What about rides on that day?', 'November 7 and November 8, 2026?'],
+    ['Does the latter ride need tickets?', 'Rides on November 7 and November 8, 2026?'],
+  ])('does not carry an unclear or unreferenced date list: %s / %s', (query, previous) => {
+    expect(guestPriorDateConcept(query, previous)).toBeNull()
+  })
   it('validates leap day and normalizes ISO dates without guessing a year', () => {
     expect(guestPriorDateConcept('Rides that day?', '2028-02-29?')).toContain('february 29, 2028')
     expect(guestPriorDateConcept('Rides that day?', 'February 29?')).toBeNull()

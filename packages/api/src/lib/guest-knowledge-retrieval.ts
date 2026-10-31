@@ -352,14 +352,97 @@ const EXPLICIT_DATE = new RegExp(
   'iu',
 )
 
-/** One explicit date in the immediately preceding visitor query, for lexical retrieval only.
- * No assistant text or older conversation search is accepted. Ambiguity fails closed.
+// "those days" or "the latter of those days" points back at every date the visitor just listed.
+const REFERRED_DATES =
+  /\b(?:the (?:latter|former|first|second) of (?:those|these|the two|both) (?:dates|days|nights)|the (?:latter|former) (?:date|day|night)|(?:those|these|both|either of those) (?:dates|days|nights))\b/iu
+// Filler that would otherwise use up the lexical concept budget in a dated follow-up.
+const DATED_FOLLOWUP_FILLER =
+  /\b(?:now|same|time|times|okay|ok|yes|yeah|actually|again|well|then|too|also|still|though|day|days|date|dates|night|nights)\b/giu
+const MONTHS = [
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
+]
+
+function dateTerms(year: number, month: number, day: number): string[] | null {
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  )
+    return null
+  const name = MONTHS[month - 1]!
+  return [
+    `${name} ${day}, ${year}`,
+    `${name} ${day} ${year}`,
+    `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+  ]
+}
+
+/** Two or three dates joined by "and" that share one stated year, for "those days" only. */
+function listedPriorDates(previousQuery: string): string[] | null {
+  const pattern = new RegExp(
+    `\\b(${DATE_MONTH})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(20\\d{2}))?\\b|\\b(20\\d{2})-(\\d{2})-(\\d{2})\\b`,
+    'giu',
+  )
+  const matches = [...previousQuery.matchAll(pattern)]
+  if (matches.length < 2 || matches.length > 3) return null
+  const years = new Set(matches.map((m) => m[3] ?? m[4]).filter(Boolean))
+  if (years.size !== 1) return null
+  const year = Number([...years][0])
+  // Only plain "and" lists: alternatives and ranges must never become a set of dates.
+  for (let index = 1; index < matches.length; index++) {
+    const previous = matches[index - 1]!
+    const between = previousQuery.slice(previous.index! + previous[0].length, matches[index]!.index)
+    if (
+      !/^\s*(?:,\s*)?(?:and|&)?\s*(?:(?:on|for)\s+)?(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+)?$/iu.test(
+        between,
+      )
+    )
+      return null
+  }
+  const remaining = matches
+    .reduce((text, m) => text.replace(m[0], ' '), previousQuery)
+    .replace(/\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/giu, '')
+  if (
+    EXPLICIT_DATE.test(remaining) ||
+    new RegExp(
+      `\\b${DATE_MONTH}\\b|\\b\\d{1,2}/\\d{1,2}|\\b(?:or|through|until|between)\\b|\\bto\\s+\\d|[-–—]\\s*\\d`,
+      'iu',
+    ).test(remaining)
+  )
+    return null
+  const terms: string[] = []
+  for (const m of matches) {
+    const month = m[1] ? MONTHS.indexOf(m[1].toLowerCase()) + 1 : Number(m[5])
+    const next = dateTerms(year, month, Number(m[2] ?? m[6]))
+    if (!next) return null
+    terms.push(...next)
+  }
+  return [...new Set(terms)]
+}
+
+/** Explicit dates in the immediately preceding visitor query, for lexical retrieval only:
+ * one date for "that day", or a short "and" list for "those days". No assistant text or older
+ * conversation search is accepted. Ambiguity fails closed.
  */
 export function guestPriorDateConcept(
   query: string,
   previousQuery?: string | null,
 ): string[] | null {
-  if (!previousQuery || !REFERRED_DATE.test(query) || EXPLICIT_DATE.test(query)) return null
+  if (!previousQuery || EXPLICIT_DATE.test(query)) return null
+  const plural = REFERRED_DATES.test(query)
+  if (!plural && !REFERRED_DATE.test(query)) return null
   // An offset or rejection changes the referent; never reuse its exact calendar date.
   if (
     /\b(?:not|never|instead|different|another|after|before|following|next|previous|later|earlier|week|month|year)\b|n['’]t\b/iu.test(
@@ -373,6 +456,7 @@ export function guestPriorDateConcept(
     )
   )
     return null
+  if (plural) return listedPriorDates(previousQuery)
   const pattern = new RegExp(
     `\\b(${DATE_MONTH})\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(20\\d{2})\\b|\\b(20\\d{2})-(\\d{2})-(\\d{2})\\b`,
     'giu',
@@ -380,30 +464,9 @@ export function guestPriorDateConcept(
   const dates = [...previousQuery.matchAll(pattern)]
   if (dates.length !== 1) return null
   const match = dates[0]!
-  const months = [
-    'january',
-    'february',
-    'march',
-    'april',
-    'may',
-    'june',
-    'july',
-    'august',
-    'september',
-    'october',
-    'november',
-    'december',
-  ]
-  const month = match[1] ? months.indexOf(match[1].toLowerCase()) + 1 : Number(match[5])
-  const day = Number(match[2] ?? match[6])
-  const year = Number(match[3] ?? match[4])
-  const date = new Date(Date.UTC(year, month - 1, day))
-  if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  )
-    return null
+  const month = match[1] ? MONTHS.indexOf(match[1].toLowerCase()) + 1 : Number(match[5])
+  const terms = dateTerms(Number(match[3] ?? match[4]), month, Number(match[2] ?? match[6]))
+  if (!terms) return null
   const remaining = previousQuery
     .replace(match[0], '')
     .replace(/\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/giu, '')
@@ -416,12 +479,7 @@ export function guestPriorDateConcept(
     ).test(remaining)
   )
     return null
-  const name = months[month - 1]!
-  return [
-    `${name} ${day}, ${year}`,
-    `${name} ${day} ${year}`,
-    `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-  ]
+  return terms
 }
 
 /**
@@ -433,7 +491,14 @@ export function guestRetrievalConcepts(
   previousQuery?: string | null,
 ): { ownConcepts: string[][]; concepts: string[][]; broad: boolean } {
   const priorDate = guestPriorDateConcept(query, previousQuery)
-  const ownConcepts = guestQueryConcepts(priorDate ? query.replace(REFERRED_DATE, ' ') : query)
+  const ownConcepts = guestQueryConcepts(
+    priorDate
+      ? query
+          .replace(REFERRED_DATES, ' ')
+          .replace(REFERRED_DATE, ' ')
+          .replace(DATED_FOLLOWUP_FILLER, ' ')
+      : query,
+  )
   // With an exact prior date, a newly named subject replaces the old one ("what about rides
   // that day?"); a follow-up that names none ("is it open that day?") keeps the old subject.
   // Without one, the ordinary follow-up rule applies unchanged.
