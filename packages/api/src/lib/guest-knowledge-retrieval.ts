@@ -1098,10 +1098,14 @@ export async function retrieveGuestKnowledge(params: {
     FULL_DATE_IN_RECORD.test(normalize(`${row.title} ${row.content}`)) &&
     !conceptFieldMatches(row as GuestKnowledgeRow, dateConcept).content &&
     !conceptFieldMatches(row as GuestKnowledgeRow, dateConcept).title
-  const scoredLexical = lexicalPool.map((row) => ({
-    row,
-    score: lexicalScore(row, concepts, weights) * (offDate(row) ? 0.5 : 1),
-  }))
+  // A record naming the visitor's exact date counts like a category match for that concept.
+  const dateIndex = dateConcept ? concepts.indexOf(dateConcept) : -1
+  const dateBonus = (row: GuestKnowledgeRow) =>
+    dateIndex >= 0 && conceptFieldMatches(row, dateConcept!).content ? 3 * (weights[dateIndex] ?? 1) : 0
+  const scoredLexical = lexicalPool.map((row) => {
+    const base = lexicalScore(row, concepts, weights)
+    return { row, score: base === 0 ? 0 : (base + dateBonus(row)) * (offDate(row) ? 0.5 : 1) }
+  })
   const policyExcludedIds = [
     ...authorityExcludedIds,
     // A changed semantic snapshot keeps no vector authority; it must earn a current text match.
