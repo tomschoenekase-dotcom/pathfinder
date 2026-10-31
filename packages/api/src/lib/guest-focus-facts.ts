@@ -13,9 +13,8 @@
 // and it adds no model call.
 
 import { guestPlaceIdentityKey } from './guest-place-identity'
-import { guestStatedDates } from './guest-knowledge-retrieval'
 
-export const GUEST_FOCUS_FACTS_VERSION = 'guest-focus-facts-v3'
+export const GUEST_FOCUS_FACTS_VERSION = 'guest-focus-facts-v1'
 
 export type GuestFocusFactsMode = 'off' | 'on' | 'luna'
 
@@ -301,54 +300,6 @@ export const GUEST_FOCUS_RETRIEVED_RULE =
 export const GUEST_FOCUS_BOUNDARY_RULE =
   'DATE BOUNDARIES: The computed_date_boundaries lines below restate closure and last-open dates that records state. Each applies only to what its quoted sentence names, never to the rest of that record. Use them instead of re-deriving those boundaries; never describe a closure date as an open day.'
 
-export const GUEST_FOCUS_SCHEDULE_RULE =
-  "DATE SCHEDULE: The dated_schedule blocks repeat complete schedule lines for the visitor's explicit date, with their record's qualifiers and closures. Keep each activity, date and time together; never borrow times from another date. These are posted schedules, not live status. Qualifiers and closures still apply; use the complete records for anything else. These highlighted lines are not an exhaustive schedule. For a broad question about what is scheduled on a date, also include other events whose own full records explicitly cover that date, including matching weekday rules within dated periods. Keep each event's own time and conditions; do not infer that anything else runs."
-
-/** Only self-contained, fully dated lines are highlighted; source records stay unchanged. */
-function datedScheduleBlocks(input: {
-  question: string
-  retrieved?: ReadonlyArray<GuestFocusKnowledge>
-  escape: (value: string) => string
-}): string[] {
-  // Without a clock, partial dates cannot acquire a guessed year. History is not an anchor.
-  const stated = guestStatedDates(input.question)
-  if (!stated || stated.kind !== 'single') return []
-  const target = stated.dates[0]!
-  const blocks: string[] = []
-  let matchingCount = 0
-  let used = 0
-  for (const entry of input.retrieved ?? []) {
-    const lines = entry.content.split(/\r?\n/u)
-    const matching = lines.filter((line) => {
-      if (!/^(?:Hours|Closed):/u.test(line)) return false
-      // Clock ranges are not calendar ranges. Remove only explicit am/pm clock tokens for
-      // date parsing; the highlighted source line itself is never changed.
-      const dates = guestStatedDates(
-        line.replace(/\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)(?!\w)/giu, ' '),
-      )
-      return (
-        dates?.kind === 'single' &&
-        dates.dates.some(
-          (date) =>
-            date.year === target.year && date.month === target.month && date.day === target.day,
-        )
-      )
-    })
-    if (!matching.length) continue
-    // Never detach a highlighted row from exceptions, local-time scope or closures. Keep all
-    // non-hours text, including unrecognised closure ranges, verbatim and in source order.
-    const context = lines.filter((line) => line.trim() && !/^Hours:/u.test(line))
-    const text = [...new Set([...matching, ...context])].join('\n')
-    const block = `<dated_schedule>\n${input.escape(`Record: ${entry.title}\n${text}`)}\n</dated_schedule>`
-    matchingCount += matching.length
-    used += block.length
-    // Omit the whole cue on overflow; no partial date/activity selection or cut qualifiers.
-    if (blocks.length >= 4 || matchingCount > 16 || block.length > 3_000 || used > 6_000) return []
-    blocks.push(block)
-  }
-  return blocks
-}
-
 /**
  * Builds the focus block, or null when the visitor named no specific place or topic in this
  * message (or, for a follow-up that names none, in their previous message) and no retrieved
@@ -422,8 +373,7 @@ export function buildGuestFocusFacts(input: {
     if (notes.length) boundaryLines.add(`In the "${entry.title}" record: ${notes.join(' ')}`)
   }
   const boundaries = [...boundaryLines].slice(0, 8)
-  const schedules = datedScheduleBlocks(input)
-  if (!blocks.length && !boundaries.length && !schedules.length) return null
+  if (!blocks.length && !boundaries.length) return null
   const boundaryBlock = boundaries.length
     ? [
         `<computed_date_boundaries>\n${input.escape(boundaries.join('\n'))}\n</computed_date_boundaries>`,
@@ -435,9 +385,8 @@ export function buildGuestFocusFacts(input: {
         ? [fromRetrieval ? GUEST_FOCUS_RETRIEVED_RULE : GUEST_FOCUS_FACTS_RULE]
         : []),
       ...(boundaries.length ? [GUEST_FOCUS_BOUNDARY_RULE] : []),
-      ...(schedules.length ? [GUEST_FOCUS_SCHEDULE_RULE] : []),
     ].join('\n\n'),
-    data: [...blocks, ...boundaryBlock, ...schedules].join('\n'),
+    data: [...blocks, ...boundaryBlock].join('\n'),
     subjects: focused.map((subject) => subject.name),
     fromPreviousQuestion,
     fromRetrieval,
