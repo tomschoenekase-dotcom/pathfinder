@@ -330,7 +330,7 @@ export function guestQueryConcepts(query: string): string[][] {
 
 // "that day pass" or "same day tickets" names a product, not an earlier date.
 const REFERRED_DATE =
-  /\b(?:that|same) (?:date|day|night|evening)\b(?![ -]?(?:pass|passes|ticket|tickets|admission|rate|rates|price|prices|pricing|parking|entry|trip|trips|camp|use|only)\b)/iu
+  /\b(?:that|same) (?:date|day|night)\b(?![ -]?(?:pass|passes|ticket|tickets|admission|rate|rates|price|prices|pricing|parking|entry|trip|trips|camp|use|only)\b)/iu
 // Words that say when or whether, not what. A follow-up made only of these keeps its subject.
 const GENERIC_FOLLOWUP_TOKENS = new Set([
   'date',
@@ -366,7 +366,7 @@ const REFERRED_DATES =
   /\b(?:the (?:latter|former|first|second) of (?:those|these|the two|both) (?:dates|days|nights)|the (?:latter|former) (?:date|day|night)|(?:those|these|both|either of those) (?:dates|days|nights))\b/iu
 // Filler that would otherwise use up the lexical concept budget in a dated follow-up.
 const DATED_FOLLOWUP_FILLER =
-  /\b(?:now|same|time|times|okay|ok|yes|yeah|actually|again|well|then|too|also|still|though|day|days|date|dates|night|nights|evening|evenings)\b/giu
+  /\b(?:now|same|time|times|okay|ok|yes|yeah|actually|again|well|then|too|also|still|though|day|days|date|dates|night|nights)\b/giu
 const MONTHS = [
   'january',
   'february',
@@ -670,13 +670,6 @@ export function guestOffsetDateConcept(
 const PRIOR_DATE_CORRECTION =
   /\b(?:not|never|instead|actually|correction|corrected|changed|cancelled|canceled|forget|ignore|previously|last|ago|was|were)\b|\bno longer\b|n['’]t\b/iu
 
-/** Remove only explicit operating-time comparisons before checking calendar direction. */
-function withoutHoursComparisons(query: string): string {
-  return query
-    .replace(/\b(open|opens|close|closes|shut|shuts)\s+(?:before|after)\s+(?=(?:those|these|the)\s+(?:rides|attractions|arcades|arcade|bowling|show)\b)/giu, '$1 ')
-    .replace(/\b(open|opens|close|closes|shut|shuts)\s+(?:any\s+)?(?:earlier|later)\s+than\s+(?!(?:(?:that|same|the|next|previous)\s+)?(?:date|day|night|evening|week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)/giu, '$1 than ')
-}
-
 /** Explicit dates in the immediately preceding visitor query, for lexical retrieval only:
  * one date for "that day", or a short "and" list or bounded "between" interval for "those
  * days". No assistant text or older conversation search is accepted. Ambiguity fails closed.
@@ -692,7 +685,7 @@ export function guestPriorDateConcept(
   // An offset or rejection changes the referent; never reuse its exact calendar date.
   if (
     /\b(?:not|never|instead|different|another|after|before|following|next|previous|later|earlier|week|month|year)\b|n['’]t\b/iu.test(
-      withoutHoursComparisons(query),
+      query,
     )
   )
     return null

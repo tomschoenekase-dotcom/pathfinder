@@ -233,26 +233,3 @@ describe('bounded longer referent continuations', () => {
     expect(result.concepts.flat()).not.toContain('twilight')
   })
 })
-
-
-describe('evening references with operating-time comparisons', () => {
-  const prior = 'For October 24, 2026, when do the Harbor rides close?'
-  it.each([
-    'Does Harbor Bowl shut before those rides that evening, or can we bowl afterward?',
-    'Does Moon Arcade stay open any later than Harbor Bowl that evening?',
-    'Does Moon Arcade close earlier than Harbor Bowl that same evening?',
-  ])('preserves the visitor date for %s', (query) => {
-    expect(guestPriorDateConcept(query, prior)).toContain('october 24, 2026')
-    expect(guestRetrievalConcepts(query, prior).concepts.flat()).toContain('october 24, 2026')
-  })
-  it.each([
-    'Can we go later that evening?',
-    'Is it open after that evening?',
-    'Does it open later than that day, on that evening?',
-    'Does it shut before those rides on the next day, not that evening?',
-    'What about rides that evening next month?',
-    'Does that evening pass include bowling?',
-  ])('does not turn conflicting dates or products into references: %s', (query) => {
-    expect(guestPriorDateConcept(query, prior)).toBeNull()
-  })
-})
