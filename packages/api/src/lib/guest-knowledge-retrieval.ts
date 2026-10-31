@@ -361,9 +361,12 @@ const EXPLICIT_DATE = new RegExp(
   'iu',
 )
 
-// "those days" or "the latter of those days" points back at every date the visitor just listed.
+// "Those days" refers to the prior list; former/latter selectors resolve one date separately.
 const REFERRED_DATES =
   /\b(?:the (?:latter|former|first|second) of (?:those|these|the two|both) (?:dates|days|nights)|the (?:latter|former) (?:date|day|night)|(?:those|these|both|either of those) (?:dates|days|nights))\b/iu
+const SELECTED_PRIOR_DATE =
+  /\bthe (former|latter) of (?:those|these|the two|both) (?:dates|days|nights)\b/iu
+
 // Filler that would otherwise use up the lexical concept budget in a dated follow-up.
 const DATED_FOLLOWUP_FILLER =
   /\b(?:now|same|time|times|okay|ok|yes|yeah|actually|again|well|then|too|also|still|though|day|days|date|dates|night|nights|evening|evenings)\b/giu
@@ -670,6 +673,32 @@ export function guestOffsetDateConcept(
 const PRIOR_DATE_CORRECTION =
   /\b(?:not|never|instead|actually|correction|corrected|changed|cancelled|canceled|forget|ignore|previously|last|ago|was|were)\b|\bno longer\b|n['’]t\b/iu
 
+/** An ordinal chooses one of exactly two visitor-stated alternatives, never an interval. */
+function selectedPriorDate(query: string, previousQuery: string, clock?: Date | null): string[] | null {
+  const selector = query.match(SELECTED_PRIOR_DATE)
+  if (!selector) return null
+  let dates = guestStatedDates(previousQuery, clock)
+  if (!dates && listedPriorDates(previousQuery)) {
+    // The legacy plain-and parser permits one trailing shared year. Validate its weekday
+    // labels again when promoting it to an exact selected date.
+    const mentions = statedDateMentions(previousQuery, clock)
+    const years = [...previousQuery.matchAll(/\b20\d{2}\b/gu)].map((m) => Number(m[0]))
+    if (mentions.length !== 2 || new Set(years).size !== 1) return null
+    const parsed = mentions.map((mention) => {
+      const match = mention.text.match(STATED_DATE)
+      if (!match) return null
+      const full = /\b20\d{2}\b/u.test(mention.text) ? mention.text : `${mention.text}, ${years[0]}`
+      return guestStatedDates(full)?.dates[0] ?? null
+    })
+    if (parsed.some((date) => !date)) return null
+    const safe = parsed as CalendarDate[]
+    dates = {kind: 'list', dates: safe, terms: termsFor(safe), spans: mentions.map((m) => m.text)}
+  }
+  if (!dates || dates.kind !== 'list' || dates.dates.length !== 2) return null
+  if (dateUtc(dates.dates[0]!) === dateUtc(dates.dates[1]!)) return null
+  return termsFor([dates.dates[selector[1]!.toLowerCase() === 'former' ? 0 : 1]!])
+}
+
 /** Remove only explicit operating-time comparisons before checking calendar direction. */
 function withoutHoursComparisons(query: string): string {
   return query
@@ -697,6 +726,7 @@ export function guestPriorDateConcept(
   )
     return null
   if (PRIOR_DATE_CORRECTION.test(previousQuery)) return null
+  if (SELECTED_PRIOR_DATE.test(query)) return selectedPriorDate(query, previousQuery, clock)
   if (plural) {
     const listed = listedPriorDates(previousQuery)
     if (listed) return listed
@@ -752,6 +782,14 @@ export function guestRetrievalConcepts(
   const priorDate =
     ownDates?.terms ?? offsetDate?.terms ?? guestPriorDateConcept(query, previousQuery, clock)
   let subjectText = query
+  const selectedDate = priorDate && SELECTED_PRIOR_DATE.test(query)
+  if (selectedDate) {
+    // An introductory plan is context, not a third comparison subject. Keep the explicit
+    // question after "so does ...", then make room for both compared names.
+    subjectText = subjectText.replace(/^.*?\bso\s+(?=(?:does|do|is|are|can|will)\b)/iu, '')
+      .replace(SELECTED_PRIOR_DATE, ' ')
+      .replace(/\b(?:we|would|probably|head|indoors|once|stay|any|later|earlier|than|before|after|then)\b/giu, ' ')
+  }
   for (const span of [...(ownDates?.spans ?? []), ...(offsetDate?.spans ?? [])])
     subjectText = subjectText.replace(span, ' ')
   if (ownDates?.kind === 'range') subjectText = subjectText.replace(/\bbetween\b/iu, ' ')

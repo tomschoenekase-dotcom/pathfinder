@@ -120,13 +120,14 @@ describe('explicit prior visitor date in lexical retrieval', () => {
       expect(flat).not.toContain('november')
     },
   )
-  it('carries both listed dates for "the latter of those days" and keeps the late second subject', () => {
+  it('selects the latter date and keeps the late second subject', () => {
     const { concepts } = guestRetrievalConcepts(
       'Now Moon Bowling on the latter of those days: does it open at the same time as the arcade?',
       'For Ember Arcade, compare the opening times on November 9 and November 12, 2026.',
     )
     const flat = concepts.flat()
-    expect(flat).toEqual(expect.arrayContaining(['november 9, 2026', 'november 12, 2026']))
+    expect(flat).toContain('november 12, 2026')
+    expect(flat).not.toContain('november 9, 2026')
     expect(flat).toEqual(expect.arrayContaining(['bowling', 'arcade', 'hours']))
     expect(flat).not.toContain('now')
     expect(flat).not.toContain('latter')
@@ -254,5 +255,34 @@ describe('evening references with operating-time comparisons', () => {
     'Does that evening pass include bowling?',
   ])('does not turn conflicting dates or products into references: %s', (query) => {
     expect(guestPriorDateConcept(query, prior)).toBeNull()
+  })
+})
+
+
+describe('former/latter selects exactly two earlier visitor alternatives', () => {
+  const prior = 'We are deciding between Sunday October 25 and Saturday October 31, 2026. Which day do rides run longer?'
+  const clock = new Date('2026-10-20T12:00:00Z')
+  it.each([['former','october 25, 2026'],['latter','october 31, 2026']])('selects %s and preserves both late comparison subjects', (selector, day) => {
+    const query = `On the ${selector} of those days we would probably head indoors once the rides shut, so does Nebula Kingdom stay open any later than the Comet Arcade?`
+    const result = guestRetrievalConcepts(query, prior, clock)
+    expect(result.dateConcept).toContain(day)
+    expect(result.concepts.flat()).toEqual(expect.arrayContaining(['nebula','kingdom','comet','arcade']))
+    expect(result.concepts.flat()).not.toContain('former')
+    expect(result.concepts.flat()).not.toContain('latter')
+    expect(result.concepts).toHaveLength(6)
+  })
+  it.each([
+    'Between October 25, 2026 and October 31, 2026?',
+    'October 24, 2026 and October 25, 2026 and October 31, 2026?',
+    'October 25, 2026 and October 25, 2026?',
+    'Not October 25, 2026 and October 31, 2026.',
+    'October 25 or October 31, 2026?',
+    'Monday October 25, 2026 and Saturday October 31, 2026?',
+  ])('does not select ambiguous or conflicting prior input: %s', (previous) => {
+    expect(guestPriorDateConcept('The former of those days?', previous, clock)).toBeNull()
+  })
+  it('rejects a new date or calendar offset even with a selector', () => {
+    expect(guestPriorDateConcept('The former of those days, but next week?', prior, clock)).toBeNull()
+    expect(guestPriorDateConcept('The latter of those days, November 7, 2026?', prior, clock)).toBeNull()
   })
 })
