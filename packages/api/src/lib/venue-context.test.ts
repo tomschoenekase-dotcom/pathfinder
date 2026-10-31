@@ -64,6 +64,29 @@ describe('guest chat prompt provenance', () => {
     expect(prompt).toContain('Names or summaries do not prove omitted facts')
   })
 
+  it('requires one clarification before date-dependent facts when earlier dates remain alternatives', () => {
+    const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
+    expect(prompt).toContain(
+      'If the visitor previously named two or more possible dates, a follow-up such as "the next day" is ambiguous unless they chose one.',
+    )
+    expect(prompt).toContain(
+      "Do not use the last-mentioned date or the assistant's last sentence to choose for them.",
+    )
+    expect(prompt).toContain(
+      'Ask one short question clarifying which original date they mean before giving date-dependent hours, prices or availability.',
+    )
+  })
+
+  it('distinguishes a posted schedule from evidence of actual operation', () => {
+    const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
+    expect(prompt).toContain(
+      'A published schedule establishes planned hours, not proof that an operation actually happened.',
+    )
+    expect(prompt).toContain(
+      'If only the schedule is known, say "scheduled" without an unconditional yes or no about actual operation.',
+    )
+  })
+
   it.each(['English', 'Spanish', 'Chinese', 'Arabic', null])(
     'allows explicit and conversational switches from preference %s while retaining on-site labels',
     (language) => {
@@ -85,7 +108,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v35')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v38')
   })
 
   it('matches the broad production prompt contract manifest', () => {
