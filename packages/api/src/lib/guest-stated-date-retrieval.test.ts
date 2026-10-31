@@ -288,6 +288,26 @@ describe('database selection admits the dated record', () => {
     expect(result.entries.map(({ id }) => id)).toContain('dated-oct')
   })
 
+  it('keeps a season-period record for a date just past its period (not off-date)', async () => {
+    const season = row(
+      'season-calendar',
+      'Hours and operating calendar',
+      'Hours: noon–6pm Sundays, October 11–November 1, 2026. Closed: the fall event does not run Monday–Thursday. Season: the fall event ends November 1, 2026.',
+      '2026-09-01T00:00:00Z',
+    )
+    const { reader } = filteringReader([...offDate, season])
+    const result = await retrieveGuestKnowledge({
+      reader,
+      query: 'Is the Moon Harbor fall event running on Monday, November 2?',
+      tenantId: 'fictional-tenant',
+      venueId: 'fictional-venue',
+      includeSecondLayer: false,
+      queryEmbedding: null,
+      asOf: new Date('2026-10-29T15:00:00Z'),
+    })
+    expect(result.entries.map(({ id }) => id)).toContain('season-calendar')
+  })
+
   it('does not admit a dated record when the year is unclear', async () => {
     const { reader, calls } = filteringReader(sources)
     await retrieveGuestKnowledge({

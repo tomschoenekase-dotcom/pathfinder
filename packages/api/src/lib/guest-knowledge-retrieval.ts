@@ -465,6 +465,12 @@ const FULL_DATE_IN_RECORD = new RegExp(
   `\\b(?:${MONTHS.join('|')}) \\d{1,2},? 20\\d{2}\\b|\\b20\\d{2}-\\d{2}-\\d{2}\\b`,
   'u',
 )
+// "October 11–November 1, 2026" or "October 3-31, 2026": a period rule (season, weekly
+// pattern, closure) that may govern the visitor's date. Such records are never off-date.
+const DATE_PERIOD_IN_RECORD = new RegExp(
+  `\\b(?:${MONTHS.join('|')}) \\d{1,2}\\s*(?:[–—-]|to|through|until)\\s*(?:(?:${MONTHS.join('|')}) )?\\d{1,2},? 20\\d{2}\\b`,
+  'u',
+)
 const DAY_MS = 86_400_000
 
 function calendarDate(year: number, month: number, day: number): CalendarDate | null {
@@ -1103,6 +1109,7 @@ export async function retrieveGuestKnowledge(params: {
   const offDate = (row: Pick<GuestKnowledgeRow, 'title' | 'category' | 'content'>) =>
     dateConcept !== null &&
     FULL_DATE_IN_RECORD.test(normalize(`${row.title} ${row.content}`)) &&
+    !DATE_PERIOD_IN_RECORD.test(normalize(row.content)) &&
     !conceptFieldMatches(row as GuestKnowledgeRow, dateConcept).content &&
     !conceptFieldMatches(row as GuestKnowledgeRow, dateConcept).title
   // A record naming the visitor's exact date counts like a category match for that concept.
