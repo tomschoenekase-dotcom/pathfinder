@@ -354,3 +354,16 @@ describe('dated comparison follow-up selection under recency pressure', () => {
     expect(result.entries.map(r => r.id)).toEqual(expect.arrayContaining(['rides-oct','bowl-oct']))
   })
 })
+
+
+describe('both selected dates retain distinct source records', () => {
+  it('retrieves both per-date subjects rather than collapsing to the former date', async () => {
+    const {reader} = filteringReader([
+      ...Array.from({length: 70}, (_, i) => row(`new-${i}`, 'Moon Arcade and Comet Bowl hours', 'December 10, 2026: Moon Arcade and Comet Bowl open noon to 6pm.', '2026-10-11T00:00:00Z')),
+      row('former-arcade', 'Moon Arcade October hours', 'October 17, 2026: Moon Arcade closes at 8pm.', '2026-09-01T00:00:00Z'),
+      row('latter-bowl', 'Comet Bowl October hours', 'October 24, 2026: Comet Bowl closes at 11pm.', '2026-09-01T00:00:00Z'),
+    ])
+    const result = await retrieveGuestKnowledge({reader, query: 'Compare Moon Arcade on the former of those days with Comet Bowl on the latter of those days.', previousQuery: 'We are deciding between October 17 and October 24, 2026.', tenantId: 'fictional-tenant', venueId: 'fictional-venue', includeSecondLayer: false, queryEmbedding: null, asOf: CLOCK})
+    expect(result.entries.map(r=>r.id)).toEqual(expect.arrayContaining(['former-arcade','latter-bowl']))
+  })
+})
