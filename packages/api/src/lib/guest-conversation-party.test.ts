@@ -6,6 +6,37 @@ import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-convers
 const party = (...messages: string[]) => buildGuestVisitorParty(messages)
 
 describe('persons', () => {
+  it.each(['My child is not 9 years old.', 'My child is maybe 9 years old.', 'My child is not 40 inches.', 'My child might be 40 inches.'])('does not turn a denied or uncertain measurement into a fact: %s', (message) => {
+    expect(party(message).persons[0]).toMatchObject({ ageYears: null, heightInches: null })
+  })
+
+  it('retains unrefuted facts and clears directly refuted facts', () => {
+    expect(party('My child is 9 years old and 40 inches.', 'My child is not 10 years old and not 48 inches.').persons[0]).toMatchObject({ ageYears: 9, heightInches: 40 })
+    expect(party('My child is 9 years old and 40 inches.', 'My child is not 9 years old and not 40 inches.').persons[0]).toMatchObject({ ageYears: null, heightInches: null })
+    expect(party('Maya is 9 years old.', 'Maya is not 9 years old.').persons[0]?.ageYears).toBeNull()
+  })
+
+  it('keeps affirmative measurements in separate clauses', () => {
+    expect(party('My child is not 10 years old and is 40 inches.').persons[0]).toMatchObject({ ageYears: null, heightInches: 40 })
+    expect(party('My child is 9 years old and is not 48 inches.').persons[0]).toMatchObject({ ageYears: 9, heightInches: null })
+  })
+
+  it('extracts self bare age only with existing age context and safe units', () => {
+    expect(party('I am 18. My child is 8 years old.').persons.find((person) => person.self)?.ageYears).toBe(18)
+    expect(party('I am 18.').persons).toEqual([])
+    expect(party('I am 18 tokens. My child is 8 years old.').persons.some((person) => person.self)).toBe(false)
+  })
+
+  it.each(['on-ice', 'in-room', 'designated adult'])('binds an explicit modified companion without participant fallback: %s', (modifier) => {
+    const result = party(`I am 18 years old. Can I be their ${modifier} companion?`)
+    expect(result.roles).toEqual([{ personId: 'P1', role: 'companion' }])
+    expect(party(`Can I be their ${modifier} companion?`).roles).toEqual([])
+  })
+
+  it('leaves an unfamiliar companion modifier unresolved rather than assigning participant', () => {
+    expect(party('I am 18 years old. Can I be their specially trained companion?').roles).toEqual([])
+  })
+
   it('keeps paired age and height attached to each named person', () => {
     const p = party('Mika is 19 and 37 inches. Jules is 12 and 50 inches. Could they do it together?')
     expect(p.persons.map(({ label, ageYears, heightInches }) => ({ label, ageYears, heightInches }))).toEqual([
@@ -225,20 +256,20 @@ describe('renderGuestVisitorParty', () => {
       party('My son is 40 inches and my daughter is 8 years old. Can he ride it with her?'),
     )
     expect(lines).toEqual([
-      'P1 "my son": height 40 inches (visitor message 1); age not stated',
-      'P2 "my daughter": height not stated; age 8 (visitor message 1)',
+      'P1 "my son": height 40 inches (visitor message 1); age unavailable in this projection',
+      'P2 "my daughter": height unavailable in this projection; age 8 (visitor message 1)',
       "Riding or going together: P1 (my son) and P2 (my daughter). The wording does not say who is the rider and who is the companion: decide from each person's own height and age against the rule, and say which person each requirement applies to.",
     ])
   })
 
-  it('renders "not stated" when no roles were bound', () => {
+  it('renders unresolved projection wording when no roles were bound', () => {
     const lines = renderGuestVisitorParty(party('My son is 40 inches.'))
-    expect(lines.at(-1)).toBe("This question's roles: not stated by the visitor.")
+    expect(lines.at(-1)).toBe("This question's roles: unresolved in this projection.")
   })
 
   it('shows the converted inches for cm heights', () => {
     const lines = renderGuestVisitorParty(party('My son is 122 cm'))
-    expect(lines[0]).toBe('P1 "my son": height 122 cm (about 48 in) (visitor message 1); age not stated')
+    expect(lines[0]).toBe('P1 "my son": height 122 cm (about 48 in) (visitor message 1); age unavailable in this projection')
   })
 
   it('renders an unresolved reference line', () => {
@@ -246,6 +277,6 @@ describe('renderGuestVisitorParty', () => {
       party('My son is 40 inches and my nephew is 48 inches. Can he ride alone?'),
     )
     expect(lines.at(-1)).toBe('Unresolved reference: "he" could mean more than one person, or no described person.')
-    expect(lines.at(-2)).toBe("This question's roles: not stated by the visitor.")
+    expect(lines.at(-2)).toBe("This question's roles: unresolved in this projection.")
   })
 })

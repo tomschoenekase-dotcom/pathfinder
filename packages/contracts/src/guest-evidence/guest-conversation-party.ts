@@ -179,12 +179,18 @@ export function buildGuestVisitorParty(visitorMessages: ReadonlyArray<string>): 
     // a height in inches elsewhere is the same unit.
     const messageUsesInches = /\d{2}(?:\.\d)?\s*(?:in\b|inch(?:es)?\b|"|”)|\btall\b|\bheight\b/iu.test(message)
     mentions.forEach((mention, index) => {
-      const clause = clauseAfter(message, mention, mentions[index + 1])
+      const rawClause = clauseAfter(message, mention, mentions[index + 1])
+      const parts = rawClause.split(/\b(?:and|but)\b|[,;]/iu)
+      const uncertain = /\b(?:not|no|never|unknown|uncertain|unclear|unsure|maybe|perhaps|possibly|might)\b|n['’]t\b/iu
+      const rejected = parts.filter((part) => uncertain.test(part))
+      // A denied or uncertain measurement is not a positive fact. Keep independent
+      // affirmative clauses available, without joining them into a paired value.
+      const clause = rejected.length ? parts.filter((part) => !uncertain.test(part)).join('; ') : rawClause
       const bare = messageUsesInches ? clause.match(/\b(?:is|was|measures|stands at|at)\s+([3-7]\d(?:\.\d)?)\b(?!\s*(?:years?|yrs?|yo|-year|cm|ft|feet|'|\$))/iu) : null
       const height = heightFrom(clause) ?? (bare ? { inches: Number(bare[1]), text: `${bare[1]} in` } : null)
       const bareAge =
         !height && !messageUsesInches && conversationUsesAges
-          ? clause.match(/\b(?:is|turned|just turned)\s+(\d{1,2})\b(?!\s*(?:in\b|inch|"|”|cm|ft|feet|'|\$|%))/iu)
+          ? clause.match(/\b(?:is|am|I'm|I’m|turned|just turned)\s+(\d{1,2})\b(?!\s*(?:in\b|inch|"|”|cm|ft|feet|'|\$|%|dollars?\b|tokens?\b|percent\b))/iu)
           : null
       // A paired age and explicit height ("Maya is 19 and 46 inches") has two attributes,
       // not an unnamed second height. Require the conjunction and an explicit height unit;
@@ -194,9 +200,20 @@ export function buildGuestVisitorParty(visitorMessages: ReadonlyArray<string>): 
       )
       const age = mention.age ?? ageFrom(clause) ?? (pairedAge ? Number(pairedAge[1]) : bareAge ? Number(bareAge[1]) : null)
       // A name, "I", or "the boy" only becomes a person when the clause states a measurement.
-      if ((mention.self || mention.needsMeasurement || /^[A-Z]/u.test(mention.label)) && !height && age === null) return
       const key = mention.self ? 'self' : keyOf(mention.label)
       let person = byKey.get(key)
+      if (person) for (const denied of rejected.filter((part) => /\b(?:not|never)\b|n['’]t\b/iu.test(part))) {
+        if (ageFrom(denied) === person.ageYears) {
+          person.ageYears = null
+          person.ageMessage = null
+        }
+        if (heightFrom(denied)?.inches === person.heightInches) {
+          person.heightInches = null
+          person.heightText = null
+          person.heightMessage = null
+        }
+      }
+      if ((mention.self || mention.needsMeasurement || /^[A-Z]/u.test(mention.label)) && !height && age === null) return
       if (!person) {
         person = {
           id: `P${persons.length + 1}`,
@@ -326,7 +343,7 @@ function bindRoles(
   }
   // "<B> as (his|her|their|a) companion", "can <B> be the companion"
   const asCompanion = new RegExp(
-    String.raw`\b(${PERSON_WORD})\s+(?:be|count as|go as|act as|as)\s+(?:a |the |his |her |their )?(?:companion|chaperone|supervising rider)\b`,
+    String.raw`\b(${PERSON_WORD})\s+(?:be|count as|go as|act as|as)\s+(?:a |the |his |her |their )?(?:(?:on[- ]ice|in[- ]room|adult|designated|supervising)\s+)*(?:companion|chaperone|supervising rider)\b`,
     'iu',
   )
   const asMatch = message.match(asCompanion)
@@ -339,7 +356,8 @@ function bindRoles(
   const aloneMatch = message.match(alone)
   if (aloneMatch) bind(aloneMatch[1], 'alone')
   // A bare pronoun subject with no role pattern: "can he ride it?"
-  if (!roles.length) {
+  const unresolvedCompanionWording = /\b(?:be|as)\b[^.!?]{0,60}\b(?:companion|chaperone|supervising rider)\b/iu.test(message)
+  if (!roles.length && !asMatch && !unresolvedCompanionWording) {
     const subject = message.match(
       new RegExp(String.raw`\b(?:can|could|may|is|will)\s+(${PERSON_WORD})\s+(?:ride|go|do|join|try|be|get|see|enter)\b`, 'iu'),
     )
@@ -355,8 +373,8 @@ export function renderGuestVisitorParty(party: GuestVisitorParty): string[] {
     const facts = [
       person.heightInches !== null
         ? `height ${person.heightText ?? `${person.heightInches} in`}${person.heightText && /cm|ft|feet|'/iu.test(person.heightText) ? ` (about ${person.heightInches} in)` : ''} (visitor message ${person.heightMessage})`
-        : 'height not stated',
-      person.ageYears !== null ? `age ${person.ageYears} (visitor message ${person.ageMessage})` : 'age not stated',
+        : 'height unavailable in this projection',
+      person.ageYears !== null ? `age ${person.ageYears} (visitor message ${person.ageMessage})` : 'age unavailable in this projection',
     ]
     return `${person.id} "${person.label}": ${facts.join('; ')}`
   })
@@ -371,7 +389,7 @@ export function renderGuestVisitorParty(party: GuestVisitorParty): string[] {
     lines.push(
       `Riding or going together: ${together.map((binding) => names.get(binding.personId)).join(' and ')}. The wording does not say who is the rider and who is the companion: decide from each person's own height and age against the rule, and say which person each requirement applies to.`,
     )
-  if (!party.roles.length) lines.push("This question's roles: not stated by the visitor.")
+  if (!party.roles.length) lines.push("This question's roles: unresolved in this projection.")
   if (party.unresolvedReference)
     lines.push(`Unresolved reference: "${party.unresolvedReference}" could mean more than one person, or no described person.`)
   return lines

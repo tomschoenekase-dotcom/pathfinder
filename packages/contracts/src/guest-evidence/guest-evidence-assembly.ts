@@ -32,7 +32,7 @@ import {
 import { guestAnswerShape, type GuestAnswerShapeResult } from './guest-answer-shape'
 import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-conversation-party'
 
-export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v3'
+export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v4'
 
 export type GuestEvidenceAssemblyMode = 'off' | 'on' | 'luna'
 

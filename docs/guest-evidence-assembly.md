@@ -176,3 +176,13 @@ factual errors in some runs but many redundant or irrelevant appended notices, i
 mismatches. A saved-answer postprocessing comparison isolated substantial quality loss from
 appending. Later replay checks use exposed answers and cannot establish an end-to-end improvement.
 Keep the flag off pending independent review and a new no-regression acceptance result.
+
+## Version 4 visitor projection corrections
+
+Negated or uncertain measurement clauses do not become positive party facts. A denial of a known
+matching age or height clears that value; denying a different value does not invent a replacement.
+Independent affirmative clauses remain usable. Self ages without units still require explicit age
+context, and non-age units are rejected. Explicit on-ice or in-room companion requests retain that
+role; an unfamiliar companion modifier remains unresolved instead of becoming a participant.
+Missing structured fields are described as unavailable in the projection, not as proof that the
+visitor never supplied the information. The visitor's original words remain available to the model.

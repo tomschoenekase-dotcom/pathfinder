@@ -318,7 +318,7 @@ describe('explicit frozen evidence preview parity', () => {
     expect(preview.evidence?.data).toBe(shared.data)
     expect(preview.evidence?.state).toEqual(shared.state)
     expect(preview.prompt.system.map((block) => block.text).join('\n')).toContain(shared.data)
-    expect(preview.evidenceIdentity).toMatchObject({ version: 'guest-evidence-assembly-v3', mode: 'on', primaryModelKey: on.primaryModelKey, hash: expect.stringMatching(/^[a-f0-9]{64}$/u) })
+    expect(preview.evidenceIdentity).toMatchObject({ version: 'guest-evidence-assembly-v4', mode: 'on', primaryModelKey: on.primaryModelKey, hash: expect.stringMatching(/^[a-f0-9]{64}$/u) })
     expect(enforceEvaluationPreviewNotices('You can accept Storm Credit at the desk.', preview)).toContain("Accepting Storm Credit ends today's admission immediately.")
   })
 
