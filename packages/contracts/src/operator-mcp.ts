@@ -3401,6 +3401,12 @@ export const OPERATOR_MCP_OUTPUTS = {
       otherWarningCount: z.number().int().nonnegative(),
       /** Venue settings to fix before testing; absent when the package shape is invalid. */
       venueSetup: z.array(PackageCheckIssue).max(2).optional(),
+      /** Advisory authoring patterns; never change ready or importable. */
+      authoring: z.object({
+        total: z.number().int().nonnegative(),
+        shown: z.array(PackageCheckIssue).max(40),
+        next: z.string().max(500),
+      }).strict().optional(),
       note: z.string().max(500),
     })
     .strict(),

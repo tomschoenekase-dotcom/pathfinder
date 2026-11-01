@@ -10,6 +10,7 @@ import {
   resolvePackageAttachment,
 } from '../kinds/venues-package-import'
 import type { OperatorReadTool } from '../registry'
+import { venuePackageAuthoringFindings } from '../venue-authoring/authoring-checks'
 
 const SHOWN = 40
 
@@ -106,6 +107,7 @@ export const venuesCheckPackage: OperatorReadTool = {
       venueId: input.venueId,
       placesAfterImport: Math.max(0, activePlaces + plan.places.create - plan.places.remove),
     })
+    const authoring = venuePackageAuthoringFindings(parsed.data, context.now)
     const other = warnings.filter((warning) => !warning.code.startsWith('GUIDE_QUALITY_'))
     return {
       venueId: input.venueId,
@@ -126,6 +128,11 @@ export const venuesCheckPackage: OperatorReadTool = {
       otherWarningCount: other.length,
       // Settings, not package content: they never change ready, but fix them before testing answers.
       venueSetup,
+      authoring: {
+        total: authoring.length,
+        shown: authoring.slice(0, SHOWN).map((finding) => trim({ ...finding, message: `${finding.message} ${finding.fix}` })),
+        next: 'Advice only: fix or justify each finding. Targets are package-local; unchanged venue records require separate review. These findings never change ready or importable.',
+      },
       note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block an import.',
     }
   },

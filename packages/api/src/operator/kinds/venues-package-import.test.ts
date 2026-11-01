@@ -185,6 +185,21 @@ describe('venues.propose_package_import revert', () => {
 })
 
 describe('venues.check_package', () => {
+  it('returns package semantic advice without changing readiness or saving', async () => {
+    mocks.preview.mockResolvedValue({ report: report() })
+    const annotated = structuredClone(payload)
+    annotated.knowledgeEntries.create[0]!.value.content = 'Governed by: Missing rules\nConsequence: the visit ends'
+    const result: any = await venuesCheckPackage.handler(
+      { tenantId: TENANT, venueId: VENUE, payload: annotated }, context,
+    )
+    expect(result).toMatchObject({ ready: true, importable: true })
+    expect(result.authoring.shown.map((finding: { code: string }) => finding.code))
+      .toEqual(expect.arrayContaining(['LINK_TARGET_MISSING', 'CONSEQUENCE_WITHOUT_NOTICE']))
+    expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
+    expect(mocks.draft).not.toHaveBeenCalled()
+    expect(mocks.approve).not.toHaveBeenCalled()
+  })
+
   it('reports plan, errors and guide-quality findings without saving anything', async () => {
     mocks.preview.mockResolvedValue({
       report: report([
