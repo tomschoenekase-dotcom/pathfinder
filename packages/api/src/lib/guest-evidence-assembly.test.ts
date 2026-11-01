@@ -234,7 +234,8 @@ describe('identity', () => {
   it('keeps a same-name offer apart from the ride, and follows the question wording', () => {
     const [price] = journey(LAKESHORE_PARK, [{ question: 'How much is the Comet?' }])
     expect(price!.data).toContain('"Comet" names 2 different things')
-    expect(price!.data).toContain('most likely means Comet wristband')
+    // A price cue alone does not promote the embedded offer over the ride (paid run 2026-11-01).
+    expect(price!.data).toContain('The question does not say which; answer for each briefly or ask which one.')
     expect(thingNames(price!.data)).toEqual(expect.arrayContaining(['Comet', 'Group outings']))
     expect(price!.data).toContain('<not_stated>a price (unknown, not absent)</not_stated>')
 
@@ -342,7 +343,9 @@ describe('visitor party', () => {
     ])
     expect(turns[1]!.data).toContain('P1 "my son": height 40 inches')
     expect(turns[1]!.data).toContain('P2 "my daughter": height 48 in')
-    expect(turns[1]!.data).toContain("This question's roles: rider = P1 (my son); companion = P2 (my daughter).")
+    // Who needs a companion comes from the heights and the rule, not from "with".
+    expect(turns[1]!.data).toContain('Riding or going together: P1 (my son) and P2 (my daughter).')
+    expect(turns[1]!.data).not.toContain('rider = P1')
     expect(thingNames(turns[1]!.data)).toEqual(['Thunder Run', 'Ride rules'])
   })
 
@@ -374,6 +377,48 @@ describe('required notices (consequential completeness)', () => {
       actionable: true,
     })
     expect(included.appended).toHaveLength(0)
+  })
+
+  it('never attaches a possibly-relevant rule\'s notice to an answer about another subject (paid run 2026-11-01)', () => {
+    const tourRule: GuestEvidenceRecord = {
+      ref: 'knowledge:k-late',
+      title: 'Tour late arrival rule',
+      category: 'Policies',
+      content:
+        'Tour late arrival rule covers guided tours.\nKind: policy\nMust mention: Guests who arrive after a tour departs cannot join, and the tour fee is not refunded.',
+      version: null,
+    }
+    const records = [...recordsOf(PRAIRIE_ZOO), tourRule]
+    const question = 'Is the Family membership worth it? Can I get a refund?'
+    const result = assembleGuestEvidence({
+      question,
+      visitorMessages: [question],
+      shape: guestAnswerShape(question),
+      records,
+      retrievedRefs: ['knowledge:k-late'],
+      previous: null,
+      unavailableRefs: [],
+      coverage: FULL,
+      escape: escapeUntrustedPromptData,
+    })
+    expect(thingNames(result.data)).not.toContain('Tour late arrival rule')
+    const enforced = enforceGuestRequiredNotices({
+      response: 'The Family membership is $149 a year for two adults and up to four children.',
+      notices: [...result.notices, { text: 'Guests who arrive after a tour departs cannot join.', names: ['Tour late arrival rule'], ref: 'knowledge:k-late', onAction: false }],
+      actionable: true,
+    })
+    expect(enforced.appended).toEqual([])
+  })
+
+  it('recognizes an ordinary paraphrase of a re-entry notice (paid run 2026-11-01)', () => {
+    const enforced = enforceGuestRequiredNotices({
+      response: 'No. Twilight Ticket holders can’t re-enter after leaving to eat, and the ticket is non-refundable.',
+      notices: [
+        { text: 'Twilight Tickets are non-refundable and leaving the park ends same-day re-entry.', names: ['Twilight Ticket'], ref: 'knowledge:k-twilight', onAction: true },
+      ],
+      actionable: true,
+    })
+    expect(enforced.appended).toEqual([])
   })
 
   it('makes no notice for a record without an authored Must mention line', () => {

@@ -93,11 +93,12 @@ describe('persons', () => {
 describe('role binding', () => {
   const family = 'My son is 40 inches and my daughter is 48 inches. '
 
-  it('binds rider and companion from "can A ride with B"', () => {
+  // "Ride with" is symmetric (2026-11-01 paid run: grammatical binding swapped the roles).
+  it('marks "can A ride with B" as riding together without assigning rider and companion', () => {
     const p = party(`${family}Can he ride it with her?`)
     expect(p.roles).toEqual([
-      { personId: 'P1', role: 'rider' },
-      { personId: 'P2', role: 'companion' },
+      { personId: 'P1', role: 'together' },
+      { personId: 'P2', role: 'together' },
     ])
     expect(p.unresolvedReference).toBeNull()
   })
@@ -181,11 +182,11 @@ describe('role binding', () => {
     expect(p.unresolvedReference).toBeNull()
   })
 
-  it('binds the visitor as a self rider', () => {
+  it('resolves the visitor as one of the people riding together', () => {
     const p = party("I'm 5'4\" and my son is 44 in. Can I ride it with him?")
     expect(p.roles).toEqual([
-      { personId: 'P1', role: 'rider' },
-      { personId: 'P2', role: 'companion' },
+      { personId: 'P1', role: 'together' },
+      { personId: 'P2', role: 'together' },
     ])
   })
 
@@ -206,7 +207,7 @@ describe('renderGuestVisitorParty', () => {
     expect(lines).toEqual([
       'P1 "my son": height 40 inches (visitor message 1); age not stated',
       'P2 "my daughter": height not stated; age 8 (visitor message 1)',
-      "This question's roles: rider = P1 (my son); companion = P2 (my daughter).",
+      "Riding or going together: P1 (my son) and P2 (my daughter). The wording does not say who is the rider and who is the companion: decide from each person's own height and age against the rule, and say which person each requirement applies to.",
     ])
   })
 

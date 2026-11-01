@@ -55,6 +55,13 @@ const STOP = new Set([
   'also',
   'must',
   'may',
+  // The venue itself is named in most answers and proves nothing about a notice.
+  'park',
+  'garden',
+  'gardens',
+  'zoo',
+  'museum',
+  'venue',
 ])
 
 // Small equivalence classes so ordinary paraphrases count as present.
@@ -64,7 +71,8 @@ const EQUIVALENT: ReadonlyArray<readonly string[]> = [
   ['rest', 'remainder', 'remaining'],
   ['day', 'today', 'visit'],
   ['leave', 'leaving', 'exit', 'exiting', 'depart'],
-  ['reentry', 'readmission', 'readmit', 're'],
+  ['reentry', 'readmission', 'readmit', 're', 'reenter', 'entry', 'enter', 'entering', 'admission', 'admitted'],
+  ['same', 'today', 'tonight'],
   ['accept', 'accepting', 'take', 'taking', 'collect', 'collecting', 'use', 'using'],
   ['cannot', 'can\'t', 'not', 'no', 'never'],
   ['required', 'require', 'requires', 'need', 'needs', 'must'],
@@ -130,7 +138,8 @@ export function enforceGuestRequiredNotices(input: {
   for (const notice of input.notices) {
     if (seen.has(notice.text)) continue
     seen.add(notice.text)
-    const needed = input.actionable || notice.names.some((name) => mentions(answerKey, name))
+    const needed =
+      (input.actionable && notice.onAction !== false) || notice.names.some((name) => mentions(answerKey, name))
     if (!needed) continue
     checked += 1
     if (guestNoticeCoverage(input.response, notice.text, notice.names) >= threshold) continue

@@ -83,6 +83,8 @@ export type GuestRequiredNotice = {
   /** Names whose mention in the answer makes the notice required. */
   names: string[]
   ref: string
+  /** An actionable question requires it without a name mention (own subject or its rule). */
+  onAction?: boolean
 }
 
 export type GuestEvidenceCoverage = {
@@ -380,13 +382,20 @@ function embeddedThings(nameKey: string, displayName: string, records: Indexed[]
     const contentKey = guestPlaceIdentityKey(record.content)
     let index = ` ${contentKey} `.indexOf(` ${nameKey} `)
     while (index >= 0) {
-      const after = contentKey.slice(index + nameKey.length).trim().split(' ')[0] ?? ''
+      // The kind noun may follow directly ("Comet wristband") or after one word ("Riptide Group
+      // Package"); the derived name keeps every word up to the noun.
+      const next = contentKey.slice(index + nameKey.length).trim().split(' ').slice(0, 2)
+      const nounAt = next.findIndex((word) => DERIVED_THING_NOUN.some(([pattern]) => pattern.test(word)))
+      const after = nounAt >= 0 ? next.slice(0, nounAt + 1).join(' ') : ''
+      const noun = nounAt >= 0 ? next[nounAt]! : ''
       for (const [pattern, kind, type] of DERIVED_THING_NOUN)
-        if (pattern.test(after)) {
+        if (noun && pattern.test(noun)) {
           const derivedKey = `${nameKey} ${after}`
+          const original = record.content.match(new RegExp(String.raw`${displayName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}\s+(\S+(?:\s+\S+)?)`, 'iu'))
+          const shown = original && guestPlaceIdentityKey(original[1]!) === after ? original[1]!.replace(/[:;,.]$/u, '') : after
           if (!things.some((thing) => guestPlaceIdentityKey(thing.name) === derivedKey))
             things.push({
-              name: `${displayName} ${after}`,
+              name: `${displayName} ${shown}`,
               kind,
               type,
               records: [],
@@ -460,7 +469,12 @@ function resolveSubjects(question: string, indexed: Indexed[]): { things: Thing[
     const best = Math.max(0, ...wordScores)
     const bestCandidates = candidates.filter((_, index) => wordScores[index] === best)
     if (best > 0 && bestCandidates.length === 1) chosen = bestCandidates[0]!
-    else if (cued.length === 1 && new Set(candidates.map((thing) => thing.kind)).size > 1) chosen = cued[0]!
+    // A kind cue alone ("how much is Riptide?") is weak: a ride's price is usually admission. It
+    // may pick among titled things, but never promotes a thing mentioned inside another record over
+    // the titled one; that stays ambiguous so the answer covers both or asks.
+    else if (cued.length === 1 && new Set(candidates.map((thing) => thing.kind)).size > 1) {
+      if (!cued[0]!.embeddedIn) chosen = cued[0]!
+    }
     // A bare name defaults to the thing titled with it, unless the wording points elsewhere.
     else if (titled.length === 1 && !cued.some((thing) => thing !== titled[0])) chosen = titled[0]!
     identities.push({ name: display, candidates, chosen })
@@ -854,9 +868,15 @@ export function assembleGuestEvidence(input: {
     for (const scope of found.unknownScopes) unknownScopes.add(scope)
     for (const missing of found.missingLinks) missingLinks.add(missing)
   }
-  // Retrieved rules for a permission or action question, only when no subject already has a rule
-  // (an unrelated retrieved policy presented as "the rule" is a binding risk of its own).
-  if ((input.shape.permission || input.shape.actionable) && !governing.length && !carriedGoverning.length) {
+  // Retrieved rules for a permission or action question that has no subject at all ("Can I bring
+  // my dog?"). With a subject, an unrelated retrieved policy presented as its rule is a binding
+  // risk of its own (2026-11-01 paid run: a tour rule's notice was attached to a membership answer).
+  if (
+    (input.shape.permission || input.shape.actionable) &&
+    !allSubjects.length &&
+    !governing.length &&
+    !carriedGoverning.length
+  ) {
     const retrievedPolicies = input.retrievedRefs
       .map((ref) => byRef.get(ref))
       .filter((record): record is Indexed => Boolean(record) && record!.semantics.kind === 'POLICY')
@@ -998,8 +1018,12 @@ export function assembleGuestEvidence(input: {
       ...item.subjectOf.flatMap((thing) => [thing.name, ...thing.records.flatMap((record) => record.names)]),
       ...governed.flatMap((thing) => (thing.records.length ? thing.records.flatMap((record) => record.names) : [thing.name])),
     ].filter((name) => isSpecific(guestPlaceIdentityKey(name)))
+    // An action question makes a notice required only for this question's own subjects and their
+    // rules; any other record's notice needs its name in the answer.
+    const onAction =
+      item.subjectOf.length > 0 || governed.some((thing) => allSubjects.includes(thing))
     for (const text of item.record.semantics.mustMention)
-      notices.push({ text, names: [...new Set(names)], ref: item.record.ref })
+      notices.push({ text, names: [...new Set(names)], ref: item.record.ref, onAction })
   }
 
   // 9. Next-turn state: refs only; selected now at age 0, carried ones age.

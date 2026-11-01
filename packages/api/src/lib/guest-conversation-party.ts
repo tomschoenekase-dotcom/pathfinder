@@ -25,7 +25,8 @@ export type GuestPartyPerson = {
 
 export type GuestPartyRoleBinding = {
   personId: string
-  role: 'rider' | 'companion' | 'alone' | 'participant'
+  /** "together": named as riding or going together; who needs whom is decided by the rules. */
+  role: 'rider' | 'companion' | 'alone' | 'participant' | 'together'
 }
 
 export type GuestVisitorParty = {
@@ -298,10 +299,14 @@ function bindRoles(
     String.raw`\b(?:can|could|may|would)\s+(${PERSON_WORD})\s+(?:ride|go(?: on)?|do|join|take part)\b[\s\S]{0,40}?\b(?:with|alongside|next to)\s+(${PERSON_WORD})\b`,
     'iu',
   )
+  // "Ride with" is symmetric: in "can my 16-year-old cousin ride with Ben?" the cousin is the
+  // companion for the shorter Ben. Grammar names who rides together, never who needs whom
+  // (2026-11-01 paid run: a grammatical rider/companion binding swapped the roles in 2/2 answers).
+  // Each person's own height and age decide the roles.
   const withMatch = message.match(withPattern)
   if (withMatch) {
-    bind(withMatch[1], 'rider')
-    bind(withMatch[2], 'companion')
+    bind(withMatch[1], 'together')
+    bind(withMatch[2], 'together')
   }
   // "can <B> take/bring/ride with <A>" where B is the companion: "can my daughter take him on"
   const takePattern = new RegExp(
@@ -350,11 +355,17 @@ export function renderGuestVisitorParty(party: GuestVisitorParty): string[] {
     return `${person.id} "${person.label}": ${facts.join('; ')}`
   })
   const names = new Map(party.persons.map((person) => [person.id, `${person.id} (${person.label})`]))
-  if (party.roles.length)
+  const together = party.roles.filter((binding) => binding.role === 'together')
+  const assigned = party.roles.filter((binding) => binding.role !== 'together')
+  if (assigned.length)
     lines.push(
-      `This question's roles: ${party.roles.map((binding) => `${binding.role} = ${names.get(binding.personId)}`).join('; ')}.`,
+      `This question's roles: ${assigned.map((binding) => `${binding.role} = ${names.get(binding.personId)}`).join('; ')}.`,
     )
-  else lines.push("This question's roles: not stated by the visitor.")
+  if (together.length)
+    lines.push(
+      `Riding or going together: ${together.map((binding) => names.get(binding.personId)).join(' and ')}. The wording does not say who is the rider and who is the companion: decide from each person's own height and age against the rule, and say which person each requirement applies to.`,
+    )
+  if (!party.roles.length) lines.push("This question's roles: not stated by the visitor.")
   if (party.unresolvedReference)
     lines.push(`Unresolved reference: "${party.unresolvedReference}" could mean more than one person, or no described person.`)
   return lines
