@@ -366,4 +366,12 @@ export const OPERATOR_MANUAL_TEXT = [
   '',
   '`engagement.propose_question_create` and `engagement.propose_question_update` require customers:propose for that tenant; venues:propose alone is insufficient. Supply questionType (OPEN_ENDED or MULTIPLE_CHOICE), prompt (1-500 characters), choiceOptions (up to four unique options of 1-100 characters) and intensity (1-5, default 3). Multiple-choice requires 2-4 options; open-ended clears options. Creation starts active. Updates require questionId and the exact expectedUpdatedAt; pass only changed fields. Set isActive false to disable reversibly or true to enable. The canonical action validates the merged final question and uses an atomic tenant/id/timestamp comparison, so a concurrent change returns STALE. These tools do not delete questions and are not eligible for venue-scoped job grants.',
   '',
+  '## Venue AI workload/model configuration',
+  '',
+  '`venues.get_ai_workload_configuration` takes tenantId, venueId and optional workloadId (defaults to guest-chat). It returns availableWorkloads for discovery and reads effective runtime routing, field sources, venue override revision and selectable model keys without invoking a provider. Model availability is configuration metadata, not a live health check. The staged request ceiling does not replace runtime budget gates.',
+  '',
+  '`venues.propose_ai_workload_configuration` replaces the complete venue override: expectedRevision is null only when no override exists, otherwise use its exact revision, including tombstones. Supply enabled, values and reason. Values support primaryModelKey, fallback {enabled, modelKeys}, timeoutMs, maxAttempts, maxOutputTokens and requestBudgetCeilingE8Usd; omitted values inherit lower layers. Model selection must be registered for the workload. Canonical unsafe-change/cost checks remain in force; unsafeChangesEnabled defaults false and must be explicitly chosen for changes requiring it. Enabling selected providers requires configured provider access. This only saves configuration; later runtime requests may spend budget.',
+  '',
+  '`venues.propose_ai_workload_reset` takes the exact positive expectedRevision and reason; it tombstones the venue override and inherits lower layers. Read effective settings before and after resetting because inherited models and costs can differ. Both writes require the current allowlisted platform administrator connection plus venue grant. They cannot edit global or client overrides or accept an actor, scope or approval receipt from tool input.',
+  '',
 ].join('\n')

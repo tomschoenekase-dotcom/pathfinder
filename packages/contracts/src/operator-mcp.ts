@@ -1,3 +1,8 @@
+import {
+  OperatorAiWorkloadId,
+  OperatorAiWorkloadValues,
+  OperatorAiWorkloadReadOutput,
+} from './operator-ai-workload'
 import { z } from 'zod'
 import { GuestEvidenceExecutionSchema, GuestGuideCoverageSchema } from './guest-answer-attribution'
 
@@ -274,6 +279,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.get_contact_history',
   'crm.check_can_contact',
   'engagement.list_questions',
+  'venues.get_ai_workload_configuration',
   'venues.get_bot_configuration',
   'venues.list_personality_profiles',
   'venues.list',
@@ -412,6 +418,8 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'venues.propose_knowledge',
   'engagement.propose_question_create',
   'engagement.propose_question_update',
+  'venues.propose_ai_workload_configuration',
+  'venues.propose_ai_workload_reset',
   'venues.propose_bot_configuration',
   'venues.propose_personality_profile_create',
   'venues.propose_personality_profile_update',
@@ -1154,6 +1162,25 @@ export const OPERATOR_MCP_INPUTS = {
       ),
     { message: 'Provide at least one question field to change' },
   ),
+  'venues.get_ai_workload_configuration': readInput({
+    ...venueScope,
+    workloadId: OperatorAiWorkloadId.default('guest-chat'),
+  }),
+  'venues.propose_ai_workload_configuration': writeInput({
+    ...venueScope,
+    workloadId: OperatorAiWorkloadId,
+    expectedRevision: z.number().int().positive().nullable(),
+    enabled: z.boolean(),
+    values: OperatorAiWorkloadValues,
+    unsafeChangesEnabled: z.boolean().default(false),
+    reason: z.string().trim().min(1).max(500),
+  }),
+  'venues.propose_ai_workload_reset': writeInput({
+    ...venueScope,
+    workloadId: OperatorAiWorkloadId,
+    expectedRevision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500),
+  }),
   'venues.get_bot_configuration': readInput({ ...venueScope }),
   'venues.list_personality_profiles': readInput({ ...venueScope }),
   'venues.propose_bot_configuration': writeInput({
@@ -4414,6 +4441,9 @@ export const OPERATOR_MCP_OUTPUTS = {
   ),
   'engagement.propose_question_create': OperatorWriteResult,
   'engagement.propose_question_update': OperatorWriteResult,
+  'venues.get_ai_workload_configuration': OperatorAiWorkloadReadOutput,
+  'venues.propose_ai_workload_configuration': OperatorWriteResult,
+  'venues.propose_ai_workload_reset': OperatorWriteResult,
   'venues.get_bot_configuration': VenueBotConfigurationSnapshot,
   'venues.list_personality_profiles': z
     .object({ items: z.array(PersonalityProfileSnapshot), complete: z.literal(true) })
@@ -4524,6 +4554,29 @@ const seeds: readonly Seed[] = [
     'engagement.question-update',
   ],
 
+  [
+    'venues.get_ai_workload_configuration',
+    'Get venue AI workload configuration',
+    `Read effective runtime configuration, field sources, venue override revision and registered selectable models for one workload. No provider call. Provider availability is configuration metadata, not a live health check.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
+    'venues.propose_ai_workload_configuration',
+    'Save venue AI workload override',
+    `Replace a venue override at expectedRevision (null only when none exists). WorkloadId and model compatibility use the canonical registry. Values are the complete override, not a patch: omitted fields inherit lower layers. Canonical model, budget and unsafe-change checks apply. This does not call a provider; later runtime requests may spend budget. Global and client overrides cannot be edited.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.ai-workload-configuration',
+  ],
+  [
+    'venues.propose_ai_workload_reset',
+    'Reset venue AI workload override',
+    `Tombstone the venue override at its exact expectedRevision and inherit lower layers. Read effective values before resetting; inherited routing can change later runtime costs. No provider call.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.ai-workload-reset',
+  ],
   [
     'venues.get_bot_configuration',
     'Get bot configuration',
