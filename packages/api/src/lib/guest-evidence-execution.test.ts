@@ -14,7 +14,7 @@ function assembly() {
 describe('guest evidence execution receipt', () => {
   it('captures actual versions, source refs and notice counts without record or answer text', () => {
     const result = guestEvidenceExecution({ assembly: assembly(), mode: 'luna', noticesChecked: 1, noticesAppended: 1 })
-    expect(result).toMatchObject({ mode: 'luna', records: [{ ref: 'knowledge:pass', version: 'r1', purpose: 'rendered' }],
+    expect(result).toMatchObject({ mode: 'luna', noticeCheckerVersion: 'guest-required-notices-v1', records: [{ ref: 'knowledge:pass', version: 'r1', purpose: 'rendered' }],
       recordsTruncated: false, recordCount: 1, noticesChecked: 1, noticesAppended: 1 })
     expect(JSON.stringify(result)).not.toContain('Redeeming')
     expect(GuestEvidenceExecutionSchema.safeParse({ ...result, answer: 'An answer' }).success).toBe(false)

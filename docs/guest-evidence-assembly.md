@@ -146,3 +146,33 @@ lookup does not require unrelated notices just because a thing is named; recomme
 can make the notice relevant again. No unlabeled consequence or unknown is automatically appended.
 The operator `venues.preview_guest_evidence` exposes deterministic selection and parsed labels
 through the same guest fences, with explicit bounds and no paid call or session mutation.
+
+## Version 3 subject confidence and applicability direction
+
+An offer's `Applies to:` describes where that offer works; it does not make the offer a governing
+rule of that place. Only policies gain implicit governing links from scope. Explicit `Governed by:`
+links remain authoritative for other record kinds. An explicit `Kind:` ending in policy, rules or
+regulations is classified as a policy even when it contains product words such as admission.
+The parser is version 3; inferred legacy kinds retain their earlier ordering.
+
+Partial-name and identification candidates cannot demand notices just because a question is
+actionable. Unconfirmed candidates and their exclusive supporting refs are removed from continuity
+after the answer; confirmed identity can select refs but cannot supply facts. Confidence metadata
+is transient. Persisted continuity remains IDs, versions, reasons and ages, reloaded every turn.
+
+A queried or carried policy can establish that applicability to a different-kind unlisted target
+is unknown. Absence from an inclusion list is not an exemption. Positive inventory and schedule
+lookups suppress unrelated use notices, including notices authored on the selected record; a use
+recommendation makes them relevant again. Purchase, rule and ongoing decision questions retain
+their consequences. Inclusive numeric wording has bounded equivalence checks; explicit conflicting
+permission for the same role prevents coverage.
+
+Internal answer evidence records assembly and notice-checker versions plus bounded source refs,
+record versions and hashes. It stores no record bodies or answer text in the carried evidence state.
+The optional checker-version field preserves reads of older execution receipts.
+
+These repairs do not establish acceptance. Independent fictional paired evaluations found fewer
+factual errors in some runs but many redundant or irrelevant appended notices, including language
+mismatches. A saved-answer postprocessing comparison isolated substantial quality loss from
+appending. Later replay checks use exposed answers and cannot establish an end-to-end improvement.
+Keep the flag off pending independent review and a new no-regression acceptance result.

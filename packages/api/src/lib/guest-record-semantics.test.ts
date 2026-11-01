@@ -262,6 +262,16 @@ describe('kind inference', () => {
     expect(parse('Kind: mystery').kind).toBe('KNOWLEDGE')
   })
 
+  it.each(['admission policy', 'ticket refund rules', 'membership policy', 'pass regulation', 'ticket regulations'])('uses the terminal policy noun in an explicit kind: %s', (kind) => {
+    expect(parse(`Kind: ${kind}`)).toMatchObject({ kind: 'POLICY', kindSource: 'stated', type: kind })
+    // Explicit authoring does not change legacy title inference priority.
+    expect(parse('Open daily.', { title: kind })).toMatchObject({ kind: 'ITEM', kindSource: 'inferred' })
+  })
+
+  it.each(['weather pass', 'refund offer', 'policy admission offer'])('preserves a product kind with policy-related modifiers: %s', (kind) => {
+    expect(parse(`Kind: ${kind}`)).toMatchObject({ kind: 'ITEM', kindSource: 'stated', type: kind })
+  })
+
   it('uses the first matched word (by position) as type when no predicate exists', () => {
     // Questionable: "Weather policy" yields type "weather", not "policy", because the pattern
     // alternation reports the first match in the text.

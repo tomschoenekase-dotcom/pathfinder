@@ -13,6 +13,8 @@
 import { guestPlaceIdentityKey } from './guest-place-identity'
 import type { GuestRequiredNotice } from './guest-evidence-assembly'
 
+export const GUEST_REQUIRED_NOTICES_VERSION = 'guest-required-notices-v1'
+
 const STOP = new Set([
   'a',
   'an',
@@ -225,6 +227,10 @@ export function guestNoticeIsCovered(answer: string, notice: string, names: Read
     key = key.replace(/\bre enter\b/gu, 'reentry')
     key = key.replace(/\bleaving (?:the (?:park|venue) )?ends same day re entry\b/gu, 'no reentry after leaving')
     key = key.replace(/\bcan not reentry\b/gu, 'no reentry')
+    // Inclusive numeric comparisons have ordinary equivalent spellings. Keep strict
+    // over/under comparisons distinct; a shared number alone never proves the bound.
+    key = key.replace(/\b(\d+(?: \d+)?)((?: years?(?: old)?| inches?| centimeters?| centimetres?| feet| cm)?) or (?:older|more|above)\b/gu, 'at least $1$2')
+    key = key.replace(/\b(\d+(?: \d+)?)((?: years?(?: old)?| inches?| centimeters?| centimetres?| feet| cm)?) or (?:younger|less|below)\b/gu, 'at most $1$2')
     for (const name of names) {
       const label = guestPlaceIdentityKey(name)
       if (label) key = key.replace(`using the ${label}`, label).replace(`using ${label}`, label)
@@ -234,6 +240,16 @@ export function guestNoticeIsCovered(answer: string, notice: string, names: Read
   const answerClauses = relevantClauses.map(canonical)
   const noticeClauses = normalizedClauses(notice.replace(/,|\b(?:and|but)\b/giu, ';')).map(canonical)
   return noticeClauses.every((wanted) => {
+    // An inclusive bound is not covered by stating it and then explicitly allowing
+    // people on its forbidden side. Check the same role in authorized clauses;
+    // another role's permission or a prohibition is not an exception to this bound.
+    const opposite = /\bat least\b/u.test(wanted) ? /\b(?:younger|shorter|lower|less)\b/u
+      : /\bat most\b/u.test(wanted) ? /\b(?:older|taller|higher|more)\b/u : null
+    const boundRoles = [/\briders?\b/u, /\bparticipants?\b/u, /\bcompanions?\b/u, /\badults?\b/u, /\b(?:child|children)\b/u, /\bparents?\b/u, /\bguardians?\b/u]
+      .filter((role) => role.test(wanted))
+    if (opposite && !NEGATIVE.test(wanted) && boundRoles.length && answerClauses.some((present) =>
+      opposite.test(present) && boundRoles.every((role) => role.test(present))
+      && !NEGATIVE.test(present) && /\b(?:allowed|permitted|eligible)\b/u.test(present))) return false
     if (answerClauses.some((present) => NEGATIVE.test(wanted) !== NEGATIVE.test(present)
       && guestNoticeCoverage(present, wanted, names) >= 0.8)) return false
     return answerClauses.some((present) => {

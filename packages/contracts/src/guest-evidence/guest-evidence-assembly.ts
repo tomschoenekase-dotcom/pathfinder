@@ -32,7 +32,7 @@ import {
 import { guestAnswerShape, type GuestAnswerShapeResult } from './guest-answer-shape'
 import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-conversation-party'
 
-export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v2'
+export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v3'
 
 export type GuestEvidenceAssemblyMode = 'off' | 'on' | 'luna'
 
@@ -106,6 +106,8 @@ export type GuestEvidenceAssembly = {
   state: GuestEvidenceState
   /** Names of each state ref, used only to choose which subjects the reply discussed. */
   refNames: Record<string, string[]>
+  /** Transient confidence/dependency metadata; only ref IDs enter persisted state. */
+  weakCandidateRefs?: Record<string, string[]>
   /** Authorized names for clause-level notice attribution; never persisted as continuity. */
   knownNames: string[]
   notices: GuestRequiredNotice[]
@@ -281,7 +283,7 @@ const REFERRING =
 const IDENTIFY_NOUN =
   /\b(coaster|ride|animal|bird|building|tower|statue|sculpture|painting|show|exhibit|slide|train|boat|wheel|fountain|tree|plane|car|truck|ship|dinosaur|fish|monkey|cat|bear|snake)s?\b/iu
 
-const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A <thing> marked as a rule applies to the things its origin names and to nothing else. An evidence note marked unknown stays unknown: never turn it into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person. A must_mention line supplies an authored visitor notice. Follow NOTICE RELEVANCE to decide when it belongs in the answer; when required, say it in your own words or as written.`
+const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A probable partial-name match or identification candidate is not a confirmed subject: do not attach its use notices merely because the visitor asks an actionable question; require supported identification and actual discussion of that thing. Use a rule's requirements only for targets supported by its current scope or governing links. An unlisted target is not thereby exempt: applicability remains unknown unless current records establish inclusion or exclusion. An evidence note marked unknown stays unknown: never turn it into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person. A must_mention line supplies an authored visitor notice. Follow NOTICE RELEVANCE to decide when it belongs in the answer; when required, say it in your own words or as written.`
 
 function singular(word: string): string {
   if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`
@@ -663,7 +665,10 @@ function governingFor(thing: Thing, indexed: Indexed[], namedTargets: ReadonlySe
       continue
     }
     const scoped = scope.appliesTo.find((target) => scopeTargetMatches(target, thing, namedTargets))
-    if (scoped) {
+    // A product or event can apply at this place without governing participation
+    // there. Only policies establish authority from scope alone; an explicit
+    // Governed by link below can still name any authored record kind.
+    if (scoped && record.semantics.kind === 'POLICY') {
       links.push({ record, subject: thing, because: `its Applies to line names "${scoped}"` })
       continue
     }
@@ -901,6 +906,26 @@ export function assembleGuestEvidence(input: {
     for (const scope of found.unknownScopes) unknownScopes.add(scope)
     for (const missing of found.missingLinks) missingLinks.add(missing)
   }
+  // A policy explicitly asked about (or reloaded from the referring turn's
+  // scope/rule context) remains a live question even when the new target has a
+  // different kind. Do not scan unrelated policies or infer a closed-world scope.
+  const contextualPolicies = new Set(allSubjects.flatMap((thing) => thing.records)
+    .filter((record) => record.semantics.kind === 'POLICY'))
+  if (carry) for (const ref of previousRefs) {
+    if (ref.age >= 2 || (ref.reason !== 'scope' && ref.reason !== 'governing')) continue
+    const record = byRef.get(ref.ref)
+    if (record?.semantics.kind === 'POLICY') contextualPolicies.add(record)
+  }
+  for (const record of contextualPolicies) {
+    if (!record.semantics.scope.appliesTo.length) continue
+    for (const thing of subjects) {
+      if (thing.records.includes(record) || thing.kind === 'POLICY') continue
+      if (governing.some((link) => link.record === record && link.subject === thing)) continue
+      if (record.semantics.scope.doesNotApplyTo.some((target) => scopeTargetMatches(target, thing, namedTargets))) continue
+      unknownScopes.add(`"${record.title}" names ${record.semantics.scope.appliesTo.join('; ')} as applicable targets, but current records do not establish whether it applies to ${thing.name}. Applicability is unknown, not a confirmed exemption or a confirmed requirement.`)
+      scopeRecords.set(record, [...(scopeRecords.get(record) ?? []), thing])
+    }
+  }
   // Reloading a carried rule also means recomputing its relationship. A rule can have
   // changed scope since the previous turn; continuity must not resurrect that old binding.
   if (allSubjects.length) {
@@ -1055,14 +1080,18 @@ export function assembleGuestEvidence(input: {
   // Only positively recognized narrow questions may suppress a use notice. An English
   // intent parser failing to recognize another language (or an unusual request) is not
   // evidence that the visitor is merely asking a fact.
-  const recognizedNarrowLookup = /^(?:what (?:colou?r|name|year|height|length|width)|where (?:is|are)|who (?:built|designed)|when (?:was|were) .{1,80} (?:built|opened))\b/iu.test(input.question.trim())
-    && !/\b(?:need|required|requirement|allowed|permit|rule|policy|refund|exchange|redeem|valid|access|participat|can|could|should|must)\w*\b/iu.test(input.question)
+  const descriptiveLookup = /\b(?:what (?:colou?r|name|year|height|length|width)|where (?:is|are)|who (?:built|designed)|when (?:was|were) .{1,80} (?:built|opened)|how many .{1,60} (?:are|does .{1,40} have)|(?:name|list|count) (?:all|every|the) physical places?|(?:when|what time) (?:is|does|are)|(?:is|are) .{1,60} scheduled open)\b/iu.test(input.question)
+  const recognizedNarrowLookup = descriptiveLookup
+    && !/\b(?:need|required|requirement|allowed|permit|rule|policy|refund|exchange|redeem|valid|access|participat|can|could|should|must|buy|buying|purchase|accept|accepting|book|booking|rent|renting|pay|paying|cost|price|deposit|token|ticket|pass|credit)\w*\b/iu.test(input.question)
   const requiresUseNotices = !recognizedNarrowLookup || useDecision(input.shape) ||
     (carry && input.visitorMessages.slice(-3, -1).some((message) => useDecision(guestAnswerShape(message)))) ||
     (party.persons.length > 0 && /\b(?:can|could|may|will)\b[\s\S]{0,80}\b(?:ride|join|participate|do|go)\b/iu.test(input.question))
   const unresolvedTogetherRoles = party.persons.length >= 2 &&
     /\b(?:together|with (?:him|her|them|me|each other))\b/iu.test(input.question) &&
     !party.roles.some((role) => role.role === 'companion' || role.role === 'rider')
+
+  const weakSubject = (thing: Thing) => thing.origin === 'partial-name' || thing.origin === 'identify-candidate'
+    || resolved.identities.some((identity) => identity.candidates.includes(thing) && identity.chosen !== thing)
 
   // 8. Required notices from rendered records only.
   const notices: GuestRequiredNotice[] = []
@@ -1114,12 +1143,12 @@ export function assembleGuestEvidence(input: {
       && !competingNames.some((other) => guestPlaceIdentityKey(other) === guestPlaceIdentityKey(name)))
     // An action question makes a notice required only for this question's own subjects and their
     // rules; any other record's notice needs its name in the answer.
-    const onAction = !excludedQuestionTarget && !identityUnselected && (
+    const onAction = !excludedQuestionTarget && !identityUnselected && owners.some((thing) => !weakSubject(thing)) && (
       item.subjectOf.length > 0 || embeddedSubjects.length > 0 || governed.some((thing) => allSubjects.includes(thing)))
     for (const text of item.record.semantics.mustMention)
       notices.push({ text, names: [...new Set(names)], ref: item.record.ref, onAction,
         ...(excludedQuestionTarget ? { mentionExcludingNames: item.record.names } : {}),
-        requiredForQuestion: requiresUseNotices || item.subjectOf.length > 0 || embeddedSubjects.length > 0 })
+        requiredForQuestion: requiresUseNotices })
   }
 
   // 9. Next-turn state: refs only; selected now at age 0, carried ones age.
@@ -1163,6 +1192,25 @@ export function assembleGuestEvidence(input: {
     ...(notes.length ? [`<evidence_notes>\n${input.escape(notes.join('\n'))}\n</evidence_notes>`] : []),
     ...(partyLines.length ? [`<visitor_party>\n${input.escape(partyLines.join('\n'))}\n</visitor_party>`] : []),
   ]
+  const weakCandidateRefs: Record<string, string[]> = {}
+  const weakNames: Record<string, string[]> = {}
+  for (const thing of subjects.filter(weakSubject)) {
+    const records = [...thing.records, ...(thing.embeddedIn ? [thing.embeddedIn] : [])]
+    const rivals = resolved.identities.filter((identity) => identity.candidates.includes(thing))
+      .flatMap((identity) => identity.candidates.filter((candidate) => candidate !== thing))
+      .flatMap((candidate) => [candidate.name, ...candidate.records.flatMap((record) => record.names)])
+      .map(guestPlaceIdentityKey)
+    for (const record of records) {
+      weakNames[record.ref] = [thing.name, ...record.names].filter((name) => !rivals.includes(guestPlaceIdentityKey(name)))
+      weakCandidateRefs[record.ref] = [
+        ...governing.filter((link) => link.subject === thing
+          && !governing.some((other) => other.record === link.record && !weakSubject(other.subject)))
+          .map((link) => link.record.ref),
+        ...[...scopeRecords.entries()].filter(([, owners]) => owners.includes(thing) && owners.every(weakSubject))
+          .map(([scopeRecord]) => scopeRecord.ref),
+      ]
+    }
+  }
   const data = dataParts.length ? `<evidence_focus>\n${dataParts.join('\n')}\n</evidence_focus>` : ''
   return {
     rule: data ? `${RULE}${unresolvedTogetherRoles
@@ -1172,7 +1220,8 @@ export function assembleGuestEvidence(input: {
       : 'NOTICE RELEVANCE: This is a narrow fact lookup. Answer the asked fact without unrelated participation, refund or use notices merely because you name a thing. Include a notice if it answers the asked fact, or if you recommend or advise using its thing.'}` : '',
     data,
     state: { version: 'guest-evidence-state-v1', refs: nextRefs },
-    refNames: Object.fromEntries(nextRefs.map((ref) => [ref.ref, byRef.get(ref.ref)?.names ?? []])),
+    refNames: Object.fromEntries(nextRefs.map((ref) => [ref.ref, weakNames[ref.ref] ?? byRef.get(ref.ref)?.names ?? []])),
+    weakCandidateRefs,
     knownNames: [...new Set(indexed.flatMap((record) => record.names).filter((name) => isSpecific(guestPlaceIdentityKey(name))))],
     notices,
     rendered: rendered.map(({ record }) => ({
@@ -1216,10 +1265,10 @@ export function assembleGuestEvidence(input: {
  * follow-up "can he ride it?" refers to the slide the reply identified, not every candidate. The
  * reply only selects among record refs already in the state; it never adds a ref or a fact, and
  * the next turn still reauthorizes and reloads every carried record. A reply that names no subject
- * leaves the state unchanged.
+ * preserves strong named continuity; unconfirmed weak candidates and their exclusive rules drop.
  */
 export function refineGuestEvidenceStateByAnswer(
-  assembly: Pick<GuestEvidenceAssembly, 'state' | 'refNames'>,
+  assembly: Pick<GuestEvidenceAssembly, 'state' | 'refNames' | 'weakCandidateRefs'>,
   answer: string,
 ): GuestEvidenceState {
   const answerKey = guestPlaceIdentityKey(answer)
@@ -1230,8 +1279,14 @@ export function refineGuestEvidenceStateByAnswer(
     })
   const subjects = assembly.state.refs.filter((ref) => ref.reason === 'subject' && ref.age === 0)
   const kept = subjects.filter(named)
-  if (!kept.length || kept.length === subjects.length) return assembly.state
-  const dropped = new Set(subjects.filter((ref) => !kept.includes(ref)).map((ref) => ref.ref))
+  const weak = assembly.weakCandidateRefs ?? {}
+  const dropped = new Set(subjects.filter((ref) => !kept.includes(ref)
+    && (kept.length > 0 || Object.hasOwn(weak, ref.ref))).map((ref) => ref.ref))
+  // Do not leave an unconfirmed candidate's rules as freestanding continuity. A
+  // shared rule stays if another retained weak candidate still owns it.
+  for (const [subjectRef, related] of Object.entries(weak)) if (dropped.has(subjectRef))
+    for (const ref of related) if (!Object.entries(weak).some(([owner, refs]) => !dropped.has(owner) && refs.includes(ref))) dropped.add(ref)
+  if (!dropped.size) return assembly.state
   return { ...assembly.state, refs: assembly.state.refs.filter((ref) => !dropped.has(ref.ref)) }
 }
 

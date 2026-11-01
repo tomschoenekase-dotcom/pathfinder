@@ -347,8 +347,65 @@ describe('continuity found from sealed-set review', () => {
     expect(candidates.length).toBeGreaterThan(1)
     const refined = refineGuestEvidenceStateByAnswer(turn!, 'That is Thunder Run, the red wooden coaster in Frontier Ridge.')
     expect(refined.refs.filter((ref) => ref.reason === 'subject').map((ref) => ref.ref)).toEqual(['place:p-thunder'])
-    // A reply naming no subject leaves the state unchanged.
-    expect(refineGuestEvidenceStateByAnswer(turn!, 'Which part of the park are you in?')).toBe(turn!.state)
+    // Unidentified visual candidates do not become conversation subjects.
+    expect(refineGuestEvidenceStateByAnswer(turn!, 'Which part of the park are you in?').refs.filter((ref) => ref.reason === 'subject')).toEqual([])
+  })
+})
+
+describe('queried policy scope is open until established', () => {
+  const records: GuestEvidenceRecord[] = [
+    { ref: 'place:ride', title: 'Thunder Ride', content: 'Kind: ride\nThunder Ride is a ride.', version: null },
+    { ref: 'place:gallery', title: 'Open Gallery', content: 'Kind: gallery\nOpen Gallery is a gallery.', version: null },
+    { ref: 'place:cafe', title: 'Apron Cafe', content: 'Kind: cafe\nApron Cafe serves snacks.', version: null },
+    { ref: 'knowledge:companion', title: 'Companion Rule', content: 'Kind: policy\nApplies to: Thunder Ride\nDoes not apply to: Open Gallery\nCondition: Visitors under 12 need an adult companion.', version: null },
+  ]
+  const assemble = (question: string, previous: GuestEvidenceState | null = null) => assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: [], previous, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+  it('states unknown applicability for a directly queried policy and a different-kind target', () => {
+    const turn = assemble('Does Companion Rule apply to Apron Cafe?')
+    expect(turn.data).toContain('Applicability is unknown, not a confirmed exemption')
+    expect([...turn.rendered, ...turn.supporting].some((record) => record.ref === 'knowledge:companion')).toBe(true)
+    expect(turn.state.refs.some((ref) => ref.ref === 'knowledge:companion')).toBe(true)
+    expect(turn.rule).not.toContain('and to nothing else')
+  })
+  it('carries excluded scope evidence into a different-kind follow-up without generalizing exemption', () => {
+    const first = assemble('Can I enter Open Gallery alone?')
+    expect(first.data).toContain('confirmed exemption')
+    expect(first.state.refs.some((ref) => ref.ref === 'knowledge:companion' && ref.reason === 'scope')).toBe(true)
+    const next = assemble('What about Apron Cafe?', first.state)
+    expect(next.data).toContain('whether it applies to Apron Cafe. Applicability is unknown')
+    expect(next.supporting.some((record) => record.ref === 'knowledge:companion')).toBe(true)
+    expect(next.state.refs.some((ref) => ref.ref === 'knowledge:companion')).toBe(true)
+  })
+  it('does not make every global policy an unknown for an unrelated cafe question', () => {
+    const turn = assemble('Can I enter Apron Cafe?')
+    expect(turn.data).not.toContain('Companion Rule')
+  })
+})
+
+describe('weak subject confidence', () => {
+  it('does not turn a generic return match into a required credit notice or continuity', async () => {
+    const { refineGuestEvidenceStateByAnswer } = await import('./guest-evidence-assembly')
+    const question = 'We need three rental pairs. What deposit, and what happens if we return late?'
+    const records: GuestEvidenceRecord[] = [
+      { ref: 'knowledge:credit', title: 'Glide Credit', content: 'Kind: admission offer\nAlso called: Moonwake return credit\nGoverned by: Credit rule\nMust mention: Accepting Glide Credit ends your current visit.', version: null },
+      { ref: 'knowledge:rule', title: 'Credit rule', content: 'Kind: policy\nApplies to: Glide Credit\nMust mention: Glide Credit cannot be refunded.', version: null },
+    ]
+    const turn = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    expect(turn.trace.subjects).toBe(1)
+    expect(enforceGuestRequiredNotices({ response: 'Three rental pairs require a 24-token deposit.', notices: turn.notices, actionable: true }).appended).toEqual([])
+    expect(enforceGuestRequiredNotices({ response: 'You can accept Glide Credit.', notices: turn.notices, actionable: true }).appended).toHaveLength(2)
+    expect(refineGuestEvidenceStateByAnswer(turn, 'Three rental pairs require a 24-token deposit.').refs).toEqual([])
+  })
+
+  it('confirms a legitimate partial identification and preserves named/pronoun continuity', async () => {
+    const { refineGuestEvidenceStateByAnswer } = await import('./guest-evidence-assembly')
+    const [pandas] = journey(PRAIRIE_ZOO, [{ question: 'Tell me everything about the pandas' }])
+    const confirmed = refineGuestEvidenceStateByAnswer(pandas!, 'Red Panda Ridge has red pandas.')
+    expect(confirmed.refs.some((ref) => ref.reason === 'subject')).toBe(true)
+    const [named] = journey(LAKESHORE_PARK, [{ question: 'Can I ride Thunder Run?' }])
+    expect(refineGuestEvidenceStateByAnswer(named!, 'You need to meet its height requirement.').refs.some((ref) => ref.ref === 'place:p-thunder')).toBe(true)
+    const turns = journey(LAKESHORE_PARK, [{ question: 'Can I ride Thunder Run?' }, { question: 'What about riding it alone?' }])
+    expect(refineGuestEvidenceStateByAnswer(turns[1]!, 'Its companion requirement still applies.').refs.some((ref) => ref.ref === 'place:p-thunder')).toBe(true)
   })
 })
 
@@ -405,7 +462,66 @@ describe('visitor party', () => {
   })
 })
 
+describe('product applicability is not governing authority', () => {
+  const notice = 'Accepting Firing Deferral releases your booked wheel for the rest of the day.'
+  const records: GuestEvidenceRecord[] = [
+    { ref: 'place:studio', title: 'Spiral Studio', content: 'Kind: room\nGoverned by: Companion Policy\nSee also: Firing Deferral', version: null },
+    { ref: 'knowledge:offer', title: 'Firing Deferral', content: `Kind: deferral offer\nApplies to: Spiral Studio\nMust mention: ${notice}`, version: null },
+    { ref: 'knowledge:policy', title: 'Companion Policy', content: 'Kind: participation policy\nApplies to: Spiral Studio\nMust mention: Children need an adult companion.', version: null },
+  ]
+  const assemble = (question: string, current = records) => assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records: current, retrievedRefs: current.map((record) => record.ref), previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+
+  it.each(['Can my child work in Spiral Studio with me?', 'How many wheels are in Spiral Studio?'])('does not make a scoped offer a rule for the room: %s', (question) => {
+    const turn = assemble(question)
+    expect(turn.notices.some((item) => item.ref === 'knowledge:offer')).toBe(false)
+    expect(turn.state.refs.some((item) => item.ref === 'knowledge:offer')).toBe(false)
+    expect(turn.rendered.some((item) => item.ref === 'knowledge:offer')).toBe(false)
+    expect(turn.state.refs.some((item) => item.ref === 'knowledge:policy' && item.reason === 'governing')).toBe(true)
+  })
+
+  it('retains the selected offer and its own acceptance notice', () => {
+    const turn = assemble('Can I accept Firing Deferral?')
+    expect(turn.notices.find((item) => item.ref === 'knowledge:offer')?.onAction).toBe(true)
+    expect(enforceGuestRequiredNotices({ response: 'You can accept it.', notices: turn.notices, actionable: true }).appended).toContain(notice)
+  })
+
+  it('retains an explicitly authored governing link to a non-policy record', () => {
+    const current = records.map((record) => record.ref === 'place:studio'
+      ? { ...record, content: 'Kind: room\nGoverned by: Firing Deferral' } : record)
+    const turn = assemble('Can I work in Spiral Studio?', current)
+    expect(turn.state.refs.some((item) => item.ref === 'knowledge:offer' && item.reason === 'governing')).toBe(true)
+    expect(turn.notices.find((item) => item.ref === 'knowledge:offer')?.onAction).toBe(true)
+  })
+})
+
 describe('required notices (consequential completeness)', () => {
+  it.each([
+    'How many wheels are in Spiral Studio?',
+    'After the equipment update, how many wheels are in Spiral Studio and what color are the pans?',
+    'Name every physical place, and count only teaching studios.',
+    'At the fixed clock is Spiral Studio scheduled open? When is the next class?',
+  ])('keeps inventory and schedule answers free of use notices: %s', (question) => {
+    const records: GuestEvidenceRecord[] = [
+      { ref: 'place:studio', title: 'Spiral Studio', content: 'Kind: teaching studio\nSpiral Studio has six wheels with cobalt pans.\nMust mention: Wear an apron during independent work.', version: null },
+      { ref: 'knowledge:rule', title: 'Studio companion policy', content: 'Kind: policy\nApplies to: Spiral Studio\nMust mention: Children under 12 need an adult companion.', version: null },
+    ]
+    const result = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: records.map((record) => record.ref), previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    expect(result.notices.length).toBeGreaterThan(0)
+    expect(result.notices.every((notice) => notice.requiredForQuestion === false)).toBe(true)
+    expect(enforceGuestRequiredNotices({ response: 'Spiral Studio has six wheels with cobalt pans.', notices: result.notices, actionable: false }).appended).toEqual([])
+    expect(enforceGuestRequiredNotices({ response: 'You should use Spiral Studio for independent work.', notices: result.notices, actionable: false }).appended.length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    'How many Glaze tokens are needed to glaze three pieces?',
+    'How many tickets are included when I buy Glaze tokens?',
+    'When does the refund rule apply to Glaze tokens?',
+  ])('does not mistake a purchase or policy question for inventory: %s', (question) => {
+    const records: GuestEvidenceRecord[] = [{ ref: 'knowledge:tokens', title: 'Glaze tokens', content: 'Kind: admission offer\nMust mention: Unused tokens cannot be exchanged after leaving.', version: null }]
+    const result = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: ['knowledge:tokens'], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    expect(result.notices[0]?.requiredForQuestion).toBe(true)
+  })
+
   it('does not attach an unrelated governing notice to a narrow fact unless the answer advises use', () => {
     const [turn] = journey(LAKESHORE_PARK, [{ question: 'What color is Thunder Run?', records: (records) => records.map((record) =>
       record.title === 'Ride rules' ? { ...record, content: `${record.content}\nMust mention: Remove loose bags before boarding.` } : record) }])

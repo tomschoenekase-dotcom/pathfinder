@@ -15,6 +15,7 @@ export const GuestEvidenceExecutionSchema = z.object({
   mode: z.enum(['on', 'luna']),
   assemblyVersion: z.string().regex(/^guest-evidence-assembly-v\d+$/u),
   semanticsVersion: z.string().regex(/^guest-record-semantics-v\d+$/u),
+  noticeCheckerVersion: z.string().regex(/^guest-required-notices-v\d+$/u).optional(),
   evidenceSha256: sha256,
   recordCount: z.number().int().nonnegative(),
   recordsTruncated: z.boolean(),

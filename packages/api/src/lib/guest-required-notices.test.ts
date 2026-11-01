@@ -337,3 +337,36 @@ describe('nested authorized notice subject names', () => {
     expect(guestNoticeIsCovered('Lantern pack requires closed-toe boots for workshops.', clothing, ['Lantern'], 0.5, ['Lantern pack'])).toBe(false)
   })
 })
+
+
+describe('inclusive notice comparison equivalence', () => {
+  it.each([
+    ['A companion must be aged at least 18.', 'A companion must be aged 18 or older, but younger companions are allowed.'],
+    ['A rider must be at least 48 inches tall.', 'A rider must be 48 inches or more tall, but shorter riders are eligible.'],
+    ['A participant must be at most 12 years old.', 'A participant must be 12 years old or younger, but older participants are permitted.'],
+  ])('rejects an explicit permission exception to the bound: %s', (notice, answer) => {
+    expect(guestNoticeIsCovered(answer, notice)).toBe(false)
+  })
+  it.each([
+    'A companion must be aged 18 or older. Younger companions are not allowed.',
+    'A companion must be aged 18 or older. Younger riders are allowed.',
+  ])('does not confuse prohibitions or other roles with exceptions: %s', (answer) => {
+    expect(guestNoticeIsCovered(answer, 'A companion must be aged at least 18.')).toBe(true)
+  })
+  it.each([
+    ['A companion must be aged at least 18.', 'A companion must be aged 18 or older.'],
+    ['A rider must be at least 48 inches tall.', 'A rider must be 48 inches or more tall.'],
+    ['A participant must be at most 12 years old.', 'A participant must be 12 years old or younger.'],
+  ])('recognizes equivalent inclusive bounds: %s', (notice, answer) => {
+    expect(guestNoticeIsCovered(answer, notice)).toBe(true)
+  })
+  it.each([
+    ['A companion must be aged at least 18.', 'A companion must be aged over 18.'],
+    ['A companion must be aged at least 18.', 'A companion must be aged 18 or younger.'],
+    ['A companion must be aged under 18.', 'A companion must be aged 18 or younger.'],
+    ['A companion must be aged at least 18.', 'A companion must be aged 17 or older.'],
+    ['A companion must be aged at least 18.', 'A rider must be aged 18 or older.'],
+  ])('does not erase strictness, direction, value or role: %s', (notice, answer) => {
+    expect(guestNoticeIsCovered(answer, notice)).toBe(false)
+  })
+})

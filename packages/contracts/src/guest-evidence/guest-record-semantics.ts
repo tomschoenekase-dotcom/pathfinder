@@ -13,7 +13,7 @@
 
 import { guestPlaceIdentityKey } from './guest-place-identity'
 
-export const GUEST_RECORD_SEMANTICS_VERSION = 'guest-record-semantics-v2'
+export const GUEST_RECORD_SEMANTICS_VERSION = 'guest-record-semantics-v3'
 
 /** The general "things" kinds from the content model; venue-specific detail stays in `type`. */
 export type GuestThingKind = 'PLACE' | 'ITEM' | 'SERVICE' | 'POLICY' | 'EVENT' | 'KNOWLEDGE'
@@ -286,6 +286,10 @@ function inferKind(source: GuestSemanticsSource): {
 }
 
 function kindFromStatement(value: string): GuestThingKind {
+  // In an explicit kind, the terminal noun states what the record is. Product
+  // modifiers do not turn an admission policy into an admission product. Keep
+  // the legacy title/category inference order above unchanged.
+  if (/\b(?:polic(?:y|ies)|rules?|regulations?)\s*[.!]?$/iu.test(value)) return 'POLICY'
   for (const [kind, pattern] of KIND_WORDS) if (pattern.test(value)) return kind
   return 'KNOWLEDGE'
 }
