@@ -6,3 +6,5 @@ scripts/fixtures/media-fusion-v1/**/sources/* binary
 # Generated runtime checks require exact LF bytes on every checkout.
 packages/config/src/guest-conversation-disposition-policy.runtime.mjs text eol=lf
 packages/contracts/src/guest-conversation-disposition.runtime.mjs text eol=lf
+# The embedded MCP manual is compared byte-for-byte with this document.
+docs/operator/manual.md text eol=lf
