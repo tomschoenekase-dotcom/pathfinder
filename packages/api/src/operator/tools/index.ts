@@ -1,3 +1,4 @@
+import { venueBotConfigurationReadTools } from './venue-bot-configuration'
 import type { OperatorReadTool } from '../registry'
 import { controlTools } from './controls'
 import { crmReadTools } from './crm'
@@ -52,6 +53,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...routineReadTools,
   ...accessReadTools,
   ...venueReadTools,
+  ...venueBotConfigurationReadTools,
   ...evidenceReadTools,
   ...attentionReadTools,
   ...venueSourceReadTools,

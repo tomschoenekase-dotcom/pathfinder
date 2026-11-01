@@ -182,6 +182,8 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.list_candidates',
         'crm.get_contact_history',
         'crm.check_can_contact',
+        'venues.get_bot_configuration',
+        'venues.list_personality_profiles',
         'venues.list',
         'venues.list_operational_updates',
         'venues.get_visitor_summary',

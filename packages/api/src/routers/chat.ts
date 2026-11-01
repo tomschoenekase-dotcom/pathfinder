@@ -98,6 +98,7 @@ import {
   type GuestEvidenceRecord,
 } from '../lib/guest-evidence-assembly'
 import { guestAnswerShape, guestAnswerShapeRule } from '../lib/guest-answer-shape'
+import { guestEvidenceExecution } from '../lib/guest-evidence-execution'
 import { enforceGuestRequiredNotices } from '../lib/guest-required-notices'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
@@ -2201,6 +2202,7 @@ const chatReadRouter = router({
 
     // 6. Call the AI gateway. Provider failure remains fail-open for the guest,
     //    while every attempt is recorded best-effort for cost and reliability evidence.
+    let noticeExecution = { checked: 0, appended: 0 }
     let assistantResponse: string
     let engagementAskedThisTurn = false
     let recommendationShownInResponse = false
@@ -2584,6 +2586,7 @@ const chatReadRouter = router({
           actionable: answerShape.actionable,
           knownOtherNames: evidenceAssembly.knownNames,
         })
+        noticeExecution = { checked: enforced.checked, appended: enforced.appended.length }
         if (enforced.appended.length) {
           if (streamProjection)
             await streamProjection.push(enforced.response.slice(assistantResponse.length), {
@@ -2743,6 +2746,10 @@ const chatReadRouter = router({
             places: mentionedPlaces,
             citations,
             ...(answerEvidence ? { answerEvidence } : {}),
+            ...(evidenceAssembly && evidenceAssemblyMode !== 'off' && !fallbackFailureCode
+              ? { evidenceAssembly: guestEvidenceExecution({ assembly: evidenceAssembly, mode: evidenceAssemblyMode,
+                  noticesChecked: noticeExecution.checked, noticesAppended: noticeExecution.appended }) }
+              : {}),
             ...(guestActionPlacements.length && !fallbackFailureCode
               ? { actionPlacements: guestActionPlacements }
               : {}),

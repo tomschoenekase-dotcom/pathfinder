@@ -785,6 +785,12 @@ describe('guest chat turn actions', () => {
           },
         ],
       }
+      const executionFields = fallbackCode === null ? { evidenceAssembly: {
+        schemaVersion: 'guest-evidence-execution-v1' as const, mode: 'on' as const,
+        assemblyVersion: 'guest-evidence-assembly-v2', semanticsVersion: 'guest-record-semantics-v2',
+        evidenceSha256: 'e'.repeat(64), recordCount: 0, recordsTruncated: false, records: [],
+        noticesChecked: 1, noticesAppended: 1,
+      } } : {}
       const pendingPlaceIdentity = {
         version: 'guest-place-identity-pending-v1' as const,
         requestedName: 'Gallery',
@@ -830,7 +836,7 @@ describe('guest chat turn actions', () => {
             turnId,
             claimId,
             assistantResponse: 'The cafe is downstairs.',
-            replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
+            replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity, ...executionFields },
             fallbackCode,
             nextPending: { kind: 'NONE' },
           },
@@ -875,7 +881,7 @@ describe('guest chat turn actions', () => {
           data: expect.objectContaining({
             status: 'COMPLETE',
             fallbackCode,
-            replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
+            replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity, ...executionFields },
             responseHash: await import('node:crypto').then(({ createHash }) =>
               createHash('sha256')
                 .update(
@@ -885,6 +891,7 @@ describe('guest chat turn actions', () => {
                     citations,
                     answerEvidence,
                     pendingPlaceIdentity,
+                    ...executionFields,
                   }),
                 )
                 .digest('hex'),

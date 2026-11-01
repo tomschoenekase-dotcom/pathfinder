@@ -4668,6 +4668,21 @@ describe('chat router', () => {
         expect(result.response).toBe('Grab one at Guest Services.')
         const metadata = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata
         expect(metadata).not.toHaveProperty('evidenceState')
+        expect(metadata).not.toHaveProperty('evidenceAssembly')
+      })
+
+      it('does not persist a successful assembly receipt or append notices after provider failure', async () => {
+        vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+        setupHappyPath('Unused provider text.')
+        knowledgeRows([rainPass])
+        semanticSearch.places.mockResolvedValue([])
+        anthropicCreate.mockReset().mockRejectedValue(Object.assign(new Error('Synthetic provider failure'), { status: 400 }))
+        const result = await caller.chat.send(rainInput)
+        expect(result.response).toContain("I'm having trouble right now")
+        expect(result.response).not.toContain('ends your ticket')
+        const metadata = guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata
+        expect(metadata).not.toHaveProperty('evidenceAssembly')
+        expect(metadata).not.toHaveProperty('evidenceState')
       })
 
       it('fences the subject, persists record refs only, and appends a required notice the answer omitted', async () => {
@@ -4698,6 +4713,11 @@ describe('chat router', () => {
               age: 0,
             },
           ],
+        })
+        expect(metadata.evidenceAssembly).toMatchObject({
+          schemaVersion: 'guest-evidence-execution-v1', mode: 'on',
+          records: [{ ref: 'knowledge:k-rain', version: '2026-10-20T00:00:00.000Z', purpose: 'rendered' }],
+          noticesChecked: 1, noticesAppended: 1,
         })
         // The answer evidence still verifies against the final, appended response.
         expect(

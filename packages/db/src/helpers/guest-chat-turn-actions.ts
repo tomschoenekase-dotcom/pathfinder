@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
-import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
+import { GuestAnswerEvidenceBundleSchema, GuestEvidenceExecutionSchema } from '@pathfinder/contracts/guest-answer-attribution'
 import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { GuestActionPlacement } from '@pathfinder/contracts/guest-action-links'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
@@ -166,6 +166,7 @@ export const GuestChatReplayMetadata = z
     pendingPlaceIdentity: GuestPlaceIdentityPending.optional(),
     // Internal-only continuity for evidence assembly; never part of a public replay projection.
     evidenceState: GuestEvidenceStateSchema.optional(),
+    evidenceAssembly: GuestEvidenceExecutionSchema.optional(),
     // Which approved guest actions the answer offered and where. Destinations are resolved from
     // the venue's current catalog at display time, so no URL is stored per message.
     actionPlacements: z.array(GuestActionPlacement).max(8).optional(),
@@ -326,6 +327,7 @@ function guestChatResponseHash(
           ? { pendingPlaceIdentity: metadata.pendingPlaceIdentity }
           : {}),
         ...(hasMetadataField('evidenceState') ? { evidenceState: metadata.evidenceState } : {}),
+        ...(hasMetadataField('evidenceAssembly') ? { evidenceAssembly: metadata.evidenceAssembly } : {}),
         ...(hasMetadataField('actionPlacements')
           ? { actionPlacements: metadata.actionPlacements }
           : {}),

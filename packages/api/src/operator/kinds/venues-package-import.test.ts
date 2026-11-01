@@ -104,6 +104,31 @@ describe('venues.propose_package_import apply', () => {
     })
   })
 
+  it('reconciles an applied package after a lost apply response without recommending a duplicate import', async () => {
+    mocks.apply.mockRejectedValue(
+      Object.assign(new Error('Lost response after commit'), { code: 'P2028' }),
+    )
+    const failure = await venuesPackageImportKind.apply(args(), context).catch((error) => error)
+    expect(failure.summary).toContain('Inspect operator.get_operation')
+    expect(failure.summary).not.toContain('nothing was applied')
+    expect(failure.summary).not.toContain('new operationId')
+    const findFirst = vi.fn().mockResolvedValue({ id: 'pkg-1', status: 'APPLIED' })
+    const reconciled = await venuesPackageImportKind.reconcile!(args(), {
+      ...context,
+      database: { ...context.database, venuePackage: { findFirst } },
+    })
+    expect(reconciled).toMatchObject({
+      state: 'applied',
+      outcome: { result: { packageId: 'pkg-1', replayed: true } },
+    })
+    expect(mocks.apply).toHaveBeenCalledTimes(1)
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: TENANT, venueId: VENUE }),
+      }),
+    )
+  })
+
   it('keeps the failing step and its reason on the receipt', async () => {
     mocks.approve.mockRejectedValue(
       new TRPCError({ code: 'CONFLICT', message: 'Venue package changed' }),
@@ -111,7 +136,7 @@ describe('venues.propose_package_import apply', () => {
     const failure = await venuesPackageImportKind.apply(args(), context).catch((error) => error)
     expect(failure.code).toBe('CONFLICT')
     expect(failure.summary).toBe(
-      'The approve step failed (CONFLICT): Venue package changed. Nothing was applied. Retry with a new operationId; the saved draft stays unapplied.',
+      'The approve step failed (CONFLICT): Venue package changed. Inspect operator.get_operation with the original operationId and reconcile the durable package status before retrying; this error alone does not establish whether the import landed.',
     )
     expect(mocks.apply).not.toHaveBeenCalled()
   })

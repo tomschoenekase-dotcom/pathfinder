@@ -605,6 +605,17 @@ describe('venues.get_answer_evidence', () => {
     expect(JSON.stringify(usage?.args.where)).toContain(TENANT)
   })
 
+  it.each(['stored', 'absent', 'invalid'] as const)('returns only validated historical evidence execution: %s', async (state) => {
+    const receipt = { schemaVersion: 'guest-evidence-execution-v1', mode: 'luna',
+      assemblyVersion: 'guest-evidence-assembly-v2', semanticsVersion: 'guest-record-semantics-v2',
+      evidenceSha256: sha, recordCount: 1, recordsTruncated: false,
+      records: [{ ref: 'knowledge:k1', version: 'r2', purpose: 'rendered' }], noticesChecked: 2, noticesAppended: 1 }
+    const evidenceAssembly = state === 'stored' ? receipt : state === 'invalid' ? { ...receipt, answer: 'not permitted' } : undefined
+    const { database } = fakeDb(handlers(turn({ replayMetadata: { places: [], citations: [], answerEvidence: bundle, evidenceAssembly } })))
+    const output = await call('venues.get_answer_evidence', args, context(database))
+    expect(output.turn.evidence.evidenceAssembly).toEqual(state === 'stored' ? receipt : null)
+  })
+
   it.each(['valid', 'stale-overall', 'disposed'] as const)('projects %s stored coverage through the strict operator output contract', async (caseName) => {
     const guideCoverage = {
       schemaVersion: 'guest-guide-coverage-v1', mode: 'FULL', loadStatus: 'READY',

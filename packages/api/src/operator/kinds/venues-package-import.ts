@@ -137,11 +137,7 @@ async function step<T>(
       const message = error instanceof Error ? error.message : String(error)
       const code = 'code' in error ? String((error as { code: unknown }).code) : 'ERROR'
       const retry =
-        code === 'CONFLICT'
-          ? ' Nothing was applied. Retry with a new operationId; the saved draft stays unapplied.'
-          : code === 'P2028'
-            ? ' The database transaction ran out of time and rolled back; nothing was applied. Retry with a new operationId.'
-            : ''
+        ' Inspect operator.get_operation with the original operationId and reconcile the durable package status before retrying; this error alone does not establish whether the import landed.'
       Object.assign(error, {
         summary: `The ${name} step failed (${code}): ${message}.${retry}`.slice(0, 500),
       })

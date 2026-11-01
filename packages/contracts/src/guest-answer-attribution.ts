@@ -8,6 +8,33 @@ export const GUEST_ANSWER_ATTRIBUTION_VERSION = 'guest-answer-attribution-v1' as
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/u)
 const sourceId = z.string().trim().min(1).max(240)
 
+// Internal execution receipt. It records what ran, never answer text or reusable facts.
+// Older turns have no receipt; callers must not reconstruct one from today's settings.
+export const GuestEvidenceExecutionSchema = z.object({
+  schemaVersion: z.literal('guest-evidence-execution-v1'),
+  mode: z.enum(['on', 'luna']),
+  assemblyVersion: z.string().regex(/^guest-evidence-assembly-v\d+$/u),
+  semanticsVersion: z.string().regex(/^guest-record-semantics-v\d+$/u),
+  evidenceSha256: sha256,
+  recordCount: z.number().int().nonnegative(),
+  recordsTruncated: z.boolean(),
+  records: z.array(z.object({
+    ref: z.string().regex(/^(?:knowledge|place):[^\s]{1,191}$/u),
+    version: z.string().max(100).nullable(),
+    purpose: z.enum(['rendered', 'scope']),
+  }).strict()).max(100),
+  noticesChecked: z.number().int().nonnegative(),
+  noticesAppended: z.number().int().nonnegative(),
+}).strict().superRefine((value, context) => {
+  if (value.recordCount < value.records.length || value.recordsTruncated !== (value.recordCount > value.records.length))
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['recordCount'], message: 'Record coverage is inconsistent' })
+  if (value.noticesAppended > value.noticesChecked)
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['noticesAppended'], message: 'Appended notices exceed checked notices' })
+  if (new Set(value.records.map((record) => record.ref)).size !== value.records.length)
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['records'], message: 'Record refs must be unique' })
+})
+export type GuestEvidenceExecution = z.infer<typeof GuestEvidenceExecutionSchema>
+
 // Observations of the actual guide projection; never instructions or a completeness verdict.
 export const GuestGuideCoverageSchema = z.object({
   schemaVersion: z.literal('guest-guide-coverage-v1'),

@@ -1,3 +1,4 @@
+import { VENUE_BOT_CONFIGURATION_KINDS } from './venue-bot-configuration'
 import type { AnyOperatorProposalKind } from '../proposals'
 import { appearanceUpdateKind } from './appearance'
 import { appearanceGuestActionsKind } from './appearance-guest-actions'
@@ -39,6 +40,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   crmStageChangeKind,
   venuesCreateKind,
   venuesKnowledgeKind,
+  ...VENUE_BOT_CONFIGURATION_KINDS,
   venuesUpdateKind,
   venuesPackageImportKind,
   venuesContentChangesetKind,
