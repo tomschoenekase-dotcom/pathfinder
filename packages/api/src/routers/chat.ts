@@ -55,12 +55,14 @@ import {
   reserveGuestChatTurnAction,
   recordConversationInsightSignals,
   publishOperationalEvent,
+  readAdjacentGuestChatContinuityAction,
   readAdjacentGuestPlaceIdentityPendingAction,
   readActiveUnhealthyAiProviders,
   resolveRuntimeAiWorkloadConfiguration,
   resolveNativeGuestReadSnapshotAction,
   type EffectivePublishedUniversalContent,
   type GuestChatFallbackCode,
+  type GuestEvidenceState,
 } from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
@@ -85,6 +87,18 @@ import {
   guestFocusRetrievedSubjects,
 } from '../lib/guest-focus-facts'
 import { guestDateCueLunaScope, guestDateCuesForModel } from '../lib/guest-date-cue-scope'
+import {
+  assembleGuestEvidence,
+  guestEvidenceAssemblyForModel,
+  guestEvidenceAssemblyMode,
+  guestEvidenceRecordFromKnowledge,
+  guestEvidenceRecordFromPlace,
+  refineGuestEvidenceStateByAnswer,
+  type GuestEvidenceAssembly,
+  type GuestEvidenceRecord,
+} from '../lib/guest-evidence-assembly'
+import { guestAnswerShape, guestAnswerShapeRule } from '../lib/guest-answer-shape'
+import { enforceGuestRequiredNotices } from '../lib/guest-required-notices'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -124,6 +138,7 @@ import {
   buildGuestVenueGuidePrompt,
   expandGuestKnowledgeLinks,
   isPastDatedGuestEvent,
+  loadGuestVenueDirectory,
   loadGuestVenueDirectoryCached,
   staleGuestGuideRecordIds,
   suppressStaleGuestDirectoryKnowledge,
@@ -948,14 +963,27 @@ const chatReadRouter = router({
     // The claim already read the immutable turn sequence under its transaction.
     // Sequence one cannot have an adjacent predecessor, so avoid another
     // serialized transaction and lock before the first embedding dispatch.
-    const adjacentPending =
+    // Evidence assembly reads the same verified predecessor metadata in the same transaction.
+    const evidenceAssemblyMode = guestEvidenceAssemblyMode()
+    const continuity =
       claimed.turnSequence === 1
         ? null
-        : await readAdjacentGuestPlaceIdentityPendingAction({
-            client: ctx.db,
-            claim: turnOperationBase,
-            experienceScope: ctx.experienceScope,
-          })
+        : evidenceAssemblyMode !== 'off'
+          ? await readAdjacentGuestChatContinuityAction({
+              client: ctx.db,
+              claim: turnOperationBase,
+              experienceScope: ctx.experienceScope,
+            })
+          : {
+              pendingPlaceIdentity: await readAdjacentGuestPlaceIdentityPendingAction({
+                client: ctx.db,
+                claim: turnOperationBase,
+                experienceScope: ctx.experienceScope,
+              }),
+              evidenceState: null,
+            }
+    const adjacentPending = continuity?.pendingPlaceIdentity ?? null
+    const previousEvidenceState: GuestEvidenceState | null = continuity?.evidenceState ?? null
     let acceptedAdjacentIdentityName: string | null = null
     let effectiveIdentityQuery = trimmedInput
     if (adjacentPending) {
@@ -1573,6 +1601,78 @@ const chatReadRouter = router({
       focusFactsMode,
       focusConfiguration?.primaryModelKey,
     )
+    // Evidence assembly. The configuration read is reused and later checked against generation's.
+    const evidenceConfiguration =
+      evidenceAssemblyMode === 'luna'
+        ? (dateCueConfiguration ??
+          focusConfiguration ??
+          (await resolveRuntimeAiWorkloadConfiguration(
+            { workloadId: 'guest-chat', tenantId: venue.tenantId, venueId: input.venueId },
+            ctx.db,
+          )))
+        : null
+    const evidenceAssemblyEnabled =
+      guideLoadStatus === 'READY' &&
+      guestEvidenceAssemblyForModel(evidenceAssemblyMode, evidenceConfiguration?.primaryModelKey)
+    // Carried records are reauthorized and reloaded now, never taken from the earlier turn. A
+    // record that fails the fences is unavailable this turn and leaves the cached guide too.
+    let reloadedEvidenceRecords: GuestEvidenceRecord[] = []
+    let unavailableEvidenceRefs: string[] = []
+    let carriedEvidenceState: GuestEvidenceState | null = null
+    if (evidenceAssemblyEnabled && previousEvidenceState && previousEvidenceState.refs.length) {
+      const idsOf = (prefix: 'knowledge:' | 'place:') =>
+        previousEvidenceState.refs
+          .filter((ref) => ref.ref.startsWith(prefix))
+          .map((ref) => ref.ref.slice(prefix.length))
+      try {
+        const reloaded = await loadGuestVenueDirectory({
+          reader: ctx.db,
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          includeSecondLayer,
+          asOf: operationalNow,
+          onlyIds: { knowledge: idsOf('knowledge:'), places: idsOf('place:') },
+        })
+        const projected = applyNativeGuestContentRead({
+          snapshot: nativeReadSnapshot,
+          legacyPlaces: reloaded.places,
+          legacyKnowledgeEntries: reloaded.knowledge.map((entry) => ({ ...entry, distance: 0 })),
+        })
+        // A reload projected through a different read path than this turn's content is not
+        // comparable; carry nothing rather than mix sources.
+        if (projected.path === nativeRead.path) {
+          reloadedEvidenceRecords = [
+            ...projected.places.map(guestEvidenceRecordFromPlace),
+            ...projected.knowledgeEntries.map((entry) =>
+              guestEvidenceRecordFromKnowledge({
+                ...entry,
+                updatedAt:
+                  reloaded.knowledge.find((row) => row.id === entry.id)?.updatedAt ?? null,
+              }),
+            ),
+          ]
+          const present = new Set(reloadedEvidenceRecords.map((record) => record.ref))
+          unavailableEvidenceRefs = previousEvidenceState.refs
+            .map((ref) => ref.ref)
+            .filter((ref) => !present.has(ref))
+          carriedEvidenceState = previousEvidenceState
+        }
+      } catch {
+        logger.warn({ action: 'guest-evidence-reload-unavailable', venueId: venue.id })
+      }
+      if (unavailableEvidenceRefs.length) {
+        const gone = new Set(unavailableEvidenceRefs)
+        guestDirectory = {
+          ...guestDirectory,
+          knowledge: guestDirectory.knowledge.filter((entry) => !gone.has(`knowledge:${entry.id}`)),
+          places: guestDirectory.places.filter((place) => !gone.has(`place:${place.id}`)),
+        }
+        relevantKnowledgeEntries = relevantKnowledgeEntries.filter(
+          (entry) => !gone.has(`knowledge:${entry.id}`),
+        )
+        relevantPlaces = relevantPlaces.filter((place) => !gone.has(`place:${place.id}`))
+      }
+    }
     const statedDatesEnabled = dateCuesAllowed && guestStatedDatesEnabled()
     const todayStatusEnabled = dateCuesAllowed && guestTodayStatusEnabled()
     const venueGuide = buildGuestVenueGuidePrompt(guestDirectory, {
@@ -1839,6 +1939,86 @@ const chatReadRouter = router({
     }
     let generalWebProjection: ReturnType<typeof projectGuestGeneralWebContext> | null = null
     let updatedGuideRecordCount = 0
+    // Evidence assembly runs once per turn over authorized records only: the directory, this
+    // turn's retrieval and the reloaded carried records. The freshest version of each wins.
+    const answerShape = evidenceAssemblyEnabled
+      ? guestAnswerShape(trimmedInput, input.responseIntent)
+      : null
+    let evidenceAssembly: GuestEvidenceAssembly | null = null
+    if (evidenceAssemblyEnabled && answerShape) {
+      try {
+        const byRef = new Map<string, GuestEvidenceRecord>()
+        const offer = (record: GuestEvidenceRecord, replace: boolean) => {
+          const existing = byRef.get(record.ref)
+          // A retrieved knowledge body can be a bounded excerpt; only a newer version replaces
+          // the directory's full body.
+          if (
+            !existing ||
+            replace ||
+            (record.version !== null &&
+              existing.version !== null &&
+              record.ref.startsWith('knowledge:') &&
+              Date.parse(record.version) > Date.parse(existing.version))
+          )
+            byRef.set(record.ref, record)
+        }
+        for (const place of guestDirectory.places) offer(guestEvidenceRecordFromPlace(place), false)
+        for (const entry of guestDirectory.knowledge)
+          offer(guestEvidenceRecordFromKnowledge(entry), false)
+        for (const place of relevantPlaces)
+          offer(
+            guestEvidenceRecordFromPlace(
+              identityAreaOriginals.has(place.id)
+                ? { ...place, areaName: identityAreaOriginals.get(place.id) ?? null }
+                : place,
+            ),
+            false,
+          )
+        for (const entry of relevantKnowledgeEntries)
+          offer(
+            guestEvidenceRecordFromKnowledge({
+              ...entry,
+              updatedAt: (entry as { updatedAt?: Date | null }).updatedAt ?? null,
+            }),
+            false,
+          )
+        for (const record of reloadedEvidenceRecords) offer(record, true)
+        const visitorMessages = [...historyDesc]
+          .sort((left, right) => left.sessionSequence - right.sessionSequence)
+          .filter((row) => row.role === 'user')
+          .map((row) => row.content)
+        if (visitorMessages.at(-1) !== trimmedInput) visitorMessages.push(trimmedInput)
+        evidenceAssembly = assembleGuestEvidence({
+          question: trimmedInput,
+          visitorMessages,
+          shape: answerShape,
+          records: [...byRef.values()],
+          retrievedRefs: [
+            ...relevantKnowledgeEntries.map((entry) => `knowledge:${entry.id}`),
+            ...relevantPlaces.map((place) => `place:${place.id}`),
+          ],
+          previous: carriedEvidenceState,
+          unavailableRefs: unavailableEvidenceRefs,
+          coverage: {
+            mode: venueGuide.mode,
+            incomplete: guestDirectory.incomplete,
+            retrievalPartial: retrievalTrace?.partialCoverage ?? false,
+            loadFailed: guideLoadStatus !== 'READY',
+          },
+          escape: escapeUntrustedPromptData,
+        })
+        logger.info({
+          action: 'guest-chat.evidence-assembly',
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          ...evidenceAssembly.trace,
+        })
+      } catch {
+        // Assembly is an aid; without it the turn keeps the existing prompt.
+        evidenceAssembly = null
+        logger.warn({ action: 'guest-evidence-assembly-unavailable', venueId: venue.id })
+      }
+    }
     const prepareVenuePrompt = () => {
       // Retrieval is live while the guide's directory may be up to a minute old.
       // A released entry place compared with a fallback legacy guide would differ every turn.
@@ -1858,25 +2038,31 @@ const chatReadRouter = router({
       })
       updatedGuideRecordCount = updatedGuideRecordIds.size
       // Retrieved rows can be newer than the cached directory; the newer version wins by id.
+      // With evidence assembly, subjects are fenced there; focus facts keep only their
+      // computed date boundaries and dated schedules for retrieved records.
       const focusFacts =
         focusFactsEnabled && guideLoadStatus === 'READY'
           ? buildGuestFocusFacts({
               question: trimmedInput,
               previousQuestion: previousGuestQuery,
-              knowledge: [
-                ...relevantKnowledgeEntries,
-                ...guestDirectory.knowledge.filter(
-                  (entry) => !relevantKnowledgeEntries.some((row) => row.id === entry.id),
-                ),
-              ],
-              places: [
-                ...relevantPlaces,
-                ...guestDirectory.places.filter(
-                  (place) => !relevantPlaces.some((row) => row.id === place.id),
-                ),
-              ],
+              knowledge: evidenceAssembly
+                ? []
+                : [
+                    ...relevantKnowledgeEntries,
+                    ...guestDirectory.knowledge.filter(
+                      (entry) => !relevantKnowledgeEntries.some((row) => row.id === entry.id),
+                    ),
+                  ],
+              places: evidenceAssembly
+                ? []
+                : [
+                    ...relevantPlaces,
+                    ...guestDirectory.places.filter(
+                      (place) => !relevantPlaces.some((row) => row.id === place.id),
+                    ),
+                  ],
               retrieved: relevantKnowledgeEntries,
-              retrievedSubjects: guestFocusRetrievedSubjects(),
+              retrievedSubjects: evidenceAssembly ? 0 : guestFocusRetrievedSubjects(),
               escape: escapeUntrustedPromptData,
             })
           : null
@@ -1891,6 +2077,16 @@ const chatReadRouter = router({
         })
       return buildVenueSystemPromptParts({
         ...(focusFacts ? { focusFacts: { rule: focusFacts.rule, data: focusFacts.data } } : {}),
+        ...(answerShape
+          ? {
+              evidenceFocus: {
+                rule: [evidenceAssembly?.rule ?? '', guestAnswerShapeRule(answerShape)]
+                  .filter(Boolean)
+                  .join('\n\n'),
+                data: evidenceAssembly?.data ?? '',
+              },
+            }
+          : {}),
         currentDate,
         ...(venueClock.localTime ? { currentLocalTime: venueClock.localTime } : {}),
         beforeOpeningStatusCue:
@@ -1947,7 +2143,10 @@ const chatReadRouter = router({
         featuredPlace,
         ...(input.language ? { language: input.language } : {}),
         guideMode,
-        responseIntent: guestResponseIntentForMessage(trimmedInput, input.responseIntent),
+        responseIntent:
+          answerShape?.shape === 'DEEP_DIVE' && input.responseIntent !== 'EXPAND'
+            ? 'DEEP_DIVE'
+            : guestResponseIntentForMessage(trimmedInput, input.responseIntent),
         heightOrAgeRideQuestion: isGuestHeightOrAgeRideQuestion(trimmedInput),
         ...(selectedEngagementQuestion || allowAiInventedQuestion
           ? {
@@ -2064,6 +2263,21 @@ const chatReadRouter = router({
             rank,
             snapshot: entry,
           })),
+          // Records the evidence block added beyond retrieval (directory or reloaded carry).
+          ...(evidenceAssembly?.rendered ?? [])
+            .filter(
+              (record) =>
+                !relevantKnowledgeEntries.some((entry) => `knowledge:${entry.id}` === record.ref) &&
+                !relevantPlaces.some((place) => `place:${place.id}` === record.ref),
+            )
+            .slice(0, 10)
+            .map((record) => ({
+              sourceId: record.ref,
+              kind: record.ref.startsWith('place:') ? ('PLACE' as const) : ('KNOWLEDGE' as const),
+              label: record.title,
+              rank: null,
+              snapshot: record,
+            })),
           ...activeUpdates.map((update, rank) => ({
             sourceId: `operational-update:${update.id}`,
             kind: 'OPERATIONAL_UPDATE' as const,
@@ -2095,7 +2309,10 @@ const chatReadRouter = router({
       if (
         (dateCueConfiguration &&
           JSON.stringify(configuration) !== JSON.stringify(dateCueConfiguration)) ||
-        (focusConfiguration && JSON.stringify(configuration) !== JSON.stringify(focusConfiguration))
+        (focusConfiguration &&
+          JSON.stringify(configuration) !== JSON.stringify(focusConfiguration)) ||
+        (evidenceConfiguration &&
+          JSON.stringify(configuration) !== JSON.stringify(evidenceConfiguration))
       ) {
         throw new AiRoutingError('CAPABILITY_UNAVAILABLE', 'Guest workload configuration changed')
       }
@@ -2351,6 +2568,33 @@ const chatReadRouter = router({
         recommendationShownInResponse = disclosure.shownInResponse
         recommendationDisclosureAppended = disclosure.disclosureAppended
       }
+      // Authored required notices reach the visitor whenever their thing is discussed, even when
+      // the model left them out. Same server-side append pattern as the disclosure above.
+      if (evidenceAssembly?.notices.length && answerShape) {
+        const enforced = enforceGuestRequiredNotices({
+          response: assistantResponse,
+          notices: evidenceAssembly.notices.map((notice) => ({
+            ...notice,
+            text: guestPlainDashes(notice.text),
+          })),
+          actionable: answerShape.actionable,
+        })
+        if (enforced.appended.length) {
+          if (streamProjection)
+            await streamProjection.push(enforced.response.slice(assistantResponse.length), {
+              providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
+              requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
+            })
+          assistantResponse = enforced.response
+        }
+        logger.info({
+          action: 'guest-chat.required-notices',
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          checked: enforced.checked,
+          appended: enforced.appended.length,
+        })
+      }
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       await observeGuestChatProviderOperationAction({
@@ -2496,6 +2740,10 @@ const chatReadRouter = router({
             ...(answerEvidence ? { answerEvidence } : {}),
             ...(guestActionPlacements.length && !fallbackFailureCode
               ? { actionPlacements: guestActionPlacements }
+              : {}),
+            // Record references only; the next turn reauthorizes and reloads them.
+            ...(evidenceAssembly && !fallbackFailureCode && evidenceAssembly.state.refs.length
+              ? { evidenceState: refineGuestEvidenceStateByAnswer(evidenceAssembly, assistantResponse) }
               : {}),
             ...(!fallbackFailureCode &&
             !placeIdentityDiscoveryIncomplete &&

@@ -54,8 +54,11 @@ type VenueInfo = {
   responseDepth?: VenueBotResponseDepth | null
 }
 
-/** COMPARE is server-detected: a ranking or comparison needs room for every item and its reason. */
-export type GuestResponseIntent = 'DEFAULT' | 'EXPAND' | 'COMPARE'
+/**
+ * COMPARE is server-detected: a ranking or comparison needs room for every item and its reason.
+ * DEEP_DIVE is set only by evidence assembly for an explicit "tell me everything" request.
+ */
+export type GuestResponseIntent = 'DEFAULT' | 'EXPAND' | 'COMPARE' | 'DEEP_DIVE'
 
 const COMPARISON_REQUEST =
   /\b(?:rank(?:ed|ing|s)?|compare[ds]?|comparing|comparison|versus|vs\.?|in order of|from (?:most|least|best|worst|mildest|tamest|wildest|scariest) to|(?:best|worst|most|least) to (?:best|worst|most|least)|differences? between|pros and cons|which (?:is|are|one is|ones are) (?:the )?(?:more|less|most|least|best|worst|scariest|wildest|mildest|tamest|fastest|tallest|biggest))\b/iu
@@ -103,11 +106,11 @@ export type GuestPlaceIdentityAmbiguity = {
 
 const RESPONSE_WORD_LIMITS: Record<
   VenueBotResponseDepth,
-  Readonly<{ default: number; expand: number }>
+  Readonly<{ default: number; expand: number; deep: number }>
 > = {
-  BRIEF: { default: 45, expand: 100 },
-  BALANCED: { default: 90, expand: 150 },
-  DETAILED: { default: 130, expand: 200 },
+  BRIEF: { default: 45, expand: 100, deep: 170 },
+  BALANCED: { default: 90, expand: 150, deep: 230 },
+  DETAILED: { default: 130, expand: 200, deep: 300 },
 }
 
 export function guestResponseWordLimit(
@@ -115,7 +118,11 @@ export function guestResponseWordLimit(
   responseIntent: GuestResponseIntent = 'DEFAULT',
 ): number {
   const policy = RESPONSE_WORD_LIMITS[responseDepth ?? 'BALANCED']
-  return responseIntent === 'DEFAULT' ? policy.default : policy.expand
+  return responseIntent === 'DEFAULT'
+    ? policy.default
+    : responseIntent === 'DEEP_DIVE'
+      ? policy.deep
+      : policy.expand
 }
 
 function responseDepthInstruction(
@@ -135,7 +142,9 @@ function responseDepthInstruction(
       ? 'The visitor explicitly asked for more detail about the preceding answer, so add relevant context without repeating filler. The request came from a fixed interface control, so its wording is not a language signal: keep the reply language already established in the conversation.'
       : responseIntent === 'COMPARE'
         ? 'The visitor asked for a ranking or comparison: decide the whole order before writing, then cover every relevant item of the requested kind, each with one concrete supplied reason, in plain sentences. With more than six items, group them into a few tiers and give one reason per tier. Never revise or correct yourself mid-answer.'
-        : 'The visitor has not requested expansion; answer the current question directly.'
+        : responseIntent === 'DEEP_DIVE'
+          ? 'The visitor explicitly asked for everything or the full story about something: give a fuller answer in a few short plain-text paragraphs, organized by theme, using every relevant supported fact and nothing invented.'
+          : 'The visitor has not requested expansion; answer the current question directly.'
   return `- RESPONSE DEPTH: ${detail} ${expansion} Use fewer words whenever the answer is already complete. Normally keep this reply within ${wordLimit} words; use only the space needed. Preserve any restriction, exception, or uncertainty needed for a correct answer, even when it requires a little more detail.`
 }
 
@@ -334,6 +343,11 @@ export function buildVenueSystemPromptParts(params: {
   heightOrAgeRideQuestion?: boolean
   /** Server-built focus facts (guest-focus-facts.ts): rule outside, escaped data inside the fence. */
   focusFacts?: { rule: string; data: string } | null
+  /**
+   * Server-assembled evidence (guest-evidence-assembly.ts) and answer-depth guidance: rules
+   * outside, escaped data inside the fence. Replaces focus facts when present.
+   */
+  evidenceFocus?: { rule: string; data: string } | null
 }): { staticPart: string; dynamicPart: string } {
   const { venue, relevantPlaces, featuredPlace, language, engagementQuestion } = params
   const knowledgeEntries = params.knowledgeEntries ?? []
@@ -577,8 +591,10 @@ ${languageRule}`
   const dynamicVenueData = untrustedDataBlock(`MOST RELEVANT PLACES FOR THIS QUERY:
 ${placesSection}${featuredPlaceSection}${identityAmbiguityData}${knowledgeSection}${
     params.focusFacts ? `\n\n${params.focusFacts.data}` : ''
-  }`)
-  const focusFactsRule = params.focusFacts ? `\n\n${params.focusFacts.rule}` : ''
+  }${params.evidenceFocus?.data ? `\n\n${params.evidenceFocus.data}` : ''}`)
+  const focusFactsRule = `${params.focusFacts ? `\n\n${params.focusFacts.rule}` : ''}${
+    params.evidenceFocus?.rule ? `\n\n${params.evidenceFocus.rule}` : ''
+  }`
 
   const identityClarificationRule =
     params.placeIdentityAmbiguity || params.placeIdentityDiscoveryIncomplete

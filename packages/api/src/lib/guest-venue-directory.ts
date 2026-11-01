@@ -65,21 +65,42 @@ export async function loadGuestVenueDirectory(params: {
   venueId: string
   includeSecondLayer: boolean
   asOf: Date
+  /**
+   * Reload only these records, through the same tenant, venue, visibility, publication and
+   * adoption fences as the full directory. Used to reauthorize records carried between turns;
+   * the result is never cached. An ID that no longer passes the fences is simply absent.
+   */
+  onlyIds?: { knowledge: ReadonlyArray<string>; places: ReadonlyArray<string> }
 }): Promise<GuestVenueDirectory> {
   const reader = params.reader as DirectoryReader
+  const onlyKnowledge = params.onlyIds ? { id: { in: [...params.onlyIds.knowledge] } } : {}
+  const onlyPlaces = params.onlyIds ? { id: { in: [...params.onlyIds.places] } } : {}
   const [knowledgeRows, places, activated] = await Promise.all([
-    reader.venueKnowledgeEntry.findMany({
-      where: guestKnowledgeScope(params),
+    params.onlyIds && params.onlyIds.knowledge.length === 0
+      ? Promise.resolve([])
+      : reader.venueKnowledgeEntry.findMany({
+      where: {
+        ...guestKnowledgeScope({
+          tenantId: params.tenantId,
+          venueId: params.venueId,
+          includeSecondLayer: params.includeSecondLayer,
+          asOf: params.asOf,
+        }),
+        ...onlyKnowledge,
+      },
       select: guestKnowledgeSelectShape(),
       orderBy: [{ category: 'asc' }, { title: 'asc' }, { id: 'asc' }],
       take: MAX_DIRECTORY_KNOWLEDGE,
     }),
-    reader.place.findMany({
+    params.onlyIds && params.onlyIds.places.length === 0
+      ? Promise.resolve([])
+      : reader.place.findMany({
       where: {
         tenantId: params.tenantId,
         venueId: params.venueId,
         isActive: true,
         ...(params.includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
+        ...onlyPlaces,
       },
       select: {
         id: true,

@@ -103,6 +103,11 @@ function statesAttribute(text: string, attribute: GuestFocusAttribute): boolean 
   return RECORD_ATTRIBUTE[attribute].test(text.replace(DEFERRAL, ' '))
 }
 
+/** Whether a record's text states that kind of fact at all (shared with evidence assembly). */
+export const guestFocusStatesAttribute = statesAttribute
+
+export const GUEST_FOCUS_ATTRIBUTE_LABEL: Readonly<Record<GuestFocusAttribute, string>> = ATTRIBUTE_LABEL
+
 export function guestFocusAskedAttributes(question: string): GuestFocusAttribute[] {
   return (Object.keys(QUESTION_ATTRIBUTE) as GuestFocusAttribute[]).filter((attribute) =>
     QUESTION_ATTRIBUTE[attribute].test(question),
