@@ -441,6 +441,51 @@ describe('required notices (consequential completeness)', () => {
     expect(enforceGuestRequiredNotices({ response: 'Thunder Run has a red lift hill.', notices: turn!.notices, actionable: false }).appended).toHaveLength(1)
   })
 
+  it.each([
+    'Does the Lantern replacement deal also work for a microscope kit?',
+    'Does Bundle replacement rule apply to microscope kit loans?',
+    'Can I use Bundle replacement rule for microscope kits?',
+    'Compare replacing a Lantern bundle and a microscope kit under Bundle replacement rule.',
+  ])('does not append a named policy consequence for its authored excluded target: %s', (question) => {
+    const records: GuestEvidenceRecord[] = [
+      { ref: 'knowledge:bundle', title: 'Lantern bundle', content: 'Kind: admission offer\nLantern bundle contains books.\nGoverned by: Bundle replacement rule', version: null },
+      { ref: 'knowledge:replacement', title: 'Bundle replacement rule', content: 'Kind: borrowing rule\nApplies to: Lantern bundle\nDoes not apply to: ordinary book loans; microscope kit loans\nMust mention: Accepting a replacement Lantern bundle cancels the remaining days of the original bundle loan.', version: null },
+      { ref: 'knowledge:kits', title: 'microscope kit loans', content: 'Microscope kit loans last seven days.', version: null },
+    ]
+    const assemble = (text: string) => assembleGuestEvidence({ question: text, visitorMessages: [text], shape: guestAnswerShape(text), records, retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    const excluded = assemble(question)
+    expect(enforceGuestRequiredNotices({ response: 'Bundle replacement rule does not apply to microscope kits.', notices: excluded.notices, actionable: true }).appended).toEqual([])
+    expect(enforceGuestRequiredNotices({ response: 'You can replace the Lantern bundle at the counter.', notices: excluded.notices, actionable: true }).appended).toHaveLength(1)
+    const use = assemble('Can I replace my Lantern bundle under Bundle replacement rule?')
+    expect(enforceGuestRequiredNotices({ response: 'You can replace your Lantern bundle.', notices: use.notices, actionable: true }).appended).toHaveLength(1)
+  })
+
+  it('does not mistake a policy title containing its included target for actual product discussion', () => {
+    const question = 'Does Lantern bundle replacement rule apply to microscope kits?'
+    const records: GuestEvidenceRecord[] = [
+      { ref: 'knowledge:bundle', title: 'Lantern bundle', content: 'Kind: admission offer\nGoverned by: Lantern bundle replacement rule', version: null },
+      { ref: 'knowledge:replacement', title: 'Lantern bundle replacement rule', content: 'Kind: borrowing rule\nApplies to: Lantern bundle\nDoes not apply to: microscope kit loans\nMust mention: Accepting a replacement Lantern bundle cancels the remaining days of the original bundle loan.', version: null },
+    ]
+    const result = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    const policyOnly = 'Lantern bundle replacement rule does not apply to microscope kits.'
+    const excluded = enforceGuestRequiredNotices({ response: policyOnly, notices: result.notices, actionable: true })
+    expect(excluded.appended).toEqual([])
+    expect(excluded.response).toBe(policyOnly)
+    expect(enforceGuestRequiredNotices({ response: `${policyOnly} You can replace the Lantern bundle at the counter.`, notices: result.notices, actionable: true }).appended).toHaveLength(1)
+  })
+
+  it.each(['Thunder Run', 'Thunder'])('retains generic-scope notices for actual governed names and aliases in a mixed exclusion question: %s', (answerName) => {
+    const question = 'Compare riding Thunder Run with walking Quiet Path under Ride entry rule.'
+    const records: GuestEvidenceRecord[] = [
+      { ref: 'place:ride', title: 'Thunder Run', category: 'rides', content: 'Kind: ride\nAlso called: Thunder\nThunder Run is a ride.', version: null },
+      { ref: 'place:path', title: 'Quiet Path', content: 'Kind: walking path\nQuiet Path is a walking path.', version: null },
+      { ref: 'knowledge:rule', title: 'Ride entry rule', content: 'Kind: policy\nApplies to: all rides\nDoes not apply to: Quiet Path\nMust mention: Remove loose bags before boarding.', version: null },
+    ]
+    const result = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    expect(enforceGuestRequiredNotices({ response: 'Ride entry rule does not apply to Quiet Path.', notices: result.notices, actionable: true }).appended).toEqual([])
+    expect(enforceGuestRequiredNotices({ response: `You can ride ${answerName}.`, notices: result.notices, actionable: true }).appended).toEqual(['Remove loose bags before boarding.'])
+  })
+
   it('retains the use consequence for a narrow follow-up to a current decision', () => {
     const turns = journey(LAKESHORE_PARK, [
       { question: 'Should we take a Rain Check Pass?' },

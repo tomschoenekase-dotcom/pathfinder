@@ -316,3 +316,24 @@ it('does not let covered generic notice text skip another subjects missing notic
   const notices = ['Cloud Pass', 'Stone Pass'].map(name => ({text: 'No refunds.', names: [name], ref: name}))
   expect(enforceGuestRequiredNotices({response: 'Cloud Pass has no refunds. Stone Pass gives admission.', notices, actionable: true}).appended).toEqual(['No refunds.'])
 })
+
+
+describe('nested authorized notice subject names', () => {
+  const notice = { text: 'Accepting a replacement Lantern bundle cancels the remaining days of the original bundle loan.', names: ['Lantern bundle', 'Lantern pack'], ref: 'replacement' }
+  it('keeps a longer own alias and its pronoun consequence despite a shorter room name', () => {
+    const response = 'You can take a replacement Lantern pack. Accepting it cancels remaining days on original loan and starts new seven-day loan.'
+    expect(enforceGuestRequiredNotices({ response, notices: [notice], actionable: true, knownOtherNames: ['Lantern'] }).appended).toEqual([])
+  })
+  it('lets a longer competitor defeat a shorter own name', () => {
+    expect(enforceGuestRequiredNotices({ response: 'Lantern pack has no refunds.', notices: [{ text: 'Lantern has no refunds.', names: ['Lantern'], ref: 'room' }], actionable: true, knownOtherNames: ['Lantern pack'] }).appended).toEqual(['Lantern has no refunds.'])
+  })
+  it('keeps independent competing names even beside a longer own name', () => {
+    expect(enforceGuestRequiredNotices({ response: 'Lantern pack is available at Lantern. Accepting it cancels remaining days on original loan.', notices: [notice], actionable: true, knownOtherNames: ['Lantern'] }).appended).toEqual([notice.text])
+    expect(enforceGuestRequiredNotices({ response: 'Lantern pack is available. Stone Pass cancels remaining days on original loan.', notices: [notice], actionable: true, knownOtherNames: ['Lantern', 'Stone Pass'] }).appended).toEqual([notice.text])
+  })
+  it('uses the same nested-name boundary for prerequisite coverage', () => {
+    const clothing = 'Wear closed-toe boots for workshops; open-toe boots prevent participation.'
+    expect(guestNoticeIsCovered('Lantern pack requires closed-toe boots for workshops.', clothing, ['Lantern pack'], 0.5, ['Lantern'])).toBe(true)
+    expect(guestNoticeIsCovered('Lantern pack requires closed-toe boots for workshops.', clothing, ['Lantern'], 0.5, ['Lantern pack'])).toBe(false)
+  })
+})

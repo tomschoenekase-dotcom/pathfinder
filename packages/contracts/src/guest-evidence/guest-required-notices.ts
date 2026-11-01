@@ -137,18 +137,39 @@ function normalizedClauses(text: string): string[] {
 
 const NEGATIVE = /\b(?:not|no|never|without|nonrefundable|prohibited|forbidden)\b/u
 
+/** Resolve only nested name occurrences by specificity. A separate short-name
+ * occurrence still competes; the longest name elsewhere cannot erase it. */
+function namedSubjects(text: string, names: ReadonlyArray<string>, knownOtherNames: ReadonlyArray<string>): { own: boolean; other: boolean } {
+  const key = ` ${guestPlaceIdentityKey(text)} `
+  const ownKeys = new Set(names.map(guestPlaceIdentityKey))
+  const candidates = [
+    ...names.map((name) => ({ name, own: true })),
+    ...knownOtherNames.filter((name) => !ownKeys.has(guestPlaceIdentityKey(name))).map((name) => ({ name, own: false })),
+  ]
+  const spans: Array<{ start: number; end: number; own: boolean }> = []
+  for (const candidate of candidates) {
+    const name = guestPlaceIdentityKey(candidate.name)
+    if (name.length < 3) continue
+    let start = key.indexOf(` ${name} `)
+    while (start >= 0) {
+      spans.push({ start: start + 1, end: start + 1 + name.length, own: candidate.own })
+      start = key.indexOf(` ${name} `, start + 1)
+    }
+  }
+  const specific = spans.filter((span) => !spans.some((other) => other.start <= span.start && other.end >= span.end
+    && other.end - other.start > span.end - span.start))
+  return { own: specific.some((span) => span.own), other: specific.some((span) => !span.own) }
+}
+
 /** Keep a named subject's policy from satisfying another subject's notice. Unnamed follow-up
  * clauses inherit the last explicit subject; a single-subject answer can still use "it" or
  * "the pass". Names come from authorized evidence, never guesses about capitalized prose. */
 function subjectClauses(answer: string, names: ReadonlyArray<string>, knownOtherNames: ReadonlyArray<string>): string[] {
-  const ownKeys = new Set(names.map(guestPlaceIdentityKey))
-  const others = knownOtherNames.filter((name) => !ownKeys.has(guestPlaceIdentityKey(name)))
   const clauses = normalizedClauses(answer.replace(/,|\b(?:and|but)\b/giu, ';'))
-  const hasOther = clauses.some((clause) => others.some((name) => mentions(clause, name)))
+  const hasOther = clauses.some((clause) => namedSubjects(clause, names, knownOtherNames).other)
   let current = !hasOther
   return clauses.filter((clause) => {
-    const own = names.some((name) => mentions(clause, name))
-    const other = others.some((name) => mentions(clause, name))
+    const { own, other } = namedSubjects(clause, names, knownOtherNames)
     if (own || other) current = own && !other
     return current
   })
@@ -193,9 +214,7 @@ export function guestNoticeIsCovered(answer: string, notice: string, names: Read
     .join(' ')
   const relevantClauses = subjectClauses(assertions, names, knownOtherNames)
   // Preserve conjunctions inside a prerequisite when there is no competing named subject.
-  const ownKeys = new Set(names.map(guestPlaceIdentityKey))
-  const hasOtherSubject = knownOtherNames.some((name) => !ownKeys.has(guestPlaceIdentityKey(name))
-    && mentions(guestPlaceIdentityKey(assertions), name))
+  const hasOtherSubject = namedSubjects(assertions, names, knownOtherNames).other
   const relevantAssertions = hasOtherSubject ? relevantClauses.join('. ') : assertions
   const tentative = /\b(?:might|maybe|perhaps|possibly|uncertain|unclear|may)\b/iu
   if ((!tentative.test(relevantAssertions) || tentative.test(notice)) && prerequisiteCovered(relevantAssertions, notice)) return true
@@ -274,8 +293,17 @@ export function enforceGuestRequiredNotices(input: {
     if (input.shouldEnforce && !input.shouldEnforce(notice)) continue
     if (notice.requiredForQuestion === false && !guestAnswerAdvisesUse(input.response, notice.names)) continue
     if (seen.has(notice.text)) continue
+    // A named policy may contain the product name without discussing product use.
+    // Strip only authorized context names for this local gate; coverage and the
+    // visitor-facing answer retain the original text. Independent product mentions
+    // elsewhere in the answer still count.
+    let mentionKey = ` ${answerKey} `
+    for (const name of [...(notice.mentionExcludingNames ?? [])].sort((left, right) => right.length - left.length)) {
+      const contextKey = guestPlaceIdentityKey(name)
+      if (contextKey) mentionKey = mentionKey.replaceAll(` ${contextKey} `, ' ')
+    }
     const needed =
-      (input.actionable && notice.onAction !== false) || notice.names.some((name) => mentions(answerKey, name))
+      (input.actionable && notice.onAction !== false) || notice.names.some((name) => mentions(mentionKey.trim(), name))
     if (!needed) continue
     checked += 1
     const otherNames = [...(input.knownOtherNames ?? []), ...input.notices.flatMap((candidate) => candidate.names)]

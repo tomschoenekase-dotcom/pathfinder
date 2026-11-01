@@ -82,6 +82,8 @@ export type GuestRequiredNotice = {
   text: string
   /** Names whose mention in the answer makes the notice required. */
   names: string[]
+  /** Context-only policy names removed locally before the subject mention gate. */
+  mentionExcludingNames?: string[]
   ref: string
   /** An actionable question requires it without a name mention (own subject or its rule). */
   onAction?: boolean
@@ -1066,6 +1068,21 @@ export function assembleGuestEvidence(input: {
   const notices: GuestRequiredNotice[] = []
   for (const item of rendered) {
     if (!item.record.semantics.mustMention.length) continue
+    // A rule can be present because the visitor names it while asking whether it
+    // applies to an explicitly excluded subject. Naming the rule is not using its
+    // offer. Require discussion of an included target rather than the policy name
+    // or an actionable question alone. This also preserves notices for mixed-target
+    // questions when the answer discusses the actual included product.
+    // Match only the author's exclusion phrases, with ordinary number and
+    // the optional trailing loan noun; never infer an exclusion from answer text.
+    const questionScopeKey = guestPlaceIdentityKey(input.question).split(' ').map(singular).join(' ')
+    const excludedQuestionTarget = item.record.semantics.kind === 'POLICY'
+      && item.record.semantics.scope.doesNotApplyTo.some((target) => {
+        const targetKey = guestPlaceIdentityKey(target).split(' ').map(singular).join(' ')
+        const objectKey = targetKey.replace(/ loans?$/u, '')
+        return phraseIn(questionScopeKey, targetKey)
+          || (objectKey !== targetKey && objectKey.split(' ').length >= 2 && phraseIn(questionScopeKey, objectKey))
+      })
     const governed = governing.filter((link) => link.record === item.record).map((link) => link.subject)
     const embeddedSubjects = allSubjects.filter((thing) => thing.embeddedIn === item.record)
     const owners = [...item.subjectOf, ...embeddedSubjects, ...governed]
@@ -1081,20 +1098,27 @@ export function assembleGuestEvidence(input: {
     const qualifiedNames = identityUnselected ? item.record.names.flatMap((name) =>
       embeddedThings(guestPlaceIdentityKey(name), name, [{ ...item.record, keys: [] }])
         .filter((thing) => thing.derived === 'noun').map((thing) => thing.name)) : []
-    const names = [
+    const includedNames = [
+      ...item.record.semantics.scope.appliesTo,
+      ...governed.filter((thing) => !item.record.semantics.scope.doesNotApplyTo
+        .some((target) => scopeTargetMatches(target, thing, namedTargets)))
+        .flatMap((thing) => [thing.name, ...thing.records.flatMap((record) => record.names)]),
+    ]
+    const names = (excludedQuestionTarget ? includedNames : [
       ...item.record.names,
       ...qualifiedNames,
       ...embeddedSubjects.map((thing) => thing.name),
       ...item.subjectOf.flatMap((thing) => [thing.name, ...thing.records.flatMap((record) => record.names)]),
       ...governed.flatMap((thing) => (thing.records.length ? thing.records.flatMap((record) => record.names) : [thing.name])),
-    ].filter((name) => isSpecific(guestPlaceIdentityKey(name))
+    ]).filter((name) => isSpecific(guestPlaceIdentityKey(name))
       && !competingNames.some((other) => guestPlaceIdentityKey(other) === guestPlaceIdentityKey(name)))
     // An action question makes a notice required only for this question's own subjects and their
     // rules; any other record's notice needs its name in the answer.
-    const onAction = !identityUnselected && (
+    const onAction = !excludedQuestionTarget && !identityUnselected && (
       item.subjectOf.length > 0 || embeddedSubjects.length > 0 || governed.some((thing) => allSubjects.includes(thing)))
     for (const text of item.record.semantics.mustMention)
       notices.push({ text, names: [...new Set(names)], ref: item.record.ref, onAction,
+        ...(excludedQuestionTarget ? { mentionExcludingNames: item.record.names } : {}),
         requiredForQuestion: requiresUseNotices || item.subjectOf.length > 0 || embeddedSubjects.length > 0 })
   }
 
