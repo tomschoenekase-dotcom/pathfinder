@@ -1,3 +1,4 @@
+import { ENGAGEMENT_QUESTION_KINDS } from './engagement-questions'
 import { VENUE_BOT_CONFIGURATION_KINDS } from './venue-bot-configuration'
 import type { AnyOperatorProposalKind } from '../proposals'
 import { appearanceUpdateKind } from './appearance'
@@ -41,6 +42,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   venuesCreateKind,
   venuesKnowledgeKind,
   ...VENUE_BOT_CONFIGURATION_KINDS,
+  ...ENGAGEMENT_QUESTION_KINDS,
   venuesUpdateKind,
   venuesPackageImportKind,
   venuesContentChangesetKind,

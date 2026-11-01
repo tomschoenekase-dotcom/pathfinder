@@ -1,3 +1,4 @@
+import { engagementQuestionsList } from './engagement-questions'
 import { venueBotConfigurationReadTools } from './venue-bot-configuration'
 import type { OperatorReadTool } from '../registry'
 import { controlTools } from './controls'
@@ -54,6 +55,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...accessReadTools,
   ...venueReadTools,
   ...venueBotConfigurationReadTools,
+  engagementQuestionsList,
   ...evidenceReadTools,
   ...attentionReadTools,
   ...venueSourceReadTools,

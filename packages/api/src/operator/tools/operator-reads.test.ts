@@ -182,6 +182,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.list_candidates',
         'crm.get_contact_history',
         'crm.check_can_contact',
+        'engagement.list_questions',
         'venues.get_bot_configuration',
         'venues.list_personality_profiles',
         'venues.list',
