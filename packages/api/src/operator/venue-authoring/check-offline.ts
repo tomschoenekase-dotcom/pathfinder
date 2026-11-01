@@ -72,9 +72,7 @@ export function checkVenuePackageOffline(
     }
   }
   const payload = parsed.data
-  const guideQuality = venuePackageGuideQualityWarnings(payload, {
-    today: options.now.toISOString().slice(0, 10),
-  })
+  const guideQuality = venuePackageGuideQualityWarnings(payload)
   const authoring = venuePackageAuthoringFindings(payload, options.now)
 
   const named: Array<{ kind: 'place' | 'knowledge'; label: string; path: string; op: Operation }> =

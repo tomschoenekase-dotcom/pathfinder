@@ -1620,6 +1620,10 @@ const chatReadRouter = router({
     let unavailableEvidenceRefs: string[] = []
     let carriedEvidenceState: GuestEvidenceState | null = null
     if (evidenceAssemblyEnabled && previousEvidenceState && previousEvidenceState.refs.length) {
+      // Until reload succeeds on this turn's read path, every carried ref is unavailable.
+      // This also removes stale cached bodies after a read failure or native-path mismatch.
+      unavailableEvidenceRefs = previousEvidenceState.refs.map((ref) => ref.ref)
+      carriedEvidenceState = previousEvidenceState
       const idsOf = (prefix: 'knowledge:' | 'place:') =>
         previousEvidenceState.refs
           .filter((ref) => ref.ref.startsWith(prefix))

@@ -98,6 +98,17 @@ self-contained visitor-facing sentence.
 
 ## Limits
 
+Finishing integration: the repository authoring contract and offline/MCP package checks now
+include advisory semantic-label lint. Voice grounding uses the same flag and fenced reload;
+`luna` does not enable realtime voice models. Voice continuity is bounded process-local,
+session-scoped ref-only state. Short authored notices are supplied with instructions to speak
+them; this is not deterministic enforcement of the generated audio. The evaluation worker is
+unchanged because it cannot import the API package. Router tests cover native projection and
+missing release refs; the opt-in disposable PostgreSQL suite covers the reload fences.
+
+Reload failures and read-path mismatches mark all carried refs unavailable and remove cached
+bodies before prompt rendering, just as a record rejected by the authorization fence does.
+
 - Role binding and pronoun resolution are pattern-based. Unresolved roles are stated as
   unresolved; they are never guessed. "A rides with B" is symmetric and is rendered as "riding
   together" only: in the first paid run a grammatical rider/companion binding swapped the roles

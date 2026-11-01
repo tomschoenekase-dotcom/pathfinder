@@ -4741,6 +4741,62 @@ describe('chat router', () => {
         )
       })
 
+      it('removes cached carried bodies when the fenced reload throws', async () => {
+        vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+        setupHappyPath('Please ask staff about service animals.')
+        semanticSearch.places.mockResolvedValue([])
+        semanticSearch.knowledge.mockResolvedValue([])
+        venueKnowledgeEntryFindMany.mockImplementation(async (args: { where?: { id?: { in?: string[] } } }) => {
+          if (args?.where?.id?.in) throw new Error('reload unavailable')
+          return [pets]
+        })
+        guestTurnActions.readAdjacentContinuity.mockResolvedValue({
+          pendingPlaceIdentity: null,
+          evidenceState: { version: 'guest-evidence-state-v1', refs: [
+            { ref: 'knowledge:k-pets', version: '2026-10-20T00:00:00.000Z', reason: 'subject', age: 0 },
+          ] },
+        })
+        await caller.chat.send({ ...sendInput, message: 'And a service dog?' })
+        expect(getConcatenatedSystemPrompt()).not.toContain('kennel')
+        expect(getConcatenatedSystemPrompt()).toContain('used earlier in this conversation is no longer available')
+        expect(guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.evidenceState?.refs ?? [])
+          .not.toContainEqual(expect.objectContaining({ ref: 'knowledge:k-pets' }))
+      })
+
+      it.each([false, true])('projects native carried refs and excludes absent release refs (absent=%s)', async (absent) => {
+        vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+        setupHappyPath('Please check the published pass terms.')
+        semanticSearch.places.mockResolvedValue([])
+        semanticSearch.knowledge.mockResolvedValue([])
+        const published = { ...rainPass, content: 'The published pass permits one return visit.\nKind: admission offer' }
+        resolveNativeGuestReadSnapshotAction.mockResolvedValue({
+          path: 'NATIVE', reason: 'NATIVE_READY', releaseId: '11111111-1111-4111-8111-111111111111',
+          state: { places: [], knowledgeEntries: [published] },
+        })
+        venueKnowledgeEntryFindMany.mockImplementation(async (args: { where?: { id?: { in?: string[] } } }) =>
+          args?.where?.id?.in && absent ? [pets] : [rainPass])
+        const ref = absent ? 'knowledge:k-pets' : 'knowledge:k-rain'
+        guestTurnActions.readAdjacentContinuity.mockResolvedValue({
+          pendingPlaceIdentity: null,
+          evidenceState: { version: 'guest-evidence-state-v1', refs: [
+            { ref, version: '2026-10-20T00:00:00.000Z', reason: 'subject', age: 0 },
+          ] },
+        })
+        await caller.chat.send({ ...sendInput, message: absent ? 'And a service dog?' : 'What about that pass?' })
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).toContain('published pass permits one return visit')
+        expect(prompt).not.toContain('lightning closes most rides')
+        expect(prompt).not.toContain('kennel')
+        const refs = guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.evidenceState?.refs ?? []
+        if (absent) {
+          expect(prompt).toContain('used earlier in this conversation is no longer available')
+          expect(refs).not.toContainEqual(expect.objectContaining({ ref }))
+        } else {
+          expect(prompt).toContain('carried because this question refers back')
+          expect(refs).toContainEqual(expect.objectContaining({ ref }))
+        }
+      })
+
       it('carries a reloaded subject into a referring follow-up', async () => {
         vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
         setupHappyPath('It needs 48 inches to ride alone.')

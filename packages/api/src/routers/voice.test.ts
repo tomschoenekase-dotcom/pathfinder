@@ -292,7 +292,7 @@ describe('voice router', () => {
       .mockReturnValueOnce({
         path: 'LEGACY',
         places: [],
-        knowledgeEntries: [{ ...record, distance: 0 }],
+        knowledgeEntries: [{ ...record, distance: 0, sourceType: 'FOUNDER_PROVIDED', sourceName: null, sourceUrl: null }],
       })
     const result = await caller.voice.groundingContext({ ...input, query: 'And it?' })
     expect(result).toHaveProperty('evidenceTrace.unavailable', 1)

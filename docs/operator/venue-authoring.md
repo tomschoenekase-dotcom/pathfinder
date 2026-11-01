@@ -662,5 +662,5 @@ scope beyond the named things, or treat `Effective:` as automatic expiration.
 `MUST_MENTION_TOO_LONG`, `MUST_MENTION_NOT_SENTENCE` and `CONSEQUENCE_WITHOUT_NOTICE` under
 `authoring`. They are advisory and never change readiness or importability. Target checks see
 only records in the package, so verify unchanged targets separately for a partial update.
-Aliases resolve targets; broad scopes such as “all coasters” need human source review.
+Aliases resolve targets; broad scopes such as "all coasters" need human source review.
 These checks do not fact-check scope, sentence completeness, dates or consequences.
