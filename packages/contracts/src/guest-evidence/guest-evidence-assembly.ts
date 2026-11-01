@@ -894,7 +894,7 @@ export function assembleGuestEvidence(input: {
       excludedNotes.add(
         conflict
           ? `scope conflict: "${record.title}" excludes ${subject.name}, but an exact Applies to target or Governed by link also includes it. Applicability is disputed by the current records; do not assert either confirmed applicability or a confirmed exemption. Ask the venue to resolve this conflict.`
-          : `"${record.title}" says it does not apply to ${subject.name}. This is a confirmed exemption from this particular policy, not uncertainty about whether this policy applies. Do not transfer its requirements or permissions to ${subject.name}. The exemption alone does not establish what other policies allow or require.`,
+          : `"${record.title}" says it does not apply to ${subject.name}. This is a confirmed exemption from this particular policy, not uncertainty about whether this policy applies. Do not transfer its requirements or permissions to ${subject.name}. The exemption alone does not establish what other policies allow or require. Keep independent applicable requirements from this subject and its other governing policies; an exemption from one rule does not waive them.`,
       )
     for (const scope of found.unknownScopes) unknownScopes.add(scope)
     for (const missing of found.missingLinks) missingLinks.add(missing)
@@ -1050,7 +1050,12 @@ export function assembleGuestEvidence(input: {
     shape.actionable || shape.permission || ['PLAN', 'COMPARE', 'DEEP_DIVE'].includes(shape.shape)
   // A short follow-up to an ongoing decision still needs its consequences. Only visitor
   // wording is consulted; no generated answer is carried as evidence or intent.
-  const requiresUseNotices = useDecision(input.shape) ||
+  // Only positively recognized narrow questions may suppress a use notice. An English
+  // intent parser failing to recognize another language (or an unusual request) is not
+  // evidence that the visitor is merely asking a fact.
+  const recognizedNarrowLookup = /^(?:what (?:colou?r|name|year|height|length|width)|where (?:is|are)|who (?:built|designed)|when (?:was|were) .{1,80} (?:built|opened))\b/iu.test(input.question.trim())
+    && !/\b(?:need|required|requirement|allowed|permit|rule|policy|refund|exchange|redeem|valid|access|participat|can|could|should|must)\w*\b/iu.test(input.question)
+  const requiresUseNotices = !recognizedNarrowLookup || useDecision(input.shape) ||
     (carry && input.visitorMessages.slice(-3, -1).some((message) => useDecision(guestAnswerShape(message)))) ||
     (party.persons.length > 0 && /\b(?:can|could|may|will)\b[\s\S]{0,80}\b(?:ride|join|participate|do|go)\b/iu.test(input.question))
   const unresolvedTogetherRoles = party.persons.length >= 2 &&
@@ -1062,17 +1067,35 @@ export function assembleGuestEvidence(input: {
   for (const item of rendered) {
     if (!item.record.semantics.mustMention.length) continue
     const governed = governing.filter((link) => link.record === item.record).map((link) => link.subject)
+    const embeddedSubjects = allSubjects.filter((thing) => thing.embeddedIn === item.record)
+    const owners = [...item.subjectOf, ...embeddedSubjects, ...governed]
+    // Identity candidates remain in evidence to explain ambiguity. That does not make
+    // every candidate the subject of use advice or make a shared alias identify it.
+    const competing = resolved.identities.filter((identity) => identity.candidates.some((thing) => owners.includes(thing)))
+    const identityUnselected = competing.length > 0 && !competing.some((identity) => identity.chosen && owners.includes(identity.chosen))
+    const competingNames = identityUnselected ? competing.flatMap((identity) => identity.candidates
+      .filter((thing) => !owners.includes(thing))
+      .flatMap((thing) => [thing.name, ...thing.records.flatMap((record) => record.names)])) : []
+    // An aliased titled offer can name its qualified product in prose without being
+    // an embedded identity (e.g. alias Lantern Loft, prose Lantern Loft bundle).
+    const qualifiedNames = identityUnselected ? item.record.names.flatMap((name) =>
+      embeddedThings(guestPlaceIdentityKey(name), name, [{ ...item.record, keys: [] }])
+        .filter((thing) => thing.derived === 'noun').map((thing) => thing.name)) : []
     const names = [
       ...item.record.names,
+      ...qualifiedNames,
+      ...embeddedSubjects.map((thing) => thing.name),
       ...item.subjectOf.flatMap((thing) => [thing.name, ...thing.records.flatMap((record) => record.names)]),
       ...governed.flatMap((thing) => (thing.records.length ? thing.records.flatMap((record) => record.names) : [thing.name])),
-    ].filter((name) => isSpecific(guestPlaceIdentityKey(name)))
+    ].filter((name) => isSpecific(guestPlaceIdentityKey(name))
+      && !competingNames.some((other) => guestPlaceIdentityKey(other) === guestPlaceIdentityKey(name)))
     // An action question makes a notice required only for this question's own subjects and their
     // rules; any other record's notice needs its name in the answer.
-    const onAction =
-      item.subjectOf.length > 0 || governed.some((thing) => allSubjects.includes(thing))
+    const onAction = !identityUnselected && (
+      item.subjectOf.length > 0 || embeddedSubjects.length > 0 || governed.some((thing) => allSubjects.includes(thing)))
     for (const text of item.record.semantics.mustMention)
-      notices.push({ text, names: [...new Set(names)], ref: item.record.ref, onAction, requiredForQuestion: requiresUseNotices })
+      notices.push({ text, names: [...new Set(names)], ref: item.record.ref, onAction,
+        requiredForQuestion: requiresUseNotices || item.subjectOf.length > 0 || embeddedSubjects.length > 0 })
   }
 
   // 9. Next-turn state: refs only; selected now at age 0, carried ones age.

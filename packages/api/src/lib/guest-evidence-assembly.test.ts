@@ -406,11 +406,39 @@ describe('visitor party', () => {
 })
 
 describe('required notices (consequential completeness)', () => {
-  it('does not attach a use consequence to a narrow fact unless the answer advises use', () => {
-    const [turn] = journey(LAKESHORE_PARK, [{ question: 'Where do I collect the Rain Check Pass?' }])
+  it('does not attach an unrelated governing notice to a narrow fact unless the answer advises use', () => {
+    const [turn] = journey(LAKESHORE_PARK, [{ question: 'What color is Thunder Run?', records: (records) => records.map((record) =>
+      record.title === 'Ride rules' ? { ...record, content: `${record.content}\nMust mention: Remove loose bags before boarding.` } : record) }])
     expect(turn!.notices[0]!.requiredForQuestion).toBe(false)
-    expect(enforceGuestRequiredNotices({ response: 'The Rain Check Pass is collected at Guest Services.', notices: turn!.notices, actionable: false }).appended).toEqual([])
-    expect(enforceGuestRequiredNotices({ response: 'You should take a Rain Check Pass at Guest Services.', notices: turn!.notices, actionable: false }).appended).toHaveLength(1)
+    expect(enforceGuestRequiredNotices({ response: 'Thunder Run has a red lift hill.', notices: turn!.notices, actionable: false }).appended).toEqual([])
+    expect(enforceGuestRequiredNotices({ response: 'You should ride Thunder Run.', notices: turn!.notices, actionable: false }).appended).toHaveLength(1)
+  })
+
+  it('keeps an embedded product own tradeoff when explaining its benefits', () => {
+    const question = 'What does the Lantern Deck package include?'
+    const records: GuestEvidenceRecord[] = [{ ref: 'knowledge:viewing-packages', title: 'Viewing packages',
+      content: 'Viewing packages are special admission offers.\nKind: admission offer\nAlso called: Lantern Deck\nPrice: Lantern Deck package includes a guided deck visit and one meal for $24.\nMust mention: Exchanging a return ticket for the Lantern Deck package forfeits the second visit.', version: null }]
+    const result = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    expect(result.notices[0]?.requiredForQuestion).toBe(true)
+    expect(enforceGuestRequiredNotices({ response: 'The Lantern Deck package includes a guided deck visit and one meal for $24.', notices: result.notices, actionable: false }).appended).toHaveLength(1)
+  })
+
+  it.each(['Does the locker rule apply to Lantern Loft?', 'Can I visit Lantern Loft?'])('fences the bundle notice from the same-name physical room: %s', (question) => {
+    const records: GuestEvidenceRecord[] = [
+      { ref: 'place:loft', title: 'Lantern Loft', content: 'Kind: room\nLantern Loft is a free viewing room. Locker rule applies to Lantern Loft.', version: null },
+      { ref: 'knowledge:bundles', title: 'Loft bundles', content: 'Kind: admission offer\nAlso called: Lantern Loft\nPrice: Lantern Loft bundle includes a guided visit for $18.\nMust mention: Exchanging a return ticket for the Lantern Loft bundle cancels the second visit.', version: null },
+    ]
+    const result = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    const actionable = guestAnswerShape(question).actionable || guestAnswerShape(question).permission
+    expect(enforceGuestRequiredNotices({ response: 'Lantern Loft is a free viewing room; its locker rule applies.', notices: result.notices, actionable }).appended).toEqual([])
+    expect(enforceGuestRequiredNotices({ response: 'The Lantern Loft bundle includes a guided visit for $18.', notices: result.notices, actionable }).appended).toHaveLength(1)
+  })
+
+  it.each(['Does Thunder Run require loose bags to be removed?', 'Is a loose bag acceptable on Thunder Run?', 'What does the rule require for Thunder Run?'])('keeps governing notices outside a positively descriptive lookup: %s', (question) => {
+    const [turn] = journey(LAKESHORE_PARK, [{ question, records: (records) => records.map((record) =>
+      record.title === 'Ride rules' ? { ...record, content: `${record.content}\nMust mention: Remove loose bags before boarding.` } : record) }])
+    expect(turn!.notices[0]!.requiredForQuestion).toBe(true)
+    expect(enforceGuestRequiredNotices({ response: 'Thunder Run has a red lift hill.', notices: turn!.notices, actionable: false }).appended).toHaveLength(1)
   })
 
   it('retains the use consequence for a narrow follow-up to a current decision', () => {
