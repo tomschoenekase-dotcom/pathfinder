@@ -4510,7 +4510,7 @@ const seeds: readonly Seed[] = [
   [
     'engagement.propose_question_create',
     'Create engagement question',
-    `Create a tenant-wide guest engagement question. OPEN_ENDED clears options; MULTIPLE_CHOICE requires 2�4 unique options. Intensity is 1�5. Creates active by default; use update to disable. Requires customers:propose tenant access; venues:propose is insufficient.${PROPOSE}`,
+    `Create a tenant-wide guest engagement question. OPEN_ENDED clears options; MULTIPLE_CHOICE requires 2-4 unique options. Intensity is 1-5. Creates active by default; use update to disable. Requires customers:propose tenant access; venues:propose is insufficient.${PROPOSE}`,
     'customers:propose',
     'tenant',
     'engagement.question-create',
