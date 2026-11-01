@@ -659,8 +659,21 @@ meaning, including the thing and consequence, without pronouns needing earlier t
 scope beyond the named things, or treat `Effective:` as automatic expiration.
 
 `venue:check` and `venues.check_package` report `LINK_TARGET_MISSING`, `SCOPE_TARGET_MISSING`,
-`MUST_MENTION_TOO_LONG`, `MUST_MENTION_NOT_SENTENCE` and `CONSEQUENCE_WITHOUT_NOTICE` under
+`MUST_MENTION_TOO_LONG`, `MUST_MENTION_NOT_SENTENCE`, `CONSEQUENCE_WITHOUT_NOTICE`,
+`SCOPE_CONFLICT` and `GOVERNING_SCOPE_CONFLICT` under
 `authoring`. They are advisory and never change readiness or importability. Target checks see
 only records in the package, so verify unchanged targets separately for a partial update.
 Aliases resolve targets; broad scopes such as "all coasters" need human source review.
 These checks do not fact-check scope, sentence completeness, dates or consequences.
+
+An explicit exemption is a known boundary of that policy, not an unknown policy. It does not
+settle unrelated policies. `See also:` is an informational reference; only `Governed by:` binds
+a rule. A broad scope plus a named exception is valid. The same exact target in both scope lists,
+or a governing link to a policy that explicitly excludes the linked thing, needs source review.
+Keep conditional role requirements complete: do not omit an exception, turn "under" into
+"or younger", or substitute a participant's requirement for a companion's.
+
+For a live venue, `venues.preview_guest_evidence` previews current guest-visible records and
+their parsed labels without a model call or content write. It uses the guest publication fence,
+reports native mismatches and output bounds, and does not run semantic retrieval. It complements
+package checking; it does not prove the facts are current or predict the final generated answer.

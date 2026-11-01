@@ -638,7 +638,9 @@ function semanticFindings(records: AuthoringRecord[]): AuthoringFinding[] {
     code: finding.code,
     path: records.find((record) => record.title === finding.record)!.path,
     message: `"${finding.record}": ${finding.detail}`,
-    fix: finding.code.endsWith('TARGET_MISSING')
+    fix: finding.code.endsWith('SCOPE_CONFLICT')
+      ? 'Resolve the conflicting scope against the source. An explicit exemption is not an unknown rule; a broad scope with a named exception is valid, but contradictory exact targets or governing links need correction.'
+      : finding.code.endsWith('TARGET_MISSING')
       ? 'Use an exact record title or alias. Targets are checked only within this package; verify unchanged venue records separately.'
       : 'Write each Must mention line as one short, self-contained visitor sentence (at most 240 characters). Give a material consequence its own notice when it must always be said.',
   }))

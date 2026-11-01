@@ -283,6 +283,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'venues.get_content',
   'venues.preview_content_changeset',
   'venues.check_package',
+  'venues.preview_guest_evidence',
   'venues.list_releases',
   'venues.get_release',
   'venues.get_effective_guest_version',
@@ -906,10 +907,26 @@ export const OPERATOR_MCP_INPUTS = {
   'venues.list_content': VenueContentListInput,
   'venues.get_content': VenueContentGetInput,
   'venues.preview_content_changeset': readInput({ ...VenueContentChangesetShape }),
-  'venues.check_package': readInput({ ...venueScope, ...VenuePackageSourceShape }).refine(
-    (value) => Boolean(value.payload) !== Boolean(value.file),
-    { message: 'Provide exactly one of payload (inline JSON) or file (an attached .json file)' },
-  ),
+  'venues.preview_guest_evidence': readInput({
+    ...venueScope,
+    question: z.string().trim().min(1).max(2_000),
+    visitorHistory: z.array(z.string().trim().min(1).max(2_000)).max(10).default([]),
+    maxRecords: z.number().int().min(1).max(12).default(10),
+  }),
+  'venues.check_package': readInput({
+    ...venueScope,
+    ...VenuePackageSourceShape,
+    findingsPage: z
+      .object({
+        kind: z.enum(['errors', 'guideQuality', 'authoring', 'otherWarnings', 'venueSetup']),
+        offset: z.number().int().nonnegative(),
+        limit: z.number().int().min(1).max(100),
+      })
+      .strict()
+      .optional(),
+  }).refine((value) => Boolean(value.payload) !== Boolean(value.file), {
+    message: 'Provide exactly one of payload (inline JSON) or file (an attached .json file)',
+  }),
   'venues.list_releases': VenueReleaseListInput,
   'venues.get_release': VenueReleaseGetInput,
   'venues.get_effective_guest_version': VenueEffectiveGuestVersionInput,
@@ -3402,15 +3419,72 @@ export const OPERATOR_MCP_OUTPUTS = {
       /** Venue settings to fix before testing; absent when the package shape is invalid. */
       venueSetup: z.array(PackageCheckIssue).max(2).optional(),
       /** Advisory authoring patterns; never change ready or importable. */
-      authoring: z.object({
-        total: z.number().int().nonnegative(),
-        shown: z.array(PackageCheckIssue).max(40),
-        next: z.string().max(500),
-      }).strict().optional(),
+      authoring: z
+        .object({
+          total: z.number().int().nonnegative(),
+          shown: z.array(PackageCheckIssue).max(40),
+          next: z.string().max(500),
+        })
+        .strict()
+        .optional(),
+      findingsPage: z
+        .object({
+          kind: z.enum(['errors', 'guideQuality', 'authoring', 'otherWarnings', 'venueSetup']),
+          total: z.number().int().nonnegative(),
+          offset: z.number().int().nonnegative(),
+          nextOffset: z.number().int().nonnegative().nullable(),
+          items: z.array(PackageCheckIssue).max(100),
+        })
+        .strict()
+        .optional(),
       note: z.string().max(500),
     })
     .strict(),
   'venues.list_releases': VenueReleaseListOutput,
+  'venues.preview_guest_evidence': z
+    .object({
+      venueId: Identifier,
+      status: z.enum(['ready', 'partial', 'unavailable']),
+      readPath: z.enum(['LEGACY', 'DARK', 'NATIVE']).nullable(),
+      reason: z.string().max(1_000),
+      runtime: z
+        .object({
+          flag: z.enum(['off', 'on', 'luna']),
+          chat: z.enum(['enabled', 'disabled', 'model_dependent']),
+          voice: z.enum(['enabled', 'disabled']),
+          evaluation: z.literal('not_wired'),
+          scope: z.literal('operator_process_configuration'),
+        })
+        .strict(),
+      coverage: z
+        .object({
+          loadedRecords: z.number().int().min(0).max(800),
+          directoryIncomplete: z.boolean(),
+          outputTruncated: z.boolean(),
+          retrieval: z.literal('not_run'),
+          continuity: z.literal('visitor_only_replay'),
+          maxRecords: z.number().int().min(1).max(12),
+          maxEvidenceChars: z.literal(20_000),
+          maxCandidateChars: z.literal(400_000),
+        })
+        .strict(),
+      records: z
+        .array(
+          z
+            .object({
+              ref: z.string().max(300),
+              version: z.string().max(200).nullable(),
+              title: UntrustedText,
+              semantics: UntrustedText,
+            })
+            .strict(),
+        )
+        .max(12),
+      evidence: UntrustedText,
+      notices: UntrustedText,
+      trace: UntrustedText,
+    })
+    .strict(),
   'venues.get_release': VenueReleaseGetOutput,
   'venues.get_effective_guest_version': VenueEffectiveGuestVersionOutput,
   'venues.get_release_preflight': VenueReleasePreflightOutput,
@@ -4422,7 +4496,14 @@ const seeds: readonly Seed[] = [
   [
     'venues.check_package',
     'Check venue package',
-    `Check a venue package (inline payload or attached .json file) without saving or changing anything: the import plan, validation errors, and guideQuality findings with exact record paths and what to fix (research or pin notes, "listed" voice, labels in names, source links, weak first sentences, missing Height: lines, question titles). Fix and re-check until ready is true, then import with venues.propose_package_import.${READ}`,
+    `Check a venue package (inline payload or attached .json file) without saving or changing anything: the import plan, validation errors, and guideQuality findings with exact record paths and what to fix (research or pin notes, "listed" voice, labels in names, source links, weak first sentences, missing Height: lines, question titles). The authoring result separately reports advisory meaning, scope and required-notice findings; review total and shown (up to 40). Request findingsPage {kind, offset, limit} to read every finding in errors, guideQuality, authoring, otherWarnings or venueSetup; limit is 1-100, and nextOffset is null at the end. These findings never change ready or importable, and target checks are package-local. Fix and re-check until ready is true, review or justify advisory findings, then import with venues.propose_package_import. operator.get_manual explains the labeled-line authoring contract.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
+    'venues.preview_guest_evidence',
+    'Preview guest evidence',
+    `Read-only deterministic evidence preview for an active venue using its current public guest directory and the same native-release projection as chat. Supply a question and at most ten visitor-only history strings, oldest first; never include assistant replies. Returns authorized selected refs, parsed semantics as untrusted JSON, notices, evidence and trace, finite bounds and honest partial/unavailable status. No model, semantic retrieval or session writes. Visitor-only replay cannot reproduce assistant-based subject refinement. Runtime flags describe this operator process, not proof of another deployment. A native projection mismatch returns unavailable.${READ}`,
     'venues:read',
     'venue',
   ],

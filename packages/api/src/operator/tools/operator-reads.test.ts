@@ -200,6 +200,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'venues.list_releases',
         'venues.get_release',
         'venues.get_effective_guest_version',
+        'venues.preview_guest_evidence',
         'venues.get_release_preflight',
         'venues.get_preview_link',
         'venues.get_guest_link',

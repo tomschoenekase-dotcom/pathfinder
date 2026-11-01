@@ -25,6 +25,7 @@ import { supportReadTools } from './support'
 import { updateReadTools } from './updates'
 import { venueContentReadTools } from './venue-content'
 import { venuesCheckPackage } from './venue-package-check'
+import { previewGuestEvidence } from './guest-evidence-preview'
 import { venueReleaseReadTools } from './venue-releases'
 import { venueSourceReadTools } from './venue-sources'
 import { sourceConnectionReadTools } from './source-connections'
@@ -57,6 +58,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...sourceConnectionReadTools,
   ...venueContentReadTools,
   venuesCheckPackage,
+  previewGuestEvidence,
   ...venueReleaseReadTools,
   ...supportReadTools,
   ...updateReadTools,

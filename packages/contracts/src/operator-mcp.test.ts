@@ -71,6 +71,7 @@ const EXPECTED_TOOLS = [
   'venues.get_content',
   'venues.preview_content_changeset',
   'venues.check_package',
+  'venues.preview_guest_evidence',
   'venues.list_releases',
   'venues.get_release',
   'venues.get_effective_guest_version',
@@ -667,4 +668,25 @@ describe('CRM account, address, prospect and import tools', () => {
       expect(getOperatorToolDefinition(name)?.capability).toBe('crm:propose')
     }
   })
+})
+
+it('keeps package findings pagination optional and validates explicit finite bounds', () => {
+  const base = { tenantId: 'tenant-a', venueId: 'venue-a', payload: { schemaVersion: 3 } }
+  const schema = OPERATOR_MCP_INPUTS['venues.check_package']
+  expect(schema.parse(base)).not.toHaveProperty('findingsPage')
+  for (const kind of ['errors', 'guideQuality', 'authoring', 'otherWarnings', 'venueSetup']) {
+    expect(
+      schema.safeParse({ ...base, findingsPage: { kind, offset: 0, limit: 100 } }).success,
+    ).toBe(true)
+  }
+  for (const page of [
+    { kind: 'other', offset: 0, limit: 1 },
+    { kind: 'errors', offset: -1, limit: 1 },
+    { kind: 'errors', offset: 0.5, limit: 1 },
+    { kind: 'errors', offset: 0, limit: 0 },
+    { kind: 'errors', offset: 0, limit: 101 },
+    { kind: 'errors', offset: 0, limit: 1.5 },
+    { kind: 'errors', offset: Infinity, limit: 1 },
+  ])
+    expect(schema.safeParse({ ...base, findingsPage: page }).success).toBe(false)
 })

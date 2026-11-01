@@ -129,8 +129,20 @@ meaning, including the thing and consequence, without pronouns needing earlier t
 scope beyond the named things, or treat `Effective:` as automatic expiration.
 
 `venue:check` and `venues.check_package` report `LINK_TARGET_MISSING`, `SCOPE_TARGET_MISSING`,
-`MUST_MENTION_TOO_LONG`, `MUST_MENTION_NOT_SENTENCE` and `CONSEQUENCE_WITHOUT_NOTICE` under
+`MUST_MENTION_TOO_LONG`, `MUST_MENTION_NOT_SENTENCE`, `CONSEQUENCE_WITHOUT_NOTICE`,
+`SCOPE_CONFLICT` and `GOVERNING_SCOPE_CONFLICT` under
 `authoring`. They are advisory and never change readiness or importability. Target checks see
 only records in the package, so verify unchanged targets separately for a partial update.
 Aliases resolve targets; broad scopes such as "all coasters" need human source review.
 These checks do not fact-check scope, sentence completeness, dates or consequences.
+
+Treat an explicit exemption as a known boundary of that policy, not an unknown rule. It does
+not settle other policies. `See also:` is informational; `Governed by:` is a rule link. A broad
+scope with a named exception is valid, while conflicting exact targets or a governing link to
+a policy that excludes the thing need source review. Preserve conditional role requirements,
+including strict versus inclusive bounds and exceptions.
+
+Use `venues.preview_guest_evidence` for a deterministic view of a live venue's guest-visible
+records, parsed scopes, unknowns and notices before a paid answer test. It does not run semantic
+retrieval or predict the final answer. Respect its unavailable/partial status and bounds; no
+content write or model call occurs.

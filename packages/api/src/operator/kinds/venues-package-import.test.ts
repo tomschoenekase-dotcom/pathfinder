@@ -188,13 +188,16 @@ describe('venues.check_package', () => {
   it('returns package semantic advice without changing readiness or saving', async () => {
     mocks.preview.mockResolvedValue({ report: report() })
     const annotated = structuredClone(payload)
-    annotated.knowledgeEntries.create[0]!.value.content = 'Governed by: Missing rules\nConsequence: the visit ends'
+    annotated.knowledgeEntries.create[0]!.value.content =
+      'Governed by: Missing rules\nConsequence: the visit ends'
     const result: any = await venuesCheckPackage.handler(
-      { tenantId: TENANT, venueId: VENUE, payload: annotated }, context,
+      { tenantId: TENANT, venueId: VENUE, payload: annotated },
+      context,
     )
     expect(result).toMatchObject({ ready: true, importable: true })
-    expect(result.authoring.shown.map((finding: { code: string }) => finding.code))
-      .toEqual(expect.arrayContaining(['LINK_TARGET_MISSING', 'CONSEQUENCE_WITHOUT_NOTICE']))
+    expect(result.authoring.shown.map((finding: { code: string }) => finding.code)).toEqual(
+      expect.arrayContaining(['LINK_TARGET_MISSING', 'CONSEQUENCE_WITHOUT_NOTICE']),
+    )
     expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
     expect(mocks.draft).not.toHaveBeenCalled()
     expect(mocks.approve).not.toHaveBeenCalled()
@@ -264,6 +267,102 @@ describe('venues.check_package', () => {
     expect(result.errorCount).toBeGreaterThan(0)
     expect(result.errors[0].code).toBe('INVALID_PACKAGE')
     expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
+    expect(mocks.preview).not.toHaveBeenCalled()
+  })
+})
+
+describe('package finding pagination', () => {
+  const call = (kind?: string, offset = 0, limit = 17, body: unknown = payload, ctx = context) =>
+    venuesCheckPackage.handler(
+      {
+        tenantId: TENANT,
+        venueId: VENUE,
+        payload: body,
+        ...(kind ? { findingsPage: { kind, offset, limit } } : {}),
+      },
+      ctx,
+    ) as Promise<any>
+  const issues = (code: string) =>
+    Array.from({ length: 53 }, (_, i) => ({ code, path: `row.${i}`, message: `Finding ${i}` }))
+
+  it.each(['errors', 'guideQuality', 'otherWarnings'] as const)(
+    'reaches all %s findings beyond the default 40',
+    async (kind) => {
+      const all = issues(kind === 'guideQuality' ? 'GUIDE_QUALITY_TITLE' : 'EXAMPLE_WARNING')
+      mocks.preview.mockResolvedValue({
+        report: { errors: kind === 'errors' ? all : [], warnings: kind === 'errors' ? [] : all },
+      })
+      const baseline = await call()
+      expect(baseline).not.toHaveProperty('findingsPage')
+      const seen = []
+      let offset = 0
+      while (offset < all.length) {
+        const result = await call(kind, offset)
+        expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(result).success).toBe(true)
+        const { findingsPage, ...unchanged } = result
+        expect(unchanged).toEqual(baseline)
+        expect(findingsPage.total).toBe(53)
+        seen.push(...findingsPage.items)
+        if (findingsPage.nextOffset === null) break
+        offset = findingsPage.nextOffset
+      }
+      expect(seen).toEqual(all)
+      expect((await call(kind, 100)).findingsPage).toMatchObject({
+        offset: 100,
+        nextOffset: null,
+        items: [],
+      })
+      expect(mocks.draft).not.toHaveBeenCalled()
+    },
+  )
+
+  it('pages every authoring advisory and venue setting without changing readiness', async () => {
+    mocks.preview.mockResolvedValue({ report: report() })
+    const annotated = structuredClone(payload)
+    annotated.knowledgeEntries.create[0]!.value.content = Array.from(
+      { length: 53 },
+      (_, i) => `Governed by: Missing rules ${i}`,
+    ).join('\n')
+    const baseline = await call(undefined, 0, 17, annotated)
+    expect(baseline.authoring.total).toBeGreaterThan(40)
+    const first = await call('authoring', 0, 40, annotated)
+    const last = await call('authoring', 40, 100, annotated)
+    expect(first.findingsPage.items).toEqual(baseline.authoring.shown)
+    expect(first.findingsPage.items.length + last.findingsPage.items.length).toBe(
+      baseline.authoring.total,
+    )
+    expect(last.findingsPage.nextOffset).toBeNull()
+    expect(last.ready).toBe(baseline.ready)
+    const ctx = {
+      ...context,
+      database: {
+        ...context.database,
+        venue: { findFirst: async () => ({ guideMode: null, chatAppearance: {} }) },
+      },
+    }
+    const setup = await call('venueSetup', 1, 1, payload, ctx)
+    expect(setup.findingsPage).toMatchObject({
+      total: 2,
+      nextOffset: null,
+      items: [setup.venueSetup[1]],
+    })
+  })
+
+  it('pages schema errors even when the package cannot be previewed', async () => {
+    const invalid = structuredClone(payload) as any
+    invalid.knowledgeEntries.create = Array.from({ length: 53 }, () => ({ value: { title: 1 } }))
+    const baseline = await call(undefined, 0, 17, invalid)
+    expect(baseline.errorCount).toBeGreaterThan(40)
+    const last = await call('errors', 40, 100, invalid)
+    expect(last.findingsPage.total).toBe(baseline.errorCount)
+    expect(last.findingsPage.items.length).toBe(Math.min(100, baseline.errorCount - 40))
+    expect(last).toMatchObject({ ready: false, importable: false, plan: null })
+    expect(OPERATOR_MCP_OUTPUTS['venues.check_package'].safeParse(last).success).toBe(true)
+    expect((await call('authoring', 0, 10, invalid)).findingsPage).toMatchObject({
+      total: 0,
+      items: [],
+      nextOffset: null,
+    })
     expect(mocks.preview).not.toHaveBeenCalled()
   })
 })
