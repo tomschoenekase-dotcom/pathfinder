@@ -99,7 +99,12 @@ self-contained visitor-facing sentence.
 ## Limits
 
 - Role binding and pronoun resolution are pattern-based. Unresolved roles are stated as
-  unresolved; they are never guessed.
+  unresolved; they are never guessed. "A rides with B" is symmetric and is rendered as "riding
+  together" only: in the first paid run a grammatical rider/companion binding swapped the roles
+  (the shorter child needed the older cousin as companion). Explicit roles come only from
+  "as a companion", "take/accompany" and "alone" wording.
+- A kind cue alone ("how much is ...") never promotes a thing named inside another record over
+  the titled thing; that case stays ambiguous so the answer covers both or asks.
 - The required-notice check is lexical: a paraphrase with different words can cause a redundant
   append, and a negated mention can be counted as present.
 - Legacy records without the new labels get inferred kinds and detected consequence sentences,
