@@ -2268,7 +2268,7 @@ const chatReadRouter = router({
             snapshot: entry,
           })),
           // Records the evidence block added beyond retrieval (directory or reloaded carry).
-          ...(evidenceAssembly?.rendered ?? [])
+          ...[...(evidenceAssembly?.rendered ?? []), ...(evidenceAssembly?.supporting ?? [])]
             .filter(
               (record) =>
                 !relevantKnowledgeEntries.some((entry) => `knowledge:${entry.id}` === record.ref) &&
@@ -2582,6 +2582,7 @@ const chatReadRouter = router({
             text: guestPlainDashes(notice.text),
           })),
           actionable: answerShape.actionable,
+          knownOtherNames: evidenceAssembly.knownNames,
         })
         if (enforced.appended.length) {
           if (streamProjection)

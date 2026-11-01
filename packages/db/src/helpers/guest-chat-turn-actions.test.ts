@@ -9,6 +9,7 @@ import { GUEST_CHAT_PROMPT_VERSION } from '@pathfinder/contracts/prompt-contract
 import { isGuestConversationDisposed } from './guest-conversation-disposition'
 
 import {
+  GuestEvidenceStateSchema,
   GuestPlaceIdentityPending,
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
@@ -43,6 +44,12 @@ function transactionClient(tx: Record<string, unknown>) {
 }
 
 describe('guest chat turn actions', () => {
+  it('accepts scope-only evidence references but rejects carried answer text', () => {
+    const state = { version: 'guest-evidence-state-v1', refs: [{ ref: 'knowledge:policy-scope', version: 'revision-2', reason: 'scope', age: 0 }] }
+    expect(GuestEvidenceStateSchema.parse(state)).toEqual(state)
+    expect(GuestEvidenceStateSchema.safeParse({ ...state, answer: 'A generated answer' }).success).toBe(false)
+    expect(GuestEvidenceStateSchema.safeParse({ ...state, refs: [{ ...state.refs[0], content: 'A policy body' }] }).success).toBe(false)
+  })
   function admissionFixture() {
     const session = {
       id: 'session-1', tenantId: request.tenantId, venueId: request.venueId,

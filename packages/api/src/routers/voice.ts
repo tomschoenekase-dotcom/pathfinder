@@ -469,7 +469,7 @@ export const voiceRouter = router({
         ...result,
         evidenceFocus: { rule: assembly.rule, data: assembly.data },
         // Authored sentences only; never shorten a material condition mid-sentence.
-        requiredNotices: assembly.notices.filter(({ text }) => text.length <= 280).slice(0, 3),
+        requiredNotices: assembly.notices.filter(({ text, requiredForQuestion }) => requiredForQuestion !== false && text.length <= 280).slice(0, 3),
         evidenceTrace: assembly.trace,
       }
     } catch {

@@ -146,7 +146,7 @@ export const GuestEvidenceStateSchema = z
           .object({
             ref: z.string().regex(/^(?:knowledge|place):[^\s]{1,191}$/u),
             version: z.string().max(100).nullable(),
-            reason: z.enum(['subject', 'governing']),
+            reason: z.enum(['subject', 'governing', 'scope']),
             age: z.number().int().min(0).max(5),
           })
           .strict(),

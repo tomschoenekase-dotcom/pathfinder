@@ -21,14 +21,8 @@ export type GuestPlaceIdentityProjection = {
   } | null
 }
 
-export function guestPlaceIdentityKey(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/gu, '')
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-}
+export { guestPlaceIdentityKey } from '@pathfinder/contracts/guest-evidence/identity'
+import { guestPlaceIdentityKey } from '@pathfinder/contracts/guest-evidence/identity'
 
 function includesPhrase(query: string, phrase: string): boolean {
   return phrase.length >= 3 && ` ${query} `.includes(` ${phrase} `)

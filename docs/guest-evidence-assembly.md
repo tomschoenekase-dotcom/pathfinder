@@ -102,8 +102,12 @@ Finishing integration: the repository authoring contract and offline/MCP package
 include advisory semantic-label lint. Voice grounding uses the same flag and fenced reload;
 `luna` does not enable realtime voice models. Voice continuity is bounded process-local,
 session-scoped ref-only state. Short authored notices are supplied with instructions to speak
-them; this is not deterministic enforcement of the generated audio. The evaluation worker is
-unchanged because it cannot import the API package. Router tests cover native projection and
+them; this is not deterministic enforcement of the generated audio. The pure core now lives in
+`@pathfinder/contracts/guest-evidence`, with API compatibility reexports. The evaluation worker
+has an explicit opt-in preview using this same core, notice enforcement and matching cost ceiling.
+Its live execution remains unchanged: frozen evaluation runs do not yet persist the evidence mode
+and prompt identity. Enabling it from process environment would change frozen runs silently.
+Router tests cover native projection and
 missing release refs; the opt-in disposable PostgreSQL suite covers the reload fences.
 
 Reload failures and read-path mismatches mark all carried refs unavailable and remove cached
@@ -116,9 +120,29 @@ bodies before prompt rendering, just as a record rejected by the authorization f
   "as a companion", "take/accompany" and "alone" wording.
 - A kind cue alone ("how much is ...") never promotes a thing named inside another record over
   the titled thing; that case stays ambiguous so the answer covers both or asks.
-- The required-notice check is lexical: a paraphrase with different words can cause a redundant
-  append, and a negated mention can be counted as present.
+- Notice checking is conservative and lexical. Clause, polarity, obligation, quantity, role,
+  condition and authorized subject-name checks cover tested mutations; unfamiliar paraphrases,
+  translations and unrecognized entities can still cause redundant appends or missed contradictions.
 - Legacy records without the new labels get inferred kinds and detected consequence sentences,
   but nothing is enforced for them.
 - Kind inference from category/title words can be wrong; it only orders identity candidates and
   is marked inferred.
+
+## Version 2 source-fidelity repairs
+
+Exemptions stay known exemptions from their own policy; other policies remain separate. Scope
+notes carry their source IDs with reason `scope` and are reloaded, never promoted to a governing
+rule. Their records also enter answer provenance. A carried policy's relationship is recomputed
+after reload. `See also` is not a governing link, and a governing link cannot override an explicit
+exclusion. Package lint advises on exact scope conflicts and contradictory governing links.
+
+Role summaries preserve strict versus inclusive upper bounds and omit simplified negative,
+unknown or conditional clauses; their complete authored wording remains available. Paired age
+and height statements and decimal heights retain both measurements. Together questions retain
+unassigned roles and request conditional alternatives rather than assuming both people participate.
+
+Authored notices remain required for use decisions and their relevant follow-ups. A narrow fact
+lookup does not require unrelated notices just because a thing is named; recommending its use
+can make the notice relevant again. No unlabeled consequence or unknown is automatically appended.
+The operator `venues.preview_guest_evidence` exposes deterministic selection and parsed labels
+through the same guest fences, with explicit bounds and no paid call or session mutation.

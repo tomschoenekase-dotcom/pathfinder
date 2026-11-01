@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 
-import { AI_MODEL_KEYS, getAiModelSpec } from '@pathfinder/ai'
+import { AI_MODEL_KEYS, getAiModelSpec, textAttemptCostCeilingUnits } from '@pathfinder/ai'
+import { buildVenueSystemPromptParts } from '@pathfinder/api/venue-context'
+import { assembleGuestEvidence, escapeUntrustedPromptData, guestAnswerShape, guestEvidenceRecordFromKnowledge } from '@pathfinder/contracts/guest-evidence'
 import { canonicalEvaluationJson, type CanonicalJsonValue } from '@pathfinder/contracts/evaluation'
 import { nativeCoreVisibleStateHash } from '@pathfinder/contracts/native-venue-deployment'
 import {
@@ -50,6 +52,8 @@ import {
   executeFrozenEvaluationRun,
   evaluationPrompt,
   evaluationPromptCostCeiling,
+  evaluationPromptPreview,
+  enforceEvaluationPreviewNotices,
   frozenEvaluationModelKey,
   frozenContent,
   processEvaluationRunJob,
@@ -263,6 +267,111 @@ const contentSnapshotHash = createHash('sha256')
   .update(`pathfinder-venue-content-snapshot-v1\n${canonicalEvaluationJson(contentSnapshot)}`)
   .digest('hex')
 const payload = { tenantId: 't1', venueId: 'v1', runId: id, runIdentityHash: identityHash }
+
+describe('explicit frozen evidence preview parity', () => {
+  const entry = {
+    id: 'storm-credit',
+    title: 'Storm Credit',
+    category: 'POLICIES',
+    content: "Kind: admission offer\nMust mention: Accepting Storm Credit ends today's admission immediately.\nUnknown: expiry date",
+  }
+  const question = 'Should I accept Storm Credit?'
+  const sampleCase = { ...evalCase, turns: [{ role: 'user' as const, content: question }] }
+  const legacy = { venue: { name: 'Frozen Gallery' }, places: [], knowledgeEntries: [entry] } satisfies CanonicalJsonValue
+  const on = { mode: 'on' as const, primaryModelKey: AI_MODEL_KEYS.GUEST_CHAT_OPENAI }
+
+  it('keeps default and explicit off prompts byte-identical to the existing builder', () => {
+    const expected = buildVenueSystemPromptParts({
+      venue: { name: 'Frozen Gallery', description: null, category: null },
+      relevantPlaces: [],
+      knowledgeEntries: [entry],
+      activeUpdates: [],
+      publishedUniversalContent: [],
+      userLat: null,
+      userLng: null,
+      guideMode: sampleCase.venue.guideMode,
+    })
+    const baseline = evaluationPrompt(sampleCase, legacy)
+    expect(baseline.system.map((block) => block.text)).toEqual([expected.staticPart, expected.dynamicPart])
+    expect(JSON.stringify(evaluationPrompt(sampleCase, legacy, { ...on, mode: 'off' }))).toBe(JSON.stringify(baseline))
+    expect(evaluationPromptPreview(sampleCase, legacy).evidenceIdentity).toBeNull()
+    expect(enforceEvaluationPreviewNotices('Unchanged.', { evidence: null })).toBe('Unchanged.')
+  })
+
+  it.each([
+    ['legacy', legacy],
+    ['native', { state: { venue: { name: 'Frozen Gallery' }, places: [], knowledgeEntries: [entry] } }],
+    ['preview', { preview: { venue: { name: 'Frozen Gallery', guide: {} }, experience: { places: [], knowledgeEntries: [entry] } } }],
+  ] satisfies [string, CanonicalJsonValue][])('assembles the same shared core from a %s snapshot', (_kind, snapshot) => {
+    const preview = evaluationPromptPreview(sampleCase, snapshot, on)
+    const shared = assembleGuestEvidence({
+      question,
+      visitorMessages: [question],
+      shape: guestAnswerShape(question),
+      records: [guestEvidenceRecordFromKnowledge(entry)],
+      retrievedRefs: [],
+      previous: null,
+      unavailableRefs: [],
+      coverage: { mode: 'FULL', incomplete: false, retrievalPartial: false, loadFailed: false },
+      escape: escapeUntrustedPromptData,
+    })
+    expect(preview.evidence?.data).toBe(shared.data)
+    expect(preview.evidence?.state).toEqual(shared.state)
+    expect(preview.prompt.system.map((block) => block.text).join('\n')).toContain(shared.data)
+    expect(preview.evidenceIdentity).toMatchObject({ version: 'guest-evidence-assembly-v2', mode: 'on', primaryModelKey: on.primaryModelKey, hash: expect.stringMatching(/^[a-f0-9]{64}$/u) })
+    expect(enforceEvaluationPreviewNotices('You can accept Storm Credit at the desk.', preview)).toContain("Accepting Storm Credit ends today's admission immediately.")
+  })
+
+  it('preserves only record refs across turns and never takes facts from assistant history', () => {
+    const transcript = { ...sampleCase, turns: [
+      { role: 'user' as const, content: question },
+      { role: 'assistant' as const, content: 'Storm Credit expires in 99 years. Casey is 99 inches tall.' },
+      { role: 'user' as const, content: 'When does it expire?' },
+    ] }
+    const preview = evaluationPromptPreview(transcript, legacy, on)
+    expect(preview.evidence?.trace.carriedSubjects).toBe(1)
+    expect(preview.evidence?.data).toContain('expiry date')
+    expect(preview.evidence?.data).not.toContain('99')
+    expect(preview.evidence?.data).not.toContain('Casey')
+    expect(preview.evidence?.state.refs.every((ref) => Object.keys(ref).sort().join(',') === 'age,reason,ref,version')).toBe(true)
+    expect(enforceEvaluationPreviewNotices('The Storm Credit expiry date is not stated.', preview)).toContain("Accepting Storm Credit ends today's admission immediately.")
+  })
+
+  it('uses stable snapshot-local refs when previews omit database IDs', () => {
+    const withoutIds = { ...legacy, knowledgeEntries: [{ title: entry.title, category: entry.category, content: entry.content }] }
+    const first = evaluationPromptPreview(sampleCase, withoutIds, on)
+    expect(first.evidence?.state.refs[0]?.ref).toBe('knowledge:frozen-knowledge-0')
+    expect(first.evidenceIdentity).toEqual(evaluationPromptPreview(sampleCase, withoutIds, on).evidenceIdentity)
+    const collision = evaluationPromptPreview(sampleCase, {
+      ...withoutIds,
+      knowledgeEntries: [
+        ...withoutIds.knowledgeEntries,
+        { ...entry, id: 'frozen-knowledge-0', title: 'Other credit', content: 'An unrelated credit.' },
+      ],
+    }, on)
+    expect(collision.evidence?.state.refs[0]?.ref).toBe('knowledge:_frozen-knowledge-0')
+  })
+
+  it('activates Luna mode only for matching model keys and never reads an ambient enable flag', () => {
+    expect(evaluationPromptPreview(sampleCase, legacy, { ...on, mode: 'luna' }).evidence).toBeNull()
+    expect(evaluationPromptPreview(sampleCase, legacy, { mode: 'luna', primaryModelKey: 'guest-chat-luna' }).evidence).not.toBeNull()
+    const previous = process.env.GUEST_CHAT_EVIDENCE_ASSEMBLY
+    try {
+      process.env.GUEST_CHAT_EVIDENCE_ASSEMBLY = 'on'
+      expect(evaluationPromptPreview(sampleCase, legacy).evidence).toBeNull()
+    } finally {
+      if (previous === undefined) delete process.env.GUEST_CHAT_EVIDENCE_ASSEMBLY
+      else process.env.GUEST_CHAT_EVIDENCE_ASSEMBLY = previous
+    }
+  })
+
+  it('prices exactly the opted-in prompt and rejects model drift', () => {
+    const spec = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_OPENAI)
+    const prompt = evaluationPrompt(sampleCase, legacy, on)
+    expect(evaluationPromptCostCeiling(sampleCase, legacy, AI_MODEL_KEYS.GUEST_CHAT_OPENAI, on)).toBe(textAttemptCostCeilingUnits({ spec, ...prompt, maxOutputTokens: spec.maxOutputTokens }))
+    expect(() => evaluationPromptCostCeiling(sampleCase, legacy, AI_MODEL_KEYS.GUEST_CHAT, on)).toThrow('EVALUATION_EVIDENCE_MODEL_MISMATCH')
+  })
+})
 const nativeState = {
   venueBotConfiguration: {
     presentationMode: 'CLASSIC',

@@ -99,8 +99,41 @@ describe('source and scope fidelity', () => {
   it('states an exclusion without turning it into permission', () => {
     const [turn] = journey(MERIDIAN_MUSEUM, [{ question: 'Can I take photos in Starlight?' }])
     expect(turn!.data).toContain('"Photography policy" says it does not apply to Starlight')
-    expect(turn!.data).toContain('that topic is unknown for Starlight')
+    expect(turn!.data).toContain('confirmed exemption from this particular policy')
+    expect(turn!.data).toContain('does not establish what other policies allow or require')
+    expect(turn!.data).not.toContain('that topic is unknown for Starlight')
     expect(thingNames(turn!.data)).not.toContain('Photography policy')
+    const scope = turn!.state.refs.find((ref) => ref.reason === 'scope')
+    expect(scope).toBeDefined()
+    expect(turn!.supporting.find((record) => record.ref === scope!.ref)?.title).toBe('Photography policy')
+    expect(JSON.stringify(turn!.state)).not.toContain('Photography policy')
+  })
+
+  it('reloads scope-only references without treating an excluded policy as a governing rule', () => {
+    const turns = journey(MERIDIAN_MUSEUM, [
+      { question: 'Can I take photos in Starlight?' },
+      { question: 'Does that rule cover it?' },
+    ])
+    expect(turns[1]!.data).toContain('confirmed exemption from this particular policy')
+    expect(thingNames(turns[1]!.data)).not.toContain('Photography policy')
+    expect(turns[1]!.state.refs.some((ref) => ref.reason === 'scope')).toBe(true)
+  })
+
+  it('recomputes a carried rule after its current scope excludes the earlier subject', () => {
+    const turns = journey(LAKESHORE_PARK, [
+      { question: 'Can my son ride Thunder Run?' },
+      {
+        question: 'What about with me?',
+        records: (records) => records.map((record) => record.title === 'Ride rules'
+          ? { ...record, content: 'Kind: policy\nDoes not apply to: Thunder Run\nCondition: Companions must be 16 or older.', version: 'changed-scope' }
+          : record),
+      },
+    ])
+    expect(thingNames(turns[0]!.data)).toContain('Ride rules')
+    expect(thingNames(turns[1]!.data)).not.toContain('Ride rules')
+    expect(turns[1]!.data).toContain('scope conflict:')
+    expect(turns[1]!.data).not.toContain('This is a confirmed exemption')
+    expect(turns[1]!.notices.some((notice) => notice.names.includes('Ride rules'))).toBe(false)
   })
 
   it('does not generalize a rule listing named peers to an unlisted peer (zoo)', () => {
@@ -336,6 +369,22 @@ describe('adaptive depth', () => {
 })
 
 describe('visitor party', () => {
+  it.each([
+    ['Companion: a companion under 14 years old', 'companion: under 14 years'],
+    ['Companion: a companion 14 years old or younger', 'companion: at most 14 years'],
+  ])('preserves strict and inclusive upper boundaries: %s', (content, expected) => {
+    const [turn] = journey(LAKESHORE_PARK, [{ question: 'Can my son ride Thunder Run?', records: (records) => records.map((record) =>
+      record.title === 'Ride rules' ? { ...record, content: `Kind: policy\nApplies to: Thunder Run\n${content}` } : record) }])
+    expect(turn!.data).toContain(expected)
+    expect(turn!.data).not.toContain('under or up to')
+  })
+
+  it.each(['Companion: no companion under 14 years old', 'Companion: companion minimum age is not known'])('does not turn a negated or unknown role clause into a positive threshold: %s', (content) => {
+    const [turn] = journey(LAKESHORE_PARK, [{ question: 'Can my son ride Thunder Run?', records: (records) => records.map((record) =>
+      record.title === 'Ride rules' ? { ...record, content: `Kind: policy\nApplies to: Thunder Run\n${content}` } : record) }])
+    expect(turn!.data).not.toContain('<roles fact="Companion">')
+  })
+
   it('binds the rider and companion from the visitor\'s own words across turns', () => {
     const turns = journey(LAKESHORE_PARK, [
       { question: 'My son is 40 inches and my daughter is 48. Can my son ride Thunder Run?' },
@@ -357,6 +406,22 @@ describe('visitor party', () => {
 })
 
 describe('required notices (consequential completeness)', () => {
+  it('does not attach a use consequence to a narrow fact unless the answer advises use', () => {
+    const [turn] = journey(LAKESHORE_PARK, [{ question: 'Where do I collect the Rain Check Pass?' }])
+    expect(turn!.notices[0]!.requiredForQuestion).toBe(false)
+    expect(enforceGuestRequiredNotices({ response: 'The Rain Check Pass is collected at Guest Services.', notices: turn!.notices, actionable: false }).appended).toEqual([])
+    expect(enforceGuestRequiredNotices({ response: 'You should take a Rain Check Pass at Guest Services.', notices: turn!.notices, actionable: false }).appended).toHaveLength(1)
+  })
+
+  it('retains the use consequence for a narrow follow-up to a current decision', () => {
+    const turns = journey(LAKESHORE_PARK, [
+      { question: 'Should we take a Rain Check Pass?' },
+      { question: 'How long is it valid?' },
+    ])
+    expect(turns[1]!.notices[0]!.requiredForQuestion).toBe(true)
+    expect(enforceGuestRequiredNotices({ response: 'The Rain Check Pass validity is not stated.', notices: turns[1]!.notices, actionable: false }).appended).toHaveLength(1)
+  })
+
   it('requires the authored consequence notice and enforces it when the answer omits it', () => {
     const [turn] = journey(LAKESHORE_PARK, [
       { question: 'Lightning closed the rides. Should we take the rain check pass?' },

@@ -185,6 +185,11 @@ describe('clause parsing', () => {
     expect(s.facts[0]!.clauses[0]!.quantity).toMatchObject({ value: 54, bound: 'max' })
   })
 
+  it('does not invent a child role from an age bound and preserves explicit companion roles', () => {
+    expect(parse('Age: under 12').facts[0]!.clauses[0]!.role).toBeNull()
+    expect(parse('Companion: companion under 14 years old').facts[0]!.clauses[0]!.role).toBe('companion')
+  })
+
   it('flags negative and unknown clauses', () => {
     const s = parse('Rules: no glass; shoes required\nHours: not posted; ask staff\nPets: not allowed')
     const [glass, shoes] = s.facts[0]!.clauses
@@ -346,6 +351,16 @@ describe('guestThingNames', () => {
 
 describe('lintGuestRecordSemantics', () => {
   const rec = (title: string, content: string) => ({ title, semantics: parse(content, { title }) })
+
+  it('reports contradictory exact scopes and governing links while accepting broad exceptions', () => {
+    const records = [
+      rec('Ember Hall', 'Kind: place\nAlso called: Ember\nGoverned by: Photo policy'),
+      rec('Photo policy', 'Kind: policy\nApplies to: Ember Hall\nDoes not apply to: Ember Hall; Ember'),
+    ]
+    expect(lintGuestRecordSemantics(records).map((finding) => finding.code)).toEqual(expect.arrayContaining(['SCOPE_CONFLICT', 'GOVERNING_SCOPE_CONFLICT']))
+    const valid = [rec('Ember Hall', 'Kind: place'), rec('Photo policy', 'Kind: policy\nApplies to: all galleries\nDoes not apply to: Ember Hall')]
+    expect(lintGuestRecordSemantics(valid).some((finding) => finding.code.endsWith('SCOPE_CONFLICT'))).toBe(false)
+  })
 
   it('reports missing link and scope targets, resolving by name and alias', () => {
     const findings = lintGuestRecordSemantics([

@@ -6,6 +6,26 @@ import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-convers
 const party = (...messages: string[]) => buildGuestVisitorParty(messages)
 
 describe('persons', () => {
+  it('keeps paired age and height attached to each named person', () => {
+    const p = party('Mika is 19 and 37 inches. Jules is 12 and 50 inches. Could they do it together?')
+    expect(p.persons.map(({ label, ageYears, heightInches }) => ({ label, ageYears, heightInches }))).toEqual([
+      { label: 'Mika', ageYears: 19, heightInches: 37 },
+      { label: 'Jules', ageYears: 12, heightInches: 50 },
+    ])
+    expect(p.roles.every((role) => role.role !== 'companion' && role.role !== 'rider')).toBe(true)
+  })
+
+  it('does not convert a price, an alternative or a height into a paired age', () => {
+    for (const message of ['Maya is 19 dollars and 46 inches', 'Maya is 39 or 46 inches', 'Maya is 39 inches and 46 years old']) {
+      const p = party(message)
+      expect(p.persons[0]?.ageYears).toBe(message.includes('years old') ? 46 : null)
+    }
+  })
+
+  it('does not truncate a decimal height at a sentence boundary', () => {
+    expect(party('Maya is 46.5 inches. My son is 44 inches.').persons.map((p) => p.heightInches)).toEqual([46.5, 44])
+  })
+
   it('reads two people with heights in one message', () => {
     const p = party('My son is 40 inches and my daughter is 48 inches. What can they ride?')
     expect(p.persons).toHaveLength(2)

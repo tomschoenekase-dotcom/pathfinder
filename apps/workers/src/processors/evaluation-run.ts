@@ -6,6 +6,22 @@ import {
 } from '@pathfinder/contracts'
 import { buildVenueSystemPromptParts } from '@pathfinder/api/venue-context'
 import {
+  assembleGuestEvidence,
+  enforceGuestRequiredNotices,
+  escapeUntrustedPromptData,
+  guestAnswerShape,
+  guestAnswerShapeRule,
+  guestEvidenceAssemblyForModel,
+  guestEvidenceRecordFromKnowledge,
+  guestEvidenceRecordFromPlace,
+  guestResponseIntentForMessage,
+  refineGuestEvidenceStateByAnswer,
+  GUEST_EVIDENCE_ASSEMBLY_VERSION,
+  type GuestEvidenceAssembly,
+  type GuestEvidenceAssemblyMode,
+  type GuestEvidenceState,
+} from '@pathfinder/contracts/guest-evidence'
+import {
   AI_MODEL_KEYS,
   generateText,
   getAiModelSpec,
@@ -904,24 +920,142 @@ function frozenVenuePromptParams(
 export function evaluationPrompt(
   evalCase: EvalCase,
   content: CanonicalJsonValue,
+  evidenceOptions?: EvaluationEvidencePreviewOptions,
 ): { system: AiSystemBlock[]; messages: AiMessage[] } {
+  return evaluationPromptPreview(evalCase, content, evidenceOptions).prompt
+}
+
+/** Explicit preview only. Durable evaluation runs do not opt in until their frozen identity
+ * records evidence mode/version. Never read a mutable process flag while replaying a run. */
+export type EvaluationEvidencePreviewOptions = {
+  mode: GuestEvidenceAssemblyMode
+  primaryModelKey: string
+}
+
+export function evaluationPromptPreview(
+  evalCase: EvalCase,
+  content: CanonicalJsonValue,
+  options?: EvaluationEvidencePreviewOptions,
+): {
+  prompt: { system: AiSystemBlock[]; messages: AiMessage[] }
+  evidence: GuestEvidenceAssembly | null
+  noticeActionable: boolean
+  evidenceIdentity: { version: string; mode: GuestEvidenceAssemblyMode; primaryModelKey: string; hash: string } | null
+} {
+  const params = frozenVenuePromptParams(content, evalCase.venue.guideMode)
+  let evidence: GuestEvidenceAssembly | null = null
+  let responseIntent = params.responseIntent
+  const enabled = options && guestEvidenceAssemblyForModel(options.mode, options.primaryModelKey)
+  if (enabled) {
+    // Snapshot-local references stay within this immutable corpus. No DB/history reads, and
+    // assistant text can select already-supported subjects but never contribute record facts.
+    const knowledgeIds = new Set((params.knowledgeEntries ?? []).flatMap((entry) => entry.id ? [entry.id] : []))
+    const placeIds = new Set(params.relevantPlaces.flatMap((place) => place.id ? [place.id] : []))
+    const fallbackId = (kind: string, index: number, used: Set<string>) => {
+      let candidate = `frozen-${kind}-${index}`
+      while (used.has(candidate)) candidate = `_${candidate}`
+      used.add(candidate)
+      return candidate
+    }
+    const records = [
+      ...(params.knowledgeEntries ?? []).map((entry, index) => guestEvidenceRecordFromKnowledge({
+        ...entry,
+        id: entry.id || fallbackId('knowledge', index, knowledgeIds),
+      })),
+      ...params.relevantPlaces.map((place, index) => guestEvidenceRecordFromPlace({
+        ...place,
+        id: place.id || fallbackId('place', index, placeIds),
+      })),
+    ]
+    const visitorMessages: string[] = []
+    let previous: GuestEvidenceState | null = null
+    for (const turn of evalCase.turns) {
+      if (turn.role === 'assistant') {
+        if (evidence) previous = refineGuestEvidenceStateByAnswer(evidence, turn.content)
+        continue
+      }
+      visitorMessages.push(turn.content)
+      const shape = guestAnswerShape(turn.content)
+      evidence = assembleGuestEvidence({
+        question: turn.content,
+        visitorMessages,
+        shape,
+        records,
+        // A frozen snapshot is the corpus, not a live retrieval ranking.
+        retrievedRefs: [],
+        previous,
+        unavailableRefs: [],
+        coverage: { mode: 'FULL', incomplete: false, retrievalPartial: false, loadFailed: false },
+        escape: escapeUntrustedPromptData,
+      })
+      previous = evidence.state
+      responseIntent = shape.shape === 'DEEP_DIVE'
+        ? 'DEEP_DIVE'
+        : guestResponseIntentForMessage(turn.content, undefined)
+    }
+  }
+  const shape = enabled ? guestAnswerShape(evalCase.turns.filter((turn) => turn.role === 'user').at(-1)?.content ?? '') : null
   const prompt = buildVenueSystemPromptParts(
-    frozenVenuePromptParams(content, evalCase.venue.guideMode),
+    {
+      ...params,
+      ...(evidence && shape ? {
+        responseIntent: responseIntent ?? 'DEFAULT',
+        evidenceFocus: { rule: `${evidence.rule}\n\n${guestAnswerShapeRule(shape)}`, data: evidence.data },
+      } : {}),
+    },
   )
   return {
-    system: [
-      { type: 'text', text: prompt.staticPart, cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: prompt.dynamicPart },
-    ],
-    messages: evalCase.turns.map((turn) => ({ role: turn.role, content: turn.content })),
+    prompt: {
+      system: [
+        { type: 'text', text: prompt.staticPart, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: prompt.dynamicPart },
+      ],
+      messages: evalCase.turns.map((turn) => ({ role: turn.role, content: turn.content })),
+    },
+    evidence,
+    noticeActionable: shape?.actionable ?? false,
+    evidenceIdentity: evidence && options ? {
+      version: GUEST_EVIDENCE_ASSEMBLY_VERSION,
+      mode: options.mode,
+      primaryModelKey: options.primaryModelKey,
+      hash: createHash('sha256').update(canonicalEvaluationJson({
+        version: GUEST_EVIDENCE_ASSEMBLY_VERSION,
+        mode: options.mode,
+        primaryModelKey: options.primaryModelKey,
+        turns: evalCase.turns,
+        content,
+        rule: evidence.rule,
+        data: evidence.data,
+        notices: evidence.notices,
+        staticPart: prompt.staticPart,
+        dynamicPart: prompt.dynamicPart,
+      } as CanonicalJsonValue)).digest('hex'),
+    } : null,
   }
+}
+
+/** Apply only to successful generated text, before scoring/hashing the preview observation. */
+export function enforceEvaluationPreviewNotices(
+  response: string,
+  preview: Pick<ReturnType<typeof evaluationPromptPreview>, 'evidence'> & { noticeActionable?: boolean },
+): string {
+  return preview.evidence ? enforceGuestRequiredNotices({
+    response,
+    notices: preview.evidence.notices,
+    actionable: preview.noticeActionable ?? false,
+    knownOtherNames: preview.evidence.knownNames,
+  }).response : response
 }
 
 export function evaluationPromptCostCeiling(
   evalCase: EvalCase,
   content: CanonicalJsonValue,
   modelKey: EvaluationModelKey = AI_MODEL_KEYS.GUEST_CHAT,
+  evidenceOptions?: EvaluationEvidencePreviewOptions,
 ): bigint {
+  if (evidenceOptions && evidenceOptions.primaryModelKey !== modelKey) {
+    throw new Error('EVALUATION_EVIDENCE_MODEL_MISMATCH')
+  }
   const spec = getAiModelSpec(modelKey)
   if (
     new TextEncoder().encode(canonicalEvaluationJson(content)).byteLength > spec.maxInputUtf8Bytes
@@ -930,7 +1064,7 @@ export function evaluationPromptCostCeiling(
   }
   return textAttemptCostCeilingUnits({
     spec,
-    ...evaluationPrompt(evalCase, content),
+    ...evaluationPrompt(evalCase, content, evidenceOptions),
     maxOutputTokens: spec.maxOutputTokens,
   })
 }

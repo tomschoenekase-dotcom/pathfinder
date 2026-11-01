@@ -154,7 +154,7 @@ describe('flags and descriptors', () => {
 })
 
 describe('guestAnswerShapeRule', () => {
-  const keep = 'keep every must_mention line, every condition or exception that changes whether the answer applies'
+  const keep = 'keep every applicable must_mention line under NOTICE RELEVANCE, every condition or exception that changes whether the answer applies'
   const shapes = [
     "What's that big yellow coaster?",
     'Tell me everything about the pandas',

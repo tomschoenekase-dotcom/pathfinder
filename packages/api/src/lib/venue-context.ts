@@ -54,14 +54,8 @@ type VenueInfo = {
   responseDepth?: VenueBotResponseDepth | null
 }
 
-/**
- * COMPARE is server-detected: a ranking or comparison needs room for every item and its reason.
- * DEEP_DIVE is set only by evidence assembly for an explicit "tell me everything" request.
- */
-export type GuestResponseIntent = 'DEFAULT' | 'EXPAND' | 'COMPARE' | 'DEEP_DIVE'
-
-const COMPARISON_REQUEST =
-  /\b(?:rank(?:ed|ing|s)?|compare[ds]?|comparing|comparison|versus|vs\.?|in order of|from (?:most|least|best|worst|mildest|tamest|wildest|scariest) to|(?:best|worst|most|least) to (?:best|worst|most|least)|differences? between|pros and cons|which (?:is|are|one is|ones are) (?:the )?(?:more|less|most|least|best|worst|scariest|wildest|mildest|tamest|fastest|tallest|biggest))\b/iu
+export { guestResponseIntentForMessage, type GuestResponseIntent } from '@pathfinder/contracts/guest-evidence/response-intent'
+import type { GuestResponseIntent } from '@pathfinder/contracts/guest-evidence/response-intent'
 
 /** The visitor's explicit expansion control wins; otherwise a ranking or comparison ask widens the reply budget. */
 // A visitor asking whether a child of a stated height or age can ride something.
@@ -85,13 +79,6 @@ export function isGuestRideListEligibilityQuestion(message: string): boolean {
   return RIDE_LIST_REQUEST.test(message) && STATED_RIDER.test(message)
 }
 
-export function guestResponseIntentForMessage(
-  message: string,
-  requested: 'DEFAULT' | 'EXPAND' | undefined,
-): GuestResponseIntent {
-  if (requested === 'EXPAND') return 'EXPAND'
-  return COMPARISON_REQUEST.test(message) ? 'COMPARE' : 'DEFAULT'
-}
 
 export type GuestPlaceIdentityAmbiguity = {
   conflictingClues?: true
@@ -192,23 +179,8 @@ const UPDATED_GUIDE_RECORD =
 const UNTRUSTED_DATA_OPEN = '<untrusted_venue_data>'
 const UNTRUSTED_DATA_CLOSE = '</untrusted_venue_data>'
 
-/** Prevent untrusted text from forging the prompt's structural data tags. */
-export function escapeUntrustedPromptData(value: string): string {
-  return value.normalize('NFC').replace(/[<>&\u2028\u2029]/gu, (character) => {
-    switch (character) {
-      case '<':
-        return '\\u003c'
-      case '>':
-        return '\\u003e'
-      case '&':
-        return '\\u0026'
-      case '\u2028':
-        return '\\u2028'
-      default:
-        return '\\u2029'
-    }
-  })
-}
+export { escapeUntrustedPromptData } from '@pathfinder/contracts/guest-evidence/prompt-escape'
+import { escapeUntrustedPromptData } from '@pathfinder/contracts/guest-evidence/prompt-escape'
 
 function untrustedDataBlock(content: string): string {
   return `${UNTRUSTED_DATA_OPEN}\n${content}\n${UNTRUSTED_DATA_CLOSE}`
