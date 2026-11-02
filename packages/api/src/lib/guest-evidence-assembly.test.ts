@@ -1465,3 +1465,123 @@ describe('untrusted content and authorization boundaries', () => {
     expect(result.data).toContain('no longer available')
   })
 })
+
+describe('independent facts inside an excluded policy record', () => {
+  const subject: GuestEvidenceRecord = {
+    ref: 'place:grove',
+    title: 'Copper Grove',
+    content: 'Copper Grove is an outdoor garden.',
+    version: 'garden-v1',
+  }
+  const policy = (picnic: string): GuestEvidenceRecord => ({
+    ref: 'knowledge:food-policy',
+    title: 'Indoor food policy',
+    version: picnic,
+    content: `Kind: POLICY\nApplies to: Marble Hall; Indigo Cellar\nDoes not apply to: Copper Grove\nRule: No food inside the named indoor spaces.\nPicnic: ${picnic}\nMust mention: Leave backpacks in the Marble Hall lockers.`,
+  })
+  function assemble(records: GuestEvidenceRecord[], previous: GuestEvidenceState | null = null) {
+    const question = '¿Se puede hacer un picnic en Copper Grove?'
+    return assembleGuestEvidence({
+      question,
+      visitorMessages: [question],
+      shape: guestAnswerShape(question),
+      records,
+      previous,
+      retrievedRefs: [],
+      unavailableRefs: [],
+      coverage: FULL,
+      escape: escapeUntrustedPromptData,
+    })
+  }
+  it('retains independently named permission and its condition without transferring the policy or its notices', () => {
+    const turn = assemble([
+      subject,
+      policy('Outside food allowed in Copper Grove; take litter away.'),
+    ])
+    expect(turn.data).toContain('Picnic: Outside food allowed in Copper Grove; take litter away.')
+    expect(turn.data).toContain('confirmed exemption from this particular policy')
+    expect(turn.data).toContain('Preserve separate explicit statements naming Copper Grove')
+    expect(thingNames(turn.data)).not.toContain('Indoor food policy')
+    expect(turn.notices).toEqual([])
+    expect(turn.data).not.toContain('No food inside the named indoor spaces.')
+    expect(turn.data).not.toContain('Leave backpacks')
+    expect(
+      turn.state.refs.some((ref) => ref.ref === 'knowledge:food-policy' && ref.reason === 'scope'),
+    ).toBe(true)
+  })
+  it('does not infer permission from an exemption or copy another target permission', () => {
+    const turn = assemble([subject, policy('Outside food allowed in Marble Hall only.')])
+    expect(turn.data).toContain('The exemption alone does not establish')
+    expect(turn.data).not.toContain('Outside food allowed')
+    expect(turn.data).not.toContain('Independent statements')
+  })
+  it('preserves conflicting complete statements without choosing the permissive one', () => {
+    const turn = assemble([
+      subject,
+      policy(
+        'Outside food allowed in Copper Grove only with a permit.\nPicnic: Outside food not allowed in Copper Grove during restoration.',
+      ),
+    ])
+    expect(turn.data).toContain('Outside food allowed in Copper Grove only with a permit.')
+    expect(turn.data).toContain('Outside food not allowed in Copper Grove during restoration.')
+    expect(turn.data).toContain(
+      'If statements conflict, report the conflict rather than choosing permission',
+    )
+    expect(turn.notices).toEqual([])
+  })
+  it('recomputes the explicit fact from current records and drops it when removed', () => {
+    const first = assemble([
+      subject,
+      policy('Outside food allowed in Copper Grove; take litter away.'),
+    ])
+    const changed = assemble(
+      [subject, policy('Outside food prohibited in Copper Grove during restoration.')],
+      first.state,
+    )
+    expect(changed.data).toContain('Outside food prohibited in Copper Grove during restoration.')
+    expect(changed.data).not.toContain('Outside food allowed')
+    const removed = assemble([subject], changed.state)
+    expect(removed.data).not.toContain('Outside food prohibited')
+    expect(removed.data).not.toContain('Outside food allowed')
+  })
+})
+
+describe('role-specific benefit boundary', () => {
+  it('keeps participant and observing-companion eligibility separate in evidence and the instruction', () => {
+    const question = 'Can my 6-year-old join Ember Workshop?'
+    const turn = assembleGuestEvidence({
+      question,
+      visitorMessages: [question],
+      shape: guestAnswerShape(question),
+      records: [
+        {
+          ref: 'place:workshop',
+          title: 'Ember Workshop',
+          content: 'Age: Participants must be at least 9.\nGoverned by: Workshop roles',
+          version: '1',
+        },
+        {
+          ref: 'knowledge:roles',
+          title: 'Workshop roles',
+          content:
+            'Kind: POLICY\nApplies to: Ember Workshop\nCompanion: Companions must be at least 20.\nPermission: Observing companions enter free.',
+          version: '1',
+        },
+      ],
+      previous: null,
+      retrievedRefs: [],
+      unavailableRefs: [],
+      coverage: FULL,
+      escape: escapeUntrustedPromptData,
+    })
+    expect(turn.data).toContain('Participants must be at least 9')
+    expect(turn.data).toContain('Companions must be at least 20')
+    expect(turn.data).toContain('Observing companions enter free')
+    expect(turn.rule).toContain(
+      'A role-specific permission or benefit requires that person to meet the stated eligibility for that role.',
+    )
+    expect(turn.rule).toContain(
+      'Do not offer it to an ineligible participant by relabeling them as a companion or observer',
+    )
+  })
+})
