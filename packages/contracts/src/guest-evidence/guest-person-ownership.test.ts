@@ -108,4 +108,18 @@ describe('visitor measurement ownership', () => {
     ])
     expect(party.persons[0]).toMatchObject({ heightInches: 48, heightMessage: 3, ageYears: 9 })
   })
+  it.each(['My child might be 40 inches.', 'What if my child is 52 inches?'])(
+    'preserves an owned person identity without asserting the proposed measurement: %s',
+    (message) => {
+      expect(buildGuestVisitorParty([message]).persons).toEqual([
+        expect.objectContaining({
+          label: 'my child',
+          ageYears: null,
+          heightInches: null,
+          ageMessage: null,
+          heightMessage: null,
+        }),
+      ])
+    },
+  )
 })

@@ -282,7 +282,7 @@ export function buildGuestVisitorParty(visitorMessages: ReadonlyArray<string>): 
       const hypothetical = hypotheticalMeasurement(message, mention, rawClause)
       // A descriptor ("my 16-year-old sister") still identifies the person when the
       // hypothetical is about their role. Predicative measurements stay unasserted.
-      if (hypothetical && mention.age === null) return
+      if (hypothetical && mention.age === null && mention.reference) return
       const measuredClause = hypothetical ? '' : rawClause
       const parts = measuredClause.split(/\b(?:and|but)\b|[,;]/iu)
       const uncertain =
