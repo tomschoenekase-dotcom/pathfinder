@@ -2990,11 +2990,25 @@ const chatReadRouter = router({
                     }
                   : {}),
                 route,
-                timeoutMs: configuration.timeoutMs,
+                timeoutMs: plannerProfile
+                  ? Math.min(configuration.timeoutMs, 20_000)
+                  : configuration.timeoutMs,
                 maxAttempts: 1,
                 maxOutputTokens: Math.min(
-                  1024,
-                  configuration.maxOutputTokens ?? 1024,
+                  // High-effort Luna shares its reasoning budget with the structured result.
+                  // Explicit local planner experiments keep their frozen 1024-token boundary.
+                  !plannerProfile &&
+                    route.candidates.some((candidate) =>
+                      Object.entries(AI_MODEL_REGISTRY).some(
+                        ([key, spec]) =>
+                          key === candidate.modelKey &&
+                          spec.model === 'gpt-6-luna' &&
+                          spec.reasoningEffort === 'high',
+                      ),
+                    )
+                    ? 8_192
+                    : 1_024,
+                  configuration.maxOutputTokens ?? 8_192,
                   ...route.candidates.map((candidate) => {
                     const registered = Object.entries(AI_MODEL_REGISTRY).find(
                       ([key]) => key === candidate.modelKey,

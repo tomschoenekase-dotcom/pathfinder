@@ -4419,7 +4419,7 @@ describe('chat router', () => {
         expect(evidence.system.dynamicPart.endsWith(GUEST_ANSWER_SHAPE_INSTRUCTION)).toBe(true)
       })
 
-      it('routes the Luna reasoning key with low effort, its own cap, and the decision-first rule', async () => {
+      it('routes the Luna reasoning key with high Fast, its own cap, and the decision-first rule', async () => {
         vi.stubEnv('GUEST_CHAT_ANSWER_SHAPE', 'decision-first')
         setupHappyPath('unused anthropic text')
         // The admin model selector does not set explicit token or timeout limits.
@@ -4435,8 +4435,9 @@ describe('chat router', () => {
         })
         const request = create.mock.calls[0]?.[0]
         expect(request.model).toBe('gpt-6-luna')
-        expect(request.reasoning).toEqual({ effort: 'low' })
-        expect(request.max_output_tokens).toBe(2048)
+        expect(request.reasoning).toEqual({ effort: 'high' })
+        expect(request.max_output_tokens).toBe(8192)
+        expect(request.service_tier).toBe('fast')
         expect(lastDeveloperText(request).endsWith(GUEST_ANSWER_SHAPE_INSTRUCTION)).toBe(true)
         expect(aiUsageEventCreate).toHaveBeenCalledWith(
           expect.objectContaining({
