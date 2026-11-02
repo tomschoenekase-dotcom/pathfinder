@@ -404,7 +404,7 @@ describe('continuity found from sealed-set review', () => {
     ])
     expect(thingNames(turns[1]!.data)).toContain('Giraffe Feeding')
     expect(turns[1]!.data).toContain(
-      'P2 "the 17-year-old neighbor": height unavailable in this projection; age 17',
+      'P2 "the 17-year-old neighbor": height unavailable in this projection; do not use another person\'s height; age 17',
     )
     expect(turns[1]!.data).toContain(
       'companion = P2 (the 17-year-old neighbor); rider = P1 (the 7-year-old)',

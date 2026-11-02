@@ -927,6 +927,23 @@ export function guestRecordOpeningFacts(input: {
   return facts
 }
 
+/** Verbatim access constraints can remain useful even when the conservative hours parser
+ * refuses a mixed record. The named scope remains in each full source line. */
+export function guestScheduleSourceConstraints(content: string): string[] {
+  return content
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        line.length <= 1_200 &&
+        !/^Unknown\s*:/iu.test(line) &&
+        /\b(?:last|final) (?:\w+ ){0,2}(?:entry|admission)\b|\b(?:closed|closure)\b|\bpublic lobby hours\b/iu.test(
+          line,
+        ),
+    )
+}
+
 function isHoursTopic(topic: KnowledgeTopic): boolean {
   return (
     /^hours$/iu.test(topic.category?.trim() ?? '') ||

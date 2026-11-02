@@ -4,6 +4,7 @@ import { guestAnswerShape } from './guest-answer-shape'
 import { guestAccessSourceNotices } from './guest-access-facts'
 import { guestPriceScopeFacts } from './guest-price-scope'
 import { parseGuestRecordSemantics } from './guest-record-semantics'
+import { guestUseSourceDetails } from './guest-use-details'
 
 const record = (ref: string, title: string, content: string): GuestEvidenceRecord => ({
   ref,
@@ -26,6 +27,94 @@ const assemble = (question: string, records: GuestEvidenceRecord[], retrievedRef
   })
 
 describe('use advice beyond explicitly named subjects', () => {
+  it('carries booking, separate entry and explicit observer permission with source conditions intact', () => {
+    const source =
+      'Price: $22 per maker, tax included; garden entry separate.\nBooking: Advance reservation required.\nPermission: Observing companions enter free but do not handle clay.\nUnknown: Observer height.\nCondition: Makers under 15 need an adult.'
+    expect(guestUseSourceDetails(source)).toEqual([
+      'Price: $22 per maker, tax included; garden entry separate.',
+      'Booking: Advance reservation required.',
+      'Permission: Observing companions enter free but do not handle clay.',
+    ])
+    const activity = record(
+      'place:wheel',
+      'Maple Wheel',
+      `Maple Wheel is a pottery workshop.\n${source}`,
+    )
+    const result = assemble('Could we join Maple Wheel?', [activity], [activity.ref])
+    const details = result.data.match(
+      /<required_use_details>([\s\S]*?)<\/required_use_details>/u,
+    )?.[1]
+    expect(details).toContain('garden entry separate')
+    expect(details).toContain('Advance reservation required')
+    expect(details).toContain('Observing companions enter free but do not handle clay')
+    expect(details).toContain('Condition: Makers under 15 need an adult.')
+    expect(details).not.toContain('Unknown: Observer height')
+  })
+  it('brings related tax and collection sources into focus without borrowing an excluded rule', () => {
+    const cafe = record(
+      'place:cafe',
+      'Maple Cafe',
+      'Maple Cafe is a cafe.\nPrice: soup $7 before tax.',
+    )
+    const wheel = record(
+      'place:wheel',
+      'Maple Wheel',
+      'Maple Wheel is a pottery workshop.\nBooking: Reserve in advance.',
+    )
+    const tax = record(
+      'knowledge:tax',
+      'Ticket charges',
+      'A 7% sales tax applies to cafe purchases.\nMust mention: Cafe prices are before 7% sales tax.\nNotice class: money',
+    )
+    const collection = record(
+      'knowledge:pots',
+      'Finished item collection',
+      'Collection: Pots made in Maple Wheel must be collected within 21 days.\nConsequence: Uncollected pots are recycled.',
+    )
+    const excluded = record(
+      'knowledge:other',
+      'Unrelated booking',
+      'Does not apply to: Maple Wheel\nBooking: Workshop purchases require advance booking.',
+    )
+    const result = assemble(
+      'Can we visit Maple Cafe and Maple Wheel?',
+      [cafe, wheel, tax, collection, excluded],
+      [cafe.ref, wheel.ref],
+    )
+    expect(result.rendered.map((item) => item.ref)).toContain(tax.ref)
+    expect(result.rendered.map((item) => item.ref)).toContain(collection.ref)
+    expect(result.rendered.map((item) => item.ref)).not.toContain(excluded.ref)
+    expect(result.data).toContain('7% sales tax')
+    expect(result.data).toContain('Uncollected pots are recycled')
+  })
+  it('keeps venue admission cutoffs and named lobby closures beside individual hours', () => {
+    const deck = record(
+      'place:deck',
+      'Maple Deck',
+      'Maple Deck is a viewing deck.\nHours: Sunday 10am-5pm',
+    )
+    const hours = record(
+      'knowledge:hours',
+      'Hours and season',
+      'Hall is open Tuesday-Sunday; Monday closed. Last hall admission is 4pm.',
+    )
+    const result = assemble(
+      'Can we arrive Sunday at 4:20 for Maple Deck?',
+      [deck, hours],
+      [deck.ref],
+    )
+    expect(result.rendered.map((item) => item.ref)).toContain(hours.ref)
+    expect(result.data).toContain('<source_entry_and_schedule_constraints>')
+    expect(result.data).toContain('Last hall admission is 4pm')
+    const lobby = record(
+      'knowledge:lobby',
+      'Public lobby hours',
+      'Public lobby hours: Sunday 10am-9pm; Monday closed; Tuesday-Saturday 10am-10pm.',
+    )
+    expect(assemble('Can we visit Maple Deck Monday?', [deck, lobby], [deck.ref]).data).toContain(
+      'Monday closed',
+    )
+  })
   it('keeps retrieved access warnings and own facility hours available to a plan', () => {
     const lookout = record(
       'place:lookout',

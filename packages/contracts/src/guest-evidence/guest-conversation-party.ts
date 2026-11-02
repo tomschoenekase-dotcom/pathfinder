@@ -44,12 +44,28 @@ const FEMALE =
 
 const RELATION = String.raw`(?:son|daughter|kid|child|boy|girl|toddler|baby|husband|wife|partner|mom|dad|mother|father|grandma|grandpa|grandmother|grandfather|grandson|granddaughter|grandkid|grandchild|niece|nephew|friend|brother|sister|stepson|stepdaughter|cousin|teen|teenager|neighbor|neighbour|aunt|uncle|godson|goddaughter|older one|younger one|oldest|youngest|little one|middle one)`
 
-const HEIGHT = String.raw`(\d{2,3}(?:\.\d)?)\s*(?:in\b|inch(?:es)?\b|"|”|cm\b)|(\d)\s*(?:ft|feet|foot|')\s*(\d{1,2})?\s*(?:in\b|inch(?:es)?\b|"|”)?`
-const AGE = String.raw`(\d{1,2})\s*(?:years?(?:\s+old)?\b|yrs?\b|yo\b|-year-old\b|year-old\b)`
+const HEIGHT = String.raw`(\d{2,3}(?:\.\d)?)\s*(?:in\b|inch(?:es)?\b|pouces?\b|"|”|cm\b)|(\d)\s*(?:ft|feet|foot|')\s*(\d{1,2})?\s*(?:in\b|inch(?:es)?\b|"|”)?`
+const AGE = String.raw`(\d{1,2})\s*(?:years?(?:\s+old)?\b|yrs?\b|yo\b|ans\b|-year-old\b|year-old\b)`
+const FRENCH_RELATIONS: Readonly<Record<string, string>> = {
+  fils: 'son',
+  fille: 'daughter',
+  sœur: 'sister',
+  soeur: 'sister',
+  frère: 'brother',
+  mere: 'mother',
+  mère: 'mother',
+  père: 'father',
+  pere: 'father',
+  cousin: 'cousin',
+  cousine: 'cousin',
+  ami: 'friend',
+  amie: 'friend',
+  enfant: 'child',
+}
 
 // "my son", "my 7-year-old son", "my 7-year-old", "Maya", "I"/"I'm"
 const MENTION = new RegExp(
-  String.raw`\b(?:[Mm]y|[Oo]ur|[Aa]n?|[Tt]he)\s+(?:(\d{1,2})[- ]?(?:year[- ]old|yo)\s+)?(${RELATION}s?)\b|\b(?:[Mm]y|[Oo]ur|[Tt]he)\s+(\d{1,2})[- ]?year[- ]old\b|\b(I(?:'m|’m| am)|me)(?=\s|,|$)|\b([A-Z][a-z]{2,14})\s+(?=is\b|was\b|has\b|measures\b|stands\b|at\s+\d|\(|,)`,
+  String.raw`\b(?:[Mm]y|[Oo]ur|[Hh]is|[Hh]er|[Tt]heir|[Aa]n?|[Tt]he)\s+(?:(\d{1,2})[- ]?(?:year[- ]old|yo)\s+)?(${RELATION}s?)\b|\b(?:[Mm]y|[Oo]ur|[Tt]he)\s+(\d{1,2})[- ]?year[- ]old\b|\b(I(?:'m|’m| am)|me)(?=\s|,|$)|\b([A-Z][a-z]{2,14})\s+(?=is\b|was\b|has\b|measures\b|stands\b|at\s+\d|\(|,)|\b(?:[Mm]on|[Mm]a|[Nn]otre)\s+(${Object.keys(FRENCH_RELATIONS).join('|')})(?:\s+de\s+(\d{1,2})\s+ans)?\b|\b([Jj]e)(?=\s|,|$)|\b([Hh]e|[Ss]he|[Ii]l|[Ee]lle)(?=\s+(?:is|was|has|measures|stands|turned|a|mesure)\b)`,
   'gu',
 )
 
@@ -131,6 +147,8 @@ type Mention = {
   self: boolean
   age: number | null
   needsMeasurement?: boolean
+  /** A pronoun can update one already described person; it never creates a new one. */
+  reference?: boolean
 }
 
 function mentionsIn(text: string): Mention[] {
@@ -140,10 +158,11 @@ function mentionsIn(text: string): Mention[] {
     if (match[2]) {
       // A plural ("my kids") is a group, not one person.
       if (/s$/u.test(match[2]) && !/^(?:boss)$/u.test(match[2])) continue
-      const owned = /^(?:my|our)\b/iu.test(match[0])
+      const owned = /^(?:my|our|his|her|their)\b/iu.test(match[0])
+      const owner = match[0].match(/^(?:his|her|their)\b/iu)?.[0]?.toLowerCase() ?? 'my'
       mentions.push({
         label: owned
-          ? `my ${match[2]}`
+          ? `${owner} ${match[2]}`
           : `the ${match[1] ? `${match[1]}-year-old ` : ''}${match[2]}`,
         index,
         end: index + match[0].length,
@@ -168,6 +187,15 @@ function mentionsIn(text: string): Mention[] {
         self: true,
         age: null,
       })
+    } else if (match[5] && /^(?:He|She|Il|Elle)$/u.test(match[5])) {
+      mentions.push({
+        label: match[5],
+        index,
+        end: index + match[0].length,
+        self: false,
+        age: null,
+        reference: true,
+      })
     } else if (match[5] && !NOT_NAMES.has(match[5])) {
       mentions.push({
         label: match[5],
@@ -175,6 +203,31 @@ function mentionsIn(text: string): Mention[] {
         end: index + match[0].length,
         self: false,
         age: null,
+      })
+    } else if (match[6]) {
+      mentions.push({
+        label: `my ${FRENCH_RELATIONS[match[6]]}`,
+        index,
+        end: index + match[0].length,
+        self: false,
+        age: match[7] ? Number(match[7]) : null,
+      })
+    } else if (match[8]) {
+      mentions.push({
+        label: 'the visitor',
+        index,
+        end: index + match[0].length,
+        self: true,
+        age: null,
+      })
+    } else if (match[9]) {
+      mentions.push({
+        label: match[9],
+        index,
+        end: index + match[0].length,
+        self: false,
+        age: null,
+        reference: true,
       })
     }
   }
@@ -187,6 +240,23 @@ function clauseAfter(text: string, mention: Mention, next: Mention | undefined):
   const rest = text.slice(mention.index, stop)
   const cut = rest.search(/[;!?]|\.(?!\d)|\bbut\b/u)
   return cut > 0 ? rest.slice(0, cut) : rest
+}
+
+function hypotheticalMeasurement(text: string, mention: Mention, clause: string): boolean {
+  // Include the sentence prefix: starting at "he" would erase the "what if" that
+  // makes a proposed measurement nonfactual. Decimal points are not sentence breaks.
+  const prefix =
+    text
+      .slice(0, mention.index)
+      .split(/[;!?\n]|\.(?!\d)/u)
+      .at(-1) ?? ''
+  const conditional =
+    /\b(?:if|unless|suppose|supposing|assuming|imagine|pretend|hypothetically|si|supposons)\b/iu
+  return (
+    conditional.test(prefix) ||
+    conditional.test(clause) ||
+    /\b(?:could|would|might|may)\s+(?:be|measure)\b/iu.test(clause)
+  )
 }
 
 /**
@@ -209,15 +279,20 @@ export function buildGuestVisitorParty(visitorMessages: ReadonlyArray<string>): 
       /\d{2}(?:\.\d)?\s*(?:in\b|inch(?:es)?\b|"|”)|\btall\b|\bheight\b/iu.test(message)
     mentions.forEach((mention, index) => {
       const rawClause = clauseAfter(message, mention, mentions[index + 1])
-      const parts = rawClause.split(/\b(?:and|but)\b|[,;]/iu)
+      const hypothetical = hypotheticalMeasurement(message, mention, rawClause)
+      // A descriptor ("my 16-year-old sister") still identifies the person when the
+      // hypothetical is about their role. Predicative measurements stay unasserted.
+      if (hypothetical && mention.age === null) return
+      const measuredClause = hypothetical ? '' : rawClause
+      const parts = measuredClause.split(/\b(?:and|but)\b|[,;]/iu)
       const uncertain =
-        /\b(?:not|no|never|unknown|uncertain|unclear|unsure|maybe|perhaps|possibly|might)\b|n['’]t\b/iu
+        /\b(?:not|no|never|pas|jamais|unknown|uncertain|unclear|unsure|maybe|perhaps|possibly|might)\b|n['’]t\b/iu
       const rejected = parts.filter((part) => uncertain.test(part))
       // A denied or uncertain measurement is not a positive fact. Keep independent
       // affirmative clauses available, without joining them into a paired value.
       const clause = rejected.length
         ? parts.filter((part) => !uncertain.test(part)).join('; ')
-        : rawClause
+        : measuredClause
       const bare = messageUsesInches
         ? clause.match(
             /\b(?:is|was|measures|stands at|at)\s+([3-7]\d(?:\.\d)?)\b(?!\s*(?:years?|yrs?|yo|-year|cm|ft|feet|'|\$))/iu,
@@ -242,10 +317,15 @@ export function buildGuestVisitorParty(visitorMessages: ReadonlyArray<string>): 
         ageFrom(clause) ??
         (pairedAge ? Number(pairedAge[1]) : bareAge ? Number(bareAge[1]) : null)
       // A name, "I", or "the boy" only becomes a person when the clause states a measurement.
-      const key = mention.self ? 'self' : keyOf(mention.label)
+      const referenced = mention.reference ? resolveReference(mention.label, persons) : null
+      if (mention.reference && (!referenced || referenced === 'ambiguous')) return
+      const owner = referenced && referenced !== 'ambiguous' ? referenced : null
+      const key = mention.self ? 'self' : keyOf(owner?.label ?? mention.label)
       let person = byKey.get(key)
       if (person)
-        for (const denied of rejected.filter((part) => /\b(?:not|never)\b|n['’]t\b/iu.test(part))) {
+        for (const denied of rejected.filter((part) =>
+          /\b(?:not|never|pas|jamais)\b|n['’]t\b/iu.test(part),
+        )) {
           if (ageFrom(denied) === person.ageYears) {
             person.ageYears = null
             person.ageMessage = null
@@ -327,8 +407,8 @@ function resolveReference(
     const unknown = nonSelf.filter((person) => person.gender === null)
     return unknown.length === 1 && nonSelf.length === 1 ? unknown[0]! : null
   }
-  if (/^(?:he|him|his)$/u.test(lower)) return gendered('male')
-  if (/^(?:she|her|hers)$/u.test(lower)) return gendered('female')
+  if (/^(?:he|him|his|il)$/u.test(lower)) return gendered('male')
+  if (/^(?:she|her|hers|elle)$/u.test(lower)) return gendered('female')
   const measured = nonSelf.filter(
     (person) => person.heightInches !== null || person.ageYears !== null,
   )
@@ -459,10 +539,10 @@ export function renderGuestVisitorParty(party: GuestVisitorParty): string[] {
     const facts = [
       person.heightInches !== null
         ? `height ${person.heightText ?? `${person.heightInches} in`}${person.heightText && /cm|ft|feet|'/iu.test(person.heightText) ? ` (about ${person.heightInches} in)` : ''} (visitor message ${person.heightMessage})`
-        : 'height unavailable in this projection',
+        : "height unavailable in this projection; do not use another person's height",
       person.ageYears !== null
         ? `age ${person.ageYears} (visitor message ${person.ageMessage})`
-        : 'age unavailable in this projection',
+        : "age unavailable in this projection; do not use another person's age",
     ]
     return `${person.id} "${person.label}": ${facts.join('; ')}`
   })

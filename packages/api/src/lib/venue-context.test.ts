@@ -87,7 +87,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v49')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v50')
   })
 
   it('matches the broad production prompt contract manifest', () => {

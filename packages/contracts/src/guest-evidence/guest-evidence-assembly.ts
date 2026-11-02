@@ -31,11 +31,13 @@ import {
 } from './guest-record-semantics'
 import { guestAnswerShape, type GuestAnswerShapeResult } from './guest-answer-shape'
 import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-conversation-party'
-import { guestRecordOpeningFacts } from './guest-schedule'
+import { guestRecordOpeningFacts, guestScheduleSourceConstraints } from './guest-schedule'
 import { guestPriceScopeFacts } from './guest-price-scope'
 import { guestAccessFacts, guestAccessSourceNotices } from './guest-access-facts'
+import { guestUseSourceDetails } from './guest-use-details'
+import { guestEntryPriceBreakdown } from './guest-price-breakdown'
 
-export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v10'
+export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v11'
 
 export type GuestEvidenceAssemblyMode = 'off' | 'on' | 'luna'
 
@@ -321,6 +323,12 @@ const IDENTIFY_NOUN =
 const NOTICES = `NOTICES: Include each thing's required notices and eligibility conditions whenever your answer recommends, schedules, or affirms using, buying, accepting, booking or participating in that thing, even if the visitor did not ask about the notice. Required consequence classes are access, safety, eligibility, money and entry-loss. A courtesy notice may be omitted from a plan. An unclassified notice retains its stated obligation; never infer courtesy from a missing class. The access_requirements_from_source and required_use_details blocks preserve complete source obligations: carry every applicable access/safety requirement and every material condition or consequence into advice about using that thing. Do not shorten a notice to its first clause or mention a priced optional offer without its eligibility limits. Omit an unnecessary optional offer rather than offering it incompletely. State access and safety requirements with affirmative advice in the visitor's language, including in a plan or follow-up; a visitor must not have to infer them from an earlier answer. Attach an offer's conditions to advice to accept it, preserving who must act, why and when. For a narrow fact answer that gives no use advice, retain constraints that change the requested fact and omit unrelated notices. Do not attach a notice to an excluded or merely similar thing, and omit it when your answer rules that thing out. Preserve the complete condition, exceptions and consequence; do not invent a prohibition from a condition.`
 
 const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A probable partial-name match or identification candidate is not a confirmed subject: do not attach its use notices merely because the visitor asks an actionable question; require supported identification and actual discussion of that thing. Use a rule's requirements only for targets supported by its current scope or governing links. An unlisted target alone establishes neither applicability nor exemption: when current source text is silent or gives a non-exhaustive list, applicability stays unknown. Preserve explicit exclusive permissions, prohibitions, exceptions and conditions as evidence for their stated subjects; do not turn an explicit restriction into uncertainty merely because scope metadata does not list the target. An evidence note marked unknown stays unknown only for the attribute and subject it names; it does not weaken independent explicit facts or restrictions. Never turn that unknown into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person. Use each person's facts only for the role named by the rule. A missing numeric binding in visitor_party does not make a clearly stated relationship or role uncertain. When a parent says they will accompany their child, evaluate that accompaniment under the stated rule without inventing an additional approval step. Do not invent a numerical age: if the accompanying person's adult status is genuinely unclear or conflicts with their stated age, keep that condition explicit. A conditional requirement applies within its stated condition; it does not create additional restrictions or limit an independently stated permission. When offering a different role to someone ineligible for the requested role, require source support for that alternative instead of assuming admission.\nPLANNING: Check every proposed stop against its own posted opening interval for the date and time of that stop, including duration, last entry, and the visitor's departure deadline. Immediate directions to a facility also recommend using it now: check its own hours and say when it opens if it is closed, then offer a supported open alternative. Do not let a venue's open hours substitute for a facility's hours. The posted_opening_calendar is a computed schedule, not live availability; current closures and applicable exceptions override it. If the window ends before a stop opens, say so first and offer supported alternatives that fit. For tomorrow or a multi-day plan use each date's entry, never today's current status. Unknown hours are unknown, not a closure.\nACCESS: A computed_access restriction is a supported conclusion for that exact route, in every visitor language. State it directly; uncertainty about other arrangements does not make this route restriction unknown. Do not expand it into a denial of entry to the venue or a claim that every route is inaccessible.\nPRICES: Tax treatment belongs to its own price record. An explicit authored declaration naming categories such as all performance/workshop prices may cover those categories across records; an unqualified Prices include tax line covers only prices in its own record. Never transfer admission tax to rental or cafe charges without explicit scope. For a sum, say including tax only when every selected item explicitly includes tax. Otherwise give the sum of listed prices and identify the unstated or extra tax; do not call unknown tax excluded or invent a rate. Apply a discount only within its stated eligibility and scope.\n${NOTICES}`
+
+const DECISION_RULE = `PERSON OWNERSHIP: Keep a separate fact set for every person introduced by the visitor, in every language. A replacement companion or newly mentioned relative does not inherit the previous person's age, height or transfer ability. A pronoun may use a measurement only when it unambiguously refers to its owner. If a person's own measurement is unstated, leave it unstated; never use someone else's measurement to grant or deny that person's participation. Answer the role the visitor actually asks about before discussing additional roles.
+USE COMPLETENESS: Before a new affirmative recommendation or conditional permission to use something, check its required_use_details and all related source obligations. Include applicable separate entry, fare/tax treatment, advance booking and purchase/collection consequences, even when the question began as an eligibility check or the advice offers an alternative. Keep the obligations beside that advice, in the visitor's language. A narrow factual answer without use advice need not carry unrelated purchase or age-conditional details. Scope and stated conditions always control; never impose an unrelated fee or rule.
+VENUE ACCESS: A place inside a venue still requires the venue to admit the visitor. Check named venue closure and last-admission facts before subtracting arrival from a facility's closing time. Missing facility hours do not weaken an explicit venue closure. Separate facility hours do not establish separate admission or independent operation. Preserve explicit public-lobby closure facts for a place described as that lobby. An open room interval establishes neither a workshop session start nor its duration, booking availability or ability to finish: give the supported hours overlap and keep those session facts unconfirmed when unstated.
+BOUNDARIES: Apply an age-conditional companion rule only within its stated range. At a boundary outside that condition, say the rule does not require the companion, while preserving other applicable requirements. Do not invent a hidden age rule or turn an independent explicit observer permission into uncertainty because another clause requires accompaniment only for younger participants. An explicit unknown applies only to its named attribute.
+MONEY AND CHANGES: Calculate each selected component as its own quantity times its own rate, then sum those subtotals; a correct total cannot validate an unsupported breakdown. Computed component subtotals do not select optional purchases. When a record is marked changed or unavailable this turn, describe the current change rather than calling a previously source-supported answer an earlier mistake.`
 
 function singular(word: string): string {
   if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`
@@ -989,6 +997,7 @@ function factLines(
   for (const consequence of consequences) lines.push(tag('consequence', consequence))
   for (const notice of semantics.mustMention) lines.push(tag('must_mention', notice))
   const useDetails = [
+    ...guestUseSourceDetails(record.content),
     ...semantics.conditions.map((condition) => `Condition: ${condition}`),
     ...semantics.exceptions.map((exception) => `Exception: ${exception}`),
     ...consequences.map((consequence) => `Consequence: ${consequence}`),
@@ -1007,6 +1016,8 @@ function factLines(
   if (useDetails.length) lines.push(tag('required_use_details', useDetails.join('\n')))
   for (const notice of guestAccessSourceNotices(record.content))
     lines.push(tag('access_requirements_from_source', notice))
+  for (const constraint of guestScheduleSourceConstraints(record.content))
+    lines.push(tag('source_entry_and_schedule_constraints', constraint))
   for (const fact of guestPriceScopeFacts(semantics)) lines.push(tag('computed_price_scope', fact))
   for (const fact of guestAccessFacts(semantics, record.content))
     lines.push(tag('computed_access', fact))
@@ -1371,6 +1382,58 @@ export function assembleGuestEvidence(input: {
     add(link.record, ruleOrigin(link), null)
   for (const record of carriedGoverning) add(record, 'rule used for the earlier question', null)
 
+  // A named activity's obligations can live in another record (tax, admission or the
+  // product made during a booked activity). Keep explicit cross-references available.
+  // Category prose is context only: it never becomes an unqualified venue-wide rule.
+  const contextTargets = [
+    ...allSubjects.flatMap((thing) => thing.records),
+    ...input.retrievedRefs
+      .map((ref) => byRef.get(ref))
+      .filter((record): record is Indexed => Boolean(record?.ref.startsWith('place:'))),
+  ]
+  for (const record of indexed) {
+    if (included.some((item) => item.record === record)) continue
+    if (record.ref.startsWith('place:')) continue
+    // An optional product naming the room is not a condition of using that room.
+    // Pricing declarations may be shared; standalone products stay selected separately.
+    if (
+      record.semantics.kind === 'ITEM' &&
+      !/\b(?:prices?|pricing|charges?|tax)\b/iu.test(record.title)
+    )
+      continue
+    const source = guestPlaceIdentityKey(record.content)
+    const targets = contextTargets.filter(
+      (target) =>
+        !record.semantics.scope.doesNotApplyTo.some((name) =>
+          target.keys.some((key) => phraseIn(key, guestPlaceIdentityKey(name))),
+        ) &&
+        (target.keys.some((key) => isSpecific(key) && phraseIn(source, key)) ||
+          ['cafe', 'workshop', 'performance', 'rental'].some(
+            (kind) =>
+              new RegExp(`\\b${kind}s?\\b`, 'u').test(guestPlaceIdentityKey(target.content)) &&
+              new RegExp(`\\b${kind}s? (?:prices?|purchases?|fees?|admission|entry)\\b`, 'u').test(
+                source,
+              ),
+          )),
+    )
+    if (
+      targets.length &&
+      (guestUseSourceDetails(record.content).length || record.semantics.mustMention.length)
+    )
+      add(record, "related use obligations; preserve each statement's own named scope", null)
+    else if (
+      contextTargets.length &&
+      /^(?:hours(?: and season)?|opening (?:hours|times)|visitor hours|public lobby hours)$/iu.test(
+        record.title.trim(),
+      )
+    )
+      add(
+        record,
+        'venue access context; its named closures and admission cutoffs still constrain a visit; it does not establish individual activity hours',
+        null,
+      )
+  }
+
   // A visitor can ask for an area plan or the nearest facility without naming the thing the
   // answer will recommend. Keep retrieved place facts (and their governing notices) available
   // for that decision, without promoting them to named subjects or persisted continuity.
@@ -1417,6 +1480,10 @@ export function assembleGuestEvidence(input: {
     const subject = item.subjectOf.length > 0
     const kind = item.subjectOf[0] ? kindLabel(item.subjectOf[0]) : kindLabel(item.record.semantics)
     const lines = factLines(item.record, askedAttributes, subject, input.escape)
+    for (const subtotal of guestEntryPriceBreakdown(input.question, item.record.content))
+      lines.push(
+        `<computed_component_subtotal>${input.escape(subtotal)}</computed_component_subtotal>`,
+      )
     if (input.clock?.timeZone && !input.clock.hasActiveOperationalUpdates) {
       const opening = guestRecordOpeningFacts({
         title: item.record.title,
@@ -1685,7 +1752,7 @@ export function assembleGuestEvidence(input: {
     : ''
   return {
     rule: data
-      ? `${RULE}${
+      ? `${RULE}\n\n${DECISION_RULE}${
           unresolvedTogetherRoles
             ? '\nROLE REVIEW: Going together does not specify whether both people participate or one accompanies the other. Briefly check both participating and any participant/companion option supported by the records, or ask which roles they mean. One person failing a participant minimum does not settle whether they can accompany someone. A stated unknown companion requirement remains unknown; do not grant or deny full eligibility from age alone.'
             : ''

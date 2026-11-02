@@ -339,8 +339,8 @@ describe('renderGuestVisitorParty', () => {
       party('My son is 40 inches and my daughter is 8 years old. Can he ride it with her?'),
     )
     expect(lines).toEqual([
-      'P1 "my son": height 40 inches (visitor message 1); age unavailable in this projection',
-      'P2 "my daughter": height unavailable in this projection; age 8 (visitor message 1)',
+      'P1 "my son": height 40 inches (visitor message 1); age unavailable in this projection; do not use another person\'s age',
+      'P2 "my daughter": height unavailable in this projection; do not use another person\'s height; age 8 (visitor message 1)',
       "Riding or going together: P1 (my son) and P2 (my daughter). The wording does not say who is the rider and who is the companion: decide from each person's own height and age against the rule, and say which person each requirement applies to.",
     ])
   })
@@ -355,7 +355,7 @@ describe('renderGuestVisitorParty', () => {
   it('shows the converted inches for cm heights', () => {
     const lines = renderGuestVisitorParty(party('My son is 122 cm'))
     expect(lines[0]).toBe(
-      'P1 "my son": height 122 cm (about 48 in) (visitor message 1); age unavailable in this projection',
+      'P1 "my son": height 122 cm (about 48 in) (visitor message 1); age unavailable in this projection; do not use another person\'s age',
     )
   })
 
