@@ -1,5 +1,20 @@
 import type { GuestRecordSemantics } from './guest-record-semantics'
 
+/** Preserve explicit access requirements even in ordinary prose. This quotes the complete
+ * source line, including qualifications; it does not infer a new restriction or venue-wide rule.
+ */
+export function guestAccessSourceNotices(content: string): string[] {
+  return content
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length <= 1_200 &&
+        /\b(?:stairs?|steps?|transfer|wheelchair|ramp|lift|elevator|ladder)\b/iu.test(line) &&
+        /\b(?:only|must|requires?|need(?:s)?|no|cannot|can't|not)\b/iu.test(line),
+    )
+}
+
 /** Infer only a whole-route restriction with an explicit unavailable alternative.
  * Incidental stairs, partial routes and conditional/contradictory records stay in source prose.
  */

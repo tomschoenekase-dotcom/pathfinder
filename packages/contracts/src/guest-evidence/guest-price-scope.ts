@@ -98,7 +98,7 @@ export function guestPriceTotal(
 }
 
 export function guestPriceScopeFacts(semantics: GuestRecordSemantics): string[] {
-  return semantics.facts
+  const prices = semantics.facts
     .filter((fact) => /\$\d/u.test(fact.value))
     .map((fact) => {
       const tax = guestTaxStatus(semantics, fact.value)
@@ -118,4 +118,13 @@ export function guestPriceScopeFacts(semantics: GuestRecordSemantics): string[] 
         : null
       return `${fact.label}: ${fact.value} [tax scope: ${tax}; applies only to this price record${total ? `; one listed charge: $${(total.cents / 100).toFixed(2)} ${total.qualifier}` : ''}]`
     })
+  // Tax/fee declarations can explicitly cover named product categories in other records.
+  // Keep that authored scope intact; neither infer a venue-wide rule nor falsely say unstated.
+  const declarations = semantics.facts
+    .filter((fact) => /\btax\b/iu.test(fact.value) && !/\$\d/u.test(fact.value))
+    .map(
+      (fact) =>
+        `${fact.label}: ${fact.value} [explicit tax declaration: covers only the prices or categories this statement names; an unqualified declaration applies only within this record]`,
+    )
+  return [...prices, ...declarations]
 }

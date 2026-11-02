@@ -159,14 +159,17 @@ const BOUNDARY_PATTERNS: ReadonlyArray<{ pattern: RegExp; note: (date: Date) => 
   },
   {
     // "closed for the 2026 season after October 25, 2026"
-    pattern: new RegExp(String.raw`\bclosed\b[^.;\n]{0,40}?\bafter ${DATE}`, 'giu'),
+    pattern: new RegExp(
+      String.raw`\bclosed(?:\s+(?:temporarily|permanently|for (?:the )?(?:\d{4} )?season))?\s+after ${DATE}`,
+      'giu',
+    ),
     note: (date) =>
       `the last listed open day is ${formatDate(date)}; closed from ${formatDate(addDays(date, 1))}.`,
   },
   {
     // "closed from November 3, 2026"
     pattern: new RegExp(
-      String.raw`\bclosed\b[^.;\n]{0,40}?\b(?:from|starting|beginning|as of|on and after)\s+${DATE}`,
+      String.raw`\bclosed(?:\s+(?:temporarily|permanently|for (?:the )?(?:\d{4} )?season))?\s+(?:from|starting|beginning|as of|on and after)\s+${DATE}`,
       'giu',
     ),
     note: (date) =>
@@ -190,12 +193,34 @@ function sourceClause(text: string, start: number, end: number): string {
 }
 
 export function guestFocusDateBoundaryNotes(text: string): string[] {
+  // A separately authored condition may govern the preceding closure. Without a parsed binding
+  // we cannot safely turn that closure into an unconditional computed boundary.
+  if (/^\s*(?:Conditions?|Exceptions?|This (?:closure|restriction|applies))\b/imu.test(text))
+    return []
   const notes = new Set<string>()
   for (const { pattern, note } of BOUNDARY_PATTERNS)
     for (const match of text.matchAll(pattern)) {
+      // A bounded closure or an exception is not an indefinite closure. Preserve its source
+      // wording instead of discarding the end date or weekday/conditional restriction.
+      const tail = text.slice(match.index! + match[0].length).split(/\r?\n/u)[0] ?? ''
+      const clauseText = sourceClause(text, match.index!, match.index! + match[0].length)
+      // No unparsed suffix may be discarded: durations, daily windows and noon starts change
+      // the boundary. A truncated subject clause can also hide a qualifier, so leave it prose.
+      if (!/^[\s.!?;]*$/u.test(tail) || clauseText.endsWith('...')) continue
+      if (
+        /\b(?:if|unless|except|when|only|every|each|not|never|may|might|could|would|should)\b/iu.test(
+          clauseText,
+        )
+      )
+        continue
+      if (
+        /\b(?:sundays?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|weekends?|weekdays?)\b/iu.test(
+          clauseText,
+        )
+      )
+        continue
       const date = parseDate(match[1]!, match[2]!, match[3]!)
-      const clause = sourceClause(text, match.index!, match.index! + match[0].length)
-      if (date) notes.add(`For "${clause.replaceAll('"', "'")}": ${note(date)}`)
+      if (date) notes.add(`For "${clauseText.replaceAll('"', "'")}": ${note(date)}`)
     }
   return [...notes]
 }

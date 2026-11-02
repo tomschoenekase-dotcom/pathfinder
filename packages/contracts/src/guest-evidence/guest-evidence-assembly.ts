@@ -33,9 +33,9 @@ import { guestAnswerShape, type GuestAnswerShapeResult } from './guest-answer-sh
 import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-conversation-party'
 import { guestRecordOpeningFacts } from './guest-schedule'
 import { guestPriceScopeFacts } from './guest-price-scope'
-import { guestAccessFacts } from './guest-access-facts'
+import { guestAccessFacts, guestAccessSourceNotices } from './guest-access-facts'
 
-export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v8'
+export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v9'
 
 export type GuestEvidenceAssemblyMode = 'off' | 'on' | 'luna'
 
@@ -318,9 +318,9 @@ const IDENTIFY_NOUN =
 // Earlier versions classified each question with English patterns and appended missing notices
 // server-side. Across four sealed paired runs about 92 appended sentences were root-reviewed and
 // one was a material reminder; follow-ups and non-English questions were misclassified.
-const NOTICES = `NOTICES: Include each thing's required notices and eligibility conditions whenever your answer recommends, schedules, or affirms using, buying, accepting, booking or participating in that thing, even if the visitor did not ask about the notice. Required consequence classes are access, safety, eligibility, money and entry-loss. A courtesy notice may be omitted from a plan. An unclassified notice retains its stated obligation; never infer courtesy from a missing class. State access and safety requirements with affirmative advice in the visitor's language, including in a plan or follow-up; a visitor must not have to infer them from an earlier answer. Attach an offer's conditions to advice to accept it, preserving who must act, why and when. For a narrow fact answer that gives no use advice, retain constraints that change the requested fact and omit unrelated notices. Do not attach a notice to an excluded or merely similar thing, and omit it when your answer rules that thing out. Preserve the complete condition, exceptions and consequence; do not invent a prohibition from a condition.`
+const NOTICES = `NOTICES: Include each thing's required notices and eligibility conditions whenever your answer recommends, schedules, or affirms using, buying, accepting, booking or participating in that thing, even if the visitor did not ask about the notice. Required consequence classes are access, safety, eligibility, money and entry-loss. A courtesy notice may be omitted from a plan. An unclassified notice retains its stated obligation; never infer courtesy from a missing class. The access_requirements_from_source and required_use_details blocks preserve complete source obligations: carry every applicable access/safety requirement and every material condition or consequence into advice about using that thing. Do not shorten a notice to its first clause or mention a priced optional offer without its eligibility limits. Omit an unnecessary optional offer rather than offering it incompletely. State access and safety requirements with affirmative advice in the visitor's language, including in a plan or follow-up; a visitor must not have to infer them from an earlier answer. Attach an offer's conditions to advice to accept it, preserving who must act, why and when. For a narrow fact answer that gives no use advice, retain constraints that change the requested fact and omit unrelated notices. Do not attach a notice to an excluded or merely similar thing, and omit it when your answer rules that thing out. Preserve the complete condition, exceptions and consequence; do not invent a prohibition from a condition.`
 
-const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A probable partial-name match or identification candidate is not a confirmed subject: do not attach its use notices merely because the visitor asks an actionable question; require supported identification and actual discussion of that thing. Use a rule's requirements only for targets supported by its current scope or governing links. An unlisted target alone establishes neither applicability nor exemption: when current source text is silent or gives a non-exhaustive list, applicability stays unknown. Preserve explicit exclusive permissions, prohibitions, exceptions and conditions as evidence for their stated subjects; do not turn an explicit restriction into uncertainty merely because scope metadata does not list the target. An evidence note marked unknown stays unknown only for the attribute and subject it names; it does not weaken independent explicit facts or restrictions. Never turn that unknown into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person. Use each person's facts only for the role named by the rule. A conditional requirement applies within its stated condition; it does not create additional restrictions or limit an independently stated permission. When offering a different role to someone ineligible for the requested role, require source support for that alternative instead of assuming admission.\nPLANNING: Check every proposed stop against its own posted opening interval for the date and time of that stop, including duration and the visitor's departure deadline. The posted_opening_calendar is a computed schedule, not live availability; current closures and applicable exceptions override it. If the window ends before a stop opens, say so first and offer supported alternatives that fit. For tomorrow or a multi-day plan use each date's entry, never today's current status. Unknown hours are unknown, not a closure.\nACCESS: A computed_access restriction is a supported conclusion for that exact route, in every visitor language. State it directly; uncertainty about other arrangements does not make this route restriction unknown. Do not expand it into a denial of entry to the venue or a claim that every route is inaccessible.\nPRICES: Tax treatment belongs to its own price record, never to another ticket, rental or cafe item. For a sum, say including tax only when every selected item explicitly includes tax. Otherwise give the sum of listed prices and identify the unstated or extra tax; do not call unknown tax excluded or invent a rate. Apply a discount only within its stated eligibility and scope.\n${NOTICES}`
+const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A probable partial-name match or identification candidate is not a confirmed subject: do not attach its use notices merely because the visitor asks an actionable question; require supported identification and actual discussion of that thing. Use a rule's requirements only for targets supported by its current scope or governing links. An unlisted target alone establishes neither applicability nor exemption: when current source text is silent or gives a non-exhaustive list, applicability stays unknown. Preserve explicit exclusive permissions, prohibitions, exceptions and conditions as evidence for their stated subjects; do not turn an explicit restriction into uncertainty merely because scope metadata does not list the target. An evidence note marked unknown stays unknown only for the attribute and subject it names; it does not weaken independent explicit facts or restrictions. Never turn that unknown into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person. Use each person's facts only for the role named by the rule. A conditional requirement applies within its stated condition; it does not create additional restrictions or limit an independently stated permission. When offering a different role to someone ineligible for the requested role, require source support for that alternative instead of assuming admission.\nPLANNING: Check every proposed stop against its own posted opening interval for the date and time of that stop, including duration, last entry, and the visitor's departure deadline. Immediate directions to a facility also recommend using it now: check its own hours and say when it opens if it is closed, then offer a supported open alternative. Do not let a venue's open hours substitute for a facility's hours. The posted_opening_calendar is a computed schedule, not live availability; current closures and applicable exceptions override it. If the window ends before a stop opens, say so first and offer supported alternatives that fit. For tomorrow or a multi-day plan use each date's entry, never today's current status. Unknown hours are unknown, not a closure.\nACCESS: A computed_access restriction is a supported conclusion for that exact route, in every visitor language. State it directly; uncertainty about other arrangements does not make this route restriction unknown. Do not expand it into a denial of entry to the venue or a claim that every route is inaccessible.\nPRICES: Tax treatment belongs to its own price record. An explicit authored declaration naming categories such as all performance/workshop prices may cover those categories across records; an unqualified Prices include tax line covers only prices in its own record. Never transfer admission tax to rental or cafe charges without explicit scope. For a sum, say including tax only when every selected item explicitly includes tax. Otherwise give the sum of listed prices and identify the unstated or extra tax; do not call unknown tax excluded or invent a rate. Apply a discount only within its stated eligibility and scope.\n${NOTICES}`
 
 function singular(word: string): string {
   if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`
@@ -988,6 +988,24 @@ function factLines(
     : semantics.materialSentences
   for (const consequence of consequences) lines.push(tag('consequence', consequence))
   for (const notice of semantics.mustMention) lines.push(tag('must_mention', notice))
+  const useDetails = [
+    ...semantics.conditions.map((condition) => `Condition: ${condition}`),
+    ...semantics.exceptions.map((exception) => `Exception: ${exception}`),
+    ...record.content
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(
+        (line) =>
+          line.length <= 1_200 &&
+          !/^Unknown\s*:/iu.test(line) &&
+          /\b(?:when|if|unless|provided that)\b/iu.test(line),
+      )
+      .map((line) => `Conditional source statement: ${line}`),
+    ...(semantics.noticeClass === 'courtesy' ? [] : semantics.mustMention),
+  ]
+  if (useDetails.length) lines.push(tag('required_use_details', useDetails.join('\n')))
+  for (const notice of guestAccessSourceNotices(record.content))
+    lines.push(tag('access_requirements_from_source', notice))
   for (const fact of guestPriceScopeFacts(semantics)) lines.push(tag('computed_price_scope', fact))
   for (const fact of guestAccessFacts(semantics, record.content))
     lines.push(tag('computed_access', fact))
@@ -1351,6 +1369,39 @@ export function assembleGuestEvidence(input: {
   for (const link of governing.filter((item) => carriedSubjects.includes(item.subject)))
     add(link.record, ruleOrigin(link), null)
   for (const record of carriedGoverning) add(record, 'rule used for the earlier question', null)
+
+  // A visitor can ask for an area plan or the nearest facility without naming the thing the
+  // answer will recommend. Keep retrieved place facts (and their governing notices) available
+  // for that decision, without promoting them to named subjects or persisted continuity.
+  for (const ref of input.retrievedRefs) {
+    const record = byRef.get(ref)
+    if (
+      !record ||
+      !record.ref.startsWith('place:') ||
+      included.some((item) => item.record === record)
+    )
+      continue
+    add(record, 'retrieved place context; applies only if this thing is discussed', null)
+    const candidate: Thing = {
+      name: record.title,
+      kind: record.semantics.kind,
+      type: record.semantics.type,
+      records: [record],
+      embeddedIn: null,
+      origin: 'identify-candidate',
+    }
+    for (const link of governingFor(candidate, indexed, namedTargets).links)
+      add(link.record, `rule for retrieved ${record.title}: ${link.because}`, null)
+  }
+  for (const ref of input.retrievedRefs) {
+    const record = byRef.get(ref)
+    if (record && guestPriceScopeFacts(record.semantics).length)
+      add(
+        record,
+        'retrieved offer context; preserve its own scope and conditions if recommending it',
+        null,
+      )
+  }
 
   const blocks: string[] = []
   let used = 0
