@@ -652,10 +652,14 @@ Effective: May 1, 2026 to September 7, 2026
 ```
 
 Each `Must mention:` must be one self-contained visitor-facing sentence, at most 240 characters.
-It can be appended verbatim to an answer when evidence assembly is enabled. Write the full
-meaning, including the thing and consequence, without pronouns needing earlier text. A
-`Consequence:` alone is highlighted but is not enforced. Never invent an unknown value, infer
-scope beyond the named things, or treat `Effective:` as automatic expiration.
+Use it only for a material consequence or safety condition of using its own thing, at most one
+per record. The guide conveys it in its own words, in the visitor's language, when a visitor is
+deciding to use, buy, accept or join that thing; it leaves it out of narrow fact answers. Nothing
+is appended server-side, so do not repeat a policy's notice on every product it governs: put it
+once on the record that owns it and link with `Governed by:`. A `Consequence:` without `Must
+mention:` is still shown to the guide as evidence. Never invent an unknown value, infer scope
+beyond the named things, or treat `Effective:` as automatic expiration. `Applies to:` lists
+where a rule applies; an unlisted place is unknown, so name real exclusions in `Does not apply to:`.
 
 `venue:check` and `venues.check_package` report `LINK_TARGET_MISSING`, `SCOPE_TARGET_MISSING`,
 `MUST_MENTION_TOO_LONG`, `MUST_MENTION_NOT_SENTENCE`, `CONSEQUENCE_WITHOUT_NOTICE`,
