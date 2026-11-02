@@ -1,14 +1,14 @@
-// Required notices: authored "Must mention:" sentences that must reach the visitor whenever the
-// answer discusses the thing they belong to. The model is asked to include them; this check makes
-// the outcome deterministic by appending the authored sentence when the answer lacks it.
+// Required-notice coverage checker: an OFFLINE QA tool since assembly v5. Guest answers are no
+// longer changed by it. Authored "Must mention:" sentences are supplied to the model in the
+// evidence focus, and the model decides relevance (see NOTICES in guest-evidence-assembly.ts).
 //
-// Why: in the 2026-11-01 diagnostic a weather pass's forfeiture was omitted in 3/10 answers with
-// the existing prompt, 9/10 with compact prose and still 1/10 with typed fields. Instructions
-// reduce omission; they do not remove it. The same pattern already guarantees the venue
-// recommendation disclosure server-side.
+// Why it was retired from the live path: across four sealed paired runs about 92 appended
+// sentences were root-reviewed; one was a material reminder, the rest restated the answer or were
+// off-topic (often English after a non-English answer). A blinded saved-answer ablation graded raw
+// answers 50/13/1/0 clean/minor/wrong/critical versus 18/45/1/0 with appends.
 //
-// Limits: this is a conservative lexical check, not semantic verification. Unknown paraphrases
-// and translations can still cause an append. Only authored notices are enforced.
+// Use it to flag possible omissions for human review in evaluations. It is a conservative lexical
+// check, not semantic verification: paraphrases and translations are often reported as missing.
 
 import { guestPlaceIdentityKey } from './guest-place-identity'
 import type { GuestRequiredNotice } from './guest-evidence-assembly'

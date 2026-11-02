@@ -268,12 +268,26 @@ describe('identity', () => {
     const [price] = journey(LAKESHORE_PARK, [{ question: 'How much is the Comet?' }])
     expect(price!.data).toContain('"Comet" names 2 different things')
     // A price cue alone does not promote the embedded offer over the ride (paid run 2026-11-01).
-    expect(price!.data).toContain('The question does not say which; answer for each briefly or ask which one.')
+    expect(price!.data).toContain("Tell from the visitor's words which one they mean")
+    expect(price!.data).not.toContain('most likely means')
     expect(thingNames(price!.data)).toEqual(expect.arrayContaining(['Comet', 'Group outings']))
     expect(price!.data).toContain('<not_stated>a price (unknown, not absent)</not_stated>')
 
     const [height] = journey(LAKESHORE_PARK, [{ question: 'How tall do you have to be for Comet?' }])
     expect(height!.data).toContain('most likely means Comet (junior roller coaster);')
+  })
+
+  it('presents two titled same-name things neutrally instead of guessing from word overlap (r4 fl-06)', () => {
+    const records: GuestEvidenceRecord[] = [
+      { ref: 'place:desk', title: 'Glide Credit', content: 'Kind: service desk\nThe Glide Credit desk issues printed receipts and stores no rental skates.', version: null },
+      { ref: 'knowledge:offer', title: 'Glide Credit', content: 'Kind: admission offer\nConsequence: accepting the offer cancels all remaining rink admission that day.', version: null },
+    ]
+    const question = 'Should I accept Glide Credit if I still want to skate today?'
+    const turn = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    expect(turn.data).toContain('"Glide Credit" names 2 different things')
+    expect(turn.data).not.toContain('most likely means')
+    expect(turn.data).toContain('accepting, buying, using, booking or redeeming it points to an offer')
+    expect(thingNames(turn.data)).toHaveLength(2)
   })
 
   it('selects only the spelled-out thing when the visitor names it fully (museum)', () => {
@@ -352,6 +366,55 @@ describe('continuity found from sealed-set review', () => {
   })
 })
 
+describe('named subjects survive a paraphrasing reply (r4 fl-03 root cause)', () => {
+  const records: GuestEvidenceRecord[] = [
+    { ref: 'knowledge:rule', title: 'Ice Companion Rule', content: 'Kind: safety policy\nApplies to: Moonwake Rink; Pebble Rink\nDoes not apply to: Lantern Gallery\nCondition: Skaters under 10 need an on-ice companion aged at least 18.', version: 'r1' },
+    { ref: 'knowledge:bundle', title: 'Moonwake Learning Bundle', content: 'Kind: lesson product\nApplies to: Moonwake Rink\nGoverned by: Ice Companion Rule\nThe bundle contains three staff-led lessons.', version: 'r1' },
+    { ref: 'place:gallery', title: 'Lantern Gallery', content: 'A viewing space with 16 seats.\nSee also: Ice Companion Rule', version: null },
+    { ref: 'place:cafe', title: 'Cinder Cafe', content: 'Kind: cafe\nCinder Cafe has six tables.', version: null },
+  ]
+  const assemble = (question: string, visitorMessages: string[], previous: GuestEvidenceState | null) => assembleGuestEvidence({
+    question, visitorMessages, shape: guestAnswerShape(question), records, retrievedRefs: [], previous, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+
+  it('never derives a same-name thing across a reference line and the next sentence', () => {
+    const first = assemble('Does Ice Companion Rule require an adult in Lantern Gallery?', ['Does Ice Companion Rule require an adult in Lantern Gallery?'], null)
+    expect(first.data).not.toContain('Ice Companion Rule The bundle')
+    expect(first.data).not.toContain('identity:')
+  })
+
+  it('keeps the rule the visitor named when the reply paraphrases it, so "it" still finds the rule', async () => {
+    const { refineGuestEvidenceStateByAnswer } = await import('./guest-evidence-assembly')
+    const q1 = 'Does Ice Companion Rule require an adult in Lantern Gallery?'
+    const first = assemble(q1, [q1], null)
+    const refined = refineGuestEvidenceStateByAnswer(first, 'The ice companion safety rule does not apply in Lantern Gallery.')
+    expect(refined.refs.some((ref) => ref.ref === 'knowledge:rule' && ref.reason === 'subject')).toBe(true)
+    const q2 = 'Does it apply at Cinder Cafe, and can my companion skate free?'
+    const second = assemble(q2, [q1, q2], refined)
+    expect(thingNames(second.data)).toContain('Ice Companion Rule')
+    expect(second.data).toContain('whether it applies to Cinder Cafe. Applicability is unknown')
+  })
+
+  it('still narrows unconfirmed identification candidates to the one the reply named', async () => {
+    const { refineGuestEvidenceStateByAnswer } = await import('./guest-evidence-assembly')
+    const [turn] = journey(LAKESHORE_PARK, [{ question: "What's that coaster over there?" }])
+    const refined = refineGuestEvidenceStateByAnswer(turn!, 'That is Thunder Run, the red wooden coaster in Frontier Ridge.')
+    expect(refined.refs.filter((ref) => ref.reason === 'subject').map((ref) => ref.ref)).toEqual(['place:p-thunder'])
+  })
+})
+
+describe('notices are prompt-delivered and judged for relevance by one rule', () => {
+  it('states one language-neutral notice rule instead of an English question classifier', () => {
+    for (const question of ['How many wheels are in Spiral Studio?', '¿Puedo usar el Cloud Pass?', 'Can I accept the Cloud Pass?']) {
+      const turn = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question),
+        records: [{ ref: 'knowledge:cloud', title: 'Cloud Pass', content: 'Kind: admission offer\nMust mention: Taking a Cloud Pass ends your admission today.', version: null }],
+        retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+      expect(turn.rule).toContain('NOTICES: A must_mention line is an authored notice about its own thing.')
+      expect(turn.rule).toContain("in the visitor's language")
+      expect(turn.rule).not.toContain('NOTICE RELEVANCE')
+    }
+  })
+})
+
 describe('queried policy scope is open until established', () => {
   const records: GuestEvidenceRecord[] = [
     { ref: 'place:ride', title: 'Thunder Ride', content: 'Kind: ride\nThunder Ride is a ride.', version: null },
@@ -395,6 +458,17 @@ describe('weak subject confidence', () => {
     expect(enforceGuestRequiredNotices({ response: 'Three rental pairs require a 24-token deposit.', notices: turn.notices, actionable: true }).appended).toEqual([])
     expect(enforceGuestRequiredNotices({ response: 'You can accept Glide Credit.', notices: turn.notices, actionable: true }).appended).toHaveLength(2)
     expect(refineGuestEvidenceStateByAnswer(turn, 'Three rental pairs require a 24-token deposit.').refs).toEqual([])
+  })
+
+  it('does not make applicability claims between things matched only by a shared word', () => {
+    const question = 'We need three rental pairs. What deposit, and what happens if we return late?'
+    const records: GuestEvidenceRecord[] = [
+      { ref: 'knowledge:credit', title: 'Glide Credit', content: 'Kind: admission offer\nAlso called: Moonwake return credit', version: null },
+      { ref: 'knowledge:deposit', title: 'Rental Deposit Rule', content: 'Kind: rental policy\nApplies to: Skate Nook\nCondition: Each rental pair needs an 8-token deposit.', version: null },
+      { ref: 'place:nook', title: 'Skate Nook', content: 'Kind: rental desk\nSkate Nook rents skates.', version: null },
+    ]
+    const turn = assembleGuestEvidence({ question, visitorMessages: [question], shape: guestAnswerShape(question), records, retrievedRefs: [], previous: null, unavailableRefs: [], coverage: FULL, escape: escapeUntrustedPromptData })
+    expect(turn.data).not.toContain('Applicability is unknown')
   })
 
   it('confirms a legitimate partial identification and preserves named/pronoun continuity', async () => {

@@ -4685,7 +4685,7 @@ describe('chat router', () => {
         expect(metadata).not.toHaveProperty('evidenceState')
       })
 
-      it('fences the subject, persists record refs only, and appends a required notice the answer omitted', async () => {
+      it('fences the subject, persists record refs only, and leaves the model answer unchanged (notices are prompt-delivered)', async () => {
         vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
         setupHappyPath('Yes, pick one up at Guest Services before you leave so you can return another day.')
         semanticSearch.places.mockResolvedValue([])
@@ -4698,10 +4698,11 @@ describe('chat router', () => {
         expect(prompt).toContain('EVIDENCE FOCUS:')
         expect(prompt).toContain('<thing id="T1" name="Rain Check Pass"')
         expect(prompt).toContain('<must_mention>')
+        expect(prompt).toContain('NOTICES:')
         expect(prompt).toContain('ANSWER DEPTH:')
-        expect(result.response).toBe(
-          'Yes, pick one up at Guest Services before you leave so you can return another day. Taking a Rain Check Pass ends your ticket for the rest of that day, even if the rides reopen.',
-        )
+        expect(prompt).not.toContain('NOTICE RELEVANCE')
+        // No server-side append: the authored notice reaches the visitor only through the model.
+        expect(result.response).toBe('Yes, pick one up at Guest Services before you leave so you can return another day.')
         const metadata = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata
         expect(metadata.evidenceState).toEqual({
           version: 'guest-evidence-state-v1',
@@ -4717,9 +4718,9 @@ describe('chat router', () => {
         expect(metadata.evidenceAssembly).toMatchObject({
           schemaVersion: 'guest-evidence-execution-v1', mode: 'on',
           records: [{ ref: 'knowledge:k-rain', version: '2026-10-20T00:00:00.000Z', purpose: 'rendered' }],
-          noticesChecked: 1, noticesAppended: 1,
+          noticeDelivery: 'prompt', noticesSupplied: 1, noticesChecked: 0, noticesAppended: 0,
         })
-        // The answer evidence still verifies against the final, appended response.
+        // The answer evidence still verifies against the final response.
         expect(
           verifyGuestAnswerEvidenceBundle({ assistantResponse: result.response, evidence: metadata.answerEvidence }),
         ).toBe(true)

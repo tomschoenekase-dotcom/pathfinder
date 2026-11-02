@@ -53,7 +53,6 @@ import {
   evaluationPrompt,
   evaluationPromptCostCeiling,
   evaluationPromptPreview,
-  enforceEvaluationPreviewNotices,
   frozenEvaluationModelKey,
   frozenContent,
   processEvaluationRunJob,
@@ -295,7 +294,6 @@ describe('explicit frozen evidence preview parity', () => {
     expect(baseline.system.map((block) => block.text)).toEqual([expected.staticPart, expected.dynamicPart])
     expect(JSON.stringify(evaluationPrompt(sampleCase, legacy, { ...on, mode: 'off' }))).toBe(JSON.stringify(baseline))
     expect(evaluationPromptPreview(sampleCase, legacy).evidenceIdentity).toBeNull()
-    expect(enforceEvaluationPreviewNotices('Unchanged.', { evidence: null })).toBe('Unchanged.')
   })
 
   it.each([
@@ -318,8 +316,9 @@ describe('explicit frozen evidence preview parity', () => {
     expect(preview.evidence?.data).toBe(shared.data)
     expect(preview.evidence?.state).toEqual(shared.state)
     expect(preview.prompt.system.map((block) => block.text).join('\n')).toContain(shared.data)
-    expect(preview.evidenceIdentity).toMatchObject({ version: 'guest-evidence-assembly-v4', mode: 'on', primaryModelKey: on.primaryModelKey, hash: expect.stringMatching(/^[a-f0-9]{64}$/u) })
-    expect(enforceEvaluationPreviewNotices('You can accept Storm Credit at the desk.', preview)).toContain("Accepting Storm Credit ends today's admission immediately.")
+    expect(preview.evidenceIdentity).toMatchObject({ version: 'guest-evidence-assembly-v5', mode: 'on', primaryModelKey: on.primaryModelKey, hash: expect.stringMatching(/^[a-f0-9]{64}$/u) })
+    // Notices are prompt-delivered, as in the live guest path; the preview never appends.
+    expect(preview.evidence?.data).toContain("Accepting Storm Credit ends today's admission immediately.")
   })
 
   it('preserves only record refs across turns and never takes facts from assistant history', () => {
@@ -334,7 +333,6 @@ describe('explicit frozen evidence preview parity', () => {
     expect(preview.evidence?.data).not.toContain('99')
     expect(preview.evidence?.data).not.toContain('Casey')
     expect(preview.evidence?.state.refs.every((ref) => Object.keys(ref).sort().join(',') === 'age,reason,ref,version')).toBe(true)
-    expect(enforceEvaluationPreviewNotices('The Storm Credit expiry date is not stated.', preview)).toContain("Accepting Storm Credit ends today's admission immediately.")
   })
 
   it('uses stable snapshot-local refs when previews omit database IDs', () => {

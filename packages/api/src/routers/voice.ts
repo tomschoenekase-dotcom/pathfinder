@@ -264,7 +264,7 @@ export function composeVoiceInstructions(input: {
   evidenceAssembly?: boolean
 }): string {
   const policy = input.evidenceAssembly
-    ? `${VOICE_POLICY}\nFor each successful lookup, use evidenceFocus as current reference data. Keep spoken answers brief. Speak each applicable requiredNotices sentence verbatim; these are authored visitor notices. Never use a previous lookup as current authority.`
+    ? `${VOICE_POLICY}\nFor each successful lookup, use evidenceFocus as current reference data. Keep spoken answers brief. requiredNotices are authored visitor notices: say one briefly, in your own words, when the visitor is deciding to use, buy, accept or join its thing; leave it out of narrow fact answers and do not repeat one you already said. Never use a previous lookup as current authority.`
     : VOICE_POLICY
   const staticHeading = '\n\nVENUE STYLE AND IDENTITY:\n'
   const dynamicHeading = '\n\nCURRENT SESSION CONFIGURATION:\n'

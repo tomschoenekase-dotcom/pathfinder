@@ -24,11 +24,17 @@ export const GuestEvidenceExecutionSchema = z.object({
     version: z.string().max(100).nullable(),
     purpose: z.enum(['rendered', 'scope']),
   }).strict()).max(100),
+  // Older receipts appended missing notices server-side ('append', implied when absent).
+  // Current turns deliver notices through the prompt only.
+  noticeDelivery: z.enum(['append', 'prompt']).optional(),
+  noticesSupplied: z.number().int().nonnegative().optional(),
   noticesChecked: z.number().int().nonnegative(),
   noticesAppended: z.number().int().nonnegative(),
 }).strict().superRefine((value, context) => {
   if (value.recordCount < value.records.length || value.recordsTruncated !== (value.recordCount > value.records.length))
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['recordCount'], message: 'Record coverage is inconsistent' })
+  if (value.noticeDelivery === 'prompt' && (value.noticesAppended !== 0 || value.noticesChecked !== 0))
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['noticeDelivery'], message: 'Prompt-delivered notices are never appended' })
   if (value.noticesAppended > value.noticesChecked)
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['noticesAppended'], message: 'Appended notices exceed checked notices' })
   if (new Set(value.records.map((record) => record.ref)).size !== value.records.length)

@@ -7,7 +7,6 @@ import {
 import { buildVenueSystemPromptParts } from '@pathfinder/api/venue-context'
 import {
   assembleGuestEvidence,
-  enforceGuestRequiredNotices,
   escapeUntrustedPromptData,
   guestAnswerShape,
   guestAnswerShapeRule,
@@ -939,7 +938,6 @@ export function evaluationPromptPreview(
 ): {
   prompt: { system: AiSystemBlock[]; messages: AiMessage[] }
   evidence: GuestEvidenceAssembly | null
-  noticeActionable: boolean
   evidenceIdentity: { version: string; mode: GuestEvidenceAssemblyMode; primaryModelKey: string; hash: string } | null
 } {
   const params = frozenVenuePromptParams(content, evalCase.venue.guideMode)
@@ -1013,7 +1011,6 @@ export function evaluationPromptPreview(
       messages: evalCase.turns.map((turn) => ({ role: turn.role, content: turn.content })),
     },
     evidence,
-    noticeActionable: shape?.actionable ?? false,
     evidenceIdentity: evidence && options ? {
       version: GUEST_EVIDENCE_ASSEMBLY_VERSION,
       mode: options.mode,
@@ -1032,19 +1029,6 @@ export function evaluationPromptPreview(
       } as CanonicalJsonValue)).digest('hex'),
     } : null,
   }
-}
-
-/** Apply only to successful generated text, before scoring/hashing the preview observation. */
-export function enforceEvaluationPreviewNotices(
-  response: string,
-  preview: Pick<ReturnType<typeof evaluationPromptPreview>, 'evidence'> & { noticeActionable?: boolean },
-): string {
-  return preview.evidence ? enforceGuestRequiredNotices({
-    response,
-    notices: preview.evidence.notices,
-    actionable: preview.noticeActionable ?? false,
-    knownOtherNames: preview.evidence.knownNames,
-  }).response : response
 }
 
 export function evaluationPromptCostCeiling(

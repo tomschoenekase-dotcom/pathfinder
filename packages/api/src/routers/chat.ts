@@ -99,7 +99,6 @@ import {
 } from '../lib/guest-evidence-assembly'
 import { guestAnswerShape, guestAnswerShapeRule } from '../lib/guest-answer-shape'
 import { guestEvidenceExecution } from '../lib/guest-evidence-execution'
-import { enforceGuestRequiredNotices } from '../lib/guest-required-notices'
 import { buildGuestPlaceCards, selectDisplayableGuestPlaceCards } from '../lib/guest-place-card'
 import { readApprovedGuestPlaceMedia } from '../lib/guest-place-media'
 import { checkRateLimit, checkRateLimitsOrdered } from '../lib/rate-limit'
@@ -2202,7 +2201,7 @@ const chatReadRouter = router({
 
     // 6. Call the AI gateway. Provider failure remains fail-open for the guest,
     //    while every attempt is recorded best-effort for cost and reliability evidence.
-    let noticeExecution = { checked: 0, appended: 0 }
+    let noticeExecution = { supplied: 0 }
     let assistantResponse: string
     let engagementAskedThisTurn = false
     let recommendationShownInResponse = false
@@ -2574,35 +2573,11 @@ const chatReadRouter = router({
         recommendationShownInResponse = disclosure.shownInResponse
         recommendationDisclosureAppended = disclosure.disclosureAppended
       }
-      // Authored required notices reach the visitor whenever their thing is discussed, even when
-      // the model left them out. Same server-side append pattern as the disclosure above.
-      if (evidenceAssembly?.notices.length && answerShape) {
-        const enforced = enforceGuestRequiredNotices({
-          response: assistantResponse,
-          notices: evidenceAssembly.notices.map((notice) => ({
-            ...notice,
-            text: guestPlainDashes(notice.text),
-          })),
-          actionable: answerShape.actionable,
-          knownOtherNames: evidenceAssembly.knownNames,
-        })
-        noticeExecution = { checked: enforced.checked, appended: enforced.appended.length }
-        if (enforced.appended.length) {
-          if (streamProjection)
-            await streamProjection.push(enforced.response.slice(assistantResponse.length), {
-              providerFirstTextMs: elapsedMilliseconds(modelStartedAt),
-              requestFirstTextMs: elapsedMilliseconds(requestStartedAt),
-            })
-          assistantResponse = enforced.response
-        }
-        logger.info({
-          action: 'guest-chat.required-notices',
-          tenantId: venue.tenantId,
-          venueId: input.venueId,
-          checked: enforced.checked,
-          appended: enforced.appended.length,
-        })
-      }
+      // Authored notices are supplied in the evidence focus and the model decides when they are
+      // relevant. They are no longer appended server-side: in sealed paired runs the lexical
+      // append added redundant or off-topic sentences (often in the wrong language) and almost
+      // never a needed one. The receipt records how many notices the evidence supplied.
+      if (evidenceAssembly) noticeExecution = { supplied: evidenceAssembly.notices.length }
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
       await observeGuestChatProviderOperationAction({
@@ -2748,7 +2723,7 @@ const chatReadRouter = router({
             ...(answerEvidence ? { answerEvidence } : {}),
             ...(evidenceAssembly && evidenceAssemblyMode !== 'off' && !fallbackFailureCode
               ? { evidenceAssembly: guestEvidenceExecution({ assembly: evidenceAssembly, mode: evidenceAssemblyMode,
-                  noticesChecked: noticeExecution.checked, noticesAppended: noticeExecution.appended }) }
+                  noticesSupplied: noticeExecution.supplied }) }
               : {}),
             ...(guestActionPlacements.length && !fallbackFailureCode
               ? { actionPlacements: guestActionPlacements }

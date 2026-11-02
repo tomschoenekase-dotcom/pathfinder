@@ -154,7 +154,7 @@ describe('flags and descriptors', () => {
 })
 
 describe('guestAnswerShapeRule', () => {
-  const keep = 'keep every applicable must_mention line under NOTICE RELEVANCE, every condition or exception that changes whether the answer applies'
+  const keep = 'keep every condition, exception or unknown that changes whether the answer holds for this visitor, and every authored notice that NOTICES makes relevant'
   const shapes = [
     "What's that big yellow coaster?",
     'Tell me everything about the pandas',
@@ -167,7 +167,7 @@ describe('guestAnswerShapeRule', () => {
   it.each(shapes)('always carries the keep sentence: %s', (message) => {
     const rule = guestAnswerShapeRule(guestAnswerShape(message))
     expect(rule).toContain(keep)
-    expect(rule).toContain('relevant unknown')
+    expect(rule).toContain('leave out ones that do not bear on the question')
     expect(rule.startsWith('ANSWER DEPTH:')).toBe(true)
   })
 

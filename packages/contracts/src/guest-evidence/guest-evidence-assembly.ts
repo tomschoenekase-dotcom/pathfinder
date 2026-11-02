@@ -32,7 +32,7 @@ import {
 import { guestAnswerShape, type GuestAnswerShapeResult } from './guest-answer-shape'
 import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-conversation-party'
 
-export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v4'
+export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v5'
 
 export type GuestEvidenceAssemblyMode = 'off' | 'on' | 'luna'
 
@@ -283,7 +283,13 @@ const REFERRING =
 const IDENTIFY_NOUN =
   /\b(coaster|ride|animal|bird|building|tower|statue|sculpture|painting|show|exhibit|slide|train|boat|wheel|fountain|tree|plane|car|truck|ship|dinosaur|fish|monkey|cat|bear|snake)s?\b/iu
 
-const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A probable partial-name match or identification candidate is not a confirmed subject: do not attach its use notices merely because the visitor asks an actionable question; require supported identification and actual discussion of that thing. Use a rule's requirements only for targets supported by its current scope or governing links. An unlisted target is not thereby exempt: applicability remains unknown unless current records establish inclusion or exclusion. An evidence note marked unknown stays unknown: never turn it into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person. A must_mention line supplies an authored visitor notice. Follow NOTICE RELEVANCE to decide when it belongs in the answer; when required, say it in your own words or as written.`
+// One relevance rule for authored notices, judged by the model in the visitor's own language.
+// Earlier versions classified each question with English patterns and appended missing notices
+// server-side. Across four sealed paired runs about 92 appended sentences were root-reviewed and
+// one was a material reminder; follow-ups and non-English questions were misclassified.
+const NOTICES = `NOTICES: A must_mention line is an authored notice about its own thing. Include it, in your own words and in the visitor's language, when the visitor (or someone in their party) is deciding whether to use, buy, accept, book or take part in that thing, or when it changes the answer to what they asked. Leave it out of answers to narrow facts (price, time, count, place, color, what is included), out of answers that already rule the thing out for them, and out of follow-ups where your earlier reply already gave it and the decision has not changed. Treat conditions and unknowns the same way: mention one only when it bears on what the visitor asked or is about to do.`
+
+const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A probable partial-name match or identification candidate is not a confirmed subject: do not attach its use notices merely because the visitor asks an actionable question; require supported identification and actual discussion of that thing. Use a rule's requirements only for targets supported by its current scope or governing links. An unlisted target is not thereby exempt: applicability remains unknown unless current records establish inclusion or exclusion, so say a rule does not list that place rather than that it does not apply there. An evidence note marked unknown stays unknown: never turn it into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person.\n${NOTICES}`
 
 function singular(word: string): string {
   if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`
@@ -367,6 +373,8 @@ function groupThings(records: Indexed[], key: string, origin: Thing['origin']): 
  * kind noun ("Comet wristband"), or a labeled line whose label is the name ("Lantern Court: a
  * seasonal cafe kiosk ...").
  */
+const DETERMINERS = new Set(['the', 'a', 'an', 'this', 'that', 'these', 'those', 'its', 'your', 'our', 'their', 'each', 'every', 'any'])
+
 function embeddedThings(nameKey: string, displayName: string, records: Indexed[]): Thing[] {
   const things: Thing[] = []
   for (const record of records) {
@@ -389,12 +397,24 @@ function embeddedThings(nameKey: string, displayName: string, records: Indexed[]
         origin: 'named',
       })
     }
-    const contentKey = guestPlaceIdentityKey(record.content)
+    // A derived name lives inside one line or sentence of prose. Flattening the record let a
+    // reference line end ("Governed by: Ice Companion Rule") join the next sentence ("The bundle
+    // contains ...") into a phantom thing "Ice Companion Rule The bundle". Reference lines name
+    // other records; they never introduce a same-name thing.
+    const segments = record.content
+      .split(/\n|(?<=[.!?;])\s+/u)
+      .filter((segment) => !/^\s*(?:governed by|see also|applies to|does not apply to|also called)\s*:/iu.test(segment))
+      .map(guestPlaceIdentityKey)
+      .filter(Boolean)
+    for (const contentKey of segments) {
     let index = ` ${contentKey} `.indexOf(` ${nameKey} `)
     while (index >= 0) {
       // The kind noun may follow directly ("Comet wristband") or after one word ("Riptide Group
-      // Package"); the derived name keeps every word up to the noun.
+      // Package"); the derived name keeps every word up to the noun. A determiner starts a new
+      // phrase ("Comet the wristband"), so it never joins a derived name.
       const next = contentKey.slice(index + nameKey.length).trim().split(' ').slice(0, 2)
+      const determinerAt = next.findIndex((word) => DETERMINERS.has(word))
+      if (determinerAt >= 0) next.splice(determinerAt)
       const nounAt = next.findIndex((word) => DERIVED_THING_NOUN.some(([pattern]) => pattern.test(word)))
       const after = nounAt >= 0 ? next.slice(0, nounAt + 1).join(' ') : ''
       const noun = nounAt >= 0 ? next[nounAt]! : ''
@@ -415,6 +435,7 @@ function embeddedThings(nameKey: string, displayName: string, records: Indexed[]
             })
         }
       index = ` ${contentKey} `.indexOf(` ${nameKey} `, index + 1)
+    }
     }
   }
   return things
@@ -487,6 +508,10 @@ function resolveSubjects(question: string, indexed: Indexed[]): { things: Thing[
     }
     // A bare name defaults to the thing titled with it, unless the wording points elsewhere.
     else if (titled.length === 1 && !cued.some((thing) => thing !== titled[0])) chosen = titled[0]!
+    // Two titled records with one name (a desk and an offer) are told apart by the question's
+    // meaning, which word overlap cannot read: "accept Glide Credit ... skate today" overlapped
+    // the desk's "rental skates" and named the desk as most likely (r4 fl-06). Present both.
+    if (titled.length > 1 && chosen && !chosen.embeddedIn) chosen = null
     identities.push({ name: display, candidates, chosen })
     // Every candidate's records join the packet so the model can tell them apart; ambiguity is
     // stated, not resolved by dropping a candidate.
@@ -916,9 +941,16 @@ export function assembleGuestEvidence(input: {
     const record = byRef.get(ref.ref)
     if (record?.semantics.kind === 'POLICY') contextualPolicies.add(record)
   }
+  // Applicability is only discussed between things the visitor actually named. A partial-word
+  // match ("return" in "Moonwake return credit") produced claims such as "whether the rental
+  // rule applies to the credit" for a question about neither (r4 fl-07 replay).
+  const partialOnly = (thing: Thing) => thing.origin === 'partial-name' || thing.origin === 'identify-candidate'
+  const strongPolicySubjects = new Set(allSubjects.filter((thing) => !partialOnly(thing)).flatMap((thing) => thing.records))
   for (const record of contextualPolicies) {
     if (!record.semantics.scope.appliesTo.length) continue
+    if (allSubjects.some((thing) => thing.records.includes(record)) && !strongPolicySubjects.has(record)) continue
     for (const thing of subjects) {
+      if (partialOnly(thing)) continue
       if (thing.records.includes(record) || thing.kind === 'POLICY') continue
       if (governing.some((link) => link.record === record && link.subject === thing)) continue
       if (record.semantics.scope.doesNotApplyTo.some((target) => scopeTargetMatches(target, thing, namedTargets))) continue
@@ -972,7 +1004,7 @@ export function assembleGuestEvidence(input: {
     notes.push(
       identity.chosen
         ? `identity: "${identity.name}" names ${identity.candidates.length} different things: ${described.join('; ')}. The question most likely means ${described[chosenIndex] ?? identity.chosen.name}; answer for it, keep the others' facts separate, and mention the other briefly only if the visitor could mean it.`
-        : `identity: "${identity.name}" names ${identity.candidates.length} different things: ${described.join('; ')}. The question does not say which; answer for each briefly or ask which one.`,
+        : `identity: "${identity.name}" names ${identity.candidates.length} different things: ${described.join('; ')}. Tell from the visitor's words which one they mean: going to, finding or visiting it points to a place or desk; accepting, buying, using, booking or redeeming it points to an offer, ticket or program. Answer for that one and keep the others' facts separate. If the words do not settle it, answer for each briefly or ask which one.`,
     )
   }
   for (const note of excludedNotes) notes.push(`scope: ${note}`)
@@ -1215,9 +1247,7 @@ export function assembleGuestEvidence(input: {
   return {
     rule: data ? `${RULE}${unresolvedTogetherRoles
       ? '\nROLE REVIEW: Going together does not specify whether both people participate or one accompanies the other. Briefly check both participating and any participant/companion option supported by the records, or ask which roles they mean. One person failing a participant minimum does not settle whether they can accompany someone. A stated unknown companion requirement remains unknown; do not grant or deny full eligibility from age alone.'
-      : ''}\n${requiresUseNotices
-      ? 'NOTICE RELEVANCE: This is a use or participation decision, or its follow-up. Keep the applicable authored notices and relevant unknowns.'
-      : 'NOTICE RELEVANCE: This is a narrow fact lookup. Answer the asked fact without unrelated participation, refund or use notices merely because you name a thing. Include a notice if it answers the asked fact, or if you recommend or advise using its thing.'}` : '',
+      : ''}` : '',
     data,
     state: { version: 'guest-evidence-state-v1', refs: nextRefs },
     refNames: Object.fromEntries(nextRefs.map((ref) => [ref.ref, weakNames[ref.ref] ?? byRef.get(ref.ref)?.names ?? []])),
@@ -1280,8 +1310,11 @@ export function refineGuestEvidenceStateByAnswer(
   const subjects = assembly.state.refs.filter((ref) => ref.reason === 'subject' && ref.age === 0)
   const kept = subjects.filter(named)
   const weak = assembly.weakCandidateRefs ?? {}
-  const dropped = new Set(subjects.filter((ref) => !kept.includes(ref)
-    && (kept.length > 0 || Object.hasOwn(weak, ref.ref))).map((ref) => ref.ref))
+  // Only unconfirmed candidates can be narrowed by the reply. A thing the visitor named stays the
+  // subject even when the reply paraphrased its name ("the companion safety rule"); dropping it
+  // lost the rule a follow-up "does it apply at the cafe?" referred to (r4 fl-03).
+  const dropped = new Set(subjects.filter((ref) => !kept.includes(ref) && Object.hasOwn(weak, ref.ref))
+    .map((ref) => ref.ref))
   // Do not leave an unconfirmed candidate's rules as freestanding continuity. A
   // shared rule stays if another retained weak candidate still owns it.
   for (const [subjectRef, related] of Object.entries(weak)) if (dropped.has(subjectRef))
