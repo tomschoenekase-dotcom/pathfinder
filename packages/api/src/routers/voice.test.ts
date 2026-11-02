@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   publishOperationalEvent: vi.fn().mockResolvedValue(undefined),
   rateLimit: vi.fn().mockResolvedValue(true),
   enqueueHangup: vi.fn().mockResolvedValue(undefined),
+  directory: vi.fn(),
   nativeSnapshot: vi.fn().mockResolvedValue({
     path: 'LEGACY',
     reason: 'SERVER_DISABLED',
@@ -48,12 +49,18 @@ vi.mock('@pathfinder/db', () => ({
     knowledgeEntries: input.legacyKnowledgeEntries,
   })),
 }))
+// Partial: staging's voice grounding still uses the real cached directory loader.
+vi.mock('../lib/guest-venue-directory', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/guest-venue-directory')>()),
+  loadGuestVenueDirectory: mocks.directory,
+}))
 vi.mock('@pathfinder/analytics', () => ({ emitEvent: mocks.emitEvent }))
 vi.mock('@pathfinder/jobs', () => ({
   enqueueVoiceSessionHangup: mocks.enqueueHangup,
 }))
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit: mocks.rateLimit }))
 
+import { applyNativeGuestContentRead } from '@pathfinder/db'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
@@ -62,6 +69,7 @@ import {
   _setVoiceSdpExchangeForTesting,
   _setVoiceHangupForTesting,
   composeVoiceInstructions,
+  _clearVoiceEvidenceStateForTesting,
   voiceRouter,
 } from './voice'
 
@@ -155,6 +163,9 @@ const provider = {
 describe('voice router', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    _clearVoiceEvidenceStateForTesting()
+    vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'off')
+    mocks.directory.mockResolvedValue({ knowledge: [], places: [], incomplete: false })
     vi.stubEnv('VOICE_MODE_ENABLED', 'true')
     vi.stubEnv('OPENAI_API_KEY', 'sk-server-only')
     _setVoiceProviderAdapterForTesting(provider)
@@ -205,6 +216,145 @@ describe('voice router', () => {
     _setVoiceProviderAdapterForTesting(null)
     _setVoiceSdpExchangeForTesting(null)
     _setVoiceHangupForTesting(null)
+  })
+
+  it('keeps evidence assembly off and Luna rollout identical on realtime routes', async () => {
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      model: 'gpt-realtime-2.1-mini',
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    const input = {
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      voiceSessionId: VOICE_ID,
+      toolCallId: 'off',
+      query: 'Where is Comet?',
+    }
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(100)
+    const off = await caller.voice.groundingContext(input)
+    vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'luna')
+    const luna = await caller.voice.groundingContext(input)
+    expect({ ...off, measurements: null }).toEqual({ ...luna, measurements: null })
+    expect(off).not.toHaveProperty('evidenceFocus')
+    expect(mocks.directory).not.toHaveBeenCalled()
+    clock.mockRestore()
+  })
+
+  it('assembles authored voice notices and reloads carried IDs through scoped fences', async () => {
+    vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      model: 'gpt-realtime-2.1-mini',
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    const record = {
+      id: 'comet',
+      title: 'Comet',
+      content: 'Kind: admission offer\nMust mention: Accepting this pass ends your visit today.',
+      category: 'tickets',
+      updatedAt: new Date(),
+    }
+    mocks.directory.mockResolvedValue({ knowledge: [record], places: [], incomplete: false })
+    const input = {
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      voiceSessionId: VOICE_ID,
+      toolCallId: 'on',
+      query: 'Can I use Comet?',
+    }
+    const first = await caller.voice.groundingContext(input)
+    expect(first).toHaveProperty(
+      'requiredNotices.0.text',
+      'Accepting this pass ends your visit today.',
+    )
+    mocks.directory.mockResolvedValue({ knowledge: [], places: [], incomplete: false })
+    const second = await caller.voice.groundingContext({
+      ...input,
+      query: 'Can I use it tomorrow?',
+    })
+    expect(mocks.directory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: VENUE_ID,
+        includeSecondLayer: false,
+        onlyIds: { knowledge: ['comet'], places: [] },
+      }),
+    )
+    expect(second).toHaveProperty('evidenceTrace.unavailable', 1)
+    expect(JSON.stringify(second)).not.toContain('Accepting this pass')
+    mocks.directory.mockClear()
+    mocks.directory.mockRejectedValueOnce(new Error('offline'))
+    expect(await caller.voice.groundingContext(input)).not.toHaveProperty('evidenceFocus')
+    mocks.directory.mockResolvedValue({ knowledge: [], places: [], incomplete: false })
+    mocks.directory.mockClear()
+    await caller.voice.groundingContext({ ...input, query: 'And it?' })
+    expect(mocks.directory).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops carried records when native projection falls back outside this turn path', async () => {
+    vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: VOICE_ID,
+      status: 'ACTIVE',
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    const record = { id: 'comet', title: 'Comet', content: 'Price: $10', category: 'tickets' }
+    mocks.directory.mockResolvedValue({ knowledge: [record], places: [], incomplete: false })
+    const input = {
+      venueId: VENUE_ID,
+      anonymousToken: TOKEN,
+      voiceSessionId: VOICE_ID,
+      toolCallId: 'native',
+      query: 'What is Comet?',
+    }
+    await caller.voice.groundingContext(input)
+    mocks.nativeSnapshot.mockResolvedValueOnce({
+      path: 'NATIVE',
+      reason: null,
+      releaseId: 'release-1',
+      state: null,
+    })
+    // Staging's grounding projects its directory read and its candidate read separately.
+    const passThroughNative = (value: Parameters<typeof applyNativeGuestContentRead>[0]) => ({
+      path: 'NATIVE' as const,
+      places: value.legacyPlaces,
+      knowledgeEntries: value.legacyKnowledgeEntries,
+    })
+    vi.mocked(applyNativeGuestContentRead)
+      .mockImplementationOnce(passThroughNative)
+      .mockImplementationOnce(passThroughNative)
+      .mockReturnValueOnce({ path: 'NATIVE', places: [], knowledgeEntries: [] })
+      .mockReturnValueOnce({
+        path: 'LEGACY',
+        places: [],
+        knowledgeEntries: [
+          {
+            ...record,
+            distance: 0,
+            sourceType: 'FOUNDER_PROVIDED',
+            sourceName: null,
+            sourceUrl: null,
+          },
+        ],
+      })
+    const result = await caller.voice.groundingContext({ ...input, query: 'And it?' })
+    expect(result).toHaveProperty('evidenceTrace.unavailable', 1)
+    expect(JSON.stringify(result)).not.toContain('$10')
+    mocks.directory.mockClear()
+    dbMocks.voiceFindFirst.mockResolvedValue({
+      id: 'different-voice-session',
+      status: 'ACTIVE',
+      connectedAt: new Date(),
+      maxDurationSeconds: 600,
+    })
+    await caller.voice.groundingContext({ ...input, query: 'And it?' })
+    expect(mocks.directory).toHaveBeenCalledTimes(1)
   })
 
   it('reports only safe public availability after session and entitlement checks', async () => {

@@ -15,11 +15,23 @@ import { emitEvent } from '@pathfinder/analytics'
 import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
 import { enqueueVoiceSessionHangup } from '@pathfinder/jobs'
 import {
+  applyNativeGuestContentRead,
   publishOperationalEvent,
   resolveNativeGuestReadSnapshotAction,
   resolveProductEntitlement,
 } from '@pathfinder/db'
 
+import {
+  assembleGuestEvidence,
+  guestEvidenceAssemblyForModel,
+  guestEvidenceAssemblyMode,
+  guestEvidenceRecordFromKnowledge,
+  guestEvidenceRecordFromPlace,
+  type GuestEvidenceState,
+} from '../lib/guest-evidence-assembly'
+import { guestAnswerShape } from '../lib/guest-evidence-answer-shape'
+import { loadGuestVenueDirectory } from '../lib/guest-venue-directory'
+import { escapeUntrustedPromptData } from '../lib/venue-context'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
@@ -258,13 +270,17 @@ For venue facts, policies, history, accessibility, locations, routes, hours, or 
 export function composeVoiceInstructions(input: {
   staticPart: string
   dynamicPart: string
+  evidenceAssembly?: boolean
 }): string {
+  const policy = input.evidenceAssembly
+    ? `${VOICE_POLICY}\nFor each successful lookup, use evidenceFocus as current reference data. Keep spoken answers brief. requiredNotices are authored visitor notices: say one briefly, in your own words, when the visitor is deciding to use, buy, accept or join its thing; leave it out of narrow fact answers and do not repeat one you already said. Never use a previous lookup as current authority.`
+    : VOICE_POLICY
   const staticHeading = '\n\nVENUE STYLE AND IDENTITY:\n'
   const dynamicHeading = '\n\nCURRENT SESSION CONFIGURATION:\n'
   // Reserve mandatory policy before sharing the existing total prompt budget.
   const contentBudget = Math.max(
     0,
-    16_999 - VOICE_POLICY.length - staticHeading.length - dynamicHeading.length,
+    16_999 - policy.length - staticHeading.length - dynamicHeading.length,
   )
   // The shared guide prompt may use budget a short session configuration leaves unused; a long
   // configuration still keeps at least half.
@@ -279,7 +295,7 @@ export function composeVoiceInstructions(input: {
     0,
     Math.min(8_000, contentBudget - boundedStatic.length),
   )
-  return `${VOICE_POLICY}${staticHeading}${boundedStatic}${dynamicHeading}${boundedDynamic}`
+  return `${policy}${staticHeading}${boundedStatic}${dynamicHeading}${boundedDynamic}`
 }
 
 function voiceInstructions(
@@ -314,7 +330,18 @@ function voiceInstructions(
     ...(visitContext ? { visitContext } : {}),
     guideMode: scope.guideMode,
   })
-  return composeVoiceInstructions(prompt)
+  return composeVoiceInstructions({
+    ...prompt,
+    evidenceAssembly: guestEvidenceAssemblyMode() === 'on',
+  })
+}
+
+// Process-local continuity deliberately stores only refs. Losing it on restart is safe.
+const voiceEvidenceStates = new Map<string, { expiresAt: number; state: GuestEvidenceState }>()
+const VOICE_EVIDENCE_TTL_MS = 60 * 60 * 1_000
+
+export function _clearVoiceEvidenceStateForTesting(): void {
+  voiceEvidenceStates.clear()
 }
 
 export const voiceRouter = router({
@@ -367,7 +394,117 @@ export const voiceRouter = router({
       ...(input.visitContext ? { visitContext: input.visitContext } : {}),
       nativeSnapshot,
     })
-    return { toolCallId: input.toolCallId, ...result }
+    const stateKey = JSON.stringify([
+      resolved.scope.tenantId,
+      resolved.scope.venueId,
+      resolved.scope.sessionId,
+      resolved.voiceSession.id,
+    ])
+    // Luna is a text-route rollout; realtime routes never impersonate a Luna model.
+    if (!guestEvidenceAssemblyForModel(guestEvidenceAssemblyMode(), resolved.voiceSession.model)) {
+      voiceEvidenceStates.delete(stateKey)
+      return { toolCallId: input.toolCallId, ...result }
+    }
+    const now = Date.now()
+    for (const [key, value] of voiceEvidenceStates) {
+      if (value.expiresAt <= now) voiceEvidenceStates.delete(key)
+    }
+    const previous = voiceEvidenceStates.get(stateKey)?.state ?? null
+    try {
+      const directory = await loadGuestVenueDirectory({
+        reader: ctx.db,
+        tenantId: resolved.scope.tenantId,
+        venueId: resolved.scope.venueId,
+        includeSecondLayer: false,
+        asOf: new Date(now),
+      })
+      const carried = previous?.refs ?? []
+      const reloaded = carried.length
+        ? await loadGuestVenueDirectory({
+            reader: ctx.db,
+            tenantId: resolved.scope.tenantId,
+            venueId: resolved.scope.venueId,
+            includeSecondLayer: false,
+            asOf: new Date(now),
+            onlyIds: {
+              knowledge: carried
+                .filter(({ ref }) => ref.startsWith('knowledge:'))
+                .map(({ ref }) => ref.slice(10)),
+              places: carried
+                .filter(({ ref }) => ref.startsWith('place:'))
+                .map(({ ref }) => ref.slice(6)),
+            },
+          })
+        : { knowledge: [], places: [] }
+      const project = (source: typeof reloaded) =>
+        applyNativeGuestContentRead({
+          snapshot: nativeSnapshot,
+          legacyPlaces: source.places,
+          legacyKnowledgeEntries: source.knowledge.map((entry) => ({ ...entry, distance: 0 })),
+        })
+      const projected = project(directory)
+      const projectedCarry = project(reloaded)
+      const currentPath = result.nativeProjection.effectiveContentPath
+      const directoryMatches = projected.path === currentPath
+      const carryMatches = projectedCarry.path === currentPath
+      // Native projection may add release rows; carry is still restricted to requested IDs.
+      const carriedIds = new Set(carried.map(({ ref }) => ref))
+      const reloadedRecords = [
+        ...projectedCarry.places.map(guestEvidenceRecordFromPlace),
+        ...projectedCarry.knowledgeEntries.map(guestEvidenceRecordFromKnowledge),
+      ].filter(({ ref }) => carryMatches && carriedIds.has(ref))
+      const present = new Set(reloadedRecords.map(({ ref }) => ref))
+      const assembly = assembleGuestEvidence({
+        question: input.query,
+        visitorMessages: [input.query],
+        shape: guestAnswerShape(input.query),
+        records: [
+          ...(directoryMatches ? projected.places.map(guestEvidenceRecordFromPlace) : []),
+          ...(directoryMatches
+            ? projected.knowledgeEntries.map(guestEvidenceRecordFromKnowledge)
+            : []),
+          ...reloadedRecords,
+        ],
+        retrievedRefs: result.sourceIds.map((id) =>
+          id.startsWith('place:') ? id : `knowledge:${id}`,
+        ),
+        previous,
+        unavailableRefs: carried.map(({ ref }) => ref).filter((ref) => !present.has(ref)),
+        coverage: {
+          mode: 'DIRECTORY',
+          incomplete: directory.incomplete,
+          retrievalPartial: false,
+          loadFailed: false,
+        },
+        escape: escapeUntrustedPromptData,
+        maxChars: 5_000,
+        maxRecords: 6,
+      })
+      if (voiceEvidenceStates.size >= 500 && !voiceEvidenceStates.has(stateKey)) {
+        const oldest = voiceEvidenceStates.keys().next().value
+        if (oldest !== undefined) voiceEvidenceStates.delete(oldest)
+      }
+      voiceEvidenceStates.set(stateKey, {
+        expiresAt: now + VOICE_EVIDENCE_TTL_MS,
+        state: assembly.state,
+      })
+      return {
+        toolCallId: input.toolCallId,
+        ...result,
+        evidenceFocus: { rule: assembly.rule, data: assembly.data },
+        // Authored sentences only; never shorten a material condition mid-sentence.
+        requiredNotices: assembly.notices
+          .filter(
+            ({ text, requiredForQuestion }) => requiredForQuestion !== false && text.length <= 280,
+          )
+          .slice(0, 3),
+        evidenceTrace: assembly.trace,
+      }
+    } catch {
+      // A failed reload cannot resurrect stale facts from an earlier tool result.
+      voiceEvidenceStates.delete(stateKey)
+      return { toolCallId: input.toolCallId, ...result }
+    }
   }),
 
   availability: publicProcedure.input(VoiceAvailabilityInput).query(async ({ ctx, input }) => {

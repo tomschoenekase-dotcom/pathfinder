@@ -72,6 +72,7 @@ const guestTurnActions = vi.hoisted(() => ({
   fail: vi.fn(),
   finalize: vi.fn(),
   readAdjacentIdentity: vi.fn(),
+  readAdjacentContinuity: vi.fn(),
 }))
 const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
 const resolveNativeGuestReadSnapshotAction = vi.hoisted(() => vi.fn())
@@ -103,6 +104,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
     failGuestChatTurnAction: guestTurnActions.fail,
     finalizeGuestChatTurnAction: guestTurnActions.finalize,
     readAdjacentGuestPlaceIdentityPendingAction: guestTurnActions.readAdjacentIdentity,
+    readAdjacentGuestChatContinuityAction: guestTurnActions.readAdjacentContinuity,
     resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
     resolveNativeGuestReadSnapshotAction,
     readActiveUnhealthyAiProviders,
@@ -341,6 +343,10 @@ describe('chat router', () => {
     guestTurnActions.observe.mockResolvedValue({ observed: true })
     guestTurnActions.fail.mockResolvedValue({ failed: true })
     guestTurnActions.readAdjacentIdentity.mockResolvedValue(null)
+    guestTurnActions.readAdjacentContinuity.mockResolvedValue({
+      pendingPlaceIdentity: null,
+      evidenceState: null,
+    })
     guestTurnActions.finalize.mockImplementation(async ({ input }) => {
       await messageCreate({ data: { role: 'user', content: input.message } })
       await messageCreate({ data: { role: 'assistant', content: input.assistantResponse } })
@@ -5248,6 +5254,333 @@ describe('chat router', () => {
         const result = await caller.chat.send(thirsty)
         expect(result.response).toBe('Cold drinks are near the entrance.')
         expect(getConcatenatedSystemPrompt()).not.toContain('VENUE RECOMMENDATION DECISION')
+      })
+    })
+
+    describe('evidence assembly (GUEST_CHAT_EVIDENCE_ASSEMBLY)', () => {
+      // Fictional records only.
+      const row = (id: string, title: string, category: string, content: string) => ({
+        id,
+        title,
+        category,
+        content,
+        sourceType: 'FOUNDER_PROVIDED',
+        sourceName: 'Fictional visitor guide',
+        sourceUrl: null,
+        updatedAt: new Date('2026-10-20T00:00:00.000Z'),
+        lastReviewedAt: null,
+      })
+      const rainPass = row(
+        'k-rain',
+        'Rain Check Pass',
+        'Weather and refunds',
+        'A Rain Check Pass is a free return-visit pass offered when lightning closes most rides.\nKind: policy\nCondition: collect it at Guest Services before leaving\nMust mention: Taking a Rain Check Pass ends your ticket for the rest of that day, even if the rides reopen.',
+      )
+      const pets = row(
+        'k-pets',
+        'Pet policy',
+        'Park policies',
+        'Pets are not allowed in the park. A free kennel near the main gate holds dogs during your visit.',
+      )
+      const rainInput = {
+        ...sendInput,
+        message: 'Lightning closed the rides. Should we take the Rain Check Pass?',
+      }
+
+      /** Knowledge reads: id-scoped reads apply the fence; the guide read may be stale. */
+      function knowledgeRows(current: unknown[], retiredIds: string[] = []) {
+        venueKnowledgeEntryFindMany.mockImplementation(
+          async (args: { where?: { id?: { in?: string[] } } }) => {
+            const ids = args?.where?.id?.in
+            return ids
+              ? current.filter(
+                  (entry) =>
+                    ids.includes((entry as { id: string }).id) &&
+                    !retiredIds.includes((entry as { id: string }).id),
+                )
+              : current
+          },
+        )
+      }
+
+      it('leaves the prompt and continuity read unchanged when the flag is off', async () => {
+        setupHappyPath('Grab one at Guest Services.')
+        semanticSearch.places.mockResolvedValue([])
+        knowledgeRows([rainPass])
+        const result = await caller.chat.send(rainInput)
+        expect(getConcatenatedSystemPrompt()).not.toContain('EVIDENCE FOCUS')
+        expect(getConcatenatedSystemPrompt()).not.toContain('<evidence_focus>')
+        expect(guestTurnActions.readAdjacentContinuity).not.toHaveBeenCalled()
+        expect(guestTurnActions.readAdjacentIdentity).toHaveBeenCalledOnce()
+        expect(result.response).toBe('Grab one at Guest Services.')
+        const metadata = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata
+        expect(metadata).not.toHaveProperty('evidenceState')
+        expect(metadata).not.toHaveProperty('evidenceAssembly')
+      })
+
+      it('does not persist a successful assembly receipt or append notices after provider failure', async () => {
+        vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+        setupHappyPath('Unused provider text.')
+        knowledgeRows([rainPass])
+        semanticSearch.places.mockResolvedValue([])
+        anthropicCreate
+          .mockReset()
+          .mockRejectedValue(
+            Object.assign(new Error('Synthetic provider failure'), { status: 400 }),
+          )
+        const result = await caller.chat.send(rainInput)
+        expect(result.response).toContain("I'm having trouble right now")
+        expect(result.response).not.toContain('ends your ticket')
+        const metadata = guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata
+        expect(metadata).not.toHaveProperty('evidenceAssembly')
+        expect(metadata).not.toHaveProperty('evidenceState')
+      })
+
+      it('fences the subject, persists record refs only, and leaves the model answer unchanged (notices are prompt-delivered)', async () => {
+        vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+        setupHappyPath(
+          'Yes, pick one up at Guest Services before you leave so you can return another day.',
+        )
+        semanticSearch.places.mockResolvedValue([])
+        semanticSearch.knowledge.mockResolvedValue([{ ...rainPass, distance: 0.2 }])
+        knowledgeRows([rainPass])
+
+        const result = await caller.chat.send(rainInput)
+
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).toContain('EVIDENCE FOCUS:')
+        expect(prompt).toContain('<thing id="T1" name="Rain Check Pass"')
+        expect(prompt).toContain('<must_mention>')
+        expect(prompt).toContain('NOTICES:')
+        expect(prompt).toContain('ANSWER DEPTH:')
+        expect(prompt).not.toContain('NOTICE RELEVANCE')
+        // No server-side append: the authored notice reaches the visitor only through the model.
+        expect(result.response).toBe(
+          'Yes, pick one up at Guest Services before you leave so you can return another day.',
+        )
+        const metadata = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata
+        expect(metadata.evidenceState).toEqual({
+          version: 'guest-evidence-state-v1',
+          refs: [
+            {
+              ref: 'knowledge:k-rain',
+              version: '2026-10-20T00:00:00.000Z',
+              reason: 'subject',
+              age: 0,
+            },
+          ],
+        })
+        expect(metadata.evidenceAssembly).toMatchObject({
+          schemaVersion: 'guest-evidence-execution-v1',
+          mode: 'on',
+          records: [
+            { ref: 'knowledge:k-rain', version: '2026-10-20T00:00:00.000Z', purpose: 'rendered' },
+          ],
+          noticeDelivery: 'prompt',
+          noticesSupplied: 1,
+          noticesChecked: 0,
+          noticesAppended: 0,
+        })
+        // The answer evidence still verifies against the final response.
+        expect(
+          verifyGuestAnswerEvidenceBundle({
+            assistantResponse: result.response,
+            evidence: metadata.answerEvidence,
+          }),
+        ).toBe(true)
+      })
+
+      it('reauthorizes carried refs and removes a retired rule from the whole prompt', async () => {
+        vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+        setupHappyPath(
+          'Service animals are welcome; please check with Guest Services about other pets.',
+        )
+        semanticSearch.places.mockResolvedValue([])
+        semanticSearch.knowledge.mockResolvedValue([])
+        // The guide read still returns the retired row (a stale cache window); id reads do not.
+        knowledgeRows([pets], ['k-pets'])
+        guestTurnActions.readAdjacentContinuity.mockResolvedValue({
+          pendingPlaceIdentity: null,
+          evidenceState: {
+            version: 'guest-evidence-state-v1',
+            refs: [
+              {
+                ref: 'knowledge:k-pets',
+                version: '2026-10-20T00:00:00.000Z',
+                reason: 'governing',
+                age: 0,
+              },
+            ],
+          },
+        })
+
+        await caller.chat.send({ ...sendInput, message: 'And a service dog?' })
+
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).not.toContain('kennel')
+        expect(prompt).not.toContain('Pets are not allowed')
+        expect(prompt).toContain('used earlier in this conversation is no longer available')
+        const reload = venueKnowledgeEntryFindMany.mock.calls
+          .map(([args]) => args as { where: Record<string, unknown> })
+          .find((args) => JSON.stringify(args.where.id) === JSON.stringify({ in: ['k-pets'] }))
+        expect(reload?.where).toMatchObject({
+          tenantId: TENANT_ID,
+          venueId: VENUE_ID,
+          isEnabled: true,
+          visibility: 'PUBLIC',
+        })
+        const metadata = guestTurnActions.finalize.mock.calls[0]?.[0].input.replayMetadata
+        expect(metadata.evidenceState?.refs ?? []).not.toContainEqual(
+          expect.objectContaining({ ref: 'knowledge:k-pets' }),
+        )
+      })
+
+      it('removes cached carried bodies when the fenced reload throws', async () => {
+        vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+        setupHappyPath('Please ask staff about service animals.')
+        semanticSearch.places.mockResolvedValue([])
+        semanticSearch.knowledge.mockResolvedValue([])
+        venueKnowledgeEntryFindMany.mockImplementation(
+          async (args: { where?: { id?: { in?: string[] } } }) => {
+            if (args?.where?.id?.in) throw new Error('reload unavailable')
+            return [pets]
+          },
+        )
+        guestTurnActions.readAdjacentContinuity.mockResolvedValue({
+          pendingPlaceIdentity: null,
+          evidenceState: {
+            version: 'guest-evidence-state-v1',
+            refs: [
+              {
+                ref: 'knowledge:k-pets',
+                version: '2026-10-20T00:00:00.000Z',
+                reason: 'subject',
+                age: 0,
+              },
+            ],
+          },
+        })
+        await caller.chat.send({ ...sendInput, message: 'And a service dog?' })
+        expect(getConcatenatedSystemPrompt()).not.toContain('kennel')
+        expect(getConcatenatedSystemPrompt()).toContain(
+          'used earlier in this conversation is no longer available',
+        )
+        expect(
+          guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.evidenceState
+            ?.refs ?? [],
+        ).not.toContainEqual(expect.objectContaining({ ref: 'knowledge:k-pets' }))
+      })
+
+      it.each([false, true])(
+        'projects native carried refs and excludes absent release refs (absent=%s)',
+        async (absent) => {
+          vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+          setupHappyPath('Please check the published pass terms.')
+          semanticSearch.places.mockResolvedValue([])
+          semanticSearch.knowledge.mockResolvedValue([])
+          const published = {
+            ...rainPass,
+            content: 'The published pass permits one return visit.\nKind: admission offer',
+          }
+          resolveNativeGuestReadSnapshotAction.mockResolvedValue({
+            path: 'NATIVE',
+            reason: 'NATIVE_READY',
+            releaseId: '11111111-1111-4111-8111-111111111111',
+            state: { places: [], knowledgeEntries: [published] },
+          })
+          venueKnowledgeEntryFindMany.mockImplementation(
+            async (args: { where?: { id?: { in?: string[] } } }) =>
+              args?.where?.id?.in && absent ? [pets] : [rainPass],
+          )
+          const ref = absent ? 'knowledge:k-pets' : 'knowledge:k-rain'
+          guestTurnActions.readAdjacentContinuity.mockResolvedValue({
+            pendingPlaceIdentity: null,
+            evidenceState: {
+              version: 'guest-evidence-state-v1',
+              refs: [{ ref, version: '2026-10-20T00:00:00.000Z', reason: 'subject', age: 0 }],
+            },
+          })
+          await caller.chat.send({
+            ...sendInput,
+            message: absent ? 'And a service dog?' : 'What about that pass?',
+          })
+          const prompt = getConcatenatedSystemPrompt()
+          expect(prompt).toContain('published pass permits one return visit')
+          expect(prompt).not.toContain('lightning closes most rides')
+          expect(prompt).not.toContain('kennel')
+          const refs =
+            guestTurnActions.finalize.mock.calls.at(-1)?.[0].input.replayMetadata.evidenceState
+              ?.refs ?? []
+          if (absent) {
+            expect(prompt).toContain('used earlier in this conversation is no longer available')
+            expect(refs).not.toContainEqual(expect.objectContaining({ ref }))
+          } else {
+            expect(prompt).toContain('carried because this question refers back')
+            expect(refs).toContainEqual(expect.objectContaining({ ref }))
+          }
+        },
+      )
+
+      it('carries a reloaded subject into a referring follow-up', async () => {
+        vi.stubEnv('GUEST_CHAT_EVIDENCE_ASSEMBLY', 'on')
+        setupHappyPath('It needs 48 inches to ride alone.')
+        semanticSearch.places.mockResolvedValue([])
+        semanticSearch.knowledge.mockResolvedValue([])
+        const coaster = row(
+          'k-thunder',
+          'Thunder Run',
+          'Rides',
+          'Thunder Run is a wooden roller coaster.\nHeight: 40 in to ride with a qualifying companion; 48 in to ride alone',
+        )
+        knowledgeRows([coaster])
+        guestTurnActions.readAdjacentContinuity.mockResolvedValue({
+          pendingPlaceIdentity: null,
+          evidenceState: {
+            version: 'guest-evidence-state-v1',
+            refs: [
+              {
+                ref: 'knowledge:k-thunder',
+                version: '2026-10-20T00:00:00.000Z',
+                reason: 'subject',
+                age: 0,
+              },
+            ],
+          },
+        })
+        messageFindMany.mockReset().mockResolvedValue([
+          {
+            id: 'm2',
+            role: 'user',
+            content: 'Can he ride it alone?',
+            sessionSequence: 3,
+            createdAt: new Date(),
+            guestChatTurn: null,
+          },
+          {
+            id: 'm1a',
+            role: 'assistant',
+            content: 'Thunder Run needs 40 inches with a companion.',
+            sessionSequence: 2,
+            createdAt: new Date(),
+            guestChatTurn: null,
+          },
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'My son is 44 inches. Can he ride Thunder Run?',
+            sessionSequence: 1,
+            createdAt: new Date(),
+            guestChatTurn: null,
+          },
+        ])
+
+        await caller.chat.send({ ...sendInput, message: 'Can he ride it alone?' })
+
+        const prompt = getConcatenatedSystemPrompt()
+        expect(prompt).toContain('name="Thunder Run"')
+        expect(prompt).toContain('carried because this question refers back')
+        expect(prompt).toContain('P1 "my son": height 44 inches')
+        expect(prompt).toContain('alone = P1 (my son)')
       })
     })
   })

@@ -84,23 +84,44 @@ export async function loadGuestVenueDirectory(params: {
   venueId: string
   includeSecondLayer: boolean
   asOf: Date
+  /**
+   * Reload only these records, through the same tenant, venue, visibility, publication and
+   * adoption fences as the full directory. Used to reauthorize records carried between turns;
+   * the result is never cached. An ID that no longer passes the fences is simply absent.
+   */
+  onlyIds?: { knowledge: ReadonlyArray<string>; places: ReadonlyArray<string> }
 }): Promise<GuestVenueDirectory> {
   const reader = params.reader as DirectoryReader
+  // The id filter merges with the paging cursor's id bound instead of replacing it.
+  const onlyIds = (ids: ReadonlyArray<string> | undefined, where: { id?: { gt: string } }) =>
+    ids ? { id: { ...where.id, in: [...ids] } } : {}
   const [knowledgeRows, places, activated] = await Promise.all([
-    pageGuestRows((page) =>
-      reader.venueKnowledgeEntry.findMany({
-        where: { ...guestKnowledgeScope(params), ...page.where },
-        select: guestKnowledgeSelectShape(),
-        ...page.args,
-      }),
-    ),
-    pageGuestRows((page) =>
-      reader.place.findMany({
-        where: { ...guestPlaceScope(params), ...page.where },
-        select: guestPlaceSelect,
-        ...page.args,
-      }),
-    ),
+    params.onlyIds && params.onlyIds.knowledge.length === 0
+      ? Promise.resolve([])
+      : pageGuestRows((page) =>
+          reader.venueKnowledgeEntry.findMany({
+            where: {
+              ...guestKnowledgeScope(params),
+              ...page.where,
+              ...onlyIds(params.onlyIds?.knowledge, page.where),
+            },
+            select: guestKnowledgeSelectShape(),
+            ...page.args,
+          }),
+        ),
+    params.onlyIds && params.onlyIds.places.length === 0
+      ? Promise.resolve([])
+      : pageGuestRows((page) =>
+          reader.place.findMany({
+            where: {
+              ...guestPlaceScope(params),
+              ...page.where,
+              ...onlyIds(params.onlyIds?.places, page.where),
+            },
+            select: guestPlaceSelect,
+            ...page.args,
+          }),
+        ),
     reader.legacyKnowledgeAdoptionActivation
       ? reader.legacyKnowledgeAdoptionActivation.findMany({
           where: { tenantId: params.tenantId, venueId: params.venueId },
