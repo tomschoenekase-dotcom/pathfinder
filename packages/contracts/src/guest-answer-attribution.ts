@@ -8,23 +8,93 @@ export const GUEST_ANSWER_ATTRIBUTION_VERSION = 'guest-answer-attribution-v1' as
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/u)
 const sourceId = z.string().trim().min(1).max(240)
 
+// Internal execution receipt. It records what ran, never answer text or reusable facts.
+// Older turns have no receipt; callers must not reconstruct one from today's settings.
+export const GuestEvidenceExecutionSchema = z
+  .object({
+    schemaVersion: z.literal('guest-evidence-execution-v1'),
+    mode: z.enum(['on', 'luna']),
+    assemblyVersion: z.string().regex(/^guest-evidence-assembly-v\d+$/u),
+    semanticsVersion: z.string().regex(/^guest-record-semantics-v\d+$/u),
+    noticeCheckerVersion: z
+      .string()
+      .regex(/^guest-required-notices-v\d+$/u)
+      .optional(),
+    evidenceSha256: sha256,
+    recordCount: z.number().int().nonnegative(),
+    recordsTruncated: z.boolean(),
+    records: z
+      .array(
+        z
+          .object({
+            ref: z.string().regex(/^(?:knowledge|place):[^\s]{1,191}$/u),
+            version: z.string().max(100).nullable(),
+            purpose: z.enum(['rendered', 'scope']),
+          })
+          .strict(),
+      )
+      .max(100),
+    // Older receipts appended missing notices server-side ('append', implied when absent).
+    // Current turns deliver notices through the prompt only.
+    noticeDelivery: z.enum(['append', 'prompt']).optional(),
+    noticesSupplied: z.number().int().nonnegative().optional(),
+    noticesChecked: z.number().int().nonnegative(),
+    noticesAppended: z.number().int().nonnegative(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.recordCount < value.records.length ||
+      value.recordsTruncated !== value.recordCount > value.records.length
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['recordCount'],
+        message: 'Record coverage is inconsistent',
+      })
+    if (
+      value.noticeDelivery === 'prompt' &&
+      (value.noticesAppended !== 0 || value.noticesChecked !== 0)
+    )
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['noticeDelivery'],
+        message: 'Prompt-delivered notices are never appended',
+      })
+    if (value.noticesAppended > value.noticesChecked)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['noticesAppended'],
+        message: 'Appended notices exceed checked notices',
+      })
+    if (new Set(value.records.map((record) => record.ref)).size !== value.records.length)
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['records'],
+        message: 'Record refs must be unique',
+      })
+  })
+export type GuestEvidenceExecution = z.infer<typeof GuestEvidenceExecutionSchema>
+
 // Observations of the actual guide projection; never instructions or a completeness verdict.
-export const GuestGuideCoverageSchema = z.object({
-  schemaVersion: z.literal('guest-guide-coverage-v1'),
-  mode: z.enum(['FULL', 'DIRECTORY', 'NONE']),
-  loadStatus: z.enum(['READY', 'LOAD_FAILED', 'PROJECTION_MISMATCH']),
-  projectionPath: z.enum(['LEGACY', 'DARK', 'NATIVE']),
-  incomplete: z.boolean(),
-  // Present only when the rendered directory was cut at its size bound although the loader
-  // returned every record; incomplete keeps its original meaning (a load bound was reached).
-  rendererTruncated: z.literal(true).optional(),
-  placeCount: z.number().int().min(0).max(1_000_000),
-  knowledgeCount: z.number().int().min(0).max(1_000_000),
-  includedDetailCount: z.number().int().min(0).max(1_000_000),
-  promptChars: z.number().int().min(0).max(1_000_000),
-  promptSha256: sha256,
-  detailIdSetSha256: sha256,
-}).strict()
+export const GuestGuideCoverageSchema = z
+  .object({
+    schemaVersion: z.literal('guest-guide-coverage-v1'),
+    mode: z.enum(['FULL', 'DIRECTORY', 'NONE']),
+    loadStatus: z.enum(['READY', 'LOAD_FAILED', 'PROJECTION_MISMATCH']),
+    projectionPath: z.enum(['LEGACY', 'DARK', 'NATIVE']),
+    incomplete: z.boolean(),
+    // Present only when the rendered directory was cut at its size bound although the loader
+    // returned every record; incomplete keeps its original meaning (a load bound was reached).
+    rendererTruncated: z.literal(true).optional(),
+    placeCount: z.number().int().min(0).max(1_000_000),
+    knowledgeCount: z.number().int().min(0).max(1_000_000),
+    includedDetailCount: z.number().int().min(0).max(1_000_000),
+    promptChars: z.number().int().min(0).max(1_000_000),
+    promptSha256: sha256,
+    detailIdSetSha256: sha256,
+  })
+  .strict()
 export type GuestGuideCoverage = z.infer<typeof GuestGuideCoverageSchema>
 
 // Evidence was introduced with v5. Retained answers keep their original prompt
