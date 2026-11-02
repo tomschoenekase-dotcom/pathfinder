@@ -314,6 +314,7 @@ describe.skipIf(!enabled)(
           'venues.propose_personality_profile_update',
           'venues.propose_ai_workload_configuration',
           'venues.propose_ai_workload_reset',
+          'venues.propose_distribution_change',
           'engagement.propose_question_create',
           'engagement.propose_question_update',
         ].sort(),
