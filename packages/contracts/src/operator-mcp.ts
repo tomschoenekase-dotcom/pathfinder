@@ -280,6 +280,7 @@ export const OPERATOR_READ_TOOL_NAMES = [
   'crm.check_can_contact',
   'engagement.list_questions',
   'venues.get_ai_workload_configuration',
+  'venues.get_distribution',
   'venues.get_bot_configuration',
   'venues.list_personality_profiles',
   'venues.list',
@@ -425,6 +426,7 @@ export const OPERATOR_WRITE_TOOL_NAMES = [
   'engagement.propose_question_update',
   'venues.propose_ai_workload_configuration',
   'venues.propose_ai_workload_reset',
+  'venues.propose_distribution_change',
   'venues.propose_bot_configuration',
   'venues.propose_personality_profile_create',
   'venues.propose_personality_profile_update',
@@ -1274,6 +1276,17 @@ export const OPERATOR_MCP_INPUTS = {
     ...venueScope,
     workloadId: OperatorAiWorkloadId,
     expectedRevision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500),
+  }),
+  'venues.get_distribution': readInput({ ...venueScope }),
+  'venues.propose_distribution_change': writeInput({
+    ...venueScope,
+    expectedRevision: z.number().int().min(0),
+    change: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('SET_SURFACE'), surface: z.enum(['WEBSITE', 'APP']), enabled: z.boolean() }).strict(),
+      z.object({ kind: z.literal('ADD_ORIGIN'), origin: z.string().trim().min(1).max(255) }).strict(),
+      z.object({ kind: z.literal('REVOKE_ORIGIN'), origin: z.string().trim().min(1).max(255) }).strict(),
+    ]),
     reason: z.string().trim().min(1).max(500),
   }),
   'venues.get_bot_configuration': readInput({ ...venueScope }),
@@ -4781,6 +4794,28 @@ export const OPERATOR_MCP_OUTPUTS = {
   'venues.get_ai_workload_configuration': OperatorAiWorkloadReadOutput,
   'venues.propose_ai_workload_configuration': OperatorWriteResult,
   'venues.propose_ai_workload_reset': OperatorWriteResult,
+  'venues.get_distribution': z
+    .object({
+      venueId: Identifier,
+      websiteState: z.enum(['ENABLED', 'DISABLED']),
+      appState: z.enum(['ENABLED', 'DISABLED']),
+      revision: z.number().int().min(0),
+      origins: z
+        .array(
+          z
+            .object({
+              origin: z.string().max(255),
+              state: z.enum(['ACTIVE', 'REVOKED']),
+              addedAt: IsoDateTime,
+              revokedAt: IsoDateTime.nullable(),
+            })
+            .strict(),
+        )
+        .max(100),
+      originsComplete: z.boolean(),
+    })
+    .strict(),
+  'venues.propose_distribution_change': OperatorWriteResult,
   'venues.get_bot_configuration': VenueBotConfigurationSnapshot,
   'venues.list_personality_profiles': z
     .object({ items: z.array(PersonalityProfileSnapshot), complete: z.literal(true) })
@@ -4915,6 +4950,21 @@ const seeds: readonly Seed[] = [
     'venues:propose',
     'venue',
     'venues.ai-workload-reset',
+  ],
+  [
+    'venues.get_distribution',
+    'Get visitor distribution',
+    `Read whether the guide is enabled for embedding on websites and inside apps, the distribution revision, and the website origins allowed to embed it (active and revoked). Venue availability (published or not) is separate; see venues.get_readiness.${READ}`,
+    'venues:read',
+    'venue',
+  ],
+  [
+    'venues.propose_distribution_change',
+    'Change visitor distribution',
+    `One change at the exact expectedRevision from venues.get_distribution: SET_SURFACE (WEBSITE or APP, enabled true/false), ADD_ORIGIN or REVOKE_ORIGIN with an exact normalized HTTPS origin such as https://www.example.org (no path, no wildcard; at most 20 active). Requires an allowlisted platform administrator, the same authority as the dashboard's Visitor access screen. An origin lets that website embed the guide; verify the venue owns it. Always waits for a person in review mode.${PROPOSE}`,
+    'venues:propose',
+    'venue',
+    'venues.distribution-change',
   ],
   [
     'venues.get_bot_configuration',

@@ -207,6 +207,7 @@ describe('OPERATOR_READ_TOOLS', () => {
         'crm.check_can_contact',
         'engagement.list_questions',
         'venues.get_ai_workload_configuration',
+        'venues.get_distribution',
         'venues.get_bot_configuration',
         'venues.list_personality_profiles',
         'venues.list',
