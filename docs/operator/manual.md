@@ -350,7 +350,7 @@ Immutable activity, source evidence and stage history remain on the original sou
 
 `appearance.propose_guest_actions` replaces the whole list and can set either switch, at the observed updatedAt when you pass it (omit `expectedUpdatedAt` to apply to the current version). Each item has a stable lowercase `id`, a `label`, the exact public HTTPS `url`, an `actionType`, and optional `placeId`, `provider`, `enabled`, `conditions`, `availableFrom` and `availableUntil`. Keep IDs stable: saved conversations resolve links by ID. Changing the list always needs a human. The model only names approved IDs; the server resolves links, enforces the switches and omits disabled, expired or unknown actions. Offering a link never means a guest ordered, booked or paid.
 
-`venues.get_answer_evidence` includes `turn.evidence.evidenceAssembly` when execution metadata was persisted: assembly mode and versions, evidence hash, bounded record references with versions and purpose, and required-notice checked/appended counts. Older or invalid metadata returns null; null is unavailable evidence, not proof the assembly did not run. The metadata contains no record bodies.
+`venues.get_answer_evidence` includes `turn.evidence.evidenceAssembly` when execution metadata was persisted: assembly mode and versions, evidence hash, bounded record references with versions and purpose, and how authored notices were delivered: current turns report `noticeDelivery: prompt` with the number supplied (nothing is appended); older turns may report checked/appended counts. Older or invalid metadata returns null; null is unavailable evidence, not proof the assembly did not run. The metadata contains no record bodies.
 
 ## Guest engagement questions
 

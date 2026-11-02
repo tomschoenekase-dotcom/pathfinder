@@ -54,10 +54,9 @@ Small semantic layer on the existing "things" model. No new database, no migrati
   carried record that is retired, unpublished, hidden or deleted is dropped and reported to the
   model only as "a record used earlier is no longer available" (no title, no content), and it is
   removed from the cached directory for this turn. A changed record is reported as changed.
-- `guest-required-notices.ts` checks the final answer: when a thing with a `Must mention:` line is
-  discussed and the answer lacks that notice's content, the authored notice is appended
-  server-side (the same pattern as the existing recommendation disclosure). This is a
-  deterministic lexical check with known limits (below), not a second model call.
+- Authored `Must mention:` notices are rendered in the evidence focus and the model decides when
+  they are relevant under one NOTICES rule (version 5). Until version 4, `guest-required-notices.ts`
+  appended missing notices server-side; it is now an offline QA flagger only.
 - A new response intent `DEEP_DIVE` widens the reply budget for explicit "tell me everything"
   requests. Identification gets guidance to give one or two distinguishing facts. Every shape
   keeps required notices and material conditions.
@@ -93,8 +92,8 @@ Unknown: companion height for Comet
 Effective: May 1, 2026 to September 7, 2026
 ```
 
-`Must mention:` text is shown to visitors verbatim when appended, so write it as one
-self-contained visitor-facing sentence.
+Write `Must mention:` as one self-contained visitor-facing sentence; the guide restates it in
+its own words when it is relevant.
 
 ## Limits
 
@@ -186,3 +185,25 @@ context, and non-age units are rejected. Explicit on-ice or in-room companion re
 role; an unfamiliar companion modifier remains unresolved instead of becoming a participant.
 Missing structured fields are described as unavailable in the projection, not as proof that the
 visitor never supplied the information. The visitor's original words remain available to the model.
+
+## Version 5 prompt-delivered notices, continuity and identity
+
+Measured basis: four sealed paired runs root-reviewed about 92 server-appended sentences; one was a
+material reminder and the rest restated the answer or were off-topic, often in English after a
+non-English answer. A blinded saved-answer ablation graded raw answers 50/13/1/0 versus appended
+18/45/1/0. The prompt-side evidence, not the append, removed the baseline's omission errors.
+
+- No server-side append on chat or the worker preview. Receipts record `noticeDelivery: prompt` and
+  the number of notices supplied; append-era receipts stay readable. Voice says a notice briefly
+  when relevant instead of verbatim.
+- One language-neutral NOTICES rule replaces the English "use decision / narrow lookup" classifier,
+  which mislabeled follow-ups and every non-English question. It also covers volunteered unknowns.
+- Answer refinement narrows only unconfirmed identification candidates. A subject the visitor named
+  stays when the reply paraphrases its name (a follow-up "does it apply at the cafe?" had lost the
+  rule it referred to).
+- Embedded same-name detection works within one line or sentence, skips reference labels and
+  determiners. "Governed by: X" followed by "The bundle ..." no longer creates a phantom "X The bundle".
+- Two titled records sharing a name (a desk and an offer) are presented neutrally with guidance
+  (going to a place versus accepting/using an offer). Word overlap had chosen the desk for "should I
+  accept ...". A fully spelled derived name and the titled-versus-embedded default still choose.
+- Partial-word matches no longer produce applicability notes.
