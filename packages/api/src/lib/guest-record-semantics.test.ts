@@ -19,6 +19,29 @@ const parse = (
 ) => parseGuestRecordSemantics({ title: extra.title ?? 'Test record', content, ...extra })
 
 describe('labeled-line parsing', () => {
+  it('classifies consequences without demoting missing, invalid or conflicting labels', () => {
+    for (const label of ['access', 'safety', 'eligibility', 'money', 'entry-loss', 'courtesy']) {
+      const semantics = parse(`Notice class: ${label}\nMust mention: Follow the stated rule.`)
+      expect(semantics.noticeClass).toBe(label)
+      expect(lintGuestRecordSemantics([{ title: 'Test record', semantics }])).toEqual([])
+    }
+    for (const label of [
+      '',
+      'Notice class: optional\n',
+      'Notice class: courtesy\nNotice class: safety\n',
+    ]) {
+      const semantics = parse(`${label}Must mention: Transfer into the seat.`)
+      expect(semantics.noticeClass).toBeNull()
+      expect(semantics.mustMention).toEqual(['Transfer into the seat.'])
+      expect(lintGuestRecordSemantics([{ title: 'Test record', semantics }])).toEqual([
+        expect.objectContaining({ code: label ? 'NOTICE_CLASS_INVALID' : 'NOTICE_CLASS_MISSING' }),
+      ])
+    }
+    const semantics = parse('Condition: Staff must close the outdoor area for weather.')
+    expect(lintGuestRecordSemantics([{ title: 'Test record', semantics }])).toEqual([
+      expect.objectContaining({ code: 'NOTICE_CLASS_MISSING' }),
+    ])
+  })
   it('turns ordinary labeled lines into facts with normalized attributes', () => {
     const s = parse('Height: 44 in minimum\nPrice: $12\nHours: 9 am to 5 pm\nLocation: Pier gate')
     expect(s.facts.map((f) => [f.label, f.attribute])).toEqual([
@@ -482,7 +505,7 @@ describe('lintGuestRecordSemantics', () => {
   it('flags must-mention notices that are too long or not sentences', () => {
     const long = `${'word '.repeat(60)}ends here.`
     const findings = lintGuestRecordSemantics([
-      rec('A pass', `Must mention: Wear shoes\nMust mention: ${long}`),
+      rec('A pass', `Notice class: safety\nMust mention: Wear shoes\nMust mention: ${long}`),
     ])
     expect(findings).toEqual([
       { code: 'MUST_MENTION_NOT_SENTENCE', record: 'A pass', detail: 'Wear shoes' },
@@ -500,7 +523,7 @@ describe('lintGuestRecordSemantics', () => {
       lintGuestRecordSemantics([
         rec(
           'Rain pass',
-          'Consequence: you give up the day.\nMust mention: Using it ends your day.',
+          'Notice class: entry-loss\nConsequence: you give up the day.\nMust mention: Using it ends your day.',
         ),
       ]),
     ).toEqual([])

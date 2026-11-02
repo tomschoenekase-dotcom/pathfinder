@@ -2410,6 +2410,11 @@ const chatReadRouter = router({
           .map((row) => row.content)
         if (visitorMessages.at(-1) !== trimmedInput) visitorMessages.push(trimmedInput)
         evidenceAssembly = assembleGuestEvidence({
+          clock: {
+            now: operationalNow,
+            timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
+            hasActiveOperationalUpdates: activeUpdates.length > 0,
+          },
           question: trimmedInput,
           visitorMessages,
           shape: answerShape,

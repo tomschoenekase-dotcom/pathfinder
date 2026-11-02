@@ -273,7 +273,7 @@ export function composeVoiceInstructions(input: {
   evidenceAssembly?: boolean
 }): string {
   const policy = input.evidenceAssembly
-    ? `${VOICE_POLICY}\nFor each successful lookup, use evidenceFocus as current reference data. Keep spoken answers brief. requiredNotices are authored visitor notices: say one briefly, in your own words, when the visitor is deciding to use, buy, accept or join its thing; leave it out of narrow fact answers and do not repeat one you already said. Never use a previous lookup as current authority.`
+    ? `${VOICE_POLICY}\nFor each successful lookup, use evidenceFocus as current reference data. Keep spoken answers brief. requiredNotices are authored visitor notices: say one briefly, in your own words, when the visitor is deciding to use, buy, accept or join its thing; leave it out of narrow fact answers and repeat safety and access requirements with affirmative advice even when already stated; other notices need not be repeated when the decision and facts are unchanged. Never use a previous lookup as current authority.`
     : VOICE_POLICY
   const staticHeading = '\n\nVENUE STYLE AND IDENTITY:\n'
   const dynamicHeading = '\n\nCURRENT SESSION CONFIGURATION:\n'
@@ -455,6 +455,13 @@ export const voiceRouter = router({
       ].filter(({ ref }) => carryMatches && carriedIds.has(ref))
       const present = new Set(reloadedRecords.map(({ ref }) => ref))
       const assembly = assembleGuestEvidence({
+        clock: {
+          now: groundingNow,
+          timeZone: parseChatAppearance(resolved.scope.chatAppearance).timeZone,
+          hasActiveOperationalUpdates: result.retrievedSourceIds.some((id) =>
+            id.startsWith('update:'),
+          ),
+        },
         question: input.query,
         visitorMessages: [input.query],
         shape: guestAnswerShape(input.query),

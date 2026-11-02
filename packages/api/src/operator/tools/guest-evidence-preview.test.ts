@@ -74,6 +74,7 @@ function setup(rows = [row('pass')], active = true) {
     },
     venueKnowledgeEntry: { findMany: knowledge },
     place: { findMany: places },
+    operationalUpdate: { findFirst: vi.fn(async () => null) },
     legacyKnowledgeAdoptionActivation: { findMany: vi.fn(async () => []) },
   }
   const context = {

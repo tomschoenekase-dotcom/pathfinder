@@ -547,7 +547,7 @@ describe('notices are prompt-delivered and judged for relevance by one rule', ()
         escape: escapeUntrustedPromptData,
       })
       expect(turn.rule).toContain(
-        'NOTICES: A must_mention line is an authored notice about its own thing.',
+        "NOTICES: Include each thing's required notices and eligibility conditions",
       )
       expect(turn.rule).toContain("in the visitor's language")
       expect(turn.rule).not.toContain('NOTICE RELEVANCE')

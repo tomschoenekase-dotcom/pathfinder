@@ -13,7 +13,17 @@
 
 import { guestPlaceIdentityKey } from './guest-place-identity'
 
-export const GUEST_RECORD_SEMANTICS_VERSION = 'guest-record-semantics-v3'
+export const GUEST_RECORD_SEMANTICS_VERSION = 'guest-record-semantics-v4'
+
+export const GUEST_NOTICE_CLASSES = [
+  'access',
+  'safety',
+  'eligibility',
+  'money',
+  'entry-loss',
+  'courtesy',
+] as const
+export type GuestNoticeClass = (typeof GUEST_NOTICE_CLASSES)[number]
 
 /** The general "things" kinds from the content model; venue-specific detail stays in `type`. */
 export type GuestThingKind = 'PLACE' | 'ITEM' | 'SERVICE' | 'POLICY' | 'EVENT' | 'KNOWLEDGE'
@@ -80,6 +90,9 @@ export type GuestRecordSemantics = {
   consequences: string[]
   /** Authored visitor-facing sentences that must accompany advice about this thing. */
   mustMention: string[]
+  /** Authored consequence class; missing/invalid legacy labels never demote a notice. */
+  noticeClass?: GuestNoticeClass | null
+  noticeClassLabels?: string[]
   /** Explicit unknowns stated by the record ("Unknown: companion height"). */
   unknowns: string[]
   effective: string | null
@@ -108,6 +121,7 @@ const STRUCTURAL: Record<string, readonly string[]> = {
   exception: ['exception', 'exceptions', 'except'],
   consequence: ['consequence', 'consequences', 'if you accept', 'what happens'],
   mustMention: ['must mention', 'required notice', 'always mention', 'disclosure'],
+  noticeClass: ['notice class', 'consequence class'],
   unknown: ['unknown', 'not known', 'not stated', 'not yet known', 'unconfirmed'],
   effective: ['effective', 'valid', 'valid dates', 'in effect', 'dates'],
 }
@@ -337,6 +351,8 @@ export function parseGuestRecordSemantics(source: GuestSemanticsSource): GuestRe
     exceptions: [],
     consequences: [],
     mustMention: [],
+    noticeClass: null,
+    noticeClassLabels: [],
     unknowns: [],
     effective: null,
     materialSentences: [],
@@ -401,6 +417,9 @@ export function parseGuestRecordSemantics(source: GuestSemanticsSource): GuestRe
       case 'mustMention':
         semantics.mustMention.push(value)
         break
+      case 'noticeClass':
+        semantics.noticeClassLabels!.push(value.toLowerCase())
+        break
       case 'unknown':
         semantics.unknowns.push(value)
         break
@@ -417,6 +436,12 @@ export function parseGuestRecordSemantics(source: GuestSemanticsSource): GuestRe
       semantics.materialSentences.push(sentence)
   semantics.materialSentences = [...new Set(semantics.materialSentences)].slice(0, 6)
   semantics.aliases = [...new Set(semantics.aliases)]
+  const noticeClasses = [...new Set(semantics.noticeClassLabels)]
+  if (
+    noticeClasses.length === 1 &&
+    GUEST_NOTICE_CLASSES.includes(noticeClasses[0] as GuestNoticeClass)
+  )
+    semantics.noticeClass = noticeClasses[0] as GuestNoticeClass
   return semantics
 }
 
@@ -462,6 +487,8 @@ export type GuestRecordSemanticsFinding = {
     | 'CONSEQUENCE_WITHOUT_NOTICE'
     | 'SCOPE_CONFLICT'
     | 'GOVERNING_SCOPE_CONFLICT'
+    | 'NOTICE_CLASS_MISSING'
+    | 'NOTICE_CLASS_INVALID'
   record: string
   detail: string
 }
@@ -476,6 +503,23 @@ export function lintGuestRecordSemantics(
   )
   const findings: GuestRecordSemanticsFinding[] = []
   for (const record of records) {
+    if ((record.semantics.noticeClassLabels?.length ?? 0) > 0 && !record.semantics.noticeClass)
+      findings.push({
+        code: 'NOTICE_CLASS_INVALID',
+        record: record.title,
+        detail:
+          'Use exactly one Notice class: access, safety, eligibility, money, entry-loss or courtesy.',
+      })
+    else if (
+      (record.semantics.mustMention.length || record.semantics.conditions.length) &&
+      !record.semantics.noticeClass
+    )
+      findings.push({
+        code: 'NOTICE_CLASS_MISSING',
+        record: record.title,
+        detail:
+          'Classify the notice or condition by its consequence: access, safety, eligibility, money, entry-loss or courtesy.',
+      })
     const ownNames = new Set(
       guestThingNames(record.title, record.semantics).map(guestPlaceIdentityKey),
     )

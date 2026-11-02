@@ -680,3 +680,19 @@ For a live venue, `venues.preview_guest_evidence` previews current guest-visible
 their parsed labels without a model call or content write. It uses the guest publication fence,
 reports native mismatches and output bounds, and does not run semantic retrieval. It complements
 package checking; it does not prove the facts are current or predict the final generated answer.
+
+### Consequence classes for notices and conditions
+
+Add one `Notice class:` line to records with a `Must mention:` or `Condition:`:
+`access`, `safety`, `eligibility`, `money`, `entry-loss`, or `courtesy`. The first five
+are required when the answer recommends, schedules or affirms using that thing.
+Courtesy reminders may be omitted from plans. Classify the real consequence: a
+transfer requirement is access, a closed-toe-shoe requirement is safety, and
+leaving ordinary building blocks at an exhibit is courtesy. Never downgrade a
+safety/access rule to courtesy. Keep offer eligibility conditions complete,
+including who decides, the reason, and the deadline. Missing or invalid labels
+produce authoring advisories and do not erase an existing notice obligation.
+
+For mixed consequences, use the strongest required class (safety/access before
+entry-loss/money/eligibility), or split distinct rules into separate linked records.
+A courtesy label never cancels an explicit safety or access requirement in prose.

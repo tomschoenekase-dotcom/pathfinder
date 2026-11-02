@@ -31,8 +31,10 @@ import {
 } from './guest-record-semantics'
 import { guestAnswerShape, type GuestAnswerShapeResult } from './guest-answer-shape'
 import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-conversation-party'
+import { guestRecordOpeningFacts } from './guest-schedule'
+import { guestPriceScopeFacts } from './guest-price-scope'
 
-export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v5'
+export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v6'
 
 export type GuestEvidenceAssemblyMode = 'off' | 'on' | 'luna'
 
@@ -315,9 +317,9 @@ const IDENTIFY_NOUN =
 // Earlier versions classified each question with English patterns and appended missing notices
 // server-side. Across four sealed paired runs about 92 appended sentences were root-reviewed and
 // one was a material reminder; follow-ups and non-English questions were misclassified.
-const NOTICES = `NOTICES: A must_mention line is an authored notice about its own thing. Include it, in your own words and in the visitor's language, when the visitor (or someone in their party) is deciding whether to use, buy, accept, book or take part in that thing, or when it changes the answer to what they asked. For a narrow fact answer (price, time, count, place, color, what is included), keep any constraint, deadline, exception or consequence that directly changes the requested fact; omit notices unrelated to that fact. Leave a notice out of answers that already rule the thing out for them, and out of follow-ups where your earlier reply already gave it and neither the relevant facts nor the decision have changed. Treat conditions and unknowns the same way: mention one only when it bears on what the visitor asked or is about to do.`
+const NOTICES = `NOTICES: Include each thing's required notices and eligibility conditions whenever your answer recommends, schedules, or affirms using, buying, accepting, booking or participating in that thing, even if the visitor did not ask about the notice. Required consequence classes are access, safety, eligibility, money and entry-loss. A courtesy notice may be omitted from a plan. An unclassified notice retains its stated obligation; never infer courtesy from a missing class. State access and safety requirements with affirmative advice in the visitor's language, including in a plan or follow-up; a visitor must not have to infer them from an earlier answer. Attach an offer's conditions to advice to accept it, preserving who must act, why and when. For a narrow fact answer that gives no use advice, retain constraints that change the requested fact and omit unrelated notices. Do not attach a notice to an excluded or merely similar thing, and omit it when your answer rules that thing out. Preserve the complete condition, exceptions and consequence; do not invent a prohibition from a condition.`
 
-const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A probable partial-name match or identification candidate is not a confirmed subject: do not attach its use notices merely because the visitor asks an actionable question; require supported identification and actual discussion of that thing. Use a rule's requirements only for targets supported by its current scope or governing links. An unlisted target alone establishes neither applicability nor exemption: when current source text is silent or gives a non-exhaustive list, applicability stays unknown. Preserve explicit exclusive permissions, prohibitions, exceptions and conditions as evidence for their stated subjects; do not turn an explicit restriction into uncertainty merely because scope metadata does not list the target. An evidence note marked unknown stays unknown only for the attribute and subject it names; it does not weaken independent explicit facts or restrictions. Never turn that unknown into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person. Use each person's facts only for the role named by the rule. A conditional requirement applies within its stated condition; it does not create additional restrictions or limit an independently stated permission. When offering a different role to someone ineligible for the requested role, require source support for that alternative instead of assuming admission.\n${NOTICES}`
+const RULE = `EVIDENCE FOCUS: The <evidence_focus> block was assembled for this question from current venue records, reloaded this turn. Where the VENUE GUIDE shows a different version of the same record, this version is current. Earlier replies in this conversation are not evidence: where they differ from these records, the records win. Each <thing> holds one thing's own records; its facts belong to that thing only. A probable partial-name match or identification candidate is not a confirmed subject: do not attach its use notices merely because the visitor asks an actionable question; require supported identification and actual discussion of that thing. Use a rule's requirements only for targets supported by its current scope or governing links. An unlisted target alone establishes neither applicability nor exemption: when current source text is silent or gives a non-exhaustive list, applicability stays unknown. Preserve explicit exclusive permissions, prohibitions, exceptions and conditions as evidence for their stated subjects; do not turn an explicit restriction into uncertainty merely because scope metadata does not list the target. An evidence note marked unknown stays unknown only for the attribute and subject it names; it does not weaken independent explicit facts or restrictions. Never turn that unknown into allowed, not allowed, free, included, required or absent. When an identity note names more than one candidate, answer for the one the question clearly means and name it, or ask one short question. visitor_party lines give each person's own height and age: compare a rule only with the person in the role that rule names (rider, companion, rider alone), never with another person. Use each person's facts only for the role named by the rule. A conditional requirement applies within its stated condition; it does not create additional restrictions or limit an independently stated permission. When offering a different role to someone ineligible for the requested role, require source support for that alternative instead of assuming admission.\nPLANNING: Check every proposed stop against its own posted opening interval for the date and time of that stop, including duration and the visitor's departure deadline. The posted_opening_calendar is a computed schedule, not live availability; current closures and applicable exceptions override it. If the window ends before a stop opens, say so first and offer supported alternatives that fit. For tomorrow or a multi-day plan use each date's entry, never today's current status. Unknown hours are unknown, not a closure.\nPRICES: Tax treatment belongs to its own price record, never to another ticket, rental or cafe item. For a sum, say including tax only when every selected item explicitly includes tax. Otherwise give the sum of listed prices and identify the unstated or extra tax; do not call unknown tax excluded or invent a rate. Apply a discount only within its stated eligibility and scope.\n${NOTICES}`
 
 function singular(word: string): string {
   if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`
@@ -977,6 +979,7 @@ function factLines(
     lines.push(tag('applies_to', semantics.scope.appliesTo.join('; ')))
   if (semantics.scope.doesNotApplyTo.length)
     lines.push(tag('does_not_apply_to', semantics.scope.doesNotApplyTo.join('; ')))
+  if (semantics.noticeClass) lines.push(tag('notice_class', semantics.noticeClass))
   for (const condition of semantics.conditions) lines.push(tag('condition', condition))
   for (const exception of semantics.exceptions) lines.push(tag('exception', exception))
   const consequences = semantics.consequences.length
@@ -984,6 +987,7 @@ function factLines(
     : semantics.materialSentences
   for (const consequence of consequences) lines.push(tag('consequence', consequence))
   for (const notice of semantics.mustMention) lines.push(tag('must_mention', notice))
+  for (const fact of guestPriceScopeFacts(semantics)) lines.push(tag('computed_price_scope', fact))
   for (const unknown of semantics.unknowns) lines.push(tag('unknown', unknown))
   if (semantics.effective) lines.push(tag('effective', semantics.effective))
   if (subject) {
@@ -1023,6 +1027,8 @@ export function assembleGuestEvidence(input: {
   escape: (value: string) => string
   maxRecords?: number
   maxChars?: number
+  /** The same request clock and venue timezone used by the guide. No local-machine defaults. */
+  clock?: { now: Date; timeZone?: string | undefined; hasActiveOperationalUpdates?: boolean }
 }): GuestEvidenceAssembly {
   const maxRecords = input.maxRecords ?? 10
   const maxChars = input.maxChars ?? 16_000
@@ -1356,6 +1362,18 @@ export function assembleGuestEvidence(input: {
     const subject = item.subjectOf.length > 0
     const kind = item.subjectOf[0] ? kindLabel(item.subjectOf[0]) : kindLabel(item.record.semantics)
     const lines = factLines(item.record, askedAttributes, subject, input.escape)
+    if (input.clock?.timeZone && !input.clock.hasActiveOperationalUpdates) {
+      const opening = guestRecordOpeningFacts({
+        title: item.record.title,
+        content: item.record.content,
+        now: input.clock.now,
+        timeZone: input.clock.timeZone,
+      })
+      if (opening.length)
+        lines.push(
+          `<posted_opening_calendar>${input.escape(opening.join('\n'))}</posted_opening_calendar>`,
+        )
+    }
     const block = `<thing id="${label}" name="${input.escape(attr(item.record.title))}" kind="${input.escape(attr(kind))}" origin="${input.escape(attr(item.origin))}">\n${input.escape(item.record.content)}${lines.length ? `\n${lines.join('\n')}` : ''}\n</thing>`
     // Never cut a record: a dropped qualifier is worse than a missing record, which stays unknown.
     if (rendered.length && used + block.length > maxChars) {

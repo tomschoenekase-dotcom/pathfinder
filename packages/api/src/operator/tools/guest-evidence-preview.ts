@@ -1,4 +1,6 @@
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
+import { parseChatAppearance } from '@pathfinder/contracts/chat-appearance'
+import { liveOperationalUpdateWindowWhere } from '@pathfinder/contracts/operational-update-lifecycle'
 import { applyNativeGuestContentRead, resolveNativeGuestReadSnapshotAction } from '@pathfinder/db'
 
 import { guestAnswerShape } from '../../lib/guest-evidence-answer-shape'
@@ -28,7 +30,7 @@ export const previewGuestEvidence: OperatorReadTool = {
     await assertVenueInGrant(context.grant, input.tenantId, input.venueId, context.database)
     const venue = await context.database.venue.findFirst({
       where: { id: input.venueId, tenantId: input.tenantId },
-      select: { isActive: true },
+      select: { isActive: true, chatAppearance: true },
     })
     if (!venue) throw new OperatorNotFoundError()
     const flag = guestEvidenceAssemblyMode()
@@ -131,8 +133,22 @@ export const previewGuestEvidence: OperatorReadTool = {
       let previous: GuestEvidenceAssembly['state'] | null = null
       let assembly: GuestEvidenceAssembly | null = null
       const messages = [...input.visitorHistory, input.question]
+      const activeUpdate = await context.database.operationalUpdate.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          ...liveOperationalUpdateWindowWhere(context.now),
+          OR: [{ placeId: null }, { place: { visibility: 'PUBLIC' } }],
+        },
+        select: { id: true },
+      })
       for (let index = 0; index < messages.length; index += 1) {
         assembly = assembleGuestEvidence({
+          clock: {
+            now: context.now,
+            timeZone: parseChatAppearance(venue.chatAppearance).timeZone,
+            hasActiveOperationalUpdates: activeUpdate !== null,
+          },
           question: messages[index]!,
           visitorMessages: messages.slice(0, index + 1),
           shape: guestAnswerShape(messages[index]!),

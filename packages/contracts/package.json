@@ -19,6 +19,7 @@
     "./guest-evidence/prompt-escape": "./src/guest-evidence/guest-prompt-escape.ts",
     "./guest-evidence/identity": "./src/guest-evidence/guest-place-identity.ts",
     "./guest-evidence/response-intent": "./src/guest-evidence/guest-response-intent.ts",
+    "./guest-evidence/schedule": "./src/guest-evidence/guest-schedule.ts",
     "./guest-evidence/dated-facts": "./src/guest-evidence/guest-dated-facts.ts",
     "./guest-visit-context": "./src/guest-visit-context.ts",
     "./guest-response": "./src/guest-response.ts",

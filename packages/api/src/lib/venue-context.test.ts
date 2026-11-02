@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { assembleGuestEvidence } from './guest-evidence-assembly'
+import { guestAnswerShape } from './guest-evidence-answer-shape'
 
 import {
   buildVenueSystemPrompt,
@@ -85,11 +87,42 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v44')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v45')
   })
 
   it('matches the broad production prompt contract manifest', () => {
+    const evidenceFocus = assembleGuestEvidence({
+      question: 'Plan a visit to Maple Gallery and tell me the price.',
+      visitorMessages: ['Plan a visit to Maple Gallery and tell me the price.'],
+      shape: guestAnswerShape('Plan a visit to Maple Gallery and tell me the price.'),
+      records: [
+        {
+          ref: 'place:maple',
+          title: 'Maple Gallery',
+          version: 'fixture-v1',
+          placeType: 'gallery',
+          content:
+            'Maple Gallery is a gallery.\nHours: 10am-5pm daily\nPrice: $5\nTax: Listed prices include tax.\nNotice class: access\nMust mention: The balcony requires stairs with no lift alternative.',
+        },
+      ],
+      retrievedRefs: ['place:maple'],
+      previous: null,
+      unavailableRefs: [],
+      coverage: { mode: 'FULL', incomplete: false, retrievalPartial: false, loadFailed: false },
+      clock: { now: new Date('2026-11-01T15:30:00Z'), timeZone: 'America/Chicago' },
+      escape: escapeUntrustedPromptData,
+    })
     const prompts = [
+      {
+        id: 'enabled-evidence-focus',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces,
+          userLat: null,
+          userLng: null,
+          evidenceFocus,
+        }),
+      },
       ...[false, true].map((empty) => ({
         id: `recommendation-candidates-${empty ? 'empty' : 'available'}`,
         prompt: buildVenueSystemPrompt({
