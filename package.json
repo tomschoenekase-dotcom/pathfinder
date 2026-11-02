@@ -3,6 +3,7 @@
   "_bust": "1",
   "private": true,
   "scripts": {
+    "venue:check": "node packages/db/node_modules/tsx/dist/cli.mjs packages/api/src/operator/venue-authoring/check-offline-cli.ts",
     "build": "pnpm characters:sync && turbo run build --concurrency=2",
     "dev": "turbo run dev --filter=@pathfinder/web --filter=@pathfinder/dashboard",
     "lint": "turbo run lint",

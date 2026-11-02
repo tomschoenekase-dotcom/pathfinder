@@ -1,5 +1,8 @@
 import { CRM_OUTREACH_HISTORY_KINDS } from './crm-outreach-history'
 import { crmRecordUpdateKind } from './crm-record-update'
+import { VENUE_AI_CONFIGURATION_KINDS } from './ai-workload-configuration'
+import { ENGAGEMENT_QUESTION_KINDS } from './engagement-questions'
+import { VENUE_BOT_CONFIGURATION_KINDS } from './venue-bot-configuration'
 import type { AnyOperatorProposalKind } from '../proposals'
 import { appearanceUpdateKind } from './appearance'
 import { appearanceGuestActionsKind } from './appearance-guest-actions'
@@ -31,8 +34,8 @@ import { sourceConnectionKind } from './source-connections'
  * Every proposal kind the operator can create. Add a kind by writing one file next to
  * `appearance.ts` and listing it here; `createKindRegistry` rejects duplicate tools.
  *
- * Not yet present because no canonical domain action exists for them: crm.propose_campaign_membership,
- * customers.propose_invite and support.propose_triage.
+ * Each registered kind delegates to its canonical domain action; catalog entries alone do not
+ * establish that a mutation is implemented.
  */
 export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   appearanceUpdateKind,
@@ -44,6 +47,9 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   crmStageChangeKind,
   venuesCreateKind,
   venuesKnowledgeKind,
+  ...VENUE_BOT_CONFIGURATION_KINDS,
+  ...VENUE_AI_CONFIGURATION_KINDS,
+  ...ENGAGEMENT_QUESTION_KINDS,
   venuesUpdateKind,
   venuesPackageImportKind,
   venuesContentChangesetKind,

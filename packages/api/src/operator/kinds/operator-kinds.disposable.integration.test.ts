@@ -309,6 +309,13 @@ describe.skipIf(!enabled)(
           'venues.propose_source',
           'venues.propose_source_connection',
           'venues.propose_content_changeset',
+          'venues.propose_bot_configuration',
+          'venues.propose_personality_profile_create',
+          'venues.propose_personality_profile_update',
+          'venues.propose_ai_workload_configuration',
+          'venues.propose_ai_workload_reset',
+          'engagement.propose_question_create',
+          'engagement.propose_question_update',
         ].sort(),
       )
     })

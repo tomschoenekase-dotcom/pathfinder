@@ -4,14 +4,31 @@ import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 import { buildVenuePackagePreview } from '../../lib/venue-package-core'
 import { VenuePackagePayload } from '../../schemas/venue-package'
 import { assertVenueInGrant } from '../grants'
-import {
-  counts,
-  guideQualityFindings,
-  resolvePackageAttachment,
-} from '../kinds/venues-package-import'
+import { counts, resolvePackageAttachment } from '../kinds/venues-package-import'
 import type { OperatorReadTool } from '../registry'
+import { venuePackageAuthoringFindings } from '../venue-authoring/authoring-checks'
 
 const SHOWN = 40
+
+type FindingKind = 'errors' | 'guideQuality' | 'authoring' | 'otherWarnings' | 'venueSetup'
+function findingPage(
+  request: { kind: FindingKind; offset: number; limit: number } | undefined,
+  categories: Record<FindingKind, Issue[]>,
+) {
+  if (!request) return {}
+  const findings = categories[request.kind]
+  const items = findings.slice(request.offset, request.offset + request.limit).map(trim)
+  return {
+    findingsPage: {
+      kind: request.kind,
+      total: findings.length,
+      offset: request.offset,
+      nextOffset:
+        request.offset + items.length < findings.length ? request.offset + items.length : null,
+      items,
+    },
+  }
+}
 
 type SetupReader = {
   venue: {
@@ -80,6 +97,13 @@ export const venuesCheckPackage: OperatorReadTool = {
         trim({ code: 'INVALID_PACKAGE', path: issue.path.join('.'), message: issue.message }),
       )
       return {
+        ...findingPage(input.findingsPage, {
+          errors,
+          guideQuality: [],
+          authoring: [],
+          otherWarnings: [],
+          venueSetup: [],
+        }),
         venueId: input.venueId,
         importable: false,
         ready: false,
@@ -99,7 +123,7 @@ export const venuesCheckPackage: OperatorReadTool = {
       parsed.data,
     )
     const { errors, warnings } = preview.report
-    const quality = guideQualityFindings(warnings)
+    const quality = warnings.filter((warning) => warning.code.startsWith('GUIDE_QUALITY_'))
     const plan = counts(parsed.data)
     const touchedPlaceIds =
       parsed.data.schemaVersion === 3
@@ -130,22 +154,33 @@ export const venuesCheckPackage: OperatorReadTool = {
       venueId: input.venueId,
       placesAfterImport: activePlaces + plan.places.create + activeUpdates,
     })
+    const authoring = venuePackageAuthoringFindings(parsed.data, context.now).map((finding) => ({
+      ...finding,
+      message: `${finding.message} ${finding.fix}`,
+    }))
     const other = warnings.filter((warning) => !warning.code.startsWith('GUIDE_QUALITY_'))
     return {
+      ...findingPage(input.findingsPage, {
+        errors,
+        guideQuality: quality,
+        authoring,
+        otherWarnings: other,
+        venueSetup,
+      }),
       venueId: input.venueId,
       importable: errors.length === 0,
       ready:
         errors.length === 0 &&
-        quality.total === 0 &&
+        quality.length === 0 &&
         !other.some((warning) => warning.code === 'DUPLICATE_IN_PACKAGE'),
       plan,
       errors: errors.slice(0, SHOWN).map(trim),
       errorCount: errors.length,
       guideQuality: {
-        total: quality.total,
-        shown: quality.shown.map(trim),
+        total: quality.length,
+        shown: quality.slice(0, SHOWN).map(trim),
         next:
-          quality.total === 0
+          quality.length === 0
             ? 'Every record meets the writing guide.'
             : 'Rewrite the named records to the operator manual standard ("Writing guide records") and check again.',
       },
@@ -153,6 +188,11 @@ export const venuesCheckPackage: OperatorReadTool = {
       otherWarningCount: other.length,
       // Settings, not package content: they never change ready, but fix them before testing answers.
       venueSetup,
+      authoring: {
+        total: authoring.length,
+        shown: authoring.slice(0, SHOWN).map(trim),
+        next: 'Advice only: fix or justify each finding. Targets are package-local; unchanged venue records require separate review. These findings never change ready or importable.',
+      },
       note: 'Nothing was saved. The import also runs a semantic duplicate scan, which can add warnings; warnings never block importable. Writing-guide warnings and exact in-package duplicates block ready.',
     }
   },

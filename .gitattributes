@@ -9,3 +9,5 @@ packages/contracts/src/guest-conversation-disposition.runtime.mjs text eol=lf
 
 # Dependency patch hashes must match on Windows and Linux.
 patches/*.patch text eol=lf
+# The embedded MCP manual is compared byte-for-byte with this document.
+docs/operator/manual.md text eol=lf

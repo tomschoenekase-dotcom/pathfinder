@@ -1,4 +1,7 @@
-import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
+import {
+  GuestAnswerEvidenceBundleSchema,
+  GuestEvidenceExecutionSchema,
+} from '@pathfinder/contracts/guest-answer-attribution'
 import { OPERATOR_MCP_INPUTS } from '@pathfinder/contracts/operator-mcp'
 import { projectGuestGuideCoverage } from '../../lib/guest-guide-coverage'
 
@@ -354,6 +357,7 @@ const getAnswerEvidence: OperatorReadTool = {
       metadata && metadata.answerEvidence !== undefined
         ? GuestAnswerEvidenceBundleSchema.safeParse(metadata.answerEvidence)
         : null
+    const execution = GuestEvidenceExecutionSchema.safeParse(metadata?.evidenceAssembly)
     const bundle = parsed?.success ? parsed.data : null
     const evidenceReason = bundle
       ? null
@@ -386,6 +390,7 @@ const getAnswerEvidence: OperatorReadTool = {
           state: bundle ? ('stored' as const) : ('unavailable' as const),
           reason: evidenceReason,
           schemaVersion: bundle?.schemaVersion ?? null,
+          evidenceAssembly: execution.success ? execution.data : null,
           promptContractVersion: bundle?.promptContractVersion ?? null,
           evidenceSetHash: bundle?.evidenceSetHash ?? null,
           answerHash: bundle?.answerHash ?? null,
@@ -393,7 +398,8 @@ const getAnswerEvidence: OperatorReadTool = {
           sourceCount: bundle?.sources.length ?? 0,
           ...projectGuestGuideCoverage({
             evidence: bundle,
-            assistantResponse: messages.find((message) => message.id === turn.assistantMessageId)?.content ?? null,
+            assistantResponse:
+              messages.find((message) => message.id === turn.assistantMessageId)?.content ?? null,
           }),
           sourcesShown: shown.length,
           sources: shown.map((source) => {

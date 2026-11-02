@@ -1,4 +1,7 @@
 import { crmOutreachHistoryReadTools } from './crm-outreach-history'
+import { venueAiConfigurationReadTool } from './ai-workload-configuration'
+import { engagementQuestionsList } from './engagement-questions'
+import { venueBotConfigurationReadTools } from './venue-bot-configuration'
 import type { OperatorReadTool } from '../registry'
 import { controlTools } from './controls'
 import { crmReadTools } from './crm'
@@ -26,6 +29,7 @@ import { supportReadTools } from './support'
 import { updateReadTools } from './updates'
 import { venueContentReadTools } from './venue-content'
 import { venuesCheckPackage } from './venue-package-check'
+import { previewGuestEvidence } from './guest-evidence-preview'
 import { venueReleaseReadTools } from './venue-releases'
 import { venueSourceReadTools } from './venue-sources'
 import { sourceConnectionReadTools } from './source-connections'
@@ -55,12 +59,16 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...accessReadTools,
   ...venueReadTools,
   ...guestModelReadTools,
+  ...venueBotConfigurationReadTools,
+  venueAiConfigurationReadTool,
+  engagementQuestionsList,
   ...evidenceReadTools,
   ...attentionReadTools,
   ...venueSourceReadTools,
   ...sourceConnectionReadTools,
   ...venueContentReadTools,
   venuesCheckPackage,
+  previewGuestEvidence,
   ...venueReleaseReadTools,
   ...supportReadTools,
   ...updateReadTools,

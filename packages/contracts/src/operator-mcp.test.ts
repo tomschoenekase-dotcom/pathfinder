@@ -61,6 +61,12 @@ const EXPECTED_TOOLS = [
   'crm.list_candidates',
   'crm.get_contact_history',
   'crm.check_can_contact',
+  'engagement.list_questions',
+  'engagement.propose_question_create',
+  'engagement.propose_question_update',
+  'venues.get_ai_workload_configuration',
+  'venues.get_bot_configuration',
+  'venues.list_personality_profiles',
   'venues.list',
   'venues.list_operational_updates',
   'venues.get_visitor_summary',
@@ -75,6 +81,7 @@ const EXPECTED_TOOLS = [
   'venues.get_content',
   'venues.preview_content_changeset',
   'venues.check_package',
+  'venues.preview_guest_evidence',
   'venues.list_releases',
   'venues.get_release',
   'venues.get_effective_guest_version',
@@ -180,6 +187,11 @@ const EXPECTED_TOOLS = [
   'venues.propose_source',
   'venues.propose_source_connection',
   'venues.propose_knowledge',
+  'venues.propose_ai_workload_configuration',
+  'venues.propose_ai_workload_reset',
+  'venues.propose_bot_configuration',
+  'venues.propose_personality_profile_create',
+  'venues.propose_personality_profile_update',
   'venues.propose_update',
   'venues.propose_package_import',
   'venues.propose_content_changeset',
@@ -674,4 +686,25 @@ describe('CRM account, address, prospect and import tools', () => {
       expect(getOperatorToolDefinition(name)?.capability).toBe('crm:propose')
     }
   })
+})
+
+it('keeps package findings pagination optional and validates explicit finite bounds', () => {
+  const base = { tenantId: 'tenant-a', venueId: 'venue-a', payload: { schemaVersion: 3 } }
+  const schema = OPERATOR_MCP_INPUTS['venues.check_package']
+  expect(schema.parse(base)).not.toHaveProperty('findingsPage')
+  for (const kind of ['errors', 'guideQuality', 'authoring', 'otherWarnings', 'venueSetup']) {
+    expect(
+      schema.safeParse({ ...base, findingsPage: { kind, offset: 0, limit: 100 } }).success,
+    ).toBe(true)
+  }
+  for (const page of [
+    { kind: 'other', offset: 0, limit: 1 },
+    { kind: 'errors', offset: -1, limit: 1 },
+    { kind: 'errors', offset: 0.5, limit: 1 },
+    { kind: 'errors', offset: 0, limit: 0 },
+    { kind: 'errors', offset: 0, limit: 101 },
+    { kind: 'errors', offset: 0, limit: 1.5 },
+    { kind: 'errors', offset: Infinity, limit: 1 },
+  ])
+    expect(schema.safeParse({ ...base, findingsPage: page }).success).toBe(false)
 })
