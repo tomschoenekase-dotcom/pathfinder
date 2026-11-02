@@ -356,3 +356,44 @@ describe('renderGuestVisitorParty', () => {
     expect(lines.at(-2)).toBe("This question's roles: unresolved in this projection.")
   })
 })
+
+describe('atomic person-pair role binding', () => {
+  it.each(['take', 'bring'])(
+    'does not bind a companion when %s is followed by a venue rather than a person',
+    (verb) => {
+      const result = party(`My 9-year-old is 43 inches tall. Can she ${verb} Copper Boat?`)
+      expect(result.roles).toEqual([])
+      expect(renderGuestVisitorParty(result).join('\n')).not.toContain('companion =')
+    },
+  )
+  it('captures a measured self apposition and keeps take-venue-with-person symmetric', () => {
+    const result = party(
+      'My 9-year-old is 43 inches tall. Can she take Copper Boat with me, her 32-year-old parent?',
+    )
+    expect(result.persons).toHaveLength(2)
+    expect(result.persons.find((person) => person.self)).toMatchObject({
+      ageYears: 32,
+      heightInches: null,
+    })
+    expect(result.persons.find((person) => !person.self)).toMatchObject({
+      ageYears: 9,
+      heightInches: 43,
+    })
+    expect(result.roles).toEqual([
+      { personId: 'P1', role: 'together' },
+      { personId: 'P2', role: 'together' },
+    ])
+    expect(renderGuestVisitorParty(result).join('\n')).not.toContain('companion =')
+  })
+  it('abstains from a pair when the other person is not described', () => {
+    const result = party('My 9-year-old is 43 inches tall. Can she take Copper Boat with me?')
+    expect(result.roles).toEqual([])
+  })
+  it('preserves explicit take-person roles when both people resolve', () => {
+    const result = party('My son is 9 years old. I am 32 years old. Can I take him on Copper Boat?')
+    expect(result.roles).toEqual([
+      { personId: 'P2', role: 'companion' },
+      { personId: 'P1', role: 'rider' },
+    ])
+  })
+})

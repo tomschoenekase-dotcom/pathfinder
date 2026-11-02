@@ -1577,11 +1577,9 @@ describe('role-specific benefit boundary', () => {
     expect(turn.data).toContain('Participants must be at least 9')
     expect(turn.data).toContain('Companions must be at least 20')
     expect(turn.data).toContain('Observing companions enter free')
+    expect(turn.rule).toContain("Use each person's facts only for the role named by the rule.")
     expect(turn.rule).toContain(
-      'Keep explicit eligibility limits and benefits tied to their stated roles.',
-    )
-    expect(turn.rule).toContain(
-      'Do not relabel an ineligible participant as a companion or observer without source support',
+      'When offering a different role to someone ineligible for the requested role, require source support for that alternative instead of assuming admission.',
     )
   })
   it('does not make a conditional companion requirement an exclusive limit on a separate role permission', () => {
@@ -1618,11 +1616,9 @@ describe('role-specific benefit boundary', () => {
       'Observing companions enter free but do not use a loom or handle the maker materials.',
     )
     expect(turn.rule).toContain(
-      'A conditional requirement for a companion does not establish the only circumstances in which that role or its benefits are allowed.',
+      'A conditional requirement applies within its stated condition; it does not create additional restrictions or limit an independently stated permission.',
     )
-    expect(turn.rule).toContain(
-      'if their admission in that role is unstated, say it is unknown rather than allowed or banned',
-    )
+    expect(turn.rule).not.toContain('if their admission in that role is unstated')
     expect(turn.rule).not.toContain(
       'requires that person to meet the stated eligibility for that role',
     )

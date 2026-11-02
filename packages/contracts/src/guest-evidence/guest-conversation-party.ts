@@ -49,7 +49,7 @@ const AGE = String.raw`(\d{1,2})\s*(?:years?(?:\s+old)?\b|yrs?\b|yo\b|-year-old\
 
 // "my son", "my 7-year-old son", "my 7-year-old", "Maya", "I"/"I'm"
 const MENTION = new RegExp(
-  String.raw`\b(?:[Mm]y|[Oo]ur|[Aa]n?|[Tt]he)\s+(?:(\d{1,2})[- ]?(?:year[- ]old|yo)\s+)?(${RELATION}s?)\b|\b(?:[Mm]y|[Oo]ur|[Tt]he)\s+(\d{1,2})[- ]?year[- ]old\b|\b(I(?:'m|’m| am))(?=\s|$)|\b([A-Z][a-z]{2,14})\s+(?=is\b|was\b|has\b|measures\b|stands\b|at\s+\d|\(|,)`,
+  String.raw`\b(?:[Mm]y|[Oo]ur|[Aa]n?|[Tt]he)\s+(?:(\d{1,2})[- ]?(?:year[- ]old|yo)\s+)?(${RELATION}s?)\b|\b(?:[Mm]y|[Oo]ur|[Tt]he)\s+(\d{1,2})[- ]?year[- ]old\b|\b(I(?:'m|’m| am)|me)(?=\s|,|$)|\b([A-Z][a-z]{2,14})\s+(?=is\b|was\b|has\b|measures\b|stands\b|at\s+\d|\(|,)`,
   'gu',
 )
 
@@ -367,25 +367,43 @@ function bindRoles(
 ): { roles: GuestPartyRoleBinding[]; unresolvedReference: string | null } {
   const roles: GuestPartyRoleBinding[] = []
   let unresolvedReference: string | null = null
-  const bind = (word: string | undefined, role: GuestPartyRoleBinding['role']) => {
-    if (!word) return
+  const personFor = (word: string | undefined) => {
+    if (!word) return null
     const cleaned = word
       .trim()
       .replace(/^(?:my|our|the)\s+/iu, (prefix) => prefix.toLocaleLowerCase())
-    const resolved =
+    return (
       resolveReference(cleaned.replace(/^(?:the)\s+/u, ''), persons) ??
       resolveReference(cleaned, persons)
+    )
+  }
+  const bind = (word: string | undefined, role: GuestPartyRoleBinding['role']) => {
+    if (!word) return
+    const resolved = personFor(word)
     if (resolved === 'ambiguous' || resolved === null) {
-      // Only a word that refers to a person is reported; "the stroller" is not a reference.
       if (REFERENCE_WORD.test(word.trim())) unresolvedReference ??= word.trim()
       return
     }
     if (!roles.some((binding) => binding.personId === resolved.id && binding.role === role))
       roles.push({ personId: resolved.id, role })
   }
+  // A two-person construction is atomic: a venue name matching PERSON_WORD
+  // must never leave the real person assigned one side of an imaginary pair.
+  const bindPair = (
+    first: string | undefined,
+    firstRole: GuestPartyRoleBinding['role'],
+    second: string | undefined,
+    secondRole: GuestPartyRoleBinding['role'],
+  ) => {
+    const left = personFor(first)
+    const right = personFor(second)
+    if (!left || left === 'ambiguous' || !right || right === 'ambiguous') return
+    bind(first, firstRole)
+    bind(second, secondRole)
+  }
   // "can <A> ride (it|the X)? with <B>"
   const withPattern = new RegExp(
-    String.raw`\b(?:can|could|may|would)\s+(${PERSON_WORD})\s+(?:ride|go(?: on)?|do|join|take part)\b[\s\S]{0,40}?\b(?:with|alongside|next to)\s+(${PERSON_WORD})\b`,
+    String.raw`\b(?:can|could|may|would)\s+(${PERSON_WORD})\s+(?:ride|go(?: on)?|do|join|take(?: part)?)\b[\s\S]{0,40}?\b(?:with|alongside|next to)\s+(${PERSON_WORD})\b`,
     'iu',
   )
   // "Ride with" is symmetric: in "can my 16-year-old cousin ride with Ben?" the cousin is the
@@ -394,8 +412,7 @@ function bindRoles(
   // Each person's own height and age decide the roles.
   const withMatch = message.match(withPattern)
   if (withMatch) {
-    bind(withMatch[1], 'together')
-    bind(withMatch[2], 'together')
+    bindPair(withMatch[1], 'together', withMatch[2], 'together')
   }
   // "can <B> take/bring/ride with <A>" where B is the companion: "can my daughter take him on"
   const takePattern = new RegExp(
@@ -404,8 +421,7 @@ function bindRoles(
   )
   const takeMatch = !withMatch ? message.match(takePattern) : null
   if (takeMatch) {
-    bind(takeMatch[1], 'companion')
-    bind(takeMatch[2], 'rider')
+    bindPair(takeMatch[1], 'companion', takeMatch[2], 'rider')
   }
   // "<B> as (his|her|their|a) companion", "can <B> be the companion"
   const asCompanion = new RegExp(
