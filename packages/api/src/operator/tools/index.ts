@@ -1,4 +1,5 @@
 import { venueAiConfigurationReadTool } from './ai-workload-configuration'
+import { venueDistributionReadTool } from './venue-distribution'
 import { engagementQuestionsList } from './engagement-questions'
 import { venueBotConfigurationReadTools } from './venue-bot-configuration'
 import type { OperatorReadTool } from '../registry'
@@ -57,6 +58,7 @@ export const OPERATOR_READ_TOOLS: readonly OperatorReadTool[] = [
   ...venueReadTools,
   ...venueBotConfigurationReadTools,
   venueAiConfigurationReadTool,
+  venueDistributionReadTool,
   engagementQuestionsList,
   ...evidenceReadTools,
   ...attentionReadTools,

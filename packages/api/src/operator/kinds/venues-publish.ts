@@ -36,8 +36,8 @@ async function readAvailability(
 
 /**
  * Publishing makes the venue available to visitors through the canonical availability action. The
- * website and app distribution surfaces are separate and have no domain action, so they stay as
- * they are; a human enables them in Visitor access.
+ * website and app distribution surfaces are separate and stay as they are; change them with
+ * venues.propose_distribution_change (platform administrators) or in Visitor access.
  */
 export const venuesPublishKind: OperatorProposalKind<PublishArgs> = {
   kind: 'venues.publish',

@@ -61,6 +61,8 @@ export const OPERATOR_ALWAYS_ASK_KINDS: ReadonlySet<string> = new Set([
   // Editing routing and inherited ceilings can change future model spend.
   'venues.ai-workload-configuration',
   'venues.ai-workload-reset',
+  // Lets another website embed the guide, or turns a visitor surface on or off.
+  'venues.distribution-change',
 ])
 
 /** Capabilities whose policy switch is locked to `ask` (they only carry always-ask kinds). */

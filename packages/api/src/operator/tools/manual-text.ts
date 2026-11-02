@@ -374,4 +374,6 @@ export const OPERATOR_MANUAL_TEXT = [
   '',
   '`venues.propose_ai_workload_reset` takes the exact positive expectedRevision and reason; it tombstones the venue override and inherits lower layers. Read effective settings before and after resetting because inherited models and costs can differ. Both writes require the current allowlisted platform administrator connection plus venue grant. They cannot edit global or client overrides or accept an actor, scope or approval receipt from tool input.',
   '',
+  '`venues.get_distribution` reads whether the guide may be embedded on websites and inside apps, the distribution revision and the allowed website origins. `venues.propose_distribution_change` makes one change at that exact expectedRevision: SET_SURFACE (WEBSITE or APP, enabled), ADD_ORIGIN or REVOKE_ORIGIN with an exact normalized HTTPS origin (no path or wildcard, at most 20 active). Only allowlisted platform administrators may change distribution, as in the dashboard\'s Visitor access screen; the change is audited and waits for a person in review mode. An origin lets that website embed the guide, so confirm the venue owns it. Publishing (`venues.propose_publish`) does not change distribution.',
+  '',
 ].join('\n')

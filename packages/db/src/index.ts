@@ -11,6 +11,13 @@ export {
   type VenueDistributionReadback,
 } from './helpers/venue-distribution'
 export {
+  applyVenueDistributionChangeAction,
+  readVenueDistributionState,
+  VenueDistributionActionError,
+  type VenueDistributionAdminActor,
+  type VenueDistributionChange,
+} from './helpers/venue-distribution-actions'
+export {
   readProspectLaunchLinks,
   requireCurrentProspectLaunchAttachments,
   requireSameLaunchAttachments,

@@ -1,4 +1,5 @@
 import { VENUE_AI_CONFIGURATION_KINDS } from './ai-workload-configuration'
+import { venueDistributionChangeKind } from './venue-distribution'
 import { ENGAGEMENT_QUESTION_KINDS } from './engagement-questions'
 import { VENUE_BOT_CONFIGURATION_KINDS } from './venue-bot-configuration'
 import type { AnyOperatorProposalKind } from '../proposals'
@@ -44,6 +45,7 @@ export const OPERATOR_PROPOSAL_KINDS: readonly AnyOperatorProposalKind[] = [
   venuesKnowledgeKind,
   ...VENUE_BOT_CONFIGURATION_KINDS,
   ...VENUE_AI_CONFIGURATION_KINDS,
+  venueDistributionChangeKind,
   ...ENGAGEMENT_QUESTION_KINDS,
   venuesUpdateKind,
   venuesPackageImportKind,
