@@ -23,19 +23,26 @@ describe('text model registry', () => {
     })
   })
 
-  it('pins the Luna guest-chat candidate to GPT-6 Luna pricing', () => {
-    expect(getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_LUNA)).toMatchObject({
-      provider: 'openai',
-      model: 'gpt-6-luna',
-      pricingVersion: 'openai-standard-public-2026-09-22',
-      pricingUsdPerMillionTokens: {
-        input: 0.1,
-        output: 0.5,
-        cacheWrite: 0.125,
-        cacheRead: 0.01,
-      },
-    })
-  })
+  it.each([AI_MODEL_KEYS.GUEST_CHAT_LUNA, AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING])(
+    'pins %s visitor baseline to high Fast with room for reasoning',
+    (key) => {
+      expect(getAiModelSpec(key)).toMatchObject({
+        provider: 'openai',
+        model: 'gpt-6-luna',
+        reasoningEffort: 'high',
+        serviceTier: 'fast',
+        maxOutputTokens: 8_192,
+        timeoutMs: 60_000,
+        pricingVersion: 'openai-fast-public-2026-10-26',
+        pricingUsdPerMillionTokens: {
+          input: 0.2,
+          output: 1,
+          cacheWrite: 0.25,
+          cacheRead: 0.02,
+        },
+      })
+    },
+  )
 
   it('pins the Sol guest-chat route to GPT-6.1 Sol list pricing with room for reasoning', () => {
     expect(getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT_SOL)).toMatchObject({

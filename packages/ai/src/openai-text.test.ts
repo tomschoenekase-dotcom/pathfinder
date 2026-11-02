@@ -83,7 +83,9 @@ describe('OpenAI Responses prompt cache accounting', () => {
   ])('asks %s for the reasoning effort it supports (%s)', async (model, effort) => {
     const create = vi.fn().mockResolvedValue({ output_text: 'Done', usage })
     setOpenAiResponsesClientForTesting({ responses: { create } })
-    await createOpenAiTextResponse(request(model, [stable]))
+    const input = request(model, [stable])
+    delete input.spec.reasoningEffort
+    await createOpenAiTextResponse(input)
     expect(create.mock.calls[0]?.[0].reasoning).toEqual({ effort })
   })
 

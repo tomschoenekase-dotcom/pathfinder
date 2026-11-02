@@ -130,7 +130,7 @@ export type OpenAiResponsesClient = {
         >
         prompt_cache_options?: { mode: 'explicit' }
         max_output_tokens: number
-        reasoning: { effort: 'none' | 'minimal' | 'low' }
+        reasoning: { effort: 'none' | 'minimal' | 'low' | 'medium' | 'high' }
         store: false
         stream?: boolean
       },

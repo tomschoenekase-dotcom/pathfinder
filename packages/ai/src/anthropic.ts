@@ -22,7 +22,7 @@ import {
   type AiBudgetGate,
   type AiBudgetReservationRef,
 } from './budget'
-import { getAiModelSpec, type AiModelKey, type AiTextProviderId } from './model-registry'
+import { getLocalLunaPlannerModelSpec, getAiModelSpec, type AiModelKey, type AiTextProviderId } from './model-registry'
 
 export type AiSystemBlock = {
   type: 'text'
@@ -362,7 +362,11 @@ export async function generateText<TParsed = string>(params: {
 }): Promise<AiTextResult<TParsed>> {
   const profile = params.invocationProfile
   const modelKey = params.modelKey
-  const spec = profile ? structuredClone(getAiModelSpec(modelKey)) : getAiModelSpec(modelKey)
+  const registeredSpec = getAiModelSpec(modelKey)
+  const spec = profile
+    ? structuredClone(registeredSpec.provider === 'openai' && registeredSpec.model === 'gpt-6-luna'
+      ? getLocalLunaPlannerModelSpec() : registeredSpec)
+    : registeredSpec
   const system = profile ? structuredClone(params.system) : params.system
   const messages = profile ? structuredClone(params.messages) : params.messages
   const maxAttempts = params.maxAttempts ?? spec.maxAttempts

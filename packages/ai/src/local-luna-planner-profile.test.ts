@@ -3,13 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateText } from './anthropic'
 import { generateTextForCapability } from './routed-generation'
 import { setOpenAiResponsesClientForTesting, createOpenAiTextStream } from './openai-text'
-import { getAiModelSpec } from './model-registry'
+import { getAiModelSpec, getLocalLunaPlannerModelSpec } from './model-registry'
 import { textAttemptCostCeilingUnits, withAiRequestBudgetCeiling, type AiBudgetGate } from './budget'
 import { LocalLunaPlannerExecutionError, type LocalLunaPlannerProfile } from './local-luna-planner-profile'
 import type { AiRoutePlan } from './capability-routing'
 const system=[{type:'text' as const,text:'Interpret stored selection only.'}]
 const messages=[{role:'user' as const,content:'Count shops.'}]
-const spec=getAiModelSpec('guest-chat-luna-reasoning')
+const spec=getLocalLunaPlannerModelSpec()
 const usage={input_tokens:130,output_tokens:40,total_tokens:170,input_tokens_details:{cached_tokens:30,cache_write_tokens:0},output_tokens_details:{reasoning_tokens:10}}
 const response=(tier:unknown='fast')=>({model:'gpt-6-luna',id:'resp_synthetic_profile',status:'completed',service_tier:tier,output_text:'{"status":"QUERY"}',usage})
 const gate=()=>({reserve:vi.fn(async(attempt)=>({id:'hold',reservedUnits:attempt.reservedUnits})),markDispatched:vi.fn(async()=>{}),settleExact:vi.fn(async()=>{}),settleAmbiguous:vi.fn(async()=>{}),releaseUndispatched:vi.fn(async()=>{})}) satisfies AiBudgetGate
@@ -39,13 +39,13 @@ describe('explicit local Luna planner execution profiles',()=>{
   expect(budget.reserve.mock.calls[0]![0].reservedUnits).toBe(ordinary*2n)
   expect(create.mock.calls[0]![0].service_tier).toBe('default');expect(result.serviceTier?.outcome).toBe('STANDARD_SERVED')
   expect(getAiModelSpec('guest-chat-luna-reasoning')).toEqual(before)
-  expect(before.pricingUsdPerMillionTokens).toEqual({input:.1,output:.5,cacheWrite:.125,cacheRead:.01})
+  expect(before.reasoningEffort).toBe('high');expect(before.serviceTier).toBe('fast')
  })
  it('leaves unset request/result/cost behavior unchanged',async()=>{
   const {params,create,budget}=setup('priority');const legacy:Omit<typeof params,'invocationProfile'>={...params};delete (legacy as Partial<typeof params>).invocationProfile;const result=await generateText(legacy)
-  expect(create.mock.calls[0]![0]).not.toHaveProperty('service_tier');expect(result).not.toHaveProperty('serviceTier')
-  expect(result.estimatedCostUsd).toBeCloseTo(.0000303,12)
-  expect(budget.reserve.mock.calls[0]![0].reservedUnits).toBe(textAttemptCostCeilingUnits({spec,system,messages,maxOutputTokens:1024}))
+  expect(create.mock.calls[0]![0].service_tier).toBe('fast');expect(result).not.toHaveProperty('serviceTier')
+  expect(result.estimatedCostUsd).toBeCloseTo(.0000606,12)
+  expect(budget.reserve.mock.calls[0]![0].reservedUnits).toBe(textAttemptCostCeilingUnits({spec:getAiModelSpec('guest-chat-luna-reasoning'),system,messages,maxOutputTokens:1024}))
  })
  it.each([undefined,null,'auto','flex','ultrafast','unregistered',{},44])('holds unknown tier %j, preserves observed tokens, and fails without fallback',async tier=>{
   const {params,create,budget,sink}=setup();create.mockResolvedValue({...response(),service_tier:tier})

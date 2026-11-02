@@ -66,8 +66,8 @@ describe('central AI workload configuration', () => {
       })
       expect(result).toMatchObject({
         primaryModelKey: 'guest-chat-luna-reasoning',
-        maxOutputTokens: 2_048,
-        timeoutMs: 20_000,
+        maxOutputTokens: 8_192,
+        timeoutMs: 60_000,
         maxAttempts: AI_MODEL_REGISTRY['guest-chat-luna-reasoning'].maxAttempts,
         sources: {
           primaryModelKey: 'WORKLOAD',
@@ -175,7 +175,7 @@ describe('central AI workload configuration', () => {
     })
     expect(result).toMatchObject({
       primaryModelKey: 'guest-chat-luna',
-      timeoutMs: 15_000,
+      timeoutMs: 60_000,
       maxOutputTokens: null,
       sources: { timeoutMs: 'CLIENT', maxOutputTokens: 'PLATFORM' },
     })

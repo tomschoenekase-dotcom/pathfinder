@@ -68,11 +68,11 @@ describe('AI cost budget ceilings', () => {
       maxOutputTokens: spec.maxOutputTokens,
     })
     // GPT-5.6+ can bill a cache miss as a write at 1.25x ordinary input. The
-    // fractional 0.125 rate rounds upward at the reservation's integer scale.
-    expect(spec.pricingUsdPerMillionTokens.cacheWrite).toBe(0.125)
-    expect(spec.pricingUsdPerMillionTokens.input).toBe(0.1)
-    expect(reservedUnits).toBe(2_651_200n)
-    const ordinaryOnlyUnits = 2_051_200n
+    // fractional 0.25 rate rounds upward at the reservation's integer scale.
+    expect(spec.pricingUsdPerMillionTokens.cacheWrite).toBe(0.25)
+    expect(spec.pricingUsdPerMillionTokens.input).toBe(0.2)
+    expect(reservedUnits).toBe(5_819_200n)
+    const ordinaryOnlyUnits = 4_819_200n
     expect(reservedUnits).toBeGreaterThan(ordinaryOnlyUnits)
     const gate = withAiRequestBudgetCeiling(NOOP_AI_BUDGET_GATE, ordinaryOnlyUnits)
     await expect(

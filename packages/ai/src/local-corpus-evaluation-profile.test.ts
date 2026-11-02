@@ -41,7 +41,7 @@ function setup(modelKey: LocalCorpusEvaluationProfile['modelKey'] = 'guest-chat-
     ],
     prompt_cache_options: { mode: 'explicit' },
     max_output_tokens: spec.maxOutputTokens,
-    reasoning: { effort: modelKey === 'guest-chat-luna' ? 'none' : 'low' },
+    reasoning: { effort: spec.reasoningEffort ?? 'low' },
     store: false,
     service_tier: 'default',
   }
@@ -110,7 +110,7 @@ describe('separate local real-corpus evaluation profile', () => {
         callId: f.control.callId,
         sdkRequestSha256: hash(f.expected),
         adapterInputsSha256: hash(f.input),
-        reservedE8Usd: modelKey === 'guest-chat-luna' ? '2651200' : '52048000',
+        reservedE8Usd: modelKey === 'guest-chat-luna' ? '5819200' : '52048000',
       })
       await expect(
         createOpenAiTextResponse({ ...f.input, localCorpusEvaluation: f.control }),

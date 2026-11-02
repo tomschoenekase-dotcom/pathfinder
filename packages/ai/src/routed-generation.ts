@@ -10,7 +10,7 @@ import {
 import type { AiAdmissionGuard } from './admission'
 import { withAiRequestBudgetCeiling, type AiBudgetGate } from './budget'
 import type { AiModelKey } from './model-registry'
-import { AI_MODEL_REGISTRY } from './model-registry'
+import { AI_MODEL_REGISTRY, getLocalLunaPlannerModelSpec } from './model-registry'
 import type { AiRouteCandidate, AiRoutePlan } from './capability-routing'
 
 export type RoutedAiTextResult<TParsed = string> = AiTextResult<TParsed> & {
@@ -63,7 +63,9 @@ export async function generateTextForCapability<TParsed = string>(params: {
   const candidates = profile !== undefined ? structuredClone(params.route.candidates) : params.route.candidates
   if (profile !== undefined) {
     if (candidates.length !== 1 || candidates[0]!.fallback) throw new Error('Local planner profile requires one primary route candidate')
-    const spec = AI_MODEL_REGISTRY[textModelKey(candidates[0]!)]
+    const registeredSpec = AI_MODEL_REGISTRY[textModelKey(candidates[0]!)]
+    const spec = registeredSpec.provider === 'openai' && registeredSpec.model === 'gpt-6-luna'
+      ? getLocalLunaPlannerModelSpec() : registeredSpec
     assertLocalLunaPlannerProfile(profile, spec, { maxAttempts: params.maxAttempts ?? spec.maxAttempts, maxOutputTokens: params.maxOutputTokens ?? spec.maxOutputTokens, streaming: Boolean(params.onTextDelta), explicitCache: params.system.some(block => block.cache_control?.type === 'ephemeral') })
   }
   const budgetGate =

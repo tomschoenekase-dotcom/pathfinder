@@ -29,7 +29,7 @@ export type AiModelSpec = {
   costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   maxOutputTokens: number
   /** OpenAI reasoning effort when the route pins one; otherwise the model's default effort. */
-  reasoningEffort?: 'none' | 'minimal' | 'low'
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
   /** OpenAI processing tier the route requests; omitted means the project default (standard). */
   serviceTier?: 'fast'
   timeoutMs: number
@@ -82,6 +82,22 @@ function openAiLunaSpec(maxOutputTokens: number): AiModelSpec {
       cacheWrite: 0.125,
       cacheRead: 0.01,
     },
+  }
+}
+
+/** Frozen boundary for explicitly selected local planner experiments, separate from visitor defaults. */
+export function getLocalLunaPlannerModelSpec(): AiModelSpec {
+  return { ...openAiLunaSpec(1_024), reasoningEffort: 'low', timeoutMs: 20_000 }
+}
+
+function openAiLunaVisitorSpec(): AiModelSpec {
+  return {
+    ...openAiLunaSpec(8_192),
+    reasoningEffort: 'high',
+    serviceTier: 'fast',
+    timeoutMs: 60_000,
+    pricingVersion: 'openai-fast-public-2026-10-26',
+    pricingUsdPerMillionTokens: { input: 0.2, output: 1, cacheWrite: 0.25, cacheRead: 0.02 },
   }
 }
 
@@ -217,19 +233,11 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
     outputUsdPerMillionTokens: 3.96,
     cacheReadUsdPerMillionTokens: 0.044,
   }),
-  // Explicit provider-diversity candidate. Anthropic remains the platform
-  // default until a governed workload/client/venue override selects this key.
-  // A ranking across a large venue (a reason per ride) can exceed 512 tokens; an incomplete
-  // response becomes a fallback reply, so the guest route leaves room. Billing is per token used.
-  [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaSpec(1_024),
-  // Luna that reasons briefly before answering: the same model and prices, with reasoning tokens
-  // (billed as output) checking conditions and arithmetic first. Reasoning shares the output cap,
-  // so it gets 2048 tokens, and a longer timeout. First text arrives after the reasoning.
-  [AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING]: {
-    ...openAiLunaSpec(2_048),
-    reasoningEffort: 'low',
-    timeoutMs: 20_000,
-  },
+  // Visitor Luna baseline: high reasoning shares the output cap with visible text.
+  // The 8192-token/60-second boundary matches the controlled high/Fast diagnostic;
+  // Fast uses twice standard rates, including reasoning tokens billed as output.
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA]: openAiLunaVisitorSpec(),
+  [AI_MODEL_KEYS.GUEST_CHAT_LUNA_REASONING]: openAiLunaVisitorSpec(),
   // Reasoning tokens count against the output cap, so Sol gets more room than Luna.
   [AI_MODEL_KEYS.GUEST_CHAT_SOL]: openAiSolSpec(2_048),
   // The same Sol route on OpenAI Fast mode (service_tier "fast"): billed at twice the standard
