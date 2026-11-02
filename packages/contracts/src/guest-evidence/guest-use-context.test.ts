@@ -95,4 +95,24 @@ describe('use advice beyond explicitly named subjects', () => {
     )
     expect(result.data).toContain('Condition: Accept before leaving.')
   })
+  it('carries every offer consequence into required use details even with a shorter must-mention', () => {
+    const offer = record(
+      'knowledge:return',
+      'Storm return voucher',
+      'Storm return voucher is a replacement visit.\nCondition: The supervisor must verify a staff-declared storm closure prevented a booked activity and approve before 3pm.\nConsequence: Acceptance ends remaining entry today; use one open day within 10 days; it is not a cash refund.\nMust mention: Acceptance ends remaining entry today.\nNotice class: entry-loss',
+    )
+    const result = assemble(
+      'Could we accept the Storm return voucher after lunch?',
+      [offer],
+      [offer.ref],
+    )
+    const details = result.data.match(
+      /<required_use_details>([\s\S]*?)<\/required_use_details>/u,
+    )?.[1]
+    expect(details).toContain('Condition: The supervisor must verify')
+    expect(details).toContain('before 3pm')
+    expect(details).toContain(
+      'Consequence: Acceptance ends remaining entry today; use one open day within 10 days; it is not a cash refund.',
+    )
+  })
 })

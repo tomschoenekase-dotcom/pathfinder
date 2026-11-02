@@ -101,14 +101,33 @@ describe('guestTodayStatusCue: closed today', () => {
     expect(result).toContain('Its next posted opening is Tuesday, November 17 at 10 am.')
   })
 
-  it('says an unlisted weekday is not an operating day when every opening names days', () => {
+  it('keeps an unlisted weekday unknown when posted days are not explicitly exclusive', () => {
     const result = cue(
       [{ title: 'Opening hours', content: 'Hours: 10am-5pm Wednesday to Sunday' }],
       '2026-11-16T15:00:00Z',
       'America/New_York',
     )
-    expect(result).toContain('its posted hours list no opening on Mondays')
-    expect(result).toContain('Wednesday, November 18 at 10 am')
+    expect(result).toBeNull()
+  })
+
+  it('does not skip unknown days to claim the next opening after a real closure', () => {
+    const result = cue(
+      [{ title: 'Opening hours', content: 'Hours: 11am-5pm Sunday\nClosed: Monday' }],
+      '2026-11-16T15:00:00Z',
+      'America/New_York',
+    )
+    expect(result).toContain('closed on Mondays')
+    expect(result).not.toContain('next posted opening')
+  })
+
+  it('preserves an explicit exclusive weekday schedule', () => {
+    const result = cue(
+      [{ title: 'Opening hours', content: 'Hours: 11am-5pm Sunday only' }],
+      '2026-11-16T15:00:00Z',
+      'America/New_York',
+    )
+    expect(result).toContain('explicitly limit opening to other weekdays')
+    expect(result).toContain('Sunday, November 22 at 11 am')
   })
 
   it('says a listed closed date is closed', () => {

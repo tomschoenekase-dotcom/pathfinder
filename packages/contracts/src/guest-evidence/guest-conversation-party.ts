@@ -479,7 +479,10 @@ export function renderGuestVisitorParty(party: GuestVisitorParty): string[] {
     lines.push(
       `Riding or going together: ${together.map((binding) => names.get(binding.personId)).join(' and ')}. The wording does not say who is the rider and who is the companion: decide from each person's own height and age against the rule, and say which person each requirement applies to.`,
     )
-  if (!party.roles.length) lines.push("This question's roles: unresolved in this projection.")
+  if (!party.roles.length)
+    lines.push(
+      'This projection computed no role binding; use relationships and roles explicitly stated by the visitor. Missing measurements here do not make those statements unknown.',
+    )
   if (party.unresolvedReference)
     lines.push(
       `Unresolved reference: "${party.unresolvedReference}" could mean more than one person, or no described person.`,

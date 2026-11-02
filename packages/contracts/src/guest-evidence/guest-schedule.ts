@@ -15,13 +15,21 @@
  * simply yields no cue, which leaves the ordinary guide answer path unchanged.
  */
 
+import { guestStatedDates } from './guest-dated-facts'
+
 type KnowledgeTopic = { title: string; content: string; category?: string | null }
 type ActiveUpdate = { title?: string | null; body?: string | null }
 
 type Ymd = { y?: number; m: number; d: number }
 type DateRange = { start: Ymd; end: Ymd }
 type Interval = { open: number; close: number }
-type OpenRule = { days: ReadonlySet<number>; times: Interval | null; range: DateRange | null }
+type OpenRule = {
+  days: ReadonlySet<number>
+  times: Interval | null
+  range: DateRange | null
+  /** True only when the parsed weekday phrase explicitly says "only". */
+  exclusiveDays: boolean
+}
 type ClosedWeekdayRule = {
   days: ReadonlySet<number>
   season: string | null
@@ -408,6 +416,7 @@ function parseOpenBody(body: string, scope: DateRange | null): OpenRule[] | null
   const ranges = meanings.filter((part) => part.range)
   if (ranges.length > 1 || (ranges.length === 1 && scope)) return null
   const range = ranges[0]?.range ?? scope
+  const exclusiveDays = /\bonly\b/u.test(trimmed)
   const combos = meanings.filter((part) => part.days && part.times)
   const loneDays = meanings.filter((part) => part.days && !part.times)
   const loneTimes = meanings.filter((part) => part.times && !part.days)
@@ -417,10 +426,18 @@ function parseOpenBody(body: string, scope: DateRange | null): OpenRule[] | null
       days: part.days as Set<number>,
       times: part.times as Interval,
       range,
+      exclusiveDays,
     }))
   }
   if (loneDays.length !== 1 || loneTimes.length > 1) return null
-  return [{ days: loneDays[0]?.days as Set<number>, times: loneTimes[0]?.times ?? null, range }]
+  return [
+    {
+      days: loneDays[0]?.days as Set<number>,
+      times: loneTimes[0]?.times ?? null,
+      range,
+      exclusiveDays,
+    },
+  ]
 }
 
 function normalizeName(value: string): string {
@@ -668,7 +685,7 @@ type DayStatus =
   | { kind: 'unknown' }
   | { kind: 'closed-date' }
   | { kind: 'closed-weekday'; season: string | null }
-  | { kind: 'not-operating-day' }
+  | { kind: 'exclusive-other-day' }
   | { kind: 'out-of-season' }
   | { kind: 'open'; times: Interval | null; yearful: boolean }
 
@@ -714,7 +731,13 @@ function dayStatus(schedule: Schedule, date: Required<Ymd>): DayStatus {
   if (!schedule.openRules.length) return { kind: 'unknown' }
   // Outside every posted range without explicit season wording: hours are unknown, not closed.
   if (!applicable.length) return { kind: 'unknown' }
-  if (!todays.length) return { kind: 'not-operating-day' }
+  // Posted rows need not be exhaustive. "Hours: Sunday 11am-5pm" establishes
+  // Sunday's interval, not a Monday-Saturday closure. Only explicit closure,
+  // season and run statements above can establish a non-operating day.
+  if (!todays.length)
+    return applicable.some((rule) => rule.exclusiveDays)
+      ? { kind: 'exclusive-other-day' }
+      : { kind: 'unknown' }
   const intervals = new Set(
     todays.map((rule) => (rule.times ? `${rule.times.open}-${rule.times.close}` : 'none')),
   )
@@ -846,6 +869,8 @@ export function guestRecordOpeningFacts(input: {
   content: string
   now: Date
   timeZone: string
+  /** Also ground fully dated requests outside the rolling calendar, without guessing a year. */
+  question?: string
 }): string[] {
   const local = venueLocalNow(input.now, input.timeZone)
   if (!local) return []
@@ -862,9 +887,17 @@ export function guestRecordOpeningFacts(input: {
   // would erase unlabeled closures and conditions such as "only while staff are here".
   const schedule = parseVenueSchedule(input.content, input.title)
   if (!schedule) return []
+  const dates = Array.from({ length: 8 }, (_, offset) => addDays(local.date, offset))
+  // The local rolling calendar covers relative days. Extra requested dates need a stated
+  // year: the lexical parser's UTC-based year inference is not the venue-local clock.
+  const requested = input.question ? guestStatedDates(input.question) : null
+  for (const date of requested?.dates ?? []) {
+    const ymd = { y: date.year, m: date.month, d: date.day }
+    if (!dates.some((existing) => ymdKey(existing) === ymdKey(ymd))) dates.push(ymd)
+  }
   const facts: string[] = []
-  for (let offset = 0; offset < 7; offset++) {
-    const date = addDays(local.date, offset)
+  for (const date of dates) {
+    const isToday = ymdKey(date) === ymdKey(local.date)
     const label = formatDate(date, true)
     const status = dayStatus(schedule, date)
     if (status.kind === 'unknown') {
@@ -875,18 +908,19 @@ export function guestRecordOpeningFacts(input: {
       facts.push(`${label}: operating day; opening and closing times unknown.`)
     } else {
       const { open, close } = status.times
-      const untilOpen =
-        offset === 0 ? elapsedMinutesToLocal(date, open, input.now, input.timeZone) : null
-      const untilClose =
-        offset === 0 ? elapsedMinutesToLocal(date, close, input.now, input.timeZone) : null
-      const current =
-        offset === 0
-          ? local.minute < open
-            ? ` Not open yet at the request time${untilOpen === null ? '.' : `; opens in ${untilOpen} minutes.`}`
-            : local.minute >= close
-              ? ' Already closed at the request time.'
-              : ` Within posted hours at the request time${untilClose === null ? '.' : `; closes in ${untilClose} minutes.`}`
-          : ''
+      const untilOpen = isToday
+        ? elapsedMinutesToLocal(date, open, input.now, input.timeZone)
+        : null
+      const untilClose = isToday
+        ? elapsedMinutesToLocal(date, close, input.now, input.timeZone)
+        : null
+      const current = isToday
+        ? local.minute < open
+          ? ` Not open yet at the request time${untilOpen === null ? '.' : `; opens in ${untilOpen} minutes.`}`
+          : local.minute >= close
+            ? ' Already closed at the request time.'
+            : ` Within posted hours at the request time${untilClose === null ? '.' : `; closes in ${untilClose} minutes.`}`
+        : ''
       facts.push(`${label}: ${formatClock(open)} to ${formatClock(close)}.${current}`)
     }
   }
@@ -929,14 +963,14 @@ export function guestTodayStatusCue(params: {
   if (
     status.kind === 'closed-date' ||
     status.kind === 'closed-weekday' ||
-    status.kind === 'not-operating-day'
+    status.kind === 'exclusive-other-day'
   ) {
     const why =
       status.kind === 'closed-date'
         ? 'its posted hours list today as a closed date'
         : status.kind === 'closed-weekday'
           ? `its posted hours say it is closed on ${weekdayName}s${status.season ? ` in the ${status.season} season` : ''}`
-          : `its posted hours list no opening on ${weekdayName}s at this time of year`
+          : `its posted hours explicitly limit opening to other weekdays`
     const next = nextOpening(schedule, local.date)
     return `${head} The venue is closed today: ${why}.${next ? ` Its next posted opening is ${next}.` : ''} ${CUE_TAIL}`
   }

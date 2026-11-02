@@ -6,6 +6,17 @@ import { buildGuestVisitorParty, renderGuestVisitorParty } from './guest-convers
 const party = (...messages: string[]) => buildGuestVisitorParty(messages)
 
 describe('persons', () => {
+  it('does not manufacture an adult age from parent accompaniment or erase stated child ages', () => {
+    const parent = party('My son is 6 years old. I will walk with him on the observer path.')
+    expect(parent.persons.find((person) => person.label === 'my son')?.ageYears).toBe(6)
+    expect(parent.persons.some((person) => person.self)).toBe(false)
+    expect(renderGuestVisitorParty(parent).join(' ')).toContain(
+      'use relationships and roles explicitly stated by the visitor',
+    )
+    const childCompanion = party('My son is 6 years old. I am 12 years old and will walk with him.')
+    expect(childCompanion.persons.find((person) => person.self)?.ageYears).toBe(12)
+    expect(childCompanion.persons.every((person) => person.ageYears !== 18)).toBe(true)
+  })
   it.each([
     'My child is not 9 years old.',
     'My child is maybe 9 years old.',
@@ -336,7 +347,9 @@ describe('renderGuestVisitorParty', () => {
 
   it('renders unresolved projection wording when no roles were bound', () => {
     const lines = renderGuestVisitorParty(party('My son is 40 inches.'))
-    expect(lines.at(-1)).toBe("This question's roles: unresolved in this projection.")
+    expect(lines.at(-1)).toBe(
+      'This projection computed no role binding; use relationships and roles explicitly stated by the visitor. Missing measurements here do not make those statements unknown.',
+    )
   })
 
   it('shows the converted inches for cm heights', () => {
@@ -353,7 +366,9 @@ describe('renderGuestVisitorParty', () => {
     expect(lines.at(-1)).toBe(
       'Unresolved reference: "he" could mean more than one person, or no described person.',
     )
-    expect(lines.at(-2)).toBe("This question's roles: unresolved in this projection.")
+    expect(lines.at(-2)).toBe(
+      'This projection computed no role binding; use relationships and roles explicitly stated by the visitor. Missing measurements here do not make those statements unknown.',
+    )
   })
 })
 

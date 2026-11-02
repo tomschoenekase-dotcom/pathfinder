@@ -345,7 +345,7 @@ describe('explicit frozen evidence preview parity', () => {
       expect(preview.evidence?.state).toEqual(shared.state)
       expect(preview.prompt.system.map((block) => block.text).join('\n')).toContain(shared.data)
       expect(preview.evidenceIdentity).toMatchObject({
-        version: 'guest-evidence-assembly-v9',
+        version: 'guest-evidence-assembly-v10',
         mode: 'on',
         primaryModelKey: on.primaryModelKey,
         hash: expect.stringMatching(/^[a-f0-9]{64}$/u),
