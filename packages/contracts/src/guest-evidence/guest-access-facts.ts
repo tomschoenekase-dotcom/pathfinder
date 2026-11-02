@@ -20,7 +20,7 @@ export function guestAccessFacts(semantics: GuestRecordSemantics, content: strin
   // Only the ordinary identity sentence and clearly unrelated structured fields can accompany
   // this entailment. Unparsed prose may qualify the route; do not guess its scope.
   const harmlessLabel =
-    /^(?:Price|Tax|Hours|Opening|Booking|Governed by|Also called|Notice class|Must mention):/iu
+    /^(?:Price|Tax|Hours|Opening|Booking|Governed by|Also called|Notice class|Must mention|Location):/iu
   if (
     otherLines.some(
       (line, index) =>

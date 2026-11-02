@@ -1637,12 +1637,16 @@ describe('computed access evidence', () => {
       visitorMessages: [question],
       shape: guestAnswerShape(question),
       records: [
-        {
-          ref: 'place:upper',
-          title: 'Upper Walk',
-          version: '1',
-          content: 'Upper Walk is a walking tour.\nRoute: Includes stairs; no lift alternative.',
-        },
+        guestEvidenceRecordFromPlace({
+          id: 'upper',
+          name: 'Upper Walk',
+          type: 'walking tour',
+          itemType: 'activity',
+          areaName: 'Main House',
+          hours: '11am Saturday and Sunday',
+          longDescription:
+            'Upper Walk is a walking tour.\nRoute: Includes stairs; no lift alternative.',
+        }),
       ],
       retrievedRefs: ['place:upper'],
       previous: null,

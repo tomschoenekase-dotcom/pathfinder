@@ -22,6 +22,7 @@ describe('computed access restrictions', () => {
     'Route: Includes stairs; no lift alternative.\nThis applies only during the annual inspection.',
     'Route: Includes stairs; no lift alternative.\nOnly the balcony portion uses this route.',
     'Route: Includes stairs; no lift alternative.\nDescription: An alternate way is available.',
+    'Route: Includes stairs; no lift alternative.\nLocation: Only the balcony portion uses this route.',
     'Route: Includes stairs.',
     'Route: No lift alternative.',
     'Route: Optional stairs; no lift alternative.',

@@ -35,7 +35,7 @@ import { guestRecordOpeningFacts } from './guest-schedule'
 import { guestPriceScopeFacts } from './guest-price-scope'
 import { guestAccessFacts } from './guest-access-facts'
 
-export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v7'
+export const GUEST_EVIDENCE_ASSEMBLY_VERSION = 'guest-evidence-assembly-v8'
 
 export type GuestEvidenceAssemblyMode = 'off' | 'on' | 'luna'
 

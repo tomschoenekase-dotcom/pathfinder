@@ -87,7 +87,7 @@ describe('guest chat prompt provenance', () => {
   )
 
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v46')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v47')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -102,7 +102,7 @@ describe('guest chat prompt provenance', () => {
           version: 'fixture-v1',
           placeType: 'gallery',
           content:
-            'Maple Gallery is a gallery.\nHours: 10am-5pm daily\nPrice: $5\nTax: Listed prices include tax.\nNotice class: access\nRoute: Includes stairs; no lift alternative.\nMust mention: Advance booking is required.',
+            'Maple Gallery is a gallery.\nHours: 10am-5pm daily\nPrice: $5\nTax: Listed prices include tax.\nNotice class: access\nRoute: Includes stairs; no lift alternative.\nMust mention: Advance booking is required.\nLocation: Main House',
         },
       ],
       retrievedRefs: ['place:maple'],
