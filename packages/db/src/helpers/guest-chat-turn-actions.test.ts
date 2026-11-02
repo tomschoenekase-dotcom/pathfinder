@@ -9,6 +9,7 @@ import { GUEST_CHAT_PROMPT_VERSION } from '@pathfinder/contracts/prompt-contract
 import { isGuestConversationDisposed } from './guest-conversation-disposition'
 
 import {
+  GuestEvidenceStateSchema,
   GuestPlaceIdentityPending,
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
@@ -43,12 +44,33 @@ function transactionClient(tx: Record<string, unknown>) {
 }
 
 describe('guest chat turn actions', () => {
+  it('accepts scope-only evidence references but rejects carried answer text', () => {
+    const state = {
+      version: 'guest-evidence-state-v1',
+      refs: [{ ref: 'knowledge:policy-scope', version: 'revision-2', reason: 'scope', age: 0 }],
+    }
+    expect(GuestEvidenceStateSchema.parse(state)).toEqual(state)
+    expect(
+      GuestEvidenceStateSchema.safeParse({ ...state, answer: 'A generated answer' }).success,
+    ).toBe(false)
+    expect(
+      GuestEvidenceStateSchema.safeParse({
+        ...state,
+        refs: [{ ...state.refs[0], content: 'A policy body' }],
+      }).success,
+    ).toBe(false)
+  })
   function admissionFixture() {
     const session = {
-      id: 'session-1', tenantId: request.tenantId, venueId: request.venueId,
-      nextTurnSequence: 7, nextMessageSequence: 20,
-      pendingEngagementQuestionId: null, pendingEngagementIsInvented: false,
-      pendingEngagementAskedMessageId: null, pendingEngagementAskedAt: null,
+      id: 'session-1',
+      tenantId: request.tenantId,
+      venueId: request.venueId,
+      nextTurnSequence: 7,
+      nextMessageSequence: 20,
+      pendingEngagementQuestionId: null,
+      pendingEngagementIsInvented: false,
+      pendingEngagementAskedMessageId: null,
+      pendingEngagementAskedAt: null,
     }
     const tx = {
       $executeRaw: vi.fn(),
@@ -59,7 +81,8 @@ describe('guest chat turn actions', () => {
       guestChatTurn: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockImplementation(({ data }) => ({
-          ...data, id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          ...data,
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
           providerOperations: data.providerOperations.create,
         })),
       },
@@ -81,7 +104,11 @@ describe('guest chat turn actions', () => {
     first.tx.visitorSession.findFirst
       .mockResolvedValueOnce(first.session)
       .mockResolvedValue({ ...first.session, nextTurnSequence: 9, nextMessageSequence: 24 })
-    const otherRequest = { ...request, anonymousToken: '33333333-3333-4333-8333-333333333333', requestId: '44444444-4444-4444-8444-444444444444' }
+    const otherRequest = {
+      ...request,
+      anonymousToken: '33333333-3333-4333-8333-333333333333',
+      requestId: '44444444-4444-4444-8444-444444444444',
+    }
     const results = await Promise.all([
       reserveGuestChatTurnAction({ client: first.client, request }),
       reserveGuestChatTurnAction({ client: second.client, request: otherRequest }),
@@ -92,26 +119,43 @@ describe('guest chat turn actions', () => {
     expect(second.transaction).toHaveBeenCalledTimes(1)
     expect(first.tx.guestChatTurn.create).toHaveBeenCalledOnce()
     expect(first.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data).toMatchObject({
-      requestId: request.requestId, requestHash: guestChatRequestHash(request),
-      turnSequence: 10, userMessageSequence: 25, assistantMessageSequence: 26,
+      requestId: request.requestId,
+      requestHash: guestChatRequestHash(request),
+      turnSequence: 10,
+      userMessageSequence: 25,
+      assistantMessageSequence: 26,
     })
-    expect(second.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.requestId).toBe(otherRequest.requestId)
+    expect(second.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.requestId).toBe(
+      otherRequest.requestId,
+    )
     for (const fixture of [first, second]) {
-      for (const call of fixture.transaction.mock.calls) expect(call[1]).toEqual({ isolationLevel: 'Serializable' })
+      for (const call of fixture.transaction.mock.calls)
+        expect(call[1]).toEqual({ isolationLevel: 'Serializable' })
       expect(fixture.tx.guestChatProviderOperation.updateMany).not.toHaveBeenCalled()
-      expect(fixture.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.providerOperations.create).toHaveLength(2)
+      expect(
+        fixture.tx.guestChatTurn.create.mock.calls[0]?.[0]?.data.providerOperations.create,
+      ).toHaveLength(2)
     }
   })
 
-  it.each([['P2002', 'P2034'], ['P2034', 'P2002']])('preserves winner replay after %s then %s', async (firstCode, secondCode) => {
+  it.each([
+    ['P2002', 'P2034'],
+    ['P2034', 'P2002'],
+  ])('preserves winner replay after %s then %s', async (firstCode, secondCode) => {
     const fixture = admissionFixture()
-    fixture.transaction.mockRejectedValueOnce({ code: firstCode }).mockRejectedValueOnce({ code: secondCode })
+    fixture.transaction
+      .mockRejectedValueOnce({ code: firstCode })
+      .mockRejectedValueOnce({ code: secondCode })
     fixture.tx.guestChatTurn.findFirst.mockResolvedValue({
-      id: 'winner-turn', sessionId: fixture.session.id, requestHash: guestChatRequestHash(request),
-      status: 'RESERVED', providerOperations: [],
+      id: 'winner-turn',
+      sessionId: fixture.session.id,
+      requestHash: guestChatRequestHash(request),
+      status: 'RESERVED',
+      providerOperations: [],
     })
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
-      .resolves.toMatchObject({ state: 'RESERVED', turnId: 'winner-turn', replayed: true })
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).resolves.toMatchObject({ state: 'RESERVED', turnId: 'winner-turn', replayed: true })
     expect(fixture.transaction).toHaveBeenCalledTimes(3)
     expect(fixture.tx.visitorSession.updateMany).not.toHaveBeenCalled()
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
@@ -119,24 +163,37 @@ describe('guest chat turn actions', () => {
 
   it('bounds serialization retries and returns a safe conflict when admission keeps rolling back', async () => {
     const fixture = admissionFixture()
-    fixture.tx.visitorSession.updateMany.mockRejectedValue({ code: 'P2034', message: 'private database detail' })
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
-      .rejects.toMatchObject({ code: 'CONFLICT', message: 'Session state changed concurrently.' })
+    fixture.tx.visitorSession.updateMany.mockRejectedValue({
+      code: 'P2034',
+      message: 'private database detail',
+    })
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', message: 'Session state changed concurrently.' })
     expect(fixture.transaction).toHaveBeenCalledTimes(3)
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
   })
 
-  it.each([{ code: 'P2028' }, new Error('unclassified transaction failure')])('does not retry an unclassified transaction failure', async (error) => {
-    const fixture = admissionFixture()
-    fixture.transaction.mockRejectedValue(error)
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request })).rejects.toBe(error)
-    expect(fixture.transaction).toHaveBeenCalledOnce()
-  })
+  it.each([{ code: 'P2028' }, new Error('unclassified transaction failure')])(
+    'does not retry an unclassified transaction failure',
+    async (error) => {
+      const fixture = admissionFixture()
+      fixture.transaction.mockRejectedValue(error)
+      await expect(reserveGuestChatTurnAction({ client: fixture.client, request })).rejects.toBe(
+        error,
+      )
+      expect(fixture.transaction).toHaveBeenCalledOnce()
+    },
+  )
 
   it('does not retry a business conflict after rereading concurrent session state', async () => {
     const fixture = admissionFixture()
-    fixture.tx.visitorSession.updateMany.mockRejectedValueOnce({ code: 'P2034' }).mockResolvedValue({ count: 0 })
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request })).rejects.toMatchObject({ code: 'CONFLICT' })
+    fixture.tx.visitorSession.updateMany
+      .mockRejectedValueOnce({ code: 'P2034' })
+      .mockResolvedValue({ count: 0 })
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(fixture.transaction).toHaveBeenCalledTimes(2)
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
   })
@@ -145,9 +202,12 @@ describe('guest chat turn actions', () => {
     const fixture = admissionFixture()
     fixture.tx.visitorSession.updateMany.mockRejectedValueOnce({ code: 'P2034' })
     vi.mocked(isGuestConversationDisposed)
-      .mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
-      .rejects.toMatchObject({ code: 'SESSION_DISPOSED' })
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).rejects.toMatchObject({ code: 'SESSION_DISPOSED' })
     expect(fixture.transaction).toHaveBeenCalledTimes(2)
     expect(fixture.tx.visitorSession.updateMany).toHaveBeenCalledOnce()
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
@@ -157,13 +217,16 @@ describe('guest chat turn actions', () => {
     const fixture = admissionFixture()
     fixture.transaction.mockRejectedValueOnce({ code: 'P2034' })
     fixture.tx.guestChatTurn.findFirst.mockResolvedValue({
-      id: 'dispatched-turn', sessionId: fixture.session.id,
-      requestHash: guestChatRequestHash(request), status: 'GENERATING',
+      id: 'dispatched-turn',
+      sessionId: fixture.session.id,
+      requestHash: guestChatRequestHash(request),
+      status: 'GENERATING',
       leaseExpiresAt: new Date('2999-01-01T00:00:00Z'),
       providerOperations: [{ dispatchedAt: new Date(), status: 'DISPATCHED' }],
     })
-    await expect(reserveGuestChatTurnAction({ client: fixture.client, request }))
-      .rejects.toMatchObject({ code: 'UNKNOWN_PROVIDER_OUTCOME' })
+    await expect(
+      reserveGuestChatTurnAction({ client: fixture.client, request }),
+    ).rejects.toMatchObject({ code: 'UNKNOWN_PROVIDER_OUTCOME' })
     expect(fixture.transaction).toHaveBeenCalledTimes(2)
     expect(fixture.tx.guestChatTurn.create).not.toHaveBeenCalled()
     expect(fixture.tx.visitorSession.updateMany).not.toHaveBeenCalled()
@@ -778,6 +841,23 @@ describe('guest chat turn actions', () => {
           },
         ],
       }
+      const executionFields =
+        fallbackCode === null
+          ? {
+              evidenceAssembly: {
+                schemaVersion: 'guest-evidence-execution-v1' as const,
+                mode: 'on' as const,
+                assemblyVersion: 'guest-evidence-assembly-v2',
+                semanticsVersion: 'guest-record-semantics-v2',
+                evidenceSha256: 'e'.repeat(64),
+                recordCount: 0,
+                recordsTruncated: false,
+                records: [],
+                noticesChecked: 1,
+                noticesAppended: 1,
+              },
+            }
+          : {}
       const pendingPlaceIdentity = {
         version: 'guest-place-identity-pending-v1' as const,
         requestedName: 'Gallery',
@@ -823,7 +903,13 @@ describe('guest chat turn actions', () => {
             turnId,
             claimId,
             assistantResponse: 'The cafe is downstairs.',
-            replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
+            replayMetadata: {
+              places: [],
+              citations,
+              answerEvidence,
+              pendingPlaceIdentity,
+              ...executionFields,
+            },
             fallbackCode,
             nextPending: { kind: 'NONE' },
           },
@@ -868,7 +954,13 @@ describe('guest chat turn actions', () => {
           data: expect.objectContaining({
             status: 'COMPLETE',
             fallbackCode,
-            replayMetadata: { places: [], citations, answerEvidence, pendingPlaceIdentity },
+            replayMetadata: {
+              places: [],
+              citations,
+              answerEvidence,
+              pendingPlaceIdentity,
+              ...executionFields,
+            },
             responseHash: await import('node:crypto').then(({ createHash }) =>
               createHash('sha256')
                 .update(
@@ -878,6 +970,7 @@ describe('guest chat turn actions', () => {
                     citations,
                     answerEvidence,
                     pendingPlaceIdentity,
+                    ...executionFields,
                   }),
                 )
                 .digest('hex'),

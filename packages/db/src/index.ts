@@ -207,11 +207,13 @@ export {
   GuestChatPreDispatchFailureCode,
   GuestChatProviderOutcomeCode,
   GuestChatReplayMetadata,
+  GuestEvidenceStateSchema,
   GuestPlaceIdentityPending,
   GuestChatTurnActionError,
   guestChatRequestHash,
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
+  readAdjacentGuestChatContinuityAction,
   readAdjacentGuestPlaceIdentityPendingAction,
   reserveGuestChatTurnAction,
   skipGuestChatProviderOperationAction,
@@ -253,6 +255,7 @@ export type {
   GuestChatTurnActionClient,
   GuestChatTurnActionErrorCode,
   GuestPlaceIdentityPending as GuestPlaceIdentityPendingType,
+  GuestEvidenceState,
 } from './helpers/guest-chat-turn-actions'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export {

@@ -1,7 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
-import { GuestAnswerEvidenceBundleSchema } from '@pathfinder/contracts/guest-answer-attribution'
+import {
+  GuestAnswerEvidenceBundleSchema,
+  GuestEvidenceExecutionSchema,
+} from '@pathfinder/contracts/guest-answer-attribution'
 import { GuestVisitContextInput } from '@pathfinder/contracts/guest-visit-context'
 import { GuestActionPlacement } from '@pathfinder/contracts/guest-action-links'
 import { guestReplyKindFromFallbackCode } from '@pathfinder/contracts/guest-reply-kind'
@@ -133,6 +136,29 @@ export const GuestPlaceIdentityPending = z
   .strict()
 export type GuestPlaceIdentityPending = z.infer<typeof GuestPlaceIdentityPending>
 
+/**
+ * Record references a guest turn's answer was assembled from, carried to the next turn so the
+ * same records can be reauthorized and reloaded. Never assistant text or record content.
+ */
+export const GuestEvidenceStateSchema = z
+  .object({
+    version: z.literal('guest-evidence-state-v1'),
+    refs: z
+      .array(
+        z
+          .object({
+            ref: z.string().regex(/^(?:knowledge|place):[^\s]{1,191}$/u),
+            version: z.string().max(100).nullable(),
+            reason: z.enum(['subject', 'governing', 'scope']),
+            age: z.number().int().min(0).max(5),
+          })
+          .strict(),
+      )
+      .max(16),
+  })
+  .strict()
+export type GuestEvidenceState = z.infer<typeof GuestEvidenceStateSchema>
+
 export const GuestChatReplayMetadata = z
   .object({
     places: z.array(placeCardSchema).max(20),
@@ -141,6 +167,9 @@ export const GuestChatReplayMetadata = z
     // projections deliberately return only places and citations.
     answerEvidence: GuestAnswerEvidenceBundleSchema.optional(),
     pendingPlaceIdentity: GuestPlaceIdentityPending.optional(),
+    // Internal-only continuity for evidence assembly; never part of a public replay projection.
+    evidenceState: GuestEvidenceStateSchema.optional(),
+    evidenceAssembly: GuestEvidenceExecutionSchema.optional(),
     // Which approved guest actions the answer offered and where. Destinations are resolved from
     // the venue's current catalog at display time, so no URL is stored per message.
     actionPlacements: z.array(GuestActionPlacement).max(8).optional(),
@@ -299,6 +328,10 @@ function guestChatResponseHash(
         ...(hasMetadataField('answerEvidence') ? { answerEvidence: metadata.answerEvidence } : {}),
         ...(hasMetadataField('pendingPlaceIdentity')
           ? { pendingPlaceIdentity: metadata.pendingPlaceIdentity }
+          : {}),
+        ...(hasMetadataField('evidenceState') ? { evidenceState: metadata.evidenceState } : {}),
+        ...(hasMetadataField('evidenceAssembly')
+          ? { evidenceAssembly: metadata.evidenceAssembly }
           : {}),
         ...(hasMetadataField('actionPlacements')
           ? { actionPlacements: metadata.actionPlacements }
@@ -971,6 +1004,36 @@ export async function readAdjacentGuestPlaceIdentityPendingAction(args: {
   experienceScope: 'PUBLIC' | 'SECOND_LAYER'
   now?: Date
 }): Promise<GuestPlaceIdentityPending | null> {
+  return (await readAdjacentGuestChatContinuityAction(args)).pendingPlaceIdentity
+}
+
+/**
+ * The immediately preceding completed turn's continuity metadata, read only when its stored
+ * response hash still verifies. Both fields are null for a first turn, a missing or failed
+ * predecessor, or metadata that does not verify.
+ */
+export async function readAdjacentGuestChatContinuityAction(args: {
+  client?: GuestChatTurnActionClient
+  claim: GuestChatClaim
+  experienceScope: 'PUBLIC' | 'SECOND_LAYER'
+  now?: Date
+}): Promise<{
+  pendingPlaceIdentity: GuestPlaceIdentityPending | null
+  evidenceState: GuestEvidenceState | null
+}> {
+  const metadata = await readAdjacentGuestChatReplayMetadata(args)
+  return {
+    pendingPlaceIdentity: metadata?.pendingPlaceIdentity ?? null,
+    evidenceState: metadata?.evidenceState ?? null,
+  }
+}
+
+async function readAdjacentGuestChatReplayMetadata(args: {
+  client?: GuestChatTurnActionClient
+  claim: GuestChatClaim
+  experienceScope: 'PUBLIC' | 'SECOND_LAYER'
+  now?: Date
+}): Promise<z.infer<typeof GuestChatReplayMetadata> | null> {
   const input = parse(adjacentPendingReadSchema, {
     ...args?.claim,
     experienceScope: args?.experienceScope,
@@ -1034,7 +1097,7 @@ export async function readAdjacentGuestPlaceIdentityPendingAction(args: {
       ) {
         return null
       }
-      return metadata.data.pendingPlaceIdentity ?? null
+      return metadata.data
     },
     { isolationLevel: 'Serializable' },
   )
