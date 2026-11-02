@@ -1578,10 +1578,53 @@ describe('role-specific benefit boundary', () => {
     expect(turn.data).toContain('Companions must be at least 20')
     expect(turn.data).toContain('Observing companions enter free')
     expect(turn.rule).toContain(
-      'A role-specific permission or benefit requires that person to meet the stated eligibility for that role.',
+      'Keep explicit eligibility limits and benefits tied to their stated roles.',
     )
     expect(turn.rule).toContain(
-      'Do not offer it to an ineligible participant by relabeling them as a companion or observer',
+      'Do not relabel an ineligible participant as a companion or observer without source support',
+    )
+  })
+  it('does not make a conditional companion requirement an exclusive limit on a separate role permission', () => {
+    const question = 'Can a free observing companion use a loom?'
+    const turn = assembleGuestEvidence({
+      question,
+      visitorMessages: [question],
+      shape: guestAnswerShape(question),
+      records: [
+        {
+          ref: 'place:loom',
+          title: 'Copper Loom Room',
+          content: 'Copper Loom Room is a weaving workshop.\nGoverned by: Loom participation',
+          version: '1',
+        },
+        {
+          ref: 'knowledge:loom-rule',
+          title: 'Loom participation',
+          version: '1',
+          content:
+            'Kind: POLICY\nApplies to: Copper Loom Room\nAge: Makers must be at least 10.\nCompanion: Makers ages 10 through 14 need an observing companion aged at least 21.\nPermission: Observing companions enter free but do not use a loom or handle the maker materials.',
+        },
+      ],
+      previous: null,
+      retrievedRefs: [],
+      unavailableRefs: [],
+      coverage: FULL,
+      escape: escapeUntrustedPromptData,
+    })
+    expect(turn.data).toContain(
+      'Makers ages 10 through 14 need an observing companion aged at least 21.',
+    )
+    expect(turn.data).toContain(
+      'Observing companions enter free but do not use a loom or handle the maker materials.',
+    )
+    expect(turn.rule).toContain(
+      'A conditional requirement for a companion does not establish the only circumstances in which that role or its benefits are allowed.',
+    )
+    expect(turn.rule).toContain(
+      'if their admission in that role is unstated, say it is unknown rather than allowed or banned',
+    )
+    expect(turn.rule).not.toContain(
+      'requires that person to meet the stated eligibility for that role',
     )
   })
 })
