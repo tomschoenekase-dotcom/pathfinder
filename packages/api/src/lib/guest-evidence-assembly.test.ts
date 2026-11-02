@@ -1624,3 +1624,35 @@ describe('role-specific benefit boundary', () => {
     )
   })
 })
+
+describe('computed access evidence', () => {
+  it.each([
+    'Can I do Upper Walk without leaving my wheelchair?',
+    'Kann ich Upper Walk im Rollstuhl machen?',
+    '¿Puedo hacer Upper Walk en silla de ruedas?',
+    'Puis-je faire Upper Walk en fauteuil roulant ?',
+  ])('retains the same scoped conclusion for %s', (question) => {
+    const result = assembleGuestEvidence({
+      question,
+      visitorMessages: [question],
+      shape: guestAnswerShape(question),
+      records: [
+        {
+          ref: 'place:upper',
+          title: 'Upper Walk',
+          version: '1',
+          content: 'Upper Walk is a walking tour.\nRoute: Includes stairs; no lift alternative.',
+        },
+      ],
+      retrievedRefs: ['place:upper'],
+      previous: null,
+      unavailableRefs: [],
+      coverage: FULL,
+      escape: escapeUntrustedPromptData,
+    })
+    expect(result.data).toContain(
+      '<computed_access>stepFree: false; wheelchairWithoutTransfer: false.',
+    )
+    expect(result.rule).toContain('Do not expand it into a denial of entry')
+  })
+})
