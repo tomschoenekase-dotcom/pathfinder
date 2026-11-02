@@ -134,6 +134,10 @@ export const venuesGuestModelKind: OperatorProposalKind<SetArgs> = {
   }),
   apply: async (args, context) => {
     const row = await readVenueGuestModelOverride(context.database, args.tenantId, args.venueId)
+    // The other venue AI tool can write after the proposal service checks its version.
+    // Preserve the caller's explicit revision before either a write or a no-op receipt.
+    if (args.expectedRevision !== undefined && (row?.revision ?? null) !== args.expectedRevision)
+      throw new OperatorStaleError('Visitor chat configuration changed; read it again.')
     const values = liveOverrideValues(row)
     if (row && !row.isTombstone && row.enabled && values.primaryModelKey === args.modelKey) {
       return outcome(context, args, {
@@ -188,6 +192,10 @@ export const venuesGuestModelResetKind: OperatorProposalKind<ResetArgs> = {
   }),
   apply: async (args, context) => {
     const row = await readVenueGuestModelOverride(context.database, args.tenantId, args.venueId)
+    // The other venue AI tool can write after the proposal service checks its version.
+    // Preserve the caller's explicit revision before either a write or a no-op receipt.
+    if (args.expectedRevision !== undefined && (row?.revision ?? null) !== args.expectedRevision)
+      throw new OperatorStaleError('Visitor chat configuration changed; read it again.')
     const values = liveOverrideValues(row)
     if (!row || values.primaryModelKey === undefined) {
       return outcome(context, args, { changed: false, revision: row?.revision ?? null })

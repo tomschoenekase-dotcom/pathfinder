@@ -653,3 +653,77 @@ describe('venues.propose_guest_model_reset', () => {
     })
   })
 })
+
+describe('guest model revision race with the general AI configuration tool', () => {
+  it.each([
+    { action: 'set', initial: true, nextModel: 'guest-chat-terra-fast' },
+    { action: 'reset', initial: true, nextModel: 'guest-chat-terra-fast' },
+    { action: 'set', initial: false, nextModel: 'guest-chat-terra-fast' },
+    { action: 'reset', initial: false, nextModel: 'guest-chat-terra-fast' },
+    // Even an otherwise successful no-op must reject the stale explicit revision.
+    { action: 'set', initial: true, nextModel: 'guest-chat-sol-fast' },
+    { action: 'reset', initial: true, nextModel: null },
+  ])(
+    'rejects stale $action (initial override: $initial, concurrent model: $nextModel)',
+    async ({ action, initial, nextModel }) => {
+      const { world, database, call } = harness()
+      if (initial) {
+        await call('venues.propose_guest_model', {
+          tenantId: TENANT_A,
+          venueId: VENUE_A,
+          modelKey: 'guest-chat-luna',
+          operationId: randomUUID(),
+        })
+      }
+      const expectedRevision = venueOverride(world)?.revision ?? null
+      const update = database.operatorProposal.updateMany
+      let concurrentWrite = false
+      let committedState: string | undefined
+      let committedHistory = 0
+      let committedAudits = 0
+      const create = vi.spyOn(database.aiScopedWorkloadConfigurationOverride, 'create')
+      const save = vi.spyOn(database.aiScopedWorkloadConfigurationOverride, 'updateMany')
+      database.operatorProposal.updateMany = async (input: Row) => {
+        // This marker is written after the engine version check and snapshot, just before apply.
+        if (input.data.applyStartedAt && !concurrentWrite) {
+          concurrentWrite = true
+          const other = await call('venues.propose_ai_workload_configuration', {
+            tenantId: TENANT_A,
+            venueId: VENUE_A,
+            workloadId: 'guest-chat',
+            expectedRevision,
+            enabled: true,
+            unsafeChangesEnabled: true,
+            values: nextModel ? { primaryModelKey: nextModel } : {},
+            reason: 'Concurrent operator configuration change',
+            operationId: randomUUID(),
+          })
+          expect(other.status).toBe('APPLIED')
+          committedState = JSON.stringify(world.overrides)
+          committedHistory = world.history.length
+          committedAudits = world.auditLogs.length
+          create.mockClear()
+          save.mockClear()
+        }
+        return update(input)
+      }
+      const result = await call(
+        action === 'set' ? 'venues.propose_guest_model' : 'venues.propose_guest_model_reset',
+        {
+          tenantId: TENANT_A,
+          venueId: VENUE_A,
+          expectedRevision,
+          ...(action === 'set' ? { modelKey: 'guest-chat-sol-fast' } : {}),
+          operationId: randomUUID(),
+        },
+      )
+      expect(concurrentWrite).toBe(true)
+      expect(result.status).toBe('STALE')
+      expect(create).not.toHaveBeenCalled()
+      expect(save).not.toHaveBeenCalled()
+      expect(JSON.stringify(world.overrides)).toBe(committedState)
+      expect(world.history).toHaveLength(committedHistory)
+      expect(world.auditLogs).toHaveLength(committedAudits)
+    },
+  )
+})
